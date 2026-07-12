@@ -17,7 +17,6 @@ References: WORK-01, WORK-02
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import TYPE_CHECKING
 
 import structlog
@@ -32,6 +31,7 @@ from app.core.edition import (
     get_edition,
     init_edition,
 )
+from app.core.tenancy import is_multi_tenant
 from app.platform.extensions import (
     get_billing_extensions,
     get_extension_routers,
@@ -61,12 +61,18 @@ _ENTERPRISE_PORT_CHECKS: list[tuple[str, str]] = [
 #: catalog_port (it fills auth/identity/permission/workflow/audit/branding), so
 #: a bare enterprise worker legitimately runs the community defaults for these.
 #: Demanding them under GEOLENS_EDITION=enterprise crash-looped the worker while
-#: the API served fine. They are required only when GEOLENS_TENANCY_MODE=
-#: multi_tenant — the same signal that already REQUIRES the cloud overlay
-#: (see check_tenancy_mode_supported).
+#: the API served fine. They are required only when multi-tenant — the same
+#: signal that already REQUIRES the cloud overlay (see check_tenancy_mode_supported).
+#:
+#: entitlement is included: DefaultEntitlementPort is fail-OPEN (grant-all
+#: has_feature + no-op enforce_limit) and the cloud overlay replaces it for
+#: per-tenant plan/quota enforcement (Phase 1213). Without it here, a
+#: multi-tenant worker could boot green while every tenant quota check silently
+#: passes.
 _CLOUD_PORT_CHECKS: list[tuple[str, str]] = [
     ("processing_port", "DefaultProcessingPort"),
     ("catalog_port", "DefaultCatalogPort"),
+    ("entitlement", "DefaultEntitlementPort"),
 ]
 
 #: Additive-slot keys written into the `_extensions` registry by CORE bootstrap
@@ -114,6 +120,7 @@ def assert_enterprise_ports_resolved() -> None:
     """
     from app.platform.extensions import (
         get_catalog_port,
+        get_entitlement_port,
         get_identity_extension,
         get_permission_extension,
         get_processing_port,
@@ -123,6 +130,7 @@ def assert_enterprise_ports_resolved() -> None:
     _port_getters = {
         "processing_port": get_processing_port,
         "catalog_port": get_catalog_port,
+        "entitlement": get_entitlement_port,
         "permission": get_permission_extension,
         "identity": get_identity_extension,
         "workflow": get_workflow_extension,
@@ -135,12 +143,14 @@ def assert_enterprise_ports_resolved() -> None:
     for port_key, cls_name in resolved.items():
         logger.info("Extension port resolved", port=port_key, impl=cls_name)
 
-    # Build the REQUIRED set from the resolved tier.
+    # Build the REQUIRED set from the resolved tier. Tenancy comes from the
+    # settings-backed helper (not raw os.environ) so a multi_tenant value set
+    # only in the repo .env file — not exported — is still honored, matching how
+    # the rest of the app resolves tenancy.
     required: list[tuple[str, str]] = []
     if get_edition().edition == "enterprise":
         required += _ENTERPRISE_PORT_CHECKS
-    tenancy_mode = os.environ.get("GEOLENS_TENANCY_MODE", "").lower().strip()
-    if tenancy_mode == "multi_tenant":
+    if is_multi_tenant():
         required += _CLOUD_PORT_CHECKS
 
     if not required:

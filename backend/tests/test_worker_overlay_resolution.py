@@ -193,16 +193,18 @@ class TestAssertEnterprisePortsResolved:
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
         # _info is None (community) via the autouse fixture.
-        with patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "single_tenant"}):
+        with patch(
+            "app.platform.extensions.bootstrap.is_multi_tenant", return_value=False
+        ):
             assert_enterprise_ports_resolved()
 
     def test_no_raise_on_enterprise_without_cloud_ports(self):
         """WORK-02 regression: enterprise with the enterprise-overlay ports
-        resolved but processing/catalog still Default → NO raise.
+        resolved but the cloud ports still Default → NO raise.
 
         A bare enterprise deploy legitimately runs the community processing /
-        catalog ports (only the cloud overlay replaces them), so the worker must
-        not crash-loop demanding them.
+        catalog / entitlement ports (only the cloud overlay replaces them), so
+        the worker must not crash-loop demanding them.
         """
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
@@ -227,9 +229,12 @@ class TestAssertEnterprisePortsResolved:
                 "app.platform.extensions.get_workflow_extension",
                 return_value=_Flow(),
             ),
-            patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "single_tenant"}),
+            patch(
+                "app.platform.extensions.bootstrap.is_multi_tenant",
+                return_value=False,
+            ),
         ):
-            # processing_port / catalog_port stay Default* — must NOT raise.
+            # Cloud ports stay Default* — must NOT raise under bare enterprise.
             assert_enterprise_ports_resolved()
 
     def test_raises_on_enterprise_with_default_ports(self):
@@ -238,7 +243,9 @@ class TestAssertEnterprisePortsResolved:
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
         _set_edition("enterprise")
-        with patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "single_tenant"}):
+        with patch(
+            "app.platform.extensions.bootstrap.is_multi_tenant", return_value=False
+        ):
             with pytest.raises(RuntimeError) as exc_info:
                 assert_enterprise_ports_resolved()
 
@@ -246,6 +253,7 @@ class TestAssertEnterprisePortsResolved:
         assert "permission" in msg or "identity" in msg or "workflow" in msg
         # Cloud-only ports must not be demanded under bare enterprise.
         assert "processing_port" not in msg and "catalog_port" not in msg
+        assert "entitlement" not in msg
         # Remediation points at the enterprise overlay, NOT the cloud overlay.
         assert (
             "INSTALL_ENTERPRISE_OVERLAY" in msg
@@ -254,11 +262,13 @@ class TestAssertEnterprisePortsResolved:
         assert "/cloud" not in msg
 
     def test_raises_on_multi_tenant_missing_cloud_ports(self):
-        """multi_tenant + Default processing/catalog → RuntimeError naming them."""
+        """multi_tenant + Default cloud ports → RuntimeError naming them."""
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
         _set_edition("enterprise")
-        with patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "multi_tenant"}):
+        with patch(
+            "app.platform.extensions.bootstrap.is_multi_tenant", return_value=True
+        ):
             with pytest.raises(RuntimeError) as exc_info:
                 assert_enterprise_ports_resolved()
 
@@ -269,17 +279,67 @@ class TestAssertEnterprisePortsResolved:
         # not INSTALL_ENTERPRISE_OVERLAY=1 (which bakes /enterprise only).
         assert 'INSTALL_OVERLAYS="/enterprise /cloud"' in msg
 
+    def test_raises_on_multi_tenant_missing_entitlement_port(self):
+        """multi_tenant with processing/catalog resolved but entitlement still
+        DefaultEntitlementPort → RuntimeError.
+
+        DefaultEntitlementPort is fail-OPEN (grant-all), so a green boot with it
+        in place would silently pass every tenant quota/plan check. The cloud
+        assertion must fail closed on it.
+        """
+        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
+
+        _set_edition("enterprise")
+
+        class _Proc: ...
+
+        class _Cat: ...
+
+        class _Perm: ...
+
+        class _Ident: ...
+
+        class _Flow: ...
+
+        with (
+            patch("app.platform.extensions.get_processing_port", return_value=_Proc()),
+            patch("app.platform.extensions.get_catalog_port", return_value=_Cat()),
+            patch(
+                "app.platform.extensions.get_permission_extension",
+                return_value=_Perm(),
+            ),
+            patch(
+                "app.platform.extensions.get_identity_extension", return_value=_Ident()
+            ),
+            patch(
+                "app.platform.extensions.get_workflow_extension", return_value=_Flow()
+            ),
+            patch(
+                "app.platform.extensions.bootstrap.is_multi_tenant", return_value=True
+            ),
+        ):
+            # Only entitlement stays DefaultEntitlementPort.
+            with pytest.raises(RuntimeError) as exc_info:
+                assert_enterprise_ports_resolved()
+
+        msg = str(exc_info.value)
+        assert "entitlement" in msg
+        assert 'INSTALL_OVERLAYS="/enterprise /cloud"' in msg
+
     def test_licensed_enterprise_without_env_var_is_checked(self):
-        """License-key activation (resolved enterprise, GEOLENS_EDITION unset) is
-        still asserted — the env-var dodge is closed (WORK-02)."""
+        """License-key activation is asserted from the RESOLVED edition, not the
+        GEOLENS_EDITION env var — the env-var dodge is closed (WORK-02)."""
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
         _set_edition("enterprise")
         env = {k: v for k, v in os.environ.items() if k != "GEOLENS_EDITION"}
-        env["GEOLENS_TENANCY_MODE"] = "single_tenant"
         with patch.dict("os.environ", env, clear=True):
-            with pytest.raises(RuntimeError):
-                assert_enterprise_ports_resolved()
+            with patch(
+                "app.platform.extensions.bootstrap.is_multi_tenant",
+                return_value=False,
+            ):
+                with pytest.raises(RuntimeError):
+                    assert_enterprise_ports_resolved()
 
 
 # ---------------------------------------------------------------------------
