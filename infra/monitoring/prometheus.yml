@@ -1,0 +1,36 @@
+# GeoLens reference Prometheus scrape config.
+# Usage and the batteries-included quickstart are in RUNBOOK.md §4 (Monitoring).
+#
+# Two scrape targets — the API and the worker expose SEPARATE /metrics endpoints:
+#   api:8000     HTTP request metrics (rate/latency/errors) + DB connection-pool
+#                gauges + tile-cache hit/miss counters
+#   worker:8001  Procrastinate job-queue metrics (queue depth, active, completed,
+#                failed) — the worker runs its own tiny metrics server, it is NOT
+#                on the API's /metrics.
+#
+# The `api` / `worker` hostnames resolve on the Compose network (geolens_default).
+# Running Prometheus outside that network? Replace them with reachable host:port
+# (e.g. the API's host mapping is 127.0.0.1:8001 -> api:8000; the worker port is
+# internal-only, so join the Compose network or publish it).
+
+global:
+  scrape_interval: 15s # matches the 15s gauge-refresh loop in the app
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml # sits alongside this file; load both from the same directory
+
+scrape_configs:
+  - job_name: geolens-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: api
+
+  - job_name: geolens-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:8001"]
+        labels:
+          service: worker

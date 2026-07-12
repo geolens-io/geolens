@@ -240,6 +240,55 @@ self-hosted Docker deployments, WAL archiving requires `wal_level = replica` and
 
 ## 4. Monitoring
 
+GeoLens exports Prometheus metrics out of the box. Reference scrape config, alert
+rules, and a Grafana dashboard ship in [`infra/monitoring/`](infra/monitoring/) —
+point your monitoring stack at them, or use them as a base for an existing one.
+
+### Metrics & alerting (Prometheus / Grafana)
+
+Metrics are exposed on **two separate endpoints** — the API and the worker each
+run their own:
+
+| Source | On the Compose network | Host mapping | Exports |
+|---|---|---|---|
+| API | `http://api:8000/metrics` | `127.0.0.1:8001/metrics` | HTTP request rate / latency / errors, DB connection-pool gauges, tile-cache hit/miss |
+| Worker | `http://worker:8001/metrics` | internal-only | Procrastinate job-queue depth, active, completed, failed (per queue) |
+
+`infra/monitoring/prometheus.yml` already defines both scrape jobs
+(`geolens-api`, `geolens-worker`) and loads `alerts.yml` as a rule file. Run
+Prometheus on the Compose network so the `api` / `worker` hostnames resolve:
+
+```bash
+docker run --rm -d --name geolens-prometheus \
+  --network geolens_default \
+  -p 127.0.0.1:9090:9090 \
+  -v "$PWD/infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+  -v "$PWD/infra/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro" \
+  prom/prometheus:v3.5.0   # or a newer pinned tag
+```
+
+Then import `infra/monitoring/grafana-dashboard.json` into Grafana
+(**Dashboards → Import**) and select your Prometheus data source when prompted.
+
+Already running Prometheus/Grafana elsewhere? Copy the `scrape_configs` jobs and
+the `rule_files` entry into your own config and import the dashboard JSON — the
+targets just need network reach to `api:8000` and `worker:8001`.
+
+**Alert rules** (`infra/monitoring/alerts.yml`) — thresholds are tunable defaults:
+
+| Alert | Fires when | Severity |
+|---|---|---|
+| `GeoLensTargetDown` | API or worker unscrapeable for >2m | critical |
+| `GeoLensApiHigh5xxRate` | 5xx share of requests >5% over 5m | critical |
+| `GeoLensApiHighLatencyP95` | p95 request latency >1s, sustained 10m | warning |
+| `GeoLensJobQueueBacklog` | any queue >100 jobs for 15m | warning |
+| `GeoLensJobFailures` | >5 job failures in 15m | warning |
+| `GeoLensDbPoolSaturated` | connection-pool overflow in use for >10m | warning |
+
+> Under an external pooler (`DB_USE_EXTERNAL_POOLER=true` → SQLAlchemy `NullPool`),
+> the `geolens_db_pool_*` gauges are not emitted and `GeoLensDbPoolSaturated`
+> never fires — pool health is the provider's responsibility there.
+
 ### Backup service healthcheck
 
 The `backup` service exposes a Docker healthcheck:

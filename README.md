@@ -358,6 +358,13 @@ For day-2 operations, restore procedures, and incident response, see
 [RUNBOOK.md](RUNBOOK.md). For provider-specific configuration options, see
 [Backups & Restore](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations).
 
+### Monitoring
+
+The API and worker export Prometheus metrics out of the box (HTTP rate/latency/
+errors, job-queue depth, DB pool, tile-cache). Reference scrape config, alert
+rules, and a Grafana dashboard ship in [`infra/monitoring/`](infra/monitoring/);
+see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
+
 ## Reference
 
 | Guide | Description |
