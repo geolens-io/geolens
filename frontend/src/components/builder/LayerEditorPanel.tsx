@@ -23,7 +23,7 @@ export interface LayerEditorHandlers {
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
   onLabelChange: (layerId: string, config: LabelConfig | null) => void;
   onPopupChange: (layerId: string, config: PopupConfig | null) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
+  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   // SF-02 (Phase 1049): widened to all RenderAsId values. use-builder-layers'
   // handleRenderModeChange now dispatches non-circle modes through

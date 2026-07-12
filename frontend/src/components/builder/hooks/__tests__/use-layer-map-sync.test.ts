@@ -795,3 +795,47 @@ describe('useLayerMapSync — handleStyleConfigChange line-gradient cleanup (P1-
     expect('line-gradient' in (updated.paint ?? {})).toBe(true);
   });
 });
+
+// fix(#461, codex P2): Revert-to-saved passes { replace: true } so the saved
+// config is restored verbatim. Without it, the default builder-preserve would
+// strand a discarded builder-only edit (e.g. outline width) and keep the layer dirty.
+describe('useLayerMapSync — handleStyleConfigChange replace mode (revert)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function runWith(opts?: { replace?: boolean }) {
+    const draftLayer = makeLayer({
+      dataset_geometry_type: 'LineString',
+      paint: { 'line-color': '#123456' },
+      // draft carries a builder-only edit the saved baseline never had
+      style_config: { builder: { outlineWidth: 4 } } as MapLayerResponse['style_config'],
+    });
+    let finalLayers: MapLayerResponse[] = [draftLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([draftLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    act(() => {
+      // saved baseline had no style_config → restore null
+      result.current.handleStyleConfigChange(LAYER_ID, null, { 'line-color': '#000000' }, opts);
+    });
+    return finalLayers.find((l) => l.id === LAYER_ID)!;
+  }
+
+  it('replace:true drops the draft builder (restores null verbatim)', () => {
+    expect(runWith({ replace: true }).style_config).toBeNull();
+  });
+
+  it('default (no opts) preserves the draft builder — the behavior revert must bypass', () => {
+    const updated = runWith();
+    const builder = (updated.style_config as { builder?: { outlineWidth?: number } } | null)?.builder;
+    expect(builder?.outlineWidth).toBe(4);
+  });
+});

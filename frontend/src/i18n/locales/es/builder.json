@@ -148,7 +148,9 @@
     "radius": "Radio",
     "preview": {
       "title": "Vista previa de estilo pendiente",
-      "description": "Refleja esta capa antes de guardar"
+      "description": "Refleja esta capa antes de guardar",
+      "revert": "Revertir",
+      "revertTitle": "Descartar los cambios de estilo sin guardar y restaurar el estilo guardado"
     },
     "reset": "Restablecer",
     "resetTitle": "Restablecer estilo de esta capa",

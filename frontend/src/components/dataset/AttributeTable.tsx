@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { formatNumber } from '@/lib/format';
+import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
 import { Loader2, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
 
@@ -143,16 +144,22 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       toast.error(t('attributes.editInvalidValue', { type: colType }));
       return; // keep the editor open so the value can be corrected
     }
-    setEditingCell(null);
+    // fix(#458 E-22): keep the cell in edit mode through the await so the saving
+    // spinner (InlineCellEditor isSaving) actually renders; clearing editingCell
+    // before awaiting made that branch unreachable and showed the stale value.
     try {
       await updateFeature.mutateAsync({
         datasetId,
         gid: rowGid,
         properties: { [column]: coerced.value },
       });
+      setEditingCell(null);
       toast.success(t('attributes.editSaved'));
-    } catch {
-      toast.error(t('attributes.editFailed'));
+    } catch (err) {
+      // fix(#458 E-21): surface the backend's specific reason (geometry-type
+      // mismatch, unknown column, …) instead of a generic toast, and keep the
+      // editor open so the value can be corrected rather than silently reverting.
+      toast.error(formatMutationError('dataset:attributes.editFailed', err));
     }
   }, [datasetId, updateFeature, t]);
 

@@ -417,12 +417,13 @@ export function MapBuilderPage() {
       layerId,
       config,
     }),
-    onStyleConfigChange: (layerId, config, paint) => dispatchLayerAction({
+    onStyleConfigChange: (layerId, config, paint, opts) => dispatchLayerAction({
       type: 'set_style_config',
       source: 'manual',
       layerId,
       config,
       paint,
+      replace: opts?.replace,
     }),
     onLayoutChange: (layerId, layout) => dispatchLayerAction({
       type: 'set_layout',

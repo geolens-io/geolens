@@ -15,10 +15,11 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.db.sqlstate import is_operational
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -30,6 +31,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
+    require_dataset_editing_enabled,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.embed_tokens.service import validate_embed_token_access
@@ -61,6 +63,59 @@ from app.core.public_urls import get_public_api_url
 logger = structlog.get_logger()
 
 features_router = APIRouter(prefix="/datasets", tags=["Features"])
+
+# Datasets with no PostGIS data table behind them. Any feature write 42P01s.
+_NON_FEATURE_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
+
+
+def _require_feature_table(dataset) -> None:
+    """Reject feature writes to datasets with no writable feature geometry.
+
+    fix(#458 E-08): the read handlers 404 raster/VRT datasets, but the write
+    handlers didn't — a write hit a missing `data.<table>` (42P01) and surfaced
+    as a 500. Mirror the read side.
+
+    Also reject non-spatial (tabular) datasets, where `geometry_type is None`
+    (the same signal the read path uses for `has_geometry`). Their table has no
+    `geom`/`geom_4326` column, so an insert/replace 42703s, and a delete — which
+    touches no geometry — succeeds but then 500s in `refresh_dataset_metadata`'s
+    unconditional `geom_4326` read, *outside* the DBAPIError handler below
+    (PR #463 review). Created layers always carry a concrete `geometry_type`
+    (generic ones resolve via `effective_geometry_type`), so this never blocks a
+    spatial layer.
+    """
+    if dataset.record.record_type in _NON_FEATURE_RECORD_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This dataset has no feature table.",
+        )
+    if dataset.geometry_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This dataset has no geometry column and does not support "
+            "feature editing.",
+        )
+
+
+def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
+    """Classify a DB error raised by a feature write.
+
+    fix(#458 E-09/E-26): feature values bind raw, so a type mismatch (22P02), a
+    NOT NULL violation (23502), or a write to a table with no such column (42703,
+    tabular datasets) used to surface as an unhandled 500. Classify by SQLSTATE:
+    a request the table cannot answer is the caller's fault (400); a database
+    outage stays a 503.
+    """
+    if is_operational(exc):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database temporarily unavailable.",
+        )
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Feature could not be written: a value is incompatible with a "
+        "column's type or constraints.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +497,8 @@ async def create_feature(
         )
 
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
+    _require_feature_table(dataset)
 
     try:
         row = await insert_feature(
@@ -459,6 +516,9 @@ async def create_feature(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
 
     await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id
@@ -529,6 +589,8 @@ async def replace_single_feature(
         )
 
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
+    _require_feature_table(dataset)
 
     try:
         row = await replace_feature(
@@ -552,6 +614,9 @@ async def replace_single_feature(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
 
     await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id
@@ -614,6 +679,8 @@ async def patch_single_feature(
         )
 
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
+    _require_feature_table(dataset)
 
     try:
         row = await update_feature(
@@ -637,6 +704,9 @@ async def patch_single_feature(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
 
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
@@ -694,6 +764,8 @@ async def delete_single_feature(
         )
 
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
+    _require_feature_table(dataset)
 
     try:
         await delete_feature(db, dataset.table_name, gid)
@@ -707,6 +779,9 @@ async def delete_single_feature(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
 
     await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id

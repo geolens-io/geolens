@@ -196,10 +196,22 @@ async def create_keyword(
     return kw
 
 
-async def delete_keyword(session: AsyncSession, keyword_id: uuid.UUID) -> None:
-    """Delete a keyword by ID."""
+async def delete_keyword(
+    session: AsyncSession, keyword_id: uuid.UUID, record_id: uuid.UUID
+) -> None:
+    """Delete a keyword by ID, scoped to its owning record.
+
+    fix(#463 review): scoping by ``record_id`` keeps the delete addressable only
+    through its real owner, so a keyword whose id belongs to a different record
+    404s here instead of being deleted through a mismatched path — which also
+    kept the caller's re-embed (``_propagate_record_write``) pointed at the wrong
+    record while the keyword's real owner drifted.
+    """
     result = await session.execute(
-        select(RecordKeyword).where(RecordKeyword.id == keyword_id)
+        select(RecordKeyword).where(
+            RecordKeyword.id == keyword_id,
+            RecordKeyword.record_id == record_id,
+        )
     )
     kw = result.scalar_one_or_none()
     if kw is None:

@@ -4,13 +4,18 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.db.sqlstate import is_operational
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
-from app.modules.catalog.authorization import check_dataset_write_access
+from app.modules.catalog.authorization import (
+    check_dataset_write_access,
+    require_dataset_editing_enabled,
+)
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.layers.schemas import (
     AddColumnRequest,
@@ -39,6 +44,26 @@ async def _invalidate_tiles(table_name: str) -> None:
     tile_cache = get_tile_cache()
     if tile_cache is not None:
         await tile_cache.invalidate_table(table_name)
+
+
+async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) -> None:
+    """Roll back and map a DDL DB error to the right status. Never returns.
+
+    fix(#458 E-13): add/rename/drop caught only ValueError, so a DB-level failure
+    that isn't pre-validated — a dependent view on drop (2BP01), a lock timeout —
+    surfaced as a 500. Only `alter_column_type` mapped these. Classify by
+    SQLSTATE like the feature-write path: a bad request is a 400, an outage a 503.
+    """
+    await db.rollback()
+    if is_operational(exc):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database temporarily unavailable.",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"{action} failed: {exc.orig or exc}",
+    )
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -119,6 +144,7 @@ async def add_column_endpoint(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
 
     try:
         columns = await add_column(db, dataset, body.column.name, body.column.type)
@@ -127,6 +153,8 @@ async def add_column_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+    except DBAPIError as exc:
+        await _raise_ddl_db_error(db, exc, "Add column")
 
     logger.info(
         "layer.add_column",
@@ -175,6 +203,7 @@ async def rename_column_endpoint(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
 
     try:
         columns = await rename_column(db, dataset, column_name, body.new_name)
@@ -183,6 +212,8 @@ async def rename_column_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+    except DBAPIError as exc:
+        await _raise_ddl_db_error(db, exc, "Rename column")
 
     logger.info(
         "layer.rename_column",
@@ -231,6 +262,7 @@ async def alter_column_type_endpoint(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
 
     try:
         columns = await alter_column_type(db, dataset, column_name, body.new_type)
@@ -290,6 +322,7 @@ async def drop_column_endpoint(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    await require_dataset_editing_enabled(db)
 
     try:
         columns = await drop_column(db, dataset, column_name)
@@ -298,6 +331,8 @@ async def drop_column_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+    except DBAPIError as exc:
+        await _raise_ddl_db_error(db, exc, "Drop column")
 
     logger.info(
         "layer.drop_column",

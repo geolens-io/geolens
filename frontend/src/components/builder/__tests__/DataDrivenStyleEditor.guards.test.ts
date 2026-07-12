@@ -63,6 +63,32 @@ describe('styleConfigAlreadyMatches (COMPLEXITY-01 loop guards)', () => {
       expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'c'] })).toBe(false);
     });
 
+    // fix(#461): clobber-on-open — the data has an EXTRA
+    // distinct value the saved config never styled ('c'). Opening the editor
+    // must NOT regenerate (which would clobber the authored 'a'/'b' colors) —
+    // the still-present styled categories are a subset of the data values.
+    it('matches when the data has extra values not listed in the saved categories', () => {
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'b', 'c'] })).toBe(true);
+    });
+
+    // But a styled category that no longer exists in the data IS drift → regenerate.
+    it('does not match when a styled category is absent from the data', () => {
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'c'] })).toBe(false);
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a'] })).toBe(false);
+    });
+
+    // fix(#461, codex P2): empty column must settle. With no distinct values the
+    // effect writes categories:[]; the guard must match that empty config or it
+    // re-writes every render (loop). Empty data + non-empty saved config = drift.
+    it('matches an empty saved config when the data has no distinct values (no loop)', () => {
+      const emptyCfg: StyleConfig = { mode: 'categorical', column: 'cat', ramp: 'Set2', reversed: false, categories: [] };
+      expect(styleConfigAlreadyMatches({ ...params, existing: emptyCfg, categoryValues: [] })).toBe(true);
+    });
+
+    it('does not match when the data is empty but the saved config still has categories', () => {
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: [] })).toBe(false);
+    });
+
     it('treats a missing reversed field as false', () => {
       const noReversed: StyleConfig = { ...written, reversed: undefined };
       expect(styleConfigAlreadyMatches({ ...params, existing: noReversed })).toBe(true);

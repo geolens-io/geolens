@@ -148,7 +148,9 @@
     "radius": "Radius",
     "preview": {
       "title": "Ausstehende Stilvorschau",
-      "description": "Zeigt diesen Layer vor dem Speichern"
+      "description": "Zeigt diesen Layer vor dem Speichern",
+      "revert": "Zurücksetzen",
+      "revertTitle": "Nicht gespeicherte Stiländerungen verwerfen und den gespeicherten Stil wiederherstellen"
     },
     "reset": "Zurücksetzen",
     "resetTitle": "Stil dieses Layers zurücksetzen",
