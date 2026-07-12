@@ -1095,7 +1095,7 @@ class TestMigrationData:
             )
         )
         download_dists = result.scalars().all()
-        assert len(download_dists) == 4
+        assert len(download_dists) == 5
 
         for d in download_dists:
             assert dataset_id_str in d.url, (

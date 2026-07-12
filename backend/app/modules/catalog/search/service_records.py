@@ -24,6 +24,7 @@ _FORMAT_MEDIA = {
     "geojson": "application/geo+json",
     "shp": "application/x-shapefile",
     "csv": "text/csv",
+    "parquet": "application/vnd.apache.parquet",
 }
 
 _RASTER_FORMAT_MEDIA = {

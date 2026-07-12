@@ -30,25 +30,36 @@ from app.processing.ingest.metadata import _qtable
 
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 
-# GeoParquet 1.1 file-level metadata. crs omitted => defaults to OGC:CRS84,
-# which is exactly how PostGIS stores geom_4326 (x=lon, y=lat).
-_GEO_METADATA = {
-    "version": "1.1.0",
-    "primary_column": "geometry",
-    "columns": {
-        "geometry": {
-            "encoding": "WKB",
-            # Empty list = "geometry types not advertised" per the spec; avoids a
-            # second pass to collect distinct types.
-            "geometry_types": [],
-        }
-    },
-}
+
+def _geo_metadata(primary_column: str) -> dict:
+    """GeoParquet 1.1 file-level metadata for a given geometry column name.
+
+    crs omitted => defaults to OGC:CRS84, which is exactly how PostGIS stores
+    geom_4326 (x=lon, y=lat).
+    """
+    return {
+        "version": "1.1.0",
+        "primary_column": primary_column,
+        "columns": {
+            primary_column: {
+                "encoding": "WKB",
+                # Empty list = "geometry types not advertised" per the spec;
+                # avoids a second pass to collect distinct types.
+                "geometry_types": [],
+            }
+        },
+    }
 
 
 def _attr_names(column_info: list[dict] | None) -> list[str]:
-    """Attribute column names in declared order, minus internal geometry cols."""
-    skip = {"gid", "geom", "geom_4326", "geometry"}
+    """Attribute column names in declared order, minus internal geometry cols.
+
+    Only the true internal columns (gid + the two geometry columns) are dropped;
+    a user attribute literally named ``geometry`` is a real column and is kept
+    (the WKB output column is renamed to avoid the collision — see
+    build_geoparquet_table).
+    """
+    skip = {"gid", "geom", "geom_4326"}
     return [
         c["name"]
         for c in (column_info or [])
@@ -56,15 +67,30 @@ def _attr_names(column_info: list[dict] | None) -> list[str]:
     ]
 
 
+def _geometry_column_name(attr_names: list[str]) -> str:
+    """Pick the WKB output column name, avoiding a collision with a user column
+    that is itself named ``geometry`` (e.g. a CSV/WKT import's original column)."""
+    if "geometry" not in attr_names:
+        return "geometry"
+    candidate = "geom_wkb"
+    i = 1
+    while candidate in attr_names:
+        candidate = f"geom_wkb_{i}"
+        i += 1
+    return candidate
+
+
 def build_geoparquet_table(
     geom: list[bytes | None],
     cols: dict[str, list],
     attr_names: list[str],
+    geom_col: str = "geometry",
 ) -> "pa.Table":
     """Build a GeoParquet-annotated Arrow table from columnar Python values.
 
-    The geometry column holds WKB bytes; ``geo`` file metadata is attached so
-    DuckDB/GeoPandas/QGIS recognize the file. pyarrow infers each attribute
+    The WKB geometry lives in ``geom_col`` (renamed off "geometry" only when a
+    user attribute already claims that name); ``geo`` file metadata is attached
+    so DuckDB/GeoPandas/QGIS recognize the file. pyarrow infers each attribute
     column's type; a column it can't unify (rare, mixed JSON) falls back to
     string so the export still succeeds. Pure/DB-free so it is unit-testable.
     """
@@ -77,11 +103,11 @@ def build_geoparquet_table(
                 [None if v is None else str(v) for v in cols[name]],
                 type=pa.string(),
             )
-    arrays["geometry"] = pa.array(geom, type=pa.binary())
+    arrays[geom_col] = pa.array(geom, type=pa.binary())
 
     table = pa.table(arrays)
     return table.replace_schema_metadata(
-        {b"geo": json.dumps(_GEO_METADATA).encode("utf-8")}
+        {b"geo": json.dumps(_geo_metadata(geom_col)).encode("utf-8")}
     )
 
 
@@ -160,7 +186,9 @@ async def export_parquet(
         for name in attr_names:
             cols[name].append(props.get(name))
 
-    table = build_geoparquet_table(geom, cols, attr_names)
+    table = build_geoparquet_table(
+        geom, cols, attr_names, _geometry_column_name(attr_names)
+    )
 
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")

@@ -362,6 +362,15 @@ _DISTRIBUTION_TEMPLATES = [
     ),
     (
         "download",
+        "parquet",
+        "/datasets/{dataset_id}/export?format=parquet",
+        "GeoParquet Download",
+        "HTTP",
+        "application/vnd.apache.parquet",
+        False,
+    ),
+    (
+        "download",
         "csv",
         "/datasets/{dataset_id}/export?format=csv",
         "CSV Download",
