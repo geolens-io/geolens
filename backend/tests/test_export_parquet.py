@@ -157,6 +157,58 @@ class TestGeoParquetExport:
         assert resp.status_code == 200
 
     @pytest.mark.anyio
+    async def test_export_parquet_keeps_null_geometry_rows(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A full export keeps rows whose geom_4326 is NULL (exported with a null
+        geometry cell), matching the other formats and the feature read path."""
+        table_name = f"exp_pqnull_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(1, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(2, NULL, NULL)"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NullGeomParquetDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=2,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "pop", "type": "integer"},
+            ],
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            table = _read_parquet(resp.content)
+            assert table.num_rows == 2
+            assert None in table.column("geometry").to_pylist()
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
     async def test_export_parquet_non_spatial_400(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

@@ -1927,8 +1927,9 @@ export interface paths {
          * Export Dataset Endpoint
          * @description Export a dataset as a downloadable file.
          *
-         *     Supports GeoPackage, GeoJSON, Shapefile (zipped), and CSV formats.
-         *     Optional CRS reprojection, spatial filtering, and attribute filtering.
+         *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
+         *     formats. Optional CRS reprojection, spatial filtering, and attribute
+         *     filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
          */
         get: operations["export_dataset_endpoint_datasets__dataset_id__export_get"];
         put?: never;
@@ -3063,6 +3064,30 @@ export interface paths {
          * @description Rename a column on an existing layer.
          */
         patch: operations["rename_column_endpoint_layers__dataset_id__columns__column_name__name_patch"];
+        trace?: never;
+    };
+    "/layers/{dataset_id}/columns/{column_name}/references": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Column References Endpoint
+         * @description Count saved maps whose layer config references a column.
+         *
+         *     fix(#458 E-06): surfaced in the schema editor before a rename/drop so the
+         *     editor knows how many saved maps depend on the column. Count only — map
+         *     titles may belong to other users and are not exposed here.
+         */
+        get: operations["column_references_endpoint_layers__dataset_id__columns__column_name__references_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/layers/{dataset_id}/columns/{column_name}/type": {
@@ -5975,6 +6000,17 @@ export interface components {
             /** Type */
             type: string;
         };
+        /**
+         * ColumnReferencesResponse
+         * @description How many saved maps reference a column in their layer config.
+         */
+        ColumnReferencesResponse: {
+            /**
+             * Map Count
+             * @description Distinct saved maps whose styles/filters/labels/popups reference this column
+             */
+            map_count: number;
+        };
         /** ColumnStatsResponse */
         ColumnStatsResponse: {
             /**
@@ -7217,7 +7253,7 @@ export interface components {
          * ExportFormat
          * @enum {string}
          */
-        ExportFormat: "gpkg" | "geojson" | "shp" | "csv";
+        ExportFormat: "gpkg" | "geojson" | "shp" | "csv" | "parquet";
         /**
          * FacetCountResponse
          * @description Multi-group facet counts for the search sidebar.
@@ -7442,8 +7478,11 @@ export interface components {
         GeoJSONGeometry: {
             /** Coordinates */
             coordinates: unknown[];
-            /** Type */
-            type: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
         };
         /**
          * GeoJSONGeometryCollection
@@ -17991,7 +18030,12 @@ export interface operations {
     };
     get_dcat_us3_catalog_datasets_dcat_us_3_0__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Max datasets in this page (default = max). */
+                limit?: number;
+                /** @description Datasets to skip — page a catalog larger than one page. */
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -18111,7 +18155,12 @@ export interface operations {
     };
     get_dcat_catalog_datasets_dcat__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Max datasets in this page (default = max). */
+                limit?: number;
+                /** @description Datasets to skip — page a catalog larger than one page. */
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -18231,7 +18280,12 @@ export interface operations {
     };
     get_geodcat_ap_catalog_datasets_geodcat_ap__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Max datasets in this page (default = max). */
+                limit?: number;
+                /** @description Datasets to skip — page a catalog larger than one page. */
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -24356,6 +24410,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ColumnListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    column_references_endpoint_layers__dataset_id__columns__column_name__references_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                column_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColumnReferencesResponse"];
                 };
             };
             /** @description Validation Error */

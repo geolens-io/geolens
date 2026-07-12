@@ -113,7 +113,11 @@ async def export_parquet(
 
     attr_names = _attr_names(column_info)
 
-    clauses: list[str] = ["geom_4326 IS NOT NULL"]
+    # No blanket geom_4326 IS NOT NULL: a full export must keep rows with null
+    # geometry (they export with a null geometry cell, like the feature read path
+    # and the other export formats). A bbox filter still drops them naturally —
+    # a null geometry neither && nor ST_Intersects an envelope.
+    clauses: list[str] = []
     params: dict = {}
     if bbox is not None:
         # Mirror the features query bbox semantics (features/service.py): an
@@ -136,7 +140,7 @@ async def export_parquet(
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     if safe_where is not None:
         clauses.append(f"({safe_where})")
-    where_sql = " AND ".join(clauses)
+    where_sql = " AND ".join(clauses) if clauses else "TRUE"
 
     sql = (
         "SELECT ST_AsBinary(geom_4326) AS wkb_geom, "
