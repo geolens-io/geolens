@@ -89,7 +89,7 @@ Documentation = "https://docs.getgeolens.com"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
+    "pytest>=9.1.1",
     "pytest-asyncio",
     "pytest-xdist>=3.6.0",
     "ruff",
