@@ -2168,8 +2168,10 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
             "style_config": {
                 "render_mode": "arrow",
                 "builder": {
-                    "arrow_color": "#701a75",
-                    "arrow_size": 12,
+                    # White arrows read clearly against the magenta Cat-5 line;
+                    # the old dark-purple (#701a75) was nearly invisible on it.
+                    "arrow_color": "#ffffff",
+                    "arrow_size": 16,
                     "arrow_spacing": 90,
                 },
             },
@@ -2187,17 +2189,10 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
                 "line-opacity": 0.9,
             },
             "layout": {"line-cap": "round", "line-join": "round"},
-            "popup_config": {
-                "enabled": True,
-                "expression": "{name} ({season})",
-                "visible_fields": [
-                    "category",
-                    "wind_kt",
-                    "pressure_mb",
-                    "status",
-                    "landfall",
-                ],
-            },
+            # No popup on the highlight layer: it overlaps the storm-tracks layer
+            # on every Cat-5 segment, so enabling both made the feature popup pager
+            # show each Cat-5 leg twice. The storm-tracks layer below owns popups.
+            "popup_config": {"enabled": False},
         },
     )
     api.add_layer(
@@ -2205,13 +2200,21 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
         {
             "dataset_id": tracks_ds,
             "sort_order": 1,
-            "opacity": 0.9,
+            # Single source of dimming: layer opacity 1.0 × line-opacity 0.85 keeps
+            # the intended ~0.85. The old 0.9 compounded to a washed-out 0.765.
+            "opacity": 1.0,
             "display_name": "Storm tracks (by intensity at each leg)",
             "style_config": {
                 "mode": "categorical",
                 "column": "category",
-                "ramp": "Dark2",
+                # These colors are hand-picked (Saffir-Simpson), not a named ramp;
+                # "custom" keeps the ramp picker honest instead of falsely showing
+                # Dark2 selected. TD is included so the legend matches the paint
+                # (which already colors TD via cat_colors) — degenerate/weak legs
+                # are no longer an unlabeled gray on the map.
+                "ramp": "custom",
                 "categories": [
+                    {"value": "TD", "color": "#9ca3af", "label": "Tropical depression"},
                     {"value": "TS", "color": "#60a5fa", "label": "Tropical storm"},
                     {"value": "Cat 1", "color": "#facc15", "label": "Category 1"},
                     {"value": "Cat 2", "color": "#fb923c", "label": "Category 2"},
@@ -2262,7 +2265,10 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
             "label_config": {
                 "column": "name",
                 "fontSize": 11,
-                "minZoom": 4.2,
+                # Raised from 4.2: at world/basin zoom, labelling every 6-hour
+                # segment carpeted the map in repeated storm names. From ~z6 the
+                # view is regional and names read instead of collide.
+                "minZoom": 6,
                 "placement": "line-center",
                 "textColor": "#334155",
                 "haloColor": "#ffffff",
