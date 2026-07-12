@@ -115,8 +115,24 @@ async def export_parquet(
 
     clauses: list[str] = ["geom_4326 IS NOT NULL"]
     params: dict = {}
-    if bbox is not None and bbox[0] <= bbox[2]:
-        clauses.append("geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)")
+    if bbox is not None:
+        # Mirror the features query bbox semantics (features/service.py): an
+        # envelope && prefilter for the index PLUS an exact ST_Intersects, and
+        # the antimeridian split when minx > maxx (parse_bbox allows it). Using
+        # only && would silently drop antimeridian boxes and return an
+        # envelope-overlap superset instead of the rows actually in the bbox.
+        if bbox[0] > bbox[2]:
+            clauses.append(
+                "((geom_4326 && ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)"
+                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)))"
+                " OR (geom_4326 && ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)"
+                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326))))"
+            )
+        else:
+            clauses.append(
+                "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)"
+                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
+            )
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     if safe_where is not None:
         clauses.append(f"({safe_where})")

@@ -118,6 +118,20 @@ class TestGeoParquetExport:
         assert table.num_rows == 1
 
     @pytest.mark.anyio
+    async def test_export_parquet_bbox_exact_intersection(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """A bbox selects only features that actually intersect it (points at
+        (0,0),(1,1),(2,2); bbox around (1,1) returns exactly one)."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "bbox": "0.5,0.5,1.5,1.5"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert _read_parquet(resp.content).num_rows == 1
+
+    @pytest.mark.anyio
     async def test_export_parquet_rejects_non_4326_crs(
         self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
     ):

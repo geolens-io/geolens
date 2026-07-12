@@ -17,7 +17,7 @@
 
 - [OGC API landing](/api/): OGC API — Common/Features/Records landing page and conformance.
 - [OGC API collections](/api/collections): Each dataset as an OGC API collection; the `datasets` collection is the Records catalog (CQL2 + sorting).
-- [STAC catalog](/api/stac): SpatioTemporal Asset Catalog root, collections, and `/search`.
+- [STAC catalog](/api/stac/): SpatioTemporal Asset Catalog root, collections, and `/search`.
 - [DCAT-US 3.0 feed](/api/datasets/dcat-us/3.0): Federal `data.json`-style catalog feed (supports `?limit=&offset=` paging).
 - [DCAT 3 feed](/api/datasets/dcat/): W3C DCAT 3 JSON-LD catalog feed.
 - [GeoDCAT-AP feed](/api/datasets/geodcat-ap/): GeoDCAT-AP 2.0.0 JSON-LD catalog feed.
