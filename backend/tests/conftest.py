@@ -368,6 +368,26 @@ def _restore_process_global_config():
             os.environ.pop(_MODE_KEY, None)
 
 
+@pytest.fixture(autouse=True)
+def _enable_dataset_editing(monkeypatch):
+    """Turn on the `enable_dataset_editing` flag for the whole suite.
+
+    fix(#458 E-11): dataset editing (feature writes + column DDL) is now enforced
+    server-side and defaults OFF. The suite exercises those writes throughout, so
+    swap the persistent-config flag for an always-on stub. The guard re-imports
+    `ENABLE_DATASET_EDITING` from the module on each call, so replacing the module
+    attribute is picked up and the guard's real branch still runs. Tests that
+    assert the DISABLED path re-patch it with an always-off stub in their own body.
+    """
+    import app.core.persistent_config as pc
+
+    class _AlwaysOn:
+        async def get(self, _db):
+            return True
+
+    monkeypatch.setattr(pc, "ENABLE_DATASET_EDITING", _AlwaysOn())
+
+
 # Shared test geometries
 EMPTY_FEATURE_COLLECTION = {
     "type": "FeatureCollection",

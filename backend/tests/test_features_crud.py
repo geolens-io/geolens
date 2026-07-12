@@ -1538,3 +1538,96 @@ class TestGeometryValidity:
             headers=admin_auth_header,
         )
         assert patch.status_code == 400, patch.text
+
+
+# ---------------------------------------------------------------------------
+# Editing enforcement + write-path contracts (fix #458 E-08/E-09/E-11/E-25)
+# ---------------------------------------------------------------------------
+
+
+class TestEditingEnforcementAndContracts:
+    async def test_write_blocked_when_editing_disabled(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        monkeypatch,
+    ):
+        """E-11: with the flag off, feature writes AND column DDL 403 even for admin."""
+        import app.core.persistent_config as pc
+
+        class _AlwaysOff:
+            async def get(self, _db):
+                return False
+
+        monkeypatch.setattr(pc, "ENABLE_DATASET_EDITING", _AlwaysOff())
+
+        feature = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {"name": "blocked"}},
+            headers=admin_auth_header,
+        )
+        assert feature.status_code == 403, feature.text
+
+        column = await client.post(
+            f"/layers/{test_layer.id}/columns/",
+            json={"column": {"name": "pop", "type": "integer"}},
+            headers=admin_auth_header,
+        )
+        assert column.status_code == 403, column.text
+
+    async def test_unknown_property_key_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """E-25: a property key that names no column is a 400, not a silent drop."""
+        resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={
+                "geometry": POINT_GEOJSON,
+                "properties": {"name": "ok", "typoed_column": "x"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400, resp.text
+        assert "typoed_column" in resp.json()["detail"]
+
+    async def test_write_to_raster_dataset_is_404_not_500(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        raster_layer: Dataset,
+    ):
+        """E-08: feature write to a dataset with no feature table 404s (was 500)."""
+        resp = await client.post(
+            f"/datasets/{raster_layer.id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 404, resp.text
+
+    async def test_type_mismatch_is_400_not_500(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """E-09/E-26: a value incompatible with a column's type is a 400, not a 500."""
+        add = await client.post(
+            f"/layers/{test_layer.id}/columns/",
+            json={"column": {"name": "population", "type": "integer"}},
+            headers=admin_auth_header,
+        )
+        assert add.status_code == 201, add.text
+
+        resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={
+                "geometry": POINT_GEOJSON,
+                "properties": {"name": "x", "population": "not-a-number"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400, resp.text

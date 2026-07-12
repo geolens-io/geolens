@@ -2,6 +2,7 @@
 
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +16,8 @@ from app.modules.catalog.authorization import (
     get_user_roles,
 )
 from app.core.dependencies import get_db
+from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.extensions import get_catalog_port
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.records.schemas import (
     ContactCreate,
@@ -48,7 +51,32 @@ from app.modules.catalog.records.service import (
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
+logger = structlog.get_logger()
+
 router = APIRouter(prefix="/records", tags=["Records"], responses=ERROR_RESPONSES_WRITE)
+
+
+async def _propagate_record_write(record_id: uuid.UUID, *, reembed: bool) -> None:
+    """Keep downstream surfaces coherent after a record sub-resource write.
+
+    fix(#458 E-15): contacts/keywords/distributions feed the DCAT-US/STAC feeds
+    (so bust the catalog cache on every write), and keywords are part of the
+    search embedding text (so re-embed when keywords changed). The top-level
+    metadata PATCH already does both; these sibling writes did neither. Both
+    steps are best-effort — the write is already committed and must not fail on a
+    cache/broker hiccup.
+    """
+    try:
+        await invalidate_catalog_cache()
+    except Exception:  # broad: cache bust is non-fatal; entries expire on TTL
+        logger.warning("record.write catalog-cache invalidation failed", exc_info=True)
+    if reembed:
+        try:
+            await get_catalog_port().defer_embed_record(record_id)
+        except Exception:  # broad: embedding catches up on next edit or backfill
+            logger.warning(
+                "record.write embed defer failed for %s", record_id, exc_info=True
+            )
 
 
 async def _check_record_read_access(
@@ -118,7 +146,13 @@ async def _check_record_ownership(
     """Verify the user owns the record or is an admin. Raises 404/403.
 
     Returns the fetched Record so callers can reuse it without a second query.
+
+    fix(#458 E-14): gate on read-visibility first, so a private record the caller
+    can't even see 404s (no existence leak) instead of 403 — matching the dataset
+    PATCH IDOR contract (test_dataset_metadata_idor). A record the caller CAN see
+    but doesn't own still 403s (an honest "you can't edit this").
     """
+    await _check_record_read_access(db, record_id, user)
     record = await get_record(db, record_id)
     if record is None:
         raise HTTPException(
@@ -198,6 +232,7 @@ async def create_contact_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid contact data (check role value against ISO CI_RoleCode codelist)",
         )
+    await _propagate_record_write(record_id, reembed=False)
     return ContactResponse.model_validate(contact)
 
 
@@ -227,6 +262,7 @@ async def update_contact_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid contact data (check role value against ISO CI_RoleCode codelist)",
         )
+    await _propagate_record_write(record_id, reembed=False)
     return ContactResponse.model_validate(contact)
 
 
@@ -248,6 +284,7 @@ async def delete_contact_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
         )
+    await _propagate_record_write(record_id, reembed=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -310,6 +347,7 @@ async def create_keyword_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate keyword for this record",
         )
+    await _propagate_record_write(record_id, reembed=True)
     return KeywordResponse.model_validate(kw)
 
 
@@ -331,6 +369,7 @@ async def delete_keyword_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Keyword not found"
         )
+    await _propagate_record_write(record_id, reembed=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -398,6 +437,7 @@ async def create_distribution_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate distribution (same record, type, and format)",
         )
+    await _propagate_record_write(record_id, reembed=False)
     return DistributionResponse.model_validate(dist)
 
 
@@ -435,6 +475,7 @@ async def update_distribution_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate distribution (same record, type, and format)",
         )
+    await _propagate_record_write(record_id, reembed=False)
     return DistributionResponse.model_validate(dist)
 
 
@@ -462,4 +503,5 @@ async def delete_distribution_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
         )
+    await _propagate_record_write(record_id, reembed=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

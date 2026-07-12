@@ -1106,3 +1106,91 @@ class TestMigrationData:
                 assert record_id_str not in d.url, (
                     f"URL should NOT contain record_id {record_id_str}, got: {d.url}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Record-write authorization + downstream propagation (fix #458 E-14/E-15)
+# ---------------------------------------------------------------------------
+
+
+class TestRecordWriteContracts:
+    async def test_editor_private_nonowned_record_is_404_not_403(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """E-14: an editor who can't SEE a private, non-owned record 404s (no leak)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        resp = await client.post(
+            f"/records/{ds.record_id}/contacts/",
+            json={"role": "author", "name": "Editor Attempt"},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 404, resp.text
+
+    async def test_editor_public_nonowned_record_still_403(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """E-14: a record the editor CAN see but doesn't own is an honest 403."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        resp = await client.post(
+            f"/records/{ds.record_id}/contacts/",
+            json={"role": "author", "name": "Editor Attempt"},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 403, resp.text
+
+    async def test_keyword_write_reembeds_contact_write_does_not(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch,
+    ):
+        """E-15: record sub-resource writes bust the catalog cache; keyword writes
+        (embedding text) also re-embed, contact/distribution writes do not."""
+        import app.modules.catalog.records.router as rr
+
+        cache_calls: list[int] = []
+        embed_calls: list[str] = []
+
+        async def _spy_cache():
+            cache_calls.append(1)
+
+        class _SpyPort:
+            async def defer_embed_record(self, record_id):
+                embed_calls.append(str(record_id))
+
+        monkeypatch.setattr(rr, "invalidate_catalog_cache", _spy_cache)
+        monkeypatch.setattr(rr, "get_catalog_port", lambda: _SpyPort())
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+
+        kw = await client.post(
+            f"/records/{ds.record_id}/keywords/",
+            json={"keyword": "hydrology"},
+            headers=admin_auth_header,
+        )
+        assert kw.status_code == 201, kw.text
+        assert len(cache_calls) == 1
+        assert embed_calls == [str(ds.record_id)]
+
+        contact = await client.post(
+            f"/records/{ds.record_id}/contacts/",
+            json={"role": "author", "name": "Jane"},
+            headers=admin_auth_header,
+        )
+        assert contact.status_code == 201, contact.text
+        assert len(cache_calls) == 2  # cache busted again
+        assert embed_calls == [str(ds.record_id)]  # NOT re-embedded

@@ -170,3 +170,23 @@ async def check_dataset_write_access(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Only the dataset owner or an admin may modify this dataset.",
     )
+
+
+async def require_dataset_editing_enabled(db: AsyncSession) -> None:
+    """Enforce the `enable_dataset_editing` admin flag. Raises 403 when off.
+
+    fix(#458 E-11): the flag gated only the UI (StructureTab), so an owner/admin
+    could still edit features and run column DDL through the API with editing
+    switched off. Enforce it on those write paths server-side. Metadata edits are
+    deliberately *not* gated — the UI keeps only structure/feature editing behind
+    this toggle, and the backend mirrors that boundary.
+    """
+    # Local import mirrors the other persistent_config call sites (e.g.
+    # service_metadata's REQUIRE_METADATA_FOR_PUBLISH) and avoids any import cycle.
+    from app.core.persistent_config import ENABLE_DATASET_EDITING
+
+    if not await ENABLE_DATASET_EDITING.get(db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset editing is disabled by the administrator.",
+        )
