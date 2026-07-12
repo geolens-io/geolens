@@ -7,6 +7,46 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-07-12
+
+### Added
+
+- **GeoParquet export.** Any spatial dataset can now be exported as GeoParquet
+  (`GET /datasets/{id}/export?format=parquet`), and every spatial dataset now
+  advertises a GeoParquet download in its DCAT distributions — including a
+  backfill so existing datasets gain the distribution automatically.
+- **AI-generated metadata on ingest.** Newly ingested datasets can have a
+  summary and metadata drafted for them automatically, giving the catalog a
+  head start on description quality.
+- **`llms.txt`.** A machine-readable `llms.txt` now describes the API surface
+  for LLM-based agents and crawlers.
+- **Reference monitoring stack.** Ships a reference Prometheus + Grafana
+  configuration so self-hosters can stand up metrics and dashboards without
+  assembling them from scratch.
+
+### Changed
+
+- **The DCAT catalog is paginated.** Large catalogs no longer serialize every
+  dataset into a single response.
+- Clarified the distinction between `FRONTEND_TILE_BASE_URL` and
+  `CDN_BASE_URL` for tile routing in the Compose documentation.
+
+### Fixed
+
+- **Feature and schema editing hardening.** A round of editing-correctness
+  fixes: stricter validation on write paths, correct enforcement of
+  per-dataset edit flags, and a clearer draft-editing experience.
+- **The style editor no longer clobbers saved categorical symbology.** Opening
+  the builder's style editor on a layer with categorical colors preserves the
+  saved per-category styling.
+- **The installer fails fast on terminal service states** instead of
+  soft-passing a crashed or exited service as "still starting."
+
+### Dependencies
+
+- Bumped procrastinate (3.9.0), the SQLAlchemy ecosystem, the TanStack Query
+  packages, pytest, `github/codeql-action`, and `docker/login-action`.
+
 ## [1.4.5] - 2026-07-11
 
 ### Security
