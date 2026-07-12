@@ -229,8 +229,15 @@ async def export_dataset_endpoint(
     # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
     # datasets a filter only passes if it actually narrows the selection under
     # the cap (bounded filtered COUNT), closing the where=1=1 bypass.
+    #
+    # Parquet is exempt here: export_parquet() runs its own bounded-count cap
+    # against the LIVE-introspected columns. Running this guard for parquet too
+    # would validate the filter against the nullable dataset.column_info and
+    # wrongly reject a valid filter on a metadata-less oversized dataset before
+    # the parquet path's introspection can run (Codex r10).
     if (
-        dataset.feature_count is not None
+        format != ExportFormat.parquet
+        and dataset.feature_count is not None
         and dataset.feature_count > _MAX_EXPORT_FEATURES
     ):
         if bbox_parsed is None and where is None:

@@ -331,6 +331,56 @@ class TestGeoParquetExport:
             await test_db_session.commit()
 
     @pytest.mark.anyio
+    async def test_export_parquet_oversized_metadata_less_is_filterable(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """An oversized (feature_count > cap) parquet dataset with empty
+        column_info stays filterable: the router's cap guard is skipped for
+        parquet, and export_parquet validates the filter against live columns
+        (Codex r10 regression)."""
+        table_name = f"exp_pqov_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "pop integer, geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(10, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(30, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                " ST_SetSRID(ST_MakePoint(1, 1), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="OversizedNoMetaDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=5_000_001,  # trips the router cap path
+            column_info=[],  # ...which must NOT reject the filter for parquet
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet", "where": "pop > 20"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            assert _read_parquet(resp.content).num_rows == 1
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
     async def test_export_parquet_bounded_row_cap(
         self, client: AsyncClient, admin_auth_header: dict, parquet_dataset, monkeypatch
     ):
