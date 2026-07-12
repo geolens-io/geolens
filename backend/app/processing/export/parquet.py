@@ -22,6 +22,7 @@ import pyarrow.parquet as pq
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.processing.export.service import validate_where_clause
@@ -111,6 +112,21 @@ def build_geoparquet_table(
     )
 
 
+def _write_geoparquet(
+    geom: list[bytes | None],
+    cols: dict[str, list],
+    attr_names: list[str],
+    geom_col: str,
+    output_path: str,
+) -> None:
+    """Build the Arrow table and write the Parquet file (both CPU-bound).
+
+    Blocking; call via run_in_thread_draining so it doesn't stall the event loop.
+    """
+    table = build_geoparquet_table(geom, cols, attr_names, geom_col)
+    pq.write_table(table, output_path)
+
+
 async def export_parquet(
     db: AsyncSession,
     table_name: str,
@@ -186,10 +202,6 @@ async def export_parquet(
         for name in attr_names:
             cols[name].append(props.get(name))
 
-    table = build_geoparquet_table(
-        geom, cols, attr_names, _geometry_column_name(attr_names)
-    )
-
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
     )
@@ -198,8 +210,15 @@ async def export_parquet(
     safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
     filename = f"{safe_name}.parquet"
     output_path = os.path.join(temp_dir, filename)
+    geom_col = _geometry_column_name(attr_names)
     try:
-        pq.write_table(table, output_path)
+        # Arrow encoding + write are CPU-bound and can block the event loop for
+        # a multi-GB export; run them in a thread (mirrors the shapefile zip path
+        # in export/service.py), drained so a client disconnect can't rmtree
+        # temp_dir mid-write.
+        await run_in_thread_draining(
+            _write_geoparquet, geom, cols, attr_names, geom_col, output_path
+        )
     except BaseException:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
