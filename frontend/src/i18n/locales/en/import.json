@@ -100,7 +100,8 @@
     "statTabular": "Tabular",
     "next": "Next:",
     "viewCatalog": "View in Catalog",
-    "importMore": "Import more"
+    "importMore": "Import more",
+    "aiMetadata": "Add AI metadata"
   },
   "dropzone": {
     "ariaLabel": "Upload files",

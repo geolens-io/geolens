@@ -113,8 +113,9 @@ async def export_dataset_endpoint(
 ) -> FileResponse:
     """Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), and CSV formats.
-    Optional CRS reprojection, spatial filtering, and attribute filtering.
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
+    formats. Optional CRS reprojection, spatial filtering, and attribute
+    filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
     """
     port = get_processing_port()
     # 1. Fetch dataset
@@ -188,6 +189,14 @@ async def export_dataset_endpoint(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid target_crs: must match EPSG:<code> (e.g. EPSG:3857)",
             )
+        # GeoParquet is written directly via pyarrow in EPSG:4326 (OGC:CRS84);
+        # reprojection/PROJJSON isn't implemented on that path, so reject a
+        # conflicting target rather than silently emitting 4326.
+        if format == ExportFormat.parquet and target_crs.upper() != "EPSG:4326":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="GeoParquet export is emitted in EPSG:4326; omit target_crs.",
+            )
 
     # 5. Reject raster/VRT datasets: they have no tabular feature table.
     # Key on record_type (loaded via joinedload(Dataset.record) in
@@ -206,7 +215,12 @@ async def export_dataset_endpoint(
         )
 
     # 6. Check geometry compatibility
-    if dataset.geometry_type is None and format in ("gpkg", "geojson", "shp"):
+    if dataset.geometry_type is None and format in (
+        "gpkg",
+        "geojson",
+        "shp",
+        "parquet",
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
@@ -215,8 +229,15 @@ async def export_dataset_endpoint(
     # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
     # datasets a filter only passes if it actually narrows the selection under
     # the cap (bounded filtered COUNT), closing the where=1=1 bypass.
+    #
+    # Parquet is exempt here: export_parquet() runs its own bounded-count cap
+    # against the LIVE-introspected columns. Running this guard for parquet too
+    # would validate the filter against the nullable dataset.column_info and
+    # wrongly reject a valid filter on a metadata-less oversized dataset before
+    # the parquet path's introspection can run (Codex r10).
     if (
-        dataset.feature_count is not None
+        format != ExportFormat.parquet
+        and dataset.feature_count is not None
         and dataset.feature_count > _MAX_EXPORT_FEATURES
     ):
         if bbox_parsed is None and where is None:
@@ -246,17 +267,40 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 7. Run export
+    # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
+    # build has no Arrow driver); all other formats use the ogr2ogr path.
     try:
-        file_path, filename, media_type = await export_dataset(
-            dataset.table_name,
-            dataset.record.title,
-            format,
-            target_srs=target_crs,
-            bbox=bbox_parsed,
-            where=where,
-            column_info=dataset.column_info,
-        )
+        if format == ExportFormat.parquet:
+            from app.processing.export.parquet import (
+                ExportTooLargeError,
+                export_parquet,
+            )
+
+            try:
+                file_path, filename, media_type = await export_parquet(
+                    db,
+                    dataset.table_name,
+                    dataset.record.title,
+                    bbox=bbox_parsed,
+                    where=where,
+                )
+            except ExportTooLargeError as e:
+                # In-memory parquet build exceeded the cap (covers datasets with a
+                # NULL feature_count that skipped the guard above).
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=str(e),
+                )
+        else:
+            file_path, filename, media_type = await export_dataset(
+                dataset.table_name,
+                dataset.record.title,
+                format,
+                target_srs=target_crs,
+                bbox=bbox_parsed,
+                where=where,
+                column_info=dataset.column_info,
+            )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
