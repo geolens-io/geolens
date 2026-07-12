@@ -181,7 +181,13 @@ async def export_parquet(
             )
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     if safe_where is not None:
-        clauses.append(f"({safe_where})")
+        # SQLAlchemy text() reads ":name" as a bind parameter; a colon inside a
+        # string literal in the validated where clause (e.g. name = 'A:B' or an
+        # ISO timestamp) would otherwise misparse as an unbound param and fail.
+        # Escape colons to text()'s literal-colon form (\:). The bbox clause's
+        # real :minx/:miny binds are added separately and stay unescaped.
+        escaped_where = safe_where.replace(":", "\\:")
+        clauses.append(f"({escaped_where})")
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
 
     sql = (

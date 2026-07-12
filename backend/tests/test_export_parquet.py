@@ -132,6 +132,23 @@ class TestGeoParquetExport:
         assert _read_parquet(resp.content).num_rows == 1
 
     @pytest.mark.anyio
+    async def test_export_parquet_where_colon_literal(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """A colon inside a where string literal must not be misparsed as a
+        SQLAlchemy bind param. The literal ' :name' has a colon after a
+        non-word char (space), which text() would otherwise read as an unbound
+        ':name' param; 'name' also keeps the identifier validator happy."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "where": "name = ' :name'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        # No row equals ' :name'; the point is that it executes rather than 500s.
+        assert _read_parquet(resp.content).num_rows == 0
+
+    @pytest.mark.anyio
     async def test_export_parquet_rejects_non_4326_crs(
         self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
     ):
