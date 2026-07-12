@@ -337,7 +337,7 @@ export function useLayerMapSync(
   );
 
   const handleStyleConfigChange = useCallback(
-    (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => {
+    (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => {
       // P1-07: a data-driven SOLID color (categorical, or graduated with the
       // color target) is incompatible with a line-gradient. Switching a line's
       // color to data-driven must drop the stale `line-gradient` paint AND the
@@ -357,16 +357,24 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => {
-          let mergedConfig: StyleConfig | null = config
-            ? {
-                ...config,
-                ...(config.builder === undefined && l.style_config?.builder
-                  ? { builder: l.style_config.builder }
-                  : {}),
-              }
-            : l.style_config?.builder
-              ? ({ builder: l.style_config.builder } as StyleConfig)
-              : null;
+          // fix(#461, codex P2): `replace` restores the config verbatim — used by
+          // Revert-to-saved, which must NOT keep the draft's style_config.builder.
+          // The default branch below deliberately preserves that builder when the
+          // incoming config omits one (so setting a data-driven color doesn't wipe
+          // your outline width), but on revert that preservation would strand a
+          // discarded builder-only edit and keep the layer dirty.
+          let mergedConfig: StyleConfig | null = opts?.replace
+            ? config
+            : config
+              ? {
+                  ...config,
+                  ...(config.builder === undefined && l.style_config?.builder
+                    ? { builder: l.style_config.builder }
+                    : {}),
+                }
+              : l.style_config?.builder
+                ? ({ builder: l.style_config.builder } as StyleConfig)
+                : null;
           if (isDataDrivenColor && mergedConfig?.builder?.lineGradient) {
             const { lineGradient: _droppedLineGradient, ...restBuilder } = mergedConfig.builder;
             mergedConfig = {

@@ -132,8 +132,10 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     expect(screen.getByText('Pending style preview')).toBeInTheDocument();
 
     // Restores the exact saved paint (not FILL_DEFAULTS), saved layout, saved opacity.
+    // fix(#461, codex P2): passes { replace: true } so the saved config is restored
+    // verbatim — the builder-merge must not strand a discarded builder-only edit.
     await user.click(screen.getByRole('button', { name: 'Revert' }));
-    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint);
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint, { replace: true });
     expect(onLayoutChange).toHaveBeenCalledWith('layer-1', saved.layout);
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });

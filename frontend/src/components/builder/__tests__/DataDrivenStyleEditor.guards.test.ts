@@ -77,6 +77,18 @@ describe('styleConfigAlreadyMatches (COMPLEXITY-01 loop guards)', () => {
       expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a'] })).toBe(false);
     });
 
+    // fix(#461, codex P2): empty column must settle. With no distinct values the
+    // effect writes categories:[]; the guard must match that empty config or it
+    // re-writes every render (loop). Empty data + non-empty saved config = drift.
+    it('matches an empty saved config when the data has no distinct values (no loop)', () => {
+      const emptyCfg: StyleConfig = { mode: 'categorical', column: 'cat', ramp: 'Set2', reversed: false, categories: [] };
+      expect(styleConfigAlreadyMatches({ ...params, existing: emptyCfg, categoryValues: [] })).toBe(true);
+    });
+
+    it('does not match when the data is empty but the saved config still has categories', () => {
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: [] })).toBe(false);
+    });
+
     it('treats a missing reversed field as false', () => {
       const noReversed: StyleConfig = { ...written, reversed: undefined };
       expect(styleConfigAlreadyMatches({ ...params, existing: noReversed })).toBe(true);

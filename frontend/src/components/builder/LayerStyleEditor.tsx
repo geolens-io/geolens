@@ -37,7 +37,7 @@ interface LayerStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
   onOpacityChange?: (layerId: string, opacity: number) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
+  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
 }
 
@@ -365,7 +365,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       handleResetStyle();
       return;
     }
-    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {});
+    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true });
     onLayoutChange(layer.id, savedLayer.layout ?? {});
     onOpacityChange?.(layer.id, savedLayer.opacity ?? 1);
     // Remount DataDrivenStyleEditor so its local ramp/mode/column re-seed from the

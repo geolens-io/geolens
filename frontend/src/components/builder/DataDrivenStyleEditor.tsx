@@ -223,14 +223,25 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
     // through to the paint expression's own fallback, exactly as before the
     // editor opened. A stale category value no longer present in the data still
     // fails the check, so a genuinely drifted config regenerates as before.
+    //
+    // fix(#461, codex P2): when the column has NO distinct values the effect
+    // writes `categories: []`; that empty config must count as a match or the
+    // effect re-writes every render (an empty dataset / all-null column loops).
+    // So for empty data, match iff the saved categories are also empty; for
+    // non-empty data, require a non-empty subset (empty config still regenerates
+    // to style the values).
+    const categoriesSettled =
+      values.length === 0
+        ? ec.categories?.length === 0
+        : (ec.categories?.length ?? 0) > 0 &&
+          ec.categories!.every((c) => dataValues.has(c.value));
     return Boolean(
       ec.mode === 'categorical' &&
       ec.column === p.column &&
       ec.ramp === p.ramp &&
       (ec.reversed ?? false) === p.reversed &&
       ec.categories &&
-      ec.categories.length > 0 &&
-      ec.categories.every((c) => dataValues.has(c.value)),
+      categoriesSettled,
     );
   }
 
