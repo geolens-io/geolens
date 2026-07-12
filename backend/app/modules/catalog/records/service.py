@@ -372,12 +372,15 @@ _DISTRIBUTION_TEMPLATES = [
         "application/zip",
         False,
     ),
-    # GeoParquet is intentionally NOT a materialized DCAT distribution here:
-    # these rows are generated per-dataset at creation, so adding a format would
-    # advertise it only for new datasets and needs a data-migration backfill for
-    # existing ones (deferred to a follow-up). GeoParquet is already advertised
-    # live for all datasets via OGC API Records / STAC (_FORMAT_MEDIA in
-    # search/service_records.py), so discovery is covered without the backfill.
+    (
+        "download",
+        "parquet",
+        "/datasets/{dataset_id}/export?format=parquet",
+        "GeoParquet Download",
+        "HTTP",
+        "application/vnd.apache.parquet",
+        False,
+    ),
     (
         "download",
         "csv",
@@ -408,8 +411,8 @@ async def generate_distributions(
 ) -> list[RecordDistribution]:
     """Generate standard distribution records for a dataset.
 
-    For spatial datasets (geometry_type is not None): creates 6 distribution rows
-    (4 download formats + OGC features + vector tiles).
+    For spatial datasets (geometry_type is not None): creates 7 distribution rows
+    (5 download formats incl. GeoParquet + OGC features + vector tiles).
     For non-spatial datasets (geometry_type is None): creates only csv download
     + OGC features (2 rows).
 
