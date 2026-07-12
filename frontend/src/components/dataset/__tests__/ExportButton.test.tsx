@@ -41,15 +41,16 @@ describe('ExportButton', () => {
     expect(screen.getByText(/rivers\.parquet/)).toBeInTheDocument();
   });
 
-  it('escapes single quotes in the DuckDB snippet filename', async () => {
+  it('sanitizes quotes and path separators in the DuckDB snippet filename', async () => {
     const user = userEvent.setup();
-    render(<ExportButton datasetId="ds-1" datasetName="Bob's Roads" />);
+    render(<ExportButton datasetId="ds-1" datasetName="Bob's Roads/2026" />);
 
     await user.click(screen.getByRole('combobox'));
     await user.click(await screen.findByRole('option', { name: 'GeoParquet' }));
 
-    // Single quote doubled -> valid DuckDB string literal.
-    expect(screen.getByText(/Bob''s Roads\.parquet/)).toBeInTheDocument();
+    // Path separator -> _, single quote doubled -> valid DuckDB string literal
+    // that matches the browser-saved filename.
+    expect(screen.getByText(/Bob''s Roads_2026\.parquet/)).toBeInTheDocument();
   });
 
   it('limits table datasets to CSV export', async () => {
