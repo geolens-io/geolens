@@ -948,7 +948,7 @@ requires-dist = [
     { name = "openai", specifier = ">=2.43.0,<3" },
     { name = "pgvector", specifier = ">=0.3.6" },
     { name = "pillow", specifier = ">=12.2.0" },
-    { name = "procrastinate", specifier = ">=3.0.0" },
+    { name = "procrastinate", specifier = ">=3.9.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=8.0.0" },
     { name = "psycopg", specifier = ">=3.3.4" },
     { name = "puremagic", specifier = ">=2.2.0" },
@@ -1659,7 +1659,7 @@ wheels = [
 
 [[package]]
 name = "procrastinate"
-version = "3.7.3"
+version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
@@ -1670,9 +1670,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/95/cc6101659c0dd203c5a0394502880f3f5e7b22db395b037dd7b819756b86/procrastinate-3.7.3.tar.gz", hash = "sha256:c838929c37b60c3cec878f1029d80eab3957579de83d67234b7aedb985d703f9", size = 84323, upload-time = "2026-03-28T14:49:26.176Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/bc/adfe64992725143791ea78c33e9a0778a97f67c0ca8761bb6fd269fbb0be/procrastinate-3.9.0.tar.gz", hash = "sha256:5805ab2af35eab12befa700ecd49e572c4f655d654151df9e5ce1ca07efb5e6e", size = 89448, upload-time = "2026-06-20T23:09:14.663Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/a0/70be6196242e835de78c0d357a7311d036a5dc07653a5d8dabc2823a83fe/procrastinate-3.7.3-py3-none-any.whl", hash = "sha256:aeb050ca62bd2166ce84a65a73a37c86b8ccd1f793c12124d2a8174581e88966", size = 148054, upload-time = "2026-03-28T14:49:24.255Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/0c/17bfd406fe4bf85e8a0cfbb9744271df447004233da295fb6e2c10dc29e1/procrastinate-3.9.0-py3-none-any.whl", hash = "sha256:af4b9ccaeebbf2a1439e02ae1e8ce327f8436a81e9d68a0b1bd26d5e7ac697bd", size = 153597, upload-time = "2026-06-20T23:09:13.105Z" },
 ]
 
 [[package]]
