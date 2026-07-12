@@ -118,37 +118,27 @@ _DATASET_FIELD_MAP: dict[str, str] = {
 }
 
 
-# Fields that may never be cleared to NULL via the PATCH. records.title is
-# NOT NULL and an empty title is never meaningful.
+# Never clearable to NULL via the PATCH: records.title is NOT NULL.
 _NON_CLEARABLE_FIELDS = {"title"}
 
 
 def _apply_simple_field_assignments(
     record: Any, dataset: Dataset, meta: "DatasetMeta"
 ) -> bool:
-    """Copy explicitly provided scalar fields from meta to record/dataset.
-
-    fix(#458 E-04): a field present in the request body is applied even when
-    null, so emptying an existing summary/lineage/constraint actually clears
-    it (the model_fields_set contract _apply_tile_columns already uses).
-    Fields absent from the request keep PATCH semantics and stay untouched;
-    before this, an explicit null was silently dropped while the UI reported
-    the save as successful.
-    """
+    """Apply scalar fields present in the request body, including explicit
+    nulls — fix(#458 E-04): clears were silently dropped before. Absent fields
+    keep PATCH semantics; _NON_CLEARABLE_FIELDS (title, NOT NULL) drop nulls."""
     mutated = False
-    for meta_field, record_attr in _RECORD_FIELD_MAP.items():
-        if meta_field not in meta.model_fields_set:
-            continue
-        value = getattr(meta, meta_field)
-        if value is None and meta_field in _NON_CLEARABLE_FIELDS:
-            continue
-        setattr(record, record_attr, value)
-        mutated = True
-    for meta_field, dataset_attr in _DATASET_FIELD_MAP.items():
-        if meta_field not in meta.model_fields_set:
-            continue
-        setattr(dataset, dataset_attr, getattr(meta, meta_field))
-        mutated = True
+    targets = ((record, _RECORD_FIELD_MAP), (dataset, _DATASET_FIELD_MAP))
+    for target, field_map in targets:
+        for meta_field, attr in field_map.items():
+            if meta_field not in meta.model_fields_set:
+                continue
+            value = getattr(meta, meta_field)
+            if value is None and meta_field in _NON_CLEARABLE_FIELDS:
+                continue
+            setattr(target, attr, value)
+            mutated = True
     return mutated
 
 
