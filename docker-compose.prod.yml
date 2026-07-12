@@ -364,6 +364,10 @@ services:
       # The SPA calls relative /api (nginx proxies to api:8000), so a relative
       # base works for any host the stack is reached on. Override for a CDN.
       API_BASE_URL: "${FRONTEND_API_BASE_URL:-/api}"
+      # FRONTEND_TILE_BASE_URL (this var) is the tile-CDN lever and OUTRANKS the
+      # backend CDN_BASE_URL setting (see resolveTileBaseUrl); CDN_BASE_URL alone
+      # only flips the admin "Tile Cache" badge. Fronting the whole domain with a
+      # CDN needs neither — tiles route through the edge same-origin; leave at /api.
       TILE_BASE_URL: "${FRONTEND_TILE_BASE_URL:-/api}"
       # Empty default on purpose: the api service's localhost fallback must not
       # leak into og:image; unset keeps the built relative URL.
