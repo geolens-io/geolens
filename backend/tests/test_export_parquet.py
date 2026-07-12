@@ -226,6 +226,63 @@ class TestGeoParquetExport:
             await test_db_session.commit()
 
     @pytest.mark.anyio
+    async def test_export_parquet_introspects_columns_and_preserves_types(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Even with column_info absent, attributes are exported (live
+        introspection, not the nullable metadata), and typed columns keep native
+        Arrow types instead of JSON strings."""
+        import datetime
+
+        import pyarrow as pa
+
+        table_name = f"exp_pqtype_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, evt date, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, evt, geom, geom_4326) VALUES "
+                "(7, '2020-01-15', ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="TypedParquetDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=1,
+            column_info=[],  # absent/empty metadata — export must still introspect
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            table = _read_parquet(resp.content)
+            # Attributes present despite empty column_info.
+            assert {"pop", "evt"} <= set(table.column_names)
+            # Date column kept a native date type (not a JSON/text string).
+            assert pa.types.is_date(table.schema.field("evt").type)
+            assert table.column("evt").to_pylist()[0] == datetime.date(2020, 1, 15)
+            assert table.column("pop").to_pylist()[0] == 7
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
     async def test_export_parquet_non_spatial_400(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.processing.export.service import validate_where_clause
 from app.processing.export.where_validator import canonical_where
-from app.processing.ingest.metadata import _qtable
+from app.processing.ingest.metadata import _qtable, get_column_info
 
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 
@@ -153,7 +153,11 @@ async def export_parquet(
     else:
         safe_where = None
 
-    attr_names = _attr_names(column_info)
+    # Introspect the live table for attribute columns rather than trusting the
+    # (nullable) dataset.column_info — otherwise a dataset with missing metadata
+    # would silently export geometry-only. Names come from information_schema, so
+    # they are real identifiers safe to quote.
+    attr_names = _attr_names(await get_column_info(db, table_name))
 
     # No blanket geom_4326 IS NOT NULL: a full export must keep rows with null
     # geometry (they export with a null geometry cell, like the feature read path
@@ -190,23 +194,29 @@ async def export_parquet(
         clauses.append(f"({escaped_where})")
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
 
+    # Select the attribute columns directly (not via to_jsonb) so the async
+    # driver returns native Python values — dates, timestamps, UUIDs, numerics —
+    # and Arrow infers real column types instead of everything-as-string. Geometry
+    # is selected last and read positionally, so a user column that happens to
+    # share the WKB alias can't shadow it. Idents are information_schema names,
+    # double-quoted (embedded quotes doubled) defensively.
+    select_parts = ['"' + n.replace('"', '""') + '"' for n in attr_names]
+    select_parts.append("ST_AsBinary(geom_4326)")
     sql = (
-        "SELECT ST_AsBinary(geom_4326) AS wkb_geom, "
-        "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS props_json "
+        f"SELECT {', '.join(select_parts)} "
         f"FROM {_qtable(table_name)} t WHERE {where_sql}"
     )
 
     geom: list[bytes | None] = []
     cols: dict[str, list] = {name: [] for name in attr_names}
+    geom_idx = len(attr_names)
 
     result = await db.stream(text(sql).bindparams(**params))
     async for row in result:
-        m = row._mapping
-        wkb = m["wkb_geom"]
+        for i, name in enumerate(attr_names):
+            cols[name].append(row[i])
+        wkb = row[geom_idx]
         geom.append(bytes(wkb) if wkb is not None else None)
-        props = m["props_json"] or {}
-        for name in attr_names:
-            cols[name].append(props.get(name))
 
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
