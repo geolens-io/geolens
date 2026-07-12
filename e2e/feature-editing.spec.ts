@@ -29,6 +29,7 @@ function getAuthToken(): string {
 }
 
 let datasetId: string;
+let datasetTitle: string;
 let editingWasEnabled: boolean;
 let headers: Record<string, string>;
 
@@ -54,11 +55,12 @@ test.describe('Feature editing round-trips', () => {
     }
 
     // Throwaway layer with a text and an integer column + one feature.
+    datasetTitle = `E2E Feature Editing ${Date.now()}`;
     const layer = await fetch(`${BASE_URL}/api/layers/`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        title: `E2E Feature Editing ${Date.now()}`,
+        title: datasetTitle,
         geometry_type: 'Point',
         columns: [
           { name: 'name', type: 'text' },
@@ -153,10 +155,14 @@ test.describe('Feature editing affordances (anonymous)', () => {
   // order, so this afterAll is the last hook to fire.
   test.afterAll(async () => {
     if (datasetId) {
-      await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
+      // The delete API demands title confirmation; assert cleanup worked so
+      // repeated runs can't silently accrete published throwaway datasets.
+      const res = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
         method: 'DELETE',
         headers,
+        body: JSON.stringify({ confirm_title: datasetTitle }),
       });
+      expect(res.ok).toBe(true);
     }
     if (!editingWasEnabled) {
       await fetch(`${BASE_URL}/api/settings/`, {

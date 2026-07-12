@@ -293,9 +293,8 @@ async def update_user_metadata(
     await session.flush()
 
     # Trigger embedding regeneration if relevant fields changed.
-    if any(
-        getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")
-    ):
+    # model_fields_set, not is-not-None: an explicit clear must also re-embed.
+    if {"title", "summary", "lineage_summary"} & meta.model_fields_set:
         await _maybe_defer_embedding(record.id, dataset.id)
 
     return dataset

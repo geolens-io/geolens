@@ -339,3 +339,55 @@ async def test_patch_explicit_null_clears_field(
     # absent fields stay untouched (PATCH semantics)
     assert body["source_organization"] == "Original Org"
     assert body["usage_constraints"] == "Attribution required"
+
+    # fix(#458 E-04, codex review): the audit event must record the cleared
+    # fields (exclude_unset, not exclude_none) so history reflects the change.
+    from sqlalchemy import select
+
+    from app.modules.audit.models import AuditLog
+
+    row = (
+        await test_db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.resource_id == ds.id,
+                AuditLog.action == "metadata.edit",
+            )
+            .order_by(AuditLog.created_at.desc())
+        )
+    ).scalar_one()
+    assert "summary" in row.details
+    assert row.details["summary"] is None
+    assert "lineage_summary" in row.details
+
+
+@pytest.mark.anyio
+async def test_patch_clear_text_field_requeues_embedding(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """fix(#458 E-04, codex review): clearing summary/lineage must re-defer the
+    embedding (model_fields_set), not skip it because the value is None."""
+    from app.modules.catalog.datasets.domain import service_metadata
+
+    deferred: list = []
+
+    async def _capture(record_id, dataset_id):
+        deferred.append(record_id)
+
+    monkeypatch.setattr(service_metadata, "_maybe_defer_embedding", _capture)
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_complete_dataset(
+        test_db_session, created_by=admin_id, name="ReembedOnClear Dataset"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"summary": None},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(deferred) == 1
