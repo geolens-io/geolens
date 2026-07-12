@@ -51,7 +51,7 @@ describe('PendingEditsBar', () => {
     expect(onSaveAll).toHaveBeenCalledTimes(1);
   });
 
-  it('shows saving state and disables save button while submitting', () => {
+  it('shows saving state and disables both buttons while submitting', () => {
     render(
       <PendingEditsBar
         pendingCount={1}
@@ -63,6 +63,9 @@ describe('PendingEditsBar', () => {
 
     expect(screen.getByTestId('pending-edits-save')).toBeDisabled();
     expect(screen.getByTestId('pending-edits-save')).toHaveTextContent('Saving...');
+    // fix(#458 E-16): Discard must be disabled mid-save so it can't fire a
+    // misleading "discarded" toast after the PATCH has already committed.
+    expect(screen.getByTestId('pending-edits-cancel')).toBeDisabled();
   });
 });
 

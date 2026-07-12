@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
@@ -39,6 +39,12 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
   const [pendingDrafts, setPendingDrafts] = useState<PendingDrafts>({});
   const [dirtyFields, setDirtyFields] = useState<Set<PendingDraftField>>(() => new Set());
   const [isSaving, setIsSaving] = useState(false);
+  // fix(#458 E-17): mirror pendingDrafts in a ref, updated synchronously with the
+  // state. savePendingDrafts blurs the focused input to flush its edit through
+  // stagePendingDraft — the blur event fires synchronously, so the ref carries
+  // that just-staged field, whereas the callback's pendingDrafts closure does not
+  // and used to drop it (then setPendingDrafts({}) discarded it for good).
+  const pendingDraftsRef = useRef<PendingDrafts>({});
 
   const stagePendingDraft = useCallback(
     (field: PendingDraftField, value: string) => {
@@ -51,9 +57,12 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
         const next = { ...prev };
         if (normalizedNext === currentDatasetValue) {
           delete next[field];
-          return next;
+        } else {
+          next[field] = normalizedNext;
         }
-        next[field] = normalizedNext;
+        // Keep the ref in lockstep. Idempotent in prev, so StrictMode's
+        // double-invoke of this updater lands on the same value.
+        pendingDraftsRef.current = next;
         return next;
       });
     },
@@ -101,7 +110,11 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    const entries = Object.entries(pendingDrafts) as Array<[PendingDraftField, string | null]>;
+    // Read from the ref, not the closure — it includes the field just staged by
+    // the blur above (fix(#458 E-17)).
+    const entries = Object.entries(pendingDraftsRef.current) as Array<
+      [PendingDraftField, string | null]
+    >;
     if (entries.length === 0) {
       return true;
     }
@@ -115,6 +128,7 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
     try {
       await updateDataset.mutateAsync({ datasetId, data: payload as DatasetUpdateRequest });
       setPendingDrafts({});
+      pendingDraftsRef.current = {};
       setDirtyFields(new Set());
       toast.success(
         t('affordances.pending.saved', {
@@ -139,10 +153,13 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
     } finally {
       setIsSaving(false);
     }
-  }, [datasetId, isGeometryEditDirty, pendingDrafts, t, updateDataset]);
+    // pendingDrafts is intentionally not a dep — savePendingDrafts reads the ref,
+    // which stays current without re-creating this callback on every keystroke.
+  }, [datasetId, isGeometryEditDirty, t, updateDataset]);
 
   const discardPendingDrafts = useCallback(() => {
     setPendingDrafts({});
+    pendingDraftsRef.current = {};
     setDirtyFields(new Set());
     toast.message(
       t('affordances.pending.canceled', {

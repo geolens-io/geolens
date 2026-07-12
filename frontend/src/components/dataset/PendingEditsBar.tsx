@@ -49,6 +49,9 @@ export function PendingEditsBar({
             variant="outline"
             size="sm"
             onClick={onCancelAll}
+            // fix(#458 E-16): don't let a Discard land mid-save — the PATCH has
+            // already committed by then, so "All changes discarded" would lie.
+            disabled={isSaving}
             data-testid="pending-edits-cancel"
           >
             {t('affordances.pending.discard')}

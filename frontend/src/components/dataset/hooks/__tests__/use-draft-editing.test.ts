@@ -161,6 +161,57 @@ describe('useDraftEditing', () => {
     });
   });
 
+  it('savePendingDrafts includes a draft staged after the callback was captured (E-17)', async () => {
+    // fix(#458 E-17): savePendingDrafts blurs the focused input, which stages its
+    // edit mid-call. The old code read `pendingDrafts` from the callback closure
+    // and dropped that field; the ref-based read captures it. Capturing `save`
+    // BEFORE staging reproduces the stale-closure condition.
+    const { result } = renderHook(() =>
+      useDraftEditing({
+        datasetId: 'ds-1',
+        dataset: makeDataset({ summary: 'old' }),
+        isGeometryEditDirty: false,
+      }),
+    );
+
+    const save = result.current.savePendingDrafts;
+    act(() => {
+      result.current.stagePendingDraft('summary', 'late value');
+    });
+
+    await act(async () => {
+      await save();
+    });
+
+    expect(mockMutateAsync).toHaveBeenCalledWith({
+      datasetId: 'ds-1',
+      data: { summary: 'late value' },
+    });
+  });
+
+  it('save after discard sends nothing (ref is reset)', async () => {
+    const { result } = renderHook(() =>
+      useDraftEditing({
+        datasetId: 'ds-1',
+        dataset: makeDataset({ summary: 'old' }),
+        isGeometryEditDirty: false,
+      }),
+    );
+
+    act(() => {
+      result.current.stagePendingDraft('summary', 'new');
+    });
+    act(() => {
+      result.current.discardPendingDrafts();
+    });
+
+    await act(async () => {
+      await result.current.savePendingDrafts();
+    });
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
   it('savePendingDrafts returns true with no staged drafts', async () => {
     const { result } = renderHook(() =>
       useDraftEditing({
