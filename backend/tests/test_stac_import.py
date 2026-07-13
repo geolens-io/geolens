@@ -73,7 +73,7 @@ STAC_SEARCH_RESULTS = {
             "properties": {
                 "datetime": "2021-06-15T00:00:00Z",
                 "title": "DEM Tile 001",
-                "proj:epsg": 4326,
+                "proj:code": "EPSG:4326",
                 "gsd": 30,
             },
             "assets": {
@@ -669,6 +669,7 @@ class TestStacAdapter:
         assert result["returned"] == 2
         assert result["items"][0]["id"] == "item-001"
         assert result["items"][0]["epsg"] == 4326
+        assert result["items"][1]["epsg"] == 4326
         assert (
             result["items"][0]["data_asset_href"]
             == "https://example.com/data/item-001.tif"

@@ -10,11 +10,10 @@ from ... import errors
 
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
-from uuid import UUID
 
 
 def _get_kwargs(
-    collection_id: UUID,
+    collection_id: str,
     *,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -72,11 +71,6 @@ def _parse_response(
 
         return response_404
 
-    if response.status_code == 422:
-        response_422 = ProblemDetail.from_dict(response.json())
-
-        return response_422
-
     if response.status_code == 500:
         response_500 = ProblemDetail.from_dict(response.json())
 
@@ -100,7 +94,7 @@ def _build_response(
 
 
 def sync_detailed(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
@@ -113,7 +107,7 @@ def sync_detailed(
      List STAC Items within a collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
@@ -144,7 +138,7 @@ def sync_detailed(
 
 
 def sync(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
@@ -157,7 +151,7 @@ def sync(
      List STAC Items within a collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
@@ -183,7 +177,7 @@ def sync(
 
 
 async def asyncio_detailed(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
@@ -196,7 +190,7 @@ async def asyncio_detailed(
      List STAC Items within a collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
@@ -225,7 +219,7 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
@@ -238,7 +232,7 @@ async def asyncio(
      List STAC Items within a collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.

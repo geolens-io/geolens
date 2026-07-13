@@ -323,14 +323,15 @@ class TestStacExtensionsRemoved:
         )
         props = result["properties"]
 
-        assert props["proj:epsg"] == 32618
+        assert props["proj:code"] == "EPSG:32618"
+        assert "proj:epsg" not in props
         assert props["proj:shape"] == [1024, 2048]
         assert props["gsd"] == 10.0
         assert props["band_count"] == 4
-        assert "bands" in props
-        assert len(props["bands"]) == 4
-        assert props["bands"][0]["name"] == "Red"
-        assert props["bands"][0]["data_type"] == "uint16"
+        assert "raster:bands" in props
+        assert len(props["raster:bands"]) == 4
+        assert props["raster:bands"][0]["name"] == "Red"
+        assert props["raster:bands"][0]["data_type"] == "uint16"
 
     async def test_no_bands_without_band_info(self, client, test_db_session):
         """No bands array when band_info is None."""
@@ -357,7 +358,7 @@ class TestStacExtensionsRemoved:
         )
 
         assert "stac_extensions" not in result
-        assert "bands" not in result["properties"]
+        assert "raster:bands" not in result["properties"]
 
 
 # ---------------------------------------------------------------------------

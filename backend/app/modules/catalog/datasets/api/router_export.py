@@ -31,12 +31,21 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     get_user_roles,
 )
-from app.standards.dcat.service import catalog_to_dcat, record_to_dcat
+from app.standards.dcat.service import (
+    catalog_to_dcat,
+    dcat_fallback_fields,
+    record_to_dcat,
+)
 from app.standards.dcat.validation import validate_dcat3
-from app.standards.dcat_us.service import catalog_to_dcat_us3, record_to_dcat_us3
+from app.standards.dcat_us.service import (
+    catalog_to_dcat_us3,
+    dcat_us3_fallback_fields,
+    record_to_dcat_us3,
+)
 from app.standards.dcat_us.validation import validate_dcat_us3
 from app.standards.geodcat_ap.service import (
     catalog_to_geodcat_ap,
+    geodcat_ap_fallback_fields,
     record_to_geodcat_ap,
 )
 from app.standards.geodcat_ap.validation import validate_geodcat_ap
@@ -50,7 +59,11 @@ from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url
 from app.platform.extensions import get_catalog_port
 from app.platform.storage import get_storage
-from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.errors import (
+    ERROR_RESPONSES_PUBLIC,
+    SERVICE_UNAVAILABLE_RESPONSE,
+)
+from app.standards.ogc.utils import normalize_language_tag, parse_accept_languages
 
 logger = structlog.get_logger()
 
@@ -110,6 +123,73 @@ def _dcat_content_language(document: object) -> str | None:
 # a spec-correct single-document streaming data.json is the real fix if a
 # harvester that can't page ever needs >10k in one request.
 _DCAT_FEED_MAX_DATASETS = 10_000
+
+
+def _catalog_completeness(
+    datasets: list[DatasetModel],
+    catalog: dict,
+    dataset_key: str,
+    fallback_fields: list[tuple[str, ...]],
+) -> dict[str, int]:
+    """Expose page-level serialization coverage without altering JSON-LD."""
+    entries = catalog.get(dataset_key)
+    serialized_count = len(entries) if isinstance(entries, list) else 0
+    source_count = len(datasets)
+    return {
+        "source_dataset_count": source_count,
+        "serialized_dataset_count": serialized_count,
+        "excluded_dataset_count": max(source_count - serialized_count, 0),
+        "metadata_fallback_dataset_count": sum(
+            bool(fields) for fields in fallback_fields
+        ),
+        "metadata_fallback_field_count": sum(len(fields) for fields in fallback_fields),
+    }
+
+
+def _catalog_completeness_headers(stats: dict[str, int]) -> dict[str, str]:
+    return {
+        "X-GeoLens-Source-Dataset-Count": str(stats["source_dataset_count"]),
+        "X-GeoLens-Serialized-Dataset-Count": str(stats["serialized_dataset_count"]),
+        "X-GeoLens-Excluded-Dataset-Count": str(stats["excluded_dataset_count"]),
+        "X-GeoLens-Metadata-Fallback-Dataset-Count": str(
+            stats["metadata_fallback_dataset_count"]
+        ),
+    }
+
+
+def _record_fallback_headers(fields: tuple[str, ...]) -> dict[str, str]:
+    if not fields:
+        return {}
+    return {"X-GeoLens-Metadata-Fallback-Fields": ",".join(fields)}
+
+
+def _record_language_headers(payload: dict) -> dict[str, str]:
+    """Describe the language actually serialized by a DCAT profile."""
+    language_value = payload.get("language")
+    if not isinstance(language_value, str):
+        title = payload.get("dcterms:title")
+        language_value = title.get("@language") if isinstance(title, dict) else None
+    language = normalize_language_tag(language_value, fallback="en") or "en"
+    return {"Content-Language": language}
+
+
+def _ensure_conformant_dcat_us3(payload: dict, schema_name: str) -> None:
+    report = validate_dcat_us3(payload, schema_name)
+    if report["valid"]:
+        return
+    logger.warning(
+        "dcat_us_export_blocked",
+        schema=schema_name,
+        error_count=report["error_count"],
+    )
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=(
+            "DCAT-US export has unresolved mandatory metadata. Add a usable "
+            "dataset contact or configure DCAT_CONTACT_EMAIL with a monitored "
+            "organization role mailbox; inspect the matching validation endpoint."
+        ),
+    )
 
 
 async def _get_visible_dcat_datasets(
@@ -197,17 +277,25 @@ async def get_dcat_catalog(
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db)
-    from app.standards.ogc.utils import parse_accept_languages
-
+    preferred_languages = parse_accept_languages(request)
     catalog = catalog_to_dcat(
         datasets,
         base_url,
-        preferred_languages=parse_accept_languages(request),
+        preferred_languages=preferred_languages,
+    )
+    completeness = _catalog_completeness(
+        datasets,
+        catalog,
+        "dcat:dataset",
+        [dcat_fallback_fields(dataset, preferred_languages) for dataset in datasets],
     )
     return JSONResponse(
         content=catalog,
         media_type="application/ld+json",
-        headers=_language_headers(_dcat_content_language(catalog)),
+        headers={
+            **_language_headers(_dcat_content_language(catalog)),
+            **_catalog_completeness_headers(completeness),
+        },
     )
 
 
@@ -227,14 +315,25 @@ async def validate_dcat3_catalog(
     base_url = await get_public_api_url(db)
     catalog = catalog_to_dcat(datasets, base_url)
     report = validate_dcat3(catalog, "Catalog")
+    report.update(
+        _catalog_completeness(
+            datasets,
+            catalog,
+            "dcat:dataset",
+            [dcat_fallback_fields(dataset) for dataset in datasets],
+        )
+    )
 
     return JSONResponse(content=report)
 
 
 @router.get("/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False)
-@router.get("/dcat-us/3.0/", response_class=JSONResponse)
+@router.get(
+    "/dcat-us/3.0/",
+    response_class=JSONResponse,
+    responses={503: SERVICE_UNAVAILABLE_RESPONSE},
+)
 async def get_dcat_us3_catalog(
-    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
     limit: int = _FEED_LIMIT_Q,
@@ -244,12 +343,25 @@ async def get_dcat_us3_catalog(
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db)
-    catalog = catalog_to_dcat_us3(datasets, base_url)
+    catalog = catalog_to_dcat_us3(
+        datasets,
+        base_url,
+        catalog_contact_email=settings.dcat_contact_email,
+    )
+    fallback_fields = [
+        dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
+        for dataset in datasets
+    ]
+    completeness = _catalog_completeness(datasets, catalog, "dataset", fallback_fields)
+    _ensure_conformant_dcat_us3(catalog, "Catalog")
 
     return JSONResponse(
         content=catalog,
         media_type="application/ld+json",
-        headers={"Content-Language": str(catalog.get("language") or "en")},
+        headers={
+            "Content-Language": str(catalog.get("language") or "en"),
+            **_catalog_completeness_headers(completeness),
+        },
     )
 
 
@@ -267,8 +379,17 @@ async def validate_dcat_us3_catalog(
     datasets = await _get_visible_dcat_datasets(db, user)
 
     base_url = await get_public_api_url(db)
-    catalog = catalog_to_dcat_us3(datasets, base_url)
+    catalog = catalog_to_dcat_us3(
+        datasets,
+        base_url,
+        catalog_contact_email=settings.dcat_contact_email,
+    )
     report = validate_dcat_us3(catalog, "Catalog")
+    fallback_fields = [
+        dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
+        for dataset in datasets
+    ]
+    report.update(_catalog_completeness(datasets, catalog, "dataset", fallback_fields))
 
     return JSONResponse(content=report)
 
@@ -276,7 +397,6 @@ async def validate_dcat_us3_catalog(
 @router.get("/geodcat-ap", response_class=JSONResponse, include_in_schema=False)
 @router.get("/geodcat-ap/", response_class=JSONResponse)
 async def get_geodcat_ap_catalog(
-    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
     limit: int = _FEED_LIMIT_Q,
@@ -287,11 +407,17 @@ async def get_geodcat_ap_catalog(
 
     base_url = await get_public_api_url(db)
     catalog = catalog_to_geodcat_ap(datasets, base_url)
+    completeness = _catalog_completeness(
+        datasets,
+        catalog,
+        "dcat:dataset",
+        [geodcat_ap_fallback_fields(dataset) for dataset in datasets],
+    )
 
     return JSONResponse(
         content=catalog,
         media_type="application/ld+json",
-        headers={},
+        headers=_catalog_completeness_headers(completeness),
     )
 
 
@@ -311,6 +437,14 @@ async def validate_geodcat_ap_catalog(
     base_url = await get_public_api_url(db)
     catalog = catalog_to_geodcat_ap(datasets, base_url)
     report = validate_geodcat_ap(catalog, "Catalog")
+    report.update(
+        _catalog_completeness(
+            datasets,
+            catalog,
+            "dcat:dataset",
+            [geodcat_ap_fallback_fields(dataset) for dataset in datasets],
+        )
+    )
 
     return JSONResponse(content=report)
 
@@ -332,14 +466,21 @@ async def validate_dcat3_record(
     base_url = await get_public_api_url(db)
     dcat = record_to_dcat(dataset, base_url)
     report = validate_dcat3(dcat, "Dataset")
+    fallback_fields = dcat_fallback_fields(dataset)
+    report.update(
+        {
+            "uses_metadata_fallback": bool(fallback_fields),
+            "metadata_fallback_fields": list(fallback_fields),
+        }
+    )
 
     return JSONResponse(content=report)
 
 
 @router.get("/{dataset_id}/dcat/", response_class=JSONResponse)
 async def get_dcat_record(
-    dataset_id: uuid.UUID,
     request: Request,
+    dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -347,17 +488,20 @@ async def get_dcat_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db)
-    from app.standards.ogc.utils import parse_accept_languages
-
+    preferred_languages = parse_accept_languages(request)
     dcat = record_to_dcat(
         dataset,
         base_url,
-        preferred_languages=parse_accept_languages(request),
+        preferred_languages=preferred_languages,
     )
+    fallback_fields = dcat_fallback_fields(dataset, preferred_languages)
     return JSONResponse(
         content=dcat,
         media_type="application/ld+json",
-        headers=_language_headers(_dcat_content_language(dcat)),
+        headers={
+            **_language_headers(_dcat_content_language(dcat)),
+            **_record_fallback_headers(fallback_fields),
+        },
     )
 
 
@@ -376,8 +520,19 @@ async def validate_dcat_us3_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db)
-    dcat = record_to_dcat_us3(dataset, base_url)
+    dcat = record_to_dcat_us3(
+        dataset,
+        base_url,
+        catalog_contact_email=settings.dcat_contact_email,
+    )
     report = validate_dcat_us3(dcat, "Dataset")
+    fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
+    report.update(
+        {
+            "uses_metadata_fallback": bool(fallback_fields),
+            "metadata_fallback_fields": list(fallback_fields),
+        }
+    )
 
     return JSONResponse(content=report)
 
@@ -385,10 +540,13 @@ async def validate_dcat_us3_record(
 @router.get(
     "/{dataset_id}/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False
 )
-@router.get("/{dataset_id}/dcat-us/3.0/", response_class=JSONResponse)
+@router.get(
+    "/{dataset_id}/dcat-us/3.0/",
+    response_class=JSONResponse,
+    responses={503: SERVICE_UNAVAILABLE_RESPONSE},
+)
 async def get_dcat_us3_record(
     dataset_id: uuid.UUID,
-    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -396,12 +554,21 @@ async def get_dcat_us3_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db)
-    dcat = record_to_dcat_us3(dataset, base_url)
+    dcat = record_to_dcat_us3(
+        dataset,
+        base_url,
+        catalog_contact_email=settings.dcat_contact_email,
+    )
+    fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
+    _ensure_conformant_dcat_us3(dcat, "Dataset")
 
     return JSONResponse(
         content=dcat,
         media_type="application/ld+json",
-        headers=_language_headers(dcat.get("language")),
+        headers={
+            **_record_language_headers(dcat),
+            **_record_fallback_headers(fallback_fields),
+        },
     )
 
 
@@ -422,6 +589,13 @@ async def validate_geodcat_ap_record(
     base_url = await get_public_api_url(db)
     geodcat = record_to_geodcat_ap(dataset, base_url)
     report = validate_geodcat_ap(geodcat, "Dataset")
+    fallback_fields = geodcat_ap_fallback_fields(dataset)
+    report.update(
+        {
+            "uses_metadata_fallback": bool(fallback_fields),
+            "metadata_fallback_fields": list(fallback_fields),
+        }
+    )
 
     return JSONResponse(content=report)
 
@@ -432,7 +606,6 @@ async def validate_geodcat_ap_record(
 @router.get("/{dataset_id}/geodcat-ap/", response_class=JSONResponse)
 async def get_geodcat_ap_record(
     dataset_id: uuid.UUID,
-    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -441,12 +614,15 @@ async def get_geodcat_ap_record(
 
     base_url = await get_public_api_url(db)
     geodcat = record_to_geodcat_ap(dataset, base_url)
+    fallback_fields = geodcat_ap_fallback_fields(dataset)
 
-    lang = geodcat.get("dcterms:title", {}).get("@language")
     return JSONResponse(
         content=geodcat,
         media_type="application/ld+json",
-        headers=_language_headers(lang),
+        headers={
+            **_record_language_headers(geodcat),
+            **_record_fallback_headers(fallback_fields),
+        },
     )
 
 

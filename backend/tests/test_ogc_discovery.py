@@ -71,7 +71,7 @@ async def test_landing_page_openapi_link(client):
     data = response.json()
 
     service_desc = next(link for link in data["links"] if link["rel"] == "service-desc")
-    assert service_desc["type"] == "application/vnd.oai.openapi+json;version=3.0"
+    assert service_desc["type"] == "application/vnd.oai.openapi+json;version=3.1"
 
     # Follow the link (extract path from absolute URL)
     from urllib.parse import urlparse
@@ -80,7 +80,45 @@ async def test_landing_page_openapi_link(client):
     openapi_resp = await client.get(path)
     assert openapi_resp.status_code == 200
     openapi_data = openapi_resp.json()
-    assert "openapi" in openapi_data
+    assert openapi_data["openapi"].startswith("3.1.")
+
+
+async def test_standards_openapi_documents_problem_400(client):
+    response = await client.get("/openapi.json")
+    assert response.status_code == 200
+    operation = response.json()["paths"]["/collections/datasets/items"]["get"]
+    assert "400" in operation["responses"]
+    assert "422" not in operation["responses"]
+    assert "application/problem+json" in operation["responses"]["400"]["content"]
+
+    parameters = {item["name"]: item for item in operation["parameters"]}
+    assert parameters["type"]["schema"]["type"] == "array"
+    assert parameters["ids"]["schema"]["type"] == "array"
+    assert parameters["externalIds"]["schema"]["type"] == "array"
+    for name in ("type", "ids", "externalIds"):
+        assert parameters[name]["style"] == "form"
+        assert parameters[name]["explode"] is False
+
+    dcat_operation = response.json()["paths"]["/datasets/dcat/"]["get"]
+    assert "400" in dcat_operation["responses"]
+    assert "422" not in dcat_operation["responses"]
+
+    dcat_us_operation = response.json()["paths"]["/datasets/dcat-us/3.0/"]["get"]
+    assert "503" in dcat_us_operation["responses"]
+
+    feature_schema = operation["responses"]["200"]["content"]["application/geo+json"][
+        "schema"
+    ]
+    assert feature_schema == {
+        "$ref": "#/components/schemas/OGCFeatureCollectionResponse"
+    }
+    item_operation = response.json()["paths"][
+        "/collections/datasets/items/{record_id}"
+    ]["get"]
+    item_schema = item_operation["responses"]["200"]["content"]["application/geo+json"][
+        "schema"
+    ]
+    assert item_schema == {"$ref": "#/components/schemas/OGCRecordResponse"}
 
 
 # --- Landing page f parameter tests ---
@@ -98,6 +136,64 @@ async def test_landing_page_f_unsupported_returns_400(client):
     assert response.status_code == 400
     data = response.json()
     assert "Unsupported format" in data["detail"]
+
+
+async def test_landing_page_reports_serialized_language(client):
+    response = await client.get("/", headers={"Accept-Language": "fr"})
+    assert response.status_code == 200
+    assert response.headers["content-language"] == "en"
+
+
+async def test_anonymous_standards_cors_default_is_read_only(client, monkeypatch):
+    async def _deny_origin(_self, _origin):
+        return False
+
+    monkeypatch.setattr(
+        "app.api.middleware.cors.DynamicCORSMiddleware._is_origin_allowed",
+        _deny_origin,
+    )
+
+    response = await client.get(
+        "/conformance", headers={"Origin": "https://client.example"}
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in response.headers
+
+    preflight = await client.options(
+        "/collections/datasets/items",
+        headers={
+            "Origin": "https://client.example",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Accept",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "*"
+
+    dcat_preflight = await client.options(
+        "/datasets/dcat/",
+        headers={
+            "Origin": "https://client.example",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Accept",
+        },
+    )
+    assert dcat_preflight.status_code == 200
+    assert dcat_preflight.headers["access-control-allow-origin"] == "*"
+    assert (
+        "X-GeoLens-Source-Dataset-Count"
+        in dcat_preflight.headers["access-control-expose-headers"]
+    )
+
+    credentialed = await client.get(
+        "/conformance",
+        headers={
+            "Origin": "https://client.example",
+            "Cookie": "session=not-a-real-session",
+        },
+    )
+    assert "access-control-allow-origin" not in credentialed.headers
 
 
 # --- Conformance endpoint tests ---
@@ -121,14 +217,13 @@ async def test_conformance_contains_required_classes(client):
         "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/core",
         "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/landing-page",
         "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/json",
-        "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/oas30",
         # OGC API Features Part 1
         "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
         "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
-        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30",
     ]
     for cls in required_classes:
         assert cls in data["conformsTo"], f"Missing conformance class: {cls}"
+    assert not any(value.endswith("/conf/oas30") for value in data["conformsTo"])
 
 
 async def test_conformance_contains_records_classes(client):

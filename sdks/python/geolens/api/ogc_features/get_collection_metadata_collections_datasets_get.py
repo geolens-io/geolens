@@ -8,6 +8,7 @@ from ...types import Response
 from ... import errors
 
 from ...models.ogc_collection_metadata_response import OGCCollectionMetadataResponse
+from ...models.problem_detail import ProblemDetail
 
 
 def _get_kwargs() -> dict[str, Any]:
@@ -22,11 +23,26 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> OGCCollectionMetadataResponse | None:
+) -> OGCCollectionMetadataResponse | ProblemDetail | None:
     if response.status_code == 200:
         response_200 = OGCCollectionMetadataResponse.from_dict(response.json())
 
         return response_200
+
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
+
+        return response_400
+
+    if response.status_code == 404:
+        response_404 = ProblemDetail.from_dict(response.json())
+
+        return response_404
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -36,7 +52,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[OGCCollectionMetadataResponse]:
+) -> Response[OGCCollectionMetadataResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -48,7 +64,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[OGCCollectionMetadataResponse]:
+) -> Response[OGCCollectionMetadataResponse | ProblemDetail]:
     """Get Collection Metadata
 
      Get metadata for the datasets collection.
@@ -58,7 +74,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[OGCCollectionMetadataResponse]
+        Response[OGCCollectionMetadataResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs()
@@ -73,7 +89,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> OGCCollectionMetadataResponse | None:
+) -> OGCCollectionMetadataResponse | ProblemDetail | None:
     """Get Collection Metadata
 
      Get metadata for the datasets collection.
@@ -83,7 +99,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        OGCCollectionMetadataResponse
+        OGCCollectionMetadataResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -94,7 +110,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[OGCCollectionMetadataResponse]:
+) -> Response[OGCCollectionMetadataResponse | ProblemDetail]:
     """Get Collection Metadata
 
      Get metadata for the datasets collection.
@@ -104,7 +120,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[OGCCollectionMetadataResponse]
+        Response[OGCCollectionMetadataResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs()
@@ -117,7 +133,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> OGCCollectionMetadataResponse | None:
+) -> OGCCollectionMetadataResponse | ProblemDetail | None:
     """Get Collection Metadata
 
      Get metadata for the datasets collection.
@@ -127,7 +143,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        OGCCollectionMetadataResponse
+        OGCCollectionMetadataResponse | ProblemDetail
     """
 
     return (

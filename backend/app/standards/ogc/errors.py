@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core.url_redaction import redact_query_credentials
+from app.standards.ogc.utils import standards_api_path
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -25,6 +26,11 @@ class ProblemDetail(BaseModel):
 PROBLEM_RESPONSE = {
     "model": ProblemDetail,
     "content": {"application/problem+json": {}},
+}
+
+SERVICE_UNAVAILABLE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Service unavailable — required publication metadata is missing",
 }
 
 ERROR_RESPONSES_AUTH = {
@@ -93,8 +99,28 @@ def _status_title(status_code: int) -> str:
         422: "Validation Error",
         429: "Too Many Requests",
         500: "Internal Server Error",
+        503: "Service Unavailable",
     }
     return titles.get(status_code, "Error")
+
+
+def _is_standards_path(request: Request) -> bool:
+    """Return whether request validation is governed by an OGC/STAC profile.
+
+    FastAPI normally reports query/path/body validation as 422.  OGC API
+    Common and the standards implemented on top of it require malformed
+    request parameters to be reported as 400 instead.  Keep the conversion
+    scoped to the machine-client standards surface so native application APIs
+    retain their established 422 contract.
+    """
+
+    return (
+        standards_api_path(
+            request.scope.get("path", request.url.path),
+            root_path=request.scope.get("root_path", ""),
+        )
+        is not None
+    )
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -130,15 +156,16 @@ def register_error_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        status_code = 400 if _is_standards_path(request) else 422
         detail = "; ".join(
             f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
             for e in exc.errors()
         )
         return JSONResponse(
-            status_code=422,
+            status_code=status_code,
             content=ProblemDetail(
-                title="Validation Error",
-                status=422,
+                title=_status_title(status_code),
+                status=status_code,
                 detail=detail,
             ).model_dump(),
             media_type="application/problem+json",

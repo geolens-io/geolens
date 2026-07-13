@@ -22,6 +22,7 @@ from app.standards.dcat.service import (
     DCAT_CONTEXT,
     _lang_to_uri,
 )
+from app.standards.ogc.utils import normalize_language_tag
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -32,7 +33,6 @@ if TYPE_CHECKING:
         RecordContact,
         RecordDistribution,
     )
-
 # GeoDCAT-AP extends the DCAT 3 context with the geospatial / EU namespaces it
 # relies on (GeoSPARQL for geometry/CRS, ADMS for status, locn, prov, geodcat
 # for the responsible-party role vocabulary).
@@ -97,7 +97,8 @@ def record_to_geodcat_ap(
     if include_context:
         result["@context"] = GEODCAT_AP_CONTEXT
 
-    lang = getattr(record, "language", None) or "en"
+    lang = normalize_language_tag(getattr(record, "language", None), fallback="en")
+    assert lang is not None
 
     result["@type"] = "dcat:Dataset"
     result["@id"] = f"{base_url}/datasets/{dataset.id}"
@@ -105,8 +106,10 @@ def record_to_geodcat_ap(
     result["dcterms:title"] = {"@value": record.title, "@language": lang}
     result["dcterms:language"] = _lang_to_uri(lang)
 
-    if record.summary is not None:
-        result["dcterms:description"] = {"@value": record.summary, "@language": lang}
+    result["dcterms:description"] = {
+        "@value": _required_description(record.title, record.summary),
+        "@language": lang,
+    }
 
     if record.created_at is not None:
         result["dcterms:issued"] = record.created_at.isoformat()
@@ -201,20 +204,13 @@ def catalog_to_geodcat_ap(datasets: list[Dataset], base_url: str) -> dict:
         A GeoDCAT-AP Catalog dict with nested dataset entries (no per-entry
         ``@context``).
 
-    Filter-the-feed conformance posture: only records that pass GeoDCAT-AP
-    structural validation are emitted in ``dcat:dataset``. Records missing a
-    mandatory property (e.g. title or description) are silently skipped so the
-    feed as a whole stays conformant with zero onboarding friction. Operators
-    who want to *block* incomplete records at publish time can enable the
-    optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
+    Every visible input dataset is emitted. A missing description receives the
+    same deterministic title-based fallback as the per-dataset serializer, so
+    catalog validation cannot hide published records by filtering them first.
     """
-    from app.standards.geodcat_ap.validation import validate_geodcat_ap
-
-    entries: list[dict] = []
-    for ds in datasets:
-        entry = record_to_geodcat_ap(ds, base_url, include_context=False)
-        if validate_geodcat_ap(entry, "Dataset")["valid"]:
-            entries.append(entry)
+    entries = [
+        record_to_geodcat_ap(ds, base_url, include_context=False) for ds in datasets
+    ]
 
     return {
         "@context": GEODCAT_AP_CONTEXT,
@@ -238,6 +234,23 @@ def catalog_to_geodcat_ap(datasets: list[Dataset], base_url: str) -> dict:
         },
         "dcat:dataset": entries,
     }
+
+
+def geodcat_ap_fallback_fields(dataset: Dataset) -> tuple[str, ...]:
+    """Return protocol-required fields supplied by deterministic fallbacks."""
+    if not _has_text(dataset.record.summary):
+        return ("dcterms:description",)
+    return ()
+
+
+def _required_description(title: str, summary: str | None) -> str:
+    if _has_text(summary):
+        return summary.strip()
+    return title.strip() or "Untitled dataset"
+
+
+def _has_text(value: str | None) -> bool:
+    return bool(value and value.strip())
 
 
 # ---------------------------------------------------------------------------

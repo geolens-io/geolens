@@ -8,7 +8,7 @@ Verifies:
   - Contacts are now sourced from record_contacts table (contact JSONB dropped in 87-01)
   - Records with data_vintage dates include time.interval with ISO 8601 dates
   - Open-ended temporal bounds use ".." notation
-  - Null metadata fields produce null enriched properties
+  - Required OGC record properties use deterministic publication fallbacks
   - All existing record properties remain unchanged after enrichment
 """
 
@@ -160,10 +160,10 @@ async def test_record_has_themes_from_theme_category(
 
 
 @pytest.mark.anyio
-async def test_record_themes_null_when_no_theme_category(
+async def test_record_themes_empty_when_no_theme_category(
     client: AsyncClient, test_db_session
 ):
-    """Record with no theme_category has themes as None."""
+    """Record with no theme_category still has an array-valued themes field."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
@@ -176,7 +176,7 @@ async def test_record_themes_null_when_no_theme_category(
     resp = await client.get(f"/collections/datasets/items/{ds.id}")
     assert resp.status_code == 200
     props = resp.json()["properties"]
-    assert props["themes"] is None
+    assert props["themes"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +203,10 @@ async def test_record_has_rights_from_license(client: AsyncClient, test_db_sessi
 
 
 @pytest.mark.anyio
-async def test_record_rights_null_when_no_license(client: AsyncClient, test_db_session):
-    """Record with no license has rights as None."""
+async def test_record_rights_falls_back_when_no_license(
+    client: AsyncClient, test_db_session
+):
+    """Record with no license uses the catalog's proprietary fallback."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
@@ -217,7 +219,8 @@ async def test_record_rights_null_when_no_license(client: AsyncClient, test_db_s
     resp = await client.get(f"/collections/datasets/items/{ds.id}")
     assert resp.status_code == 200
     props = resp.json()["properties"]
-    assert props["rights"] is None
+    assert props["license"] == "proprietary"
+    assert props["rights"] == "proprietary"
 
 
 # ---------------------------------------------------------------------------
@@ -262,10 +265,10 @@ async def test_record_contacts_from_record_contacts_table(
 
 
 @pytest.mark.anyio
-async def test_record_contacts_empty_when_no_contacts(
+async def test_record_contacts_fall_back_to_publisher(
     client: AsyncClient, test_db_session
 ):
-    """Record without contacts has null contacts list."""
+    """Record without contacts identifies the responsible catalog publisher."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
@@ -277,7 +280,13 @@ async def test_record_contacts_empty_when_no_contacts(
     resp = await client.get(f"/collections/datasets/items/{ds.id}")
     assert resp.status_code == 200
     props = resp.json()["properties"]
-    assert props["contacts"] is None
+    assert props["contacts"] == [
+        {
+            "name": "GeoLens metadata catalog",
+            "organization": "GeoLens",
+            "roles": ["publisher"],
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +355,10 @@ async def test_record_time_with_open_end(client: AsyncClient, test_db_session):
 
 
 @pytest.mark.anyio
-async def test_record_time_null_when_no_vintage(client: AsyncClient, test_db_session):
-    """Record with no vintage dates has time as None."""
+async def test_record_time_falls_back_to_created_timestamp(
+    client: AsyncClient, test_db_session
+):
+    """Record with no vintage dates uses its catalog creation timestamp."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
@@ -361,7 +372,8 @@ async def test_record_time_null_when_no_vintage(client: AsyncClient, test_db_ses
     resp = await client.get(f"/collections/datasets/items/{ds.id}")
     assert resp.status_code == 200
     props = resp.json()["properties"]
-    assert props["time"] is None
+    assert props["time"] == resp.json()["time"]
+    assert isinstance(props["time"]["timestamp"], str)
 
 
 # ---------------------------------------------------------------------------

@@ -22,7 +22,6 @@ if TYPE_CHECKING:
         RecordContact,
         RecordDistribution,
     )
-
 _LANG_URI_BASE = "http://publications.europa.eu/resource/authority/language/"
 
 # ISO 639-1 → ISO 639-3 (uppercase) mapping used by the EU Authority Table.
@@ -278,18 +277,23 @@ def record_to_dcat(
     # Per-record language
     result["dcterms:language"] = _lang_to_uri(lang)
 
-    if localized.summary is not None:
+    if _has_text(localized.summary):
         result["dcterms:description"] = {
-            "@value": localized.summary,
+            "@value": localized.summary.strip(),
             "@language": lang,
         }
-    elif record.summary is not None:
+    elif _has_text(record.summary):
         # A title-only translation is still useful. DCAT requires a
         # description, so retain the primary summary with its own provenance
         # instead of dropping the whole record from catalog feeds.
         result["dcterms:description"] = {
-            "@value": record.summary,
+            "@value": record.summary.strip(),
             "@language": source_lang,
+        }
+    else:
+        result["dcterms:description"] = {
+            "@value": _required_description(localized.title, None),
+            "@language": lang,
         }
 
     if record.created_at is not None:
@@ -302,7 +306,7 @@ def record_to_dcat(
         result["dcat:keyword"] = [kw.keyword for kw in record.keywords]
 
     # Publisher: use source_organization when available, else "GeoLens"
-    publisher_name = record.source_organization or "GeoLens"
+    publisher_name = record.source_organization or record.owner_org or "GeoLens"
     result["dcterms:publisher"] = {"@type": "foaf:Agent", "foaf:name": publisher_name}
 
     if record.license is not None:
@@ -420,12 +424,9 @@ def catalog_to_dcat(
 ) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
-    Filter-the-feed conformance posture: only records that pass DCAT 3
-    structural validation are emitted in ``dcat:dataset``. Records missing a
-    mandatory property (e.g. title or description) are silently skipped so the
-    feed as a whole stays conformant with zero onboarding friction. Operators
-    who want to *block* incomplete records at publish time can enable the
-    optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
+    Every visible input dataset is emitted. A missing description receives the
+    same deterministic title-based fallback as the per-dataset serializer, so
+    catalog validation cannot hide published records by filtering them first.
 
     Args:
         datasets: List of Dataset ORM objects with record relationships loaded.
@@ -434,18 +435,15 @@ def catalog_to_dcat(
     Returns:
         A DCAT Catalog dict with nested dataset entries (without individual @context).
     """
-    from app.standards.dcat.validation import validate_dcat3
-
-    entries: list[dict] = []
-    for ds in datasets:
-        entry = record_to_dcat(
+    entries = [
+        record_to_dcat(
             ds,
             base_url,
             include_context=False,
             preferred_languages=preferred_languages,
         )
-        if validate_dcat3(entry, "Dataset")["valid"]:
-            entries.append(entry)
+        for ds in datasets
+    ]
 
     return {
         "@context": DCAT_CONTEXT,
@@ -466,3 +464,25 @@ def catalog_to_dcat(
         },
         "dcat:dataset": entries,
     }
+
+
+def dcat_fallback_fields(
+    dataset: Dataset,
+    preferred_languages: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    """Return protocol-required fields supplied by deterministic fallbacks."""
+    localized = select_localized_record_text(dataset.record, preferred_languages)
+    if not _has_text(localized.summary) and not _has_text(dataset.record.summary):
+        return ("dcterms:description",)
+    return ()
+
+
+def _required_description(title: str, summary: str | None) -> str:
+    """Return a non-empty, truthful description for catalog harvesting."""
+    if _has_text(summary):
+        return summary.strip()
+    return title.strip() or "Untitled dataset"
+
+
+def _has_text(value: str | None) -> bool:
+    return bool(value and value.strip())

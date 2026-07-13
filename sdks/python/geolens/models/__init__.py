@@ -378,21 +378,19 @@ from .ogc_record_properties import OGCRecordProperties
 from .ogc_record_properties_constraints_type_0 import (
     OGCRecordPropertiesConstraintsType0,
 )
-from .ogc_record_properties_contacts_type_0_item import (
-    OGCRecordPropertiesContactsType0Item,
-)
+from .ogc_record_properties_contacts_item import OGCRecordPropertiesContactsItem
 from .ogc_record_properties_distributions_type_0_item import (
     OGCRecordPropertiesDistributionsType0Item,
 )
 from .ogc_record_properties_quality_detail_type_0 import (
     OGCRecordPropertiesQualityDetailType0,
 )
-from .ogc_record_properties_themes_type_0_item import OGCRecordPropertiesThemesType0Item
-from .ogc_record_properties_time_type_0 import OGCRecordPropertiesTimeType0
+from .ogc_record_properties_themes_item import OGCRecordPropertiesThemesItem
+from .ogc_record_properties_time import OGCRecordPropertiesTime
 from .ogc_record_response import OGCRecordResponse
 from .ogc_record_response_assets_type_0 import OGCRecordResponseAssetsType0
 from .ogc_record_response_geometry_type_0 import OGCRecordResponseGeometryType0
-from .ogc_record_response_time_type_0 import OGCRecordResponseTimeType0
+from .ogc_record_response_time import OGCRecordResponseTime
 from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature import (
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature,
 )
@@ -885,15 +883,15 @@ __all__ = (
     "OGCRecordLink",
     "OGCRecordProperties",
     "OGCRecordPropertiesConstraintsType0",
-    "OGCRecordPropertiesContactsType0Item",
+    "OGCRecordPropertiesContactsItem",
     "OGCRecordPropertiesDistributionsType0Item",
     "OGCRecordPropertiesQualityDetailType0",
-    "OGCRecordPropertiesThemesType0Item",
-    "OGCRecordPropertiesTimeType0",
+    "OGCRecordPropertiesThemesItem",
+    "OGCRecordPropertiesTime",
     "OGCRecordResponse",
     "OGCRecordResponseAssetsType0",
     "OGCRecordResponseGeometryType0",
-    "OGCRecordResponseTimeType0",
+    "OGCRecordResponseTime",
     "OgImageUploadRequest",
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature",
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties",

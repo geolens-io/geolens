@@ -7,6 +7,7 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
+from ...models.problem_detail import ProblemDetail
 from ...models.stac_collection_list_response import StacCollectionListResponse
 
 
@@ -22,11 +23,16 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> StacCollectionListResponse | None:
+) -> ProblemDetail | StacCollectionListResponse | None:
     if response.status_code == 200:
         response_200 = StacCollectionListResponse.from_dict(response.json())
 
         return response_200
+
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
+
+        return response_400
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -36,7 +42,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[StacCollectionListResponse]:
+) -> Response[ProblemDetail | StacCollectionListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -48,7 +54,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[StacCollectionListResponse]:
+) -> Response[ProblemDetail | StacCollectionListResponse]:
     """Get Collections
 
      List all STAC Collections.
@@ -58,7 +64,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[StacCollectionListResponse]
+        Response[ProblemDetail | StacCollectionListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -73,7 +79,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> StacCollectionListResponse | None:
+) -> ProblemDetail | StacCollectionListResponse | None:
     """Get Collections
 
      List all STAC Collections.
@@ -83,7 +89,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        StacCollectionListResponse
+        ProblemDetail | StacCollectionListResponse
     """
 
     return sync_detailed(
@@ -94,7 +100,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[StacCollectionListResponse]:
+) -> Response[ProblemDetail | StacCollectionListResponse]:
     """Get Collections
 
      List all STAC Collections.
@@ -104,7 +110,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[StacCollectionListResponse]
+        Response[ProblemDetail | StacCollectionListResponse]
     """
 
     kwargs = _get_kwargs()
@@ -117,7 +123,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> StacCollectionListResponse | None:
+) -> ProblemDetail | StacCollectionListResponse | None:
     """Get Collections
 
      List all STAC Collections.
@@ -127,7 +133,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        StacCollectionListResponse
+        ProblemDetail | StacCollectionListResponse
     """
 
     return (

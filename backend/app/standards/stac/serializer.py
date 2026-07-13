@@ -15,15 +15,26 @@ STAC_CONFORMANCE: list[str] = [
     "https://api.stacspec.org/v1.0.0/core",
     "https://api.stacspec.org/v1.0.0/collections",
     "https://api.stacspec.org/v1.0.0/item-search",
-    "https://api.stacspec.org/v1.0.0/ogcapi-features",
 ]
 
+STAC_PROJECTION_EXTENSION_URI = (
+    "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+)
+STAC_RASTER_EXTENSION_URI = (
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+)
 STAC_LANGUAGE_EXTENSION_URI = (
     "https://stac-extensions.github.io/language/v1.0.0/schema.json"
 )
 
 # STAC extension properties that should be copied from OGC record properties
-_STAC_EXTENSION_PROPS = ("proj:epsg", "proj:shape", "gsd", "bands")
+_STAC_EXTENSION_PROPS = (
+    "proj:code",
+    "proj:wkt2",
+    "proj:shape",
+    "gsd",
+    "raster:bands",
+)
 
 _RTL_LANGS = {"ar", "fa", "he", "ur"}
 
@@ -97,6 +108,30 @@ def _append_unique(values: list[str], value: str) -> None:
         values.append(value)
 
 
+def _normalize_extension_uris(values: list[str]) -> list[str]:
+    """Canonicalize extension versions whose properties GeoLens emits."""
+    normalized: list[str] = []
+    for value in values:
+        if value.startswith("https://stac-extensions.github.io/projection/"):
+            value = STAC_PROJECTION_EXTENSION_URI
+        elif value.startswith("https://stac-extensions.github.io/raster/"):
+            value = STAC_RASTER_EXTENSION_URI
+        _append_unique(normalized, value)
+    return normalized
+
+
+def _projection_code(properties: dict) -> str | None:
+    """Return a Projection Extension v2 code, accepting legacy input safely."""
+    value = properties.get("proj:code")
+    if value is None:
+        value = properties.get("proj:epsg")
+        if value is not None:
+            value = f"EPSG:{value}"
+    if value is None:
+        return None
+    return str(value)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -137,7 +172,9 @@ def ogc_record_to_stac_item(
     if props.get("description"):
         stac_props["description"] = props["description"]
 
-    stac_extensions = list(record.get("stac_extensions") or [])
+    stac_extensions = _normalize_extension_uris(
+        list(record.get("stac_extensions") or [])
+    )
 
     # Language (from OGC Record properties, serialized per the STAC language extension)
     language = _build_language_object(props.get("language"))
@@ -145,10 +182,21 @@ def ogc_record_to_stac_item(
         stac_props["language"] = language
         _append_unique(stac_extensions, STAC_LANGUAGE_EXTENSION_URI)
 
-    # STAC extension properties
+    # STAC extension properties. Projection v2 replaced integer ``proj:epsg``
+    # with an authority-qualified string ``proj:code``. Accepting the legacy
+    # key at this boundary keeps callers safe without ever emitting it.
+    proj_code = _projection_code(props)
+    if proj_code is not None:
+        stac_props["proj:code"] = proj_code
+
     for key in _STAC_EXTENSION_PROPS:
-        if key in props:
+        if key != "proj:code" and key in props:
             stac_props[key] = props[key]
+
+    if any(key.startswith("proj:") for key in stac_props):
+        _append_unique(stac_extensions, STAC_PROJECTION_EXTENSION_URI)
+    if "raster:bands" in stac_props:
+        _append_unique(stac_extensions, STAC_RASTER_EXTENSION_URI)
 
     # -- Build Item ---------------------------------------------------------
     item: dict = {
@@ -156,11 +204,12 @@ def ogc_record_to_stac_item(
         "stac_version": "1.0.0",
         "id": record["id"],
         "geometry": record.get("geometry"),
-        "bbox": record.get("bbox"),
         "properties": stac_props,
         "links": _build_stac_links(record["id"], collection_id, stac_api_url),
         "assets": record.get("assets", {}),
     }
+    if record.get("bbox") is not None:
+        item["bbox"] = record["bbox"]
 
     # STAC extensions
     if stac_extensions:
@@ -243,4 +292,6 @@ def ogc_collection_to_stac_collection(
         result["keywords"] = keywords
     if summaries:
         result["summaries"] = summaries
+        if any(key.startswith("proj:") for key in summaries):
+            result["stac_extensions"] = [STAC_PROJECTION_EXTENSION_URI]
     return result

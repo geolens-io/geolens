@@ -1,4 +1,5 @@
 import sys
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -80,6 +81,9 @@ class Settings(BaseSettings):
     public_app_url: str | None = None
     public_api_url: str | None = None
     public_base_url: str | None = None
+    # Public, monitored organization mailbox used as the DCAT-US contactPoint
+    # fallback when a published record has no usable record-level contact.
+    dcat_contact_email: str | None = None
 
     log_json: bool = False
     log_level: str = "INFO"
@@ -259,6 +263,7 @@ class Settings(BaseSettings):
         "public_app_url",
         "public_api_url",
         "public_base_url",
+        "dcat_contact_email",
         "database_url_override",
         "s3_endpoint",
         "s3_bucket",
@@ -289,6 +294,19 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("dcat_contact_email", mode="after")
+    @classmethod
+    def validate_dcat_contact_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) is None:
+            raise ValueError(
+                "DCAT_CONTACT_EMAIL must be a monitored email address "
+                "such as metadata@example.gov"
+            )
+        return value
 
     @field_validator("jwt_secret_key", mode="after")
     @classmethod

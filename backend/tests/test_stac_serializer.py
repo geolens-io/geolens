@@ -6,6 +6,8 @@ Pure unit tests -- no database or fixtures required.
 from app.standards.stac.serializer import (
     STAC_CONFORMANCE,
     STAC_LANGUAGE_EXTENSION_URI,
+    STAC_PROJECTION_EXTENSION_URI,
+    STAC_RASTER_EXTENSION_URI,
     ogc_collection_to_stac_collection,
     ogc_record_to_stac_item,
 )
@@ -49,12 +51,12 @@ def _make_ogc_record(
         props["datetime"] = None
 
     if has_stac_extensions:
-        props["proj:epsg"] = 4326
+        props["proj:code"] = "EPSG:4326"
         props["proj:shape"] = [1024, 2048]
         props["gsd"] = 30.0
 
     if has_bands:
-        props["bands"] = [
+        props["raster:bands"] = [
             {"name": "B1", "data_type": "uint8"},
             {"name": "B2", "data_type": "uint8"},
         ]
@@ -103,7 +105,7 @@ def _make_ogc_record(
 
     if has_stac_extensions:
         record["stac_extensions"] = [
-            "https://stac-extensions.github.io/projection/v2/schema.json",
+            STAC_PROJECTION_EXTENSION_URI,
         ]
 
     return record
@@ -157,19 +159,20 @@ class TestOgcRecordToStacItem:
         assert item["geometry"] is not None
 
     def test_bbox_absent_without_geometry(self):
-        """bbox is None when geometry is null."""
+        """bbox is omitted when geometry is null, as required by its schema."""
         record = _make_ogc_record(has_geometry=False)
         item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
 
-        assert item["bbox"] is None
+        assert "bbox" not in item
         assert item["geometry"] is None
 
     def test_stac_extension_properties_copied(self):
-        """proj:epsg, proj:shape, gsd are copied to item properties."""
+        """Projection v2 properties are copied to item properties."""
         record = _make_ogc_record(has_stac_extensions=True)
         item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
 
-        assert item["properties"]["proj:epsg"] == 4326
+        assert item["properties"]["proj:code"] == "EPSG:4326"
+        assert "proj:epsg" not in item["properties"]
         assert item["properties"]["proj:shape"] == [1024, 2048]
         assert item["properties"]["gsd"] == 30.0
 
@@ -178,8 +181,20 @@ class TestOgcRecordToStacItem:
         record = _make_ogc_record(has_bands=True)
         item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
 
-        assert len(item["properties"]["bands"]) == 2
-        assert item["properties"]["bands"][0]["name"] == "B1"
+        assert len(item["properties"]["raster:bands"]) == 2
+        assert item["properties"]["raster:bands"][0]["name"] == "B1"
+        assert STAC_RASTER_EXTENSION_URI in item["stac_extensions"]
+
+    def test_legacy_projection_input_is_never_emitted(self):
+        """Legacy internal input is normalized to Projection Extension v2."""
+        record = _make_ogc_record(has_stac_extensions=False)
+        record["properties"]["proj:epsg"] = 3857
+
+        item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
+
+        assert item["properties"]["proj:code"] == "EPSG:3857"
+        assert "proj:epsg" not in item["properties"]
+        assert STAC_PROJECTION_EXTENSION_URI in item["stac_extensions"]
 
     def test_language_declares_stac_language_extension(self):
         """OGC language strings become STAC Language Objects with extension URI."""
@@ -341,8 +356,8 @@ class TestOgcCollectionToStacCollection:
 
 
 class TestStacConformance:
-    def test_four_conformance_classes(self):
-        assert len(STAC_CONFORMANCE) == 4
+    def test_three_conformance_classes(self):
+        assert len(STAC_CONFORMANCE) == 3
 
     def test_core_present(self):
         assert "https://api.stacspec.org/v1.0.0/core" in STAC_CONFORMANCE
@@ -353,5 +368,5 @@ class TestStacConformance:
     def test_item_search_present(self):
         assert "https://api.stacspec.org/v1.0.0/item-search" in STAC_CONFORMANCE
 
-    def test_ogcapi_features_present(self):
-        assert "https://api.stacspec.org/v1.0.0/ogcapi-features" in STAC_CONFORMANCE
+    def test_ogcapi_features_not_overclaimed(self):
+        assert "https://api.stacspec.org/v1.0.0/ogcapi-features" not in STAC_CONFORMANCE

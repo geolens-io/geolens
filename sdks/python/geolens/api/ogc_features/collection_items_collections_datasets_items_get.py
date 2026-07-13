@@ -10,7 +10,8 @@ from ... import errors
 from ...models.collection_items_collections_datasets_items_get_spatial_predicate import (
     CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate,
 )
-from ...models.http_validation_error import HTTPValidationError
+from ...models.ogc_feature_collection_response import OGCFeatureCollectionResponse
+from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
 import datetime
@@ -19,7 +20,9 @@ import datetime
 def _get_kwargs(
     *,
     body: list[str] | None | Unset = UNSET,
-    type_: None | str | Unset = UNSET,
+    type_: list[str] | Unset = UNSET,
+    ids: list[str] | Unset = UNSET,
+    external_ids: list[str] | Unset = UNSET,
     sortby: None | str | Unset = UNSET,
     external_id: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
@@ -49,12 +52,23 @@ def _get_kwargs(
 
     params: dict[str, Any] = {}
 
-    json_type_: None | str | Unset
-    if isinstance(type_, Unset):
-        json_type_ = UNSET
-    else:
+    json_type_: list[str] | Unset = UNSET
+    if not isinstance(type_, Unset):
         json_type_ = type_
+
     params["type"] = json_type_
+
+    json_ids: list[str] | Unset = UNSET
+    if not isinstance(ids, Unset):
+        json_ids = ids
+
+    params["ids"] = json_ids
+
+    json_external_ids: list[str] | Unset = UNSET
+    if not isinstance(external_ids, Unset):
+        json_external_ids = external_ids
+
+    params["externalIds"] = json_external_ids
 
     json_sortby: None | str | Unset
     if isinstance(sortby, Unset):
@@ -223,15 +237,26 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | HTTPValidationError | None:
+) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = response.json()
+        response_200 = OGCFeatureCollectionResponse.from_dict(response.json())
+
         return response_200
 
-    if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
 
-        return response_422
+        return response_400
+
+    if response.status_code == 404:
+        response_404 = ProblemDetail.from_dict(response.json())
+
+        return response_404
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -241,7 +266,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | HTTPValidationError]:
+) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -254,7 +279,9 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: list[str] | None | Unset = UNSET,
-    type_: None | str | Unset = UNSET,
+    type_: list[str] | Unset = UNSET,
+    ids: list[str] | Unset = UNSET,
+    external_ids: list[str] | Unset = UNSET,
     sortby: None | str | Unset = UNSET,
     external_id: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
@@ -279,16 +306,20 @@ def sync_detailed(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Response[Any | HTTPValidationError]:
+) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     """Collection Items
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
     Args:
-        type_ (None | str | Unset): OGC record type filter
+        type_ (list[str] | Unset): Public OGC resource types as repeated or comma-separated values
+            (for example, type=dataset,collection)
+        ids (list[str] | Unset): Record IDs as repeated or comma-separated UUID values
+        external_ids (list[str] | Unset): Source-system resource identifiers as repeated or comma-
+            separated values
         sortby (None | str | Unset): OGC sortby: +field or -field
-        external_id (None | str | Unset): OGC Records external identifier filter (matches dataset
-            UUID)
+        external_id (None | str | Unset): Deprecated singular compatibility alias for externalIds
+            (matches a dataset UUID)
         q (None | str | Unset):
         bbox (None | str | Unset):
         geometry_type (None | str | Unset):
@@ -318,12 +349,14 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError]
+        Response[OGCFeatureCollectionResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         body=body,
         type_=type_,
+        ids=ids,
+        external_ids=external_ids,
         sortby=sortby,
         external_id=external_id,
         q=q,
@@ -360,7 +393,9 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: list[str] | None | Unset = UNSET,
-    type_: None | str | Unset = UNSET,
+    type_: list[str] | Unset = UNSET,
+    ids: list[str] | Unset = UNSET,
+    external_ids: list[str] | Unset = UNSET,
     sortby: None | str | Unset = UNSET,
     external_id: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
@@ -385,16 +420,20 @@ def sync(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Any | HTTPValidationError | None:
+) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     """Collection Items
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
     Args:
-        type_ (None | str | Unset): OGC record type filter
+        type_ (list[str] | Unset): Public OGC resource types as repeated or comma-separated values
+            (for example, type=dataset,collection)
+        ids (list[str] | Unset): Record IDs as repeated or comma-separated UUID values
+        external_ids (list[str] | Unset): Source-system resource identifiers as repeated or comma-
+            separated values
         sortby (None | str | Unset): OGC sortby: +field or -field
-        external_id (None | str | Unset): OGC Records external identifier filter (matches dataset
-            UUID)
+        external_id (None | str | Unset): Deprecated singular compatibility alias for externalIds
+            (matches a dataset UUID)
         q (None | str | Unset):
         bbox (None | str | Unset):
         geometry_type (None | str | Unset):
@@ -424,13 +463,15 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError
+        OGCFeatureCollectionResponse | ProblemDetail
     """
 
     return sync_detailed(
         client=client,
         body=body,
         type_=type_,
+        ids=ids,
+        external_ids=external_ids,
         sortby=sortby,
         external_id=external_id,
         q=q,
@@ -461,7 +502,9 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: list[str] | None | Unset = UNSET,
-    type_: None | str | Unset = UNSET,
+    type_: list[str] | Unset = UNSET,
+    ids: list[str] | Unset = UNSET,
+    external_ids: list[str] | Unset = UNSET,
     sortby: None | str | Unset = UNSET,
     external_id: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
@@ -486,16 +529,20 @@ async def asyncio_detailed(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Response[Any | HTTPValidationError]:
+) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     """Collection Items
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
     Args:
-        type_ (None | str | Unset): OGC record type filter
+        type_ (list[str] | Unset): Public OGC resource types as repeated or comma-separated values
+            (for example, type=dataset,collection)
+        ids (list[str] | Unset): Record IDs as repeated or comma-separated UUID values
+        external_ids (list[str] | Unset): Source-system resource identifiers as repeated or comma-
+            separated values
         sortby (None | str | Unset): OGC sortby: +field or -field
-        external_id (None | str | Unset): OGC Records external identifier filter (matches dataset
-            UUID)
+        external_id (None | str | Unset): Deprecated singular compatibility alias for externalIds
+            (matches a dataset UUID)
         q (None | str | Unset):
         bbox (None | str | Unset):
         geometry_type (None | str | Unset):
@@ -525,12 +572,14 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError]
+        Response[OGCFeatureCollectionResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         body=body,
         type_=type_,
+        ids=ids,
+        external_ids=external_ids,
         sortby=sortby,
         external_id=external_id,
         q=q,
@@ -565,7 +614,9 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: list[str] | None | Unset = UNSET,
-    type_: None | str | Unset = UNSET,
+    type_: list[str] | Unset = UNSET,
+    ids: list[str] | Unset = UNSET,
+    external_ids: list[str] | Unset = UNSET,
     sortby: None | str | Unset = UNSET,
     external_id: None | str | Unset = UNSET,
     q: None | str | Unset = UNSET,
@@ -590,16 +641,20 @@ async def asyncio(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Any | HTTPValidationError | None:
+) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     """Collection Items
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
     Args:
-        type_ (None | str | Unset): OGC record type filter
+        type_ (list[str] | Unset): Public OGC resource types as repeated or comma-separated values
+            (for example, type=dataset,collection)
+        ids (list[str] | Unset): Record IDs as repeated or comma-separated UUID values
+        external_ids (list[str] | Unset): Source-system resource identifiers as repeated or comma-
+            separated values
         sortby (None | str | Unset): OGC sortby: +field or -field
-        external_id (None | str | Unset): OGC Records external identifier filter (matches dataset
-            UUID)
+        external_id (None | str | Unset): Deprecated singular compatibility alias for externalIds
+            (matches a dataset UUID)
         q (None | str | Unset):
         bbox (None | str | Unset):
         geometry_type (None | str | Unset):
@@ -629,7 +684,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError
+        OGCFeatureCollectionResponse | ProblemDetail
     """
 
     return (
@@ -637,6 +692,8 @@ async def asyncio(
             client=client,
             body=body,
             type_=type_,
+            ids=ids,
+            external_ids=external_ids,
             sortby=sortby,
             external_id=external_id,
             q=q,

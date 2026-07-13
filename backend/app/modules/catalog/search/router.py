@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from typing import Literal
 from urllib.parse import urlencode
@@ -43,10 +44,10 @@ from app.standards.ogc.filtering import (
 )
 from app.standards.ogc.utils import (
     build_url,
-    content_language_for_record_languages,
-    normalize_language_tag,
+    link_header_value,
     parse_accept_languages,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
@@ -60,6 +61,16 @@ from app.modules.catalog.search.schemas import (
     SavedSearchResponse,
 )
 from app.modules.catalog.search import cache as search_cache
+from app.modules.catalog.search.records_protocol import (
+    collection_search_feature,
+    feature_collection_content_language,
+    parse_array_query_values,
+    parse_ogc_sortby,
+    parse_record_ids,
+    serialized_feature_language,
+    standard_response_headers,
+    validate_legacy_external_id_access,
+)
 from app.modules.catalog.search.service import (
     SearchFilters,
     count_collections,
@@ -141,39 +152,6 @@ def _build_pagination_url(
             query_params,
             doseq=True,
         )
-    )
-
-
-def _serialized_feature_language(feature: object) -> str | None:
-    """Read the language value that will actually be serialized in an OGC record."""
-    properties: object | None
-    if isinstance(feature, dict):
-        properties = feature.get("properties")
-    else:
-        properties = getattr(feature, "properties", None)
-
-    language: str | None = None
-    if isinstance(properties, dict):
-        value = properties.get("language")
-        language = value if isinstance(value, str) else None
-    elif properties is not None:
-        language = getattr(properties, "language", None)
-
-    return normalize_language_tag(language, fallback="en")
-
-
-def _content_language_headers(language: str | None) -> dict[str, str]:
-    headers = {"Vary": "Accept-Language"}
-    if language:
-        headers["Content-Language"] = language
-    return headers
-
-
-def _feature_collection_content_language(
-    response: OGCFeatureCollectionResponse,
-) -> str | None:
-    return content_language_for_record_languages(
-        [_serialized_feature_language(feature) for feature in response.features]
     )
 
 
@@ -392,6 +370,12 @@ async def _handle_search(
     user: Identity | None,
     request: Request,
     params: SearchQueryParams,
+    *,
+    record_ids: tuple[uuid.UUID, ...] | None = None,
+    collection_ids: tuple[uuid.UUID, ...] | None = None,
+    external_ids: tuple[str, ...] | None = None,
+    resource_types: frozenset[str] | None = None,
+    extra_pagination_params: dict[str, str | list[str]] | None = None,
 ) -> OGCFeatureCollectionResponse:
     """Parse parameters, run search, and return OGC FeatureCollection."""
     public_api_url = await get_public_api_url(db, request=request)
@@ -401,6 +385,28 @@ async def _handle_search(
     preferred_languages = parse_accept_languages(request)
 
     filters = params.to_filters()
+    if (
+        record_ids is not None
+        or external_ids is not None
+        or resource_types is not None
+        or extra_pagination_params is not None
+    ):
+        filters = replace(
+            filters,
+            record_ids=record_ids,
+            external_ids=external_ids,
+            public_resource_types=(
+                tuple(sorted(resource_types)) if resource_types is not None else None
+            ),
+            standards_query_params=(
+                tuple(
+                    (key, tuple(value if isinstance(value, list) else [value]))
+                    for key, value in sorted(extra_pagination_params.items())
+                )
+                if extra_pagination_params
+                else None
+            ),
+        )
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -459,61 +465,65 @@ async def _handle_search(
         for d in datasets
     ]
 
-    # Collections are surfaced alongside datasets only for text searches that
-    # are not scoped to a specific record_type or collection.
+    collection_type_requested = bool(
+        resource_types is not None and "collection" in resource_types
+    )
+    text_search_requested = bool(params.q and params.q.strip())
+
+    # Collections are surfaced for text searches, explicit collection IDs, or
+    # an explicit public collection type when the request is not scoped to an
+    # internal record type or collection membership.
     collections_applicable = bool(
-        params.q
-        and params.q.strip()
+        (
+            text_search_requested
+            or collection_ids is not None
+            or collection_type_requested
+        )
         and not params.record_type
         and not params.collection_id
+        and (resource_types is None or "collection" in resource_types)
+    )
+    collections_paginated = bool(
+        collections_applicable
+        and (collection_type_requested or collection_ids is not None)
     )
 
-    # fix(#315): count matching collections on EVERY page so numberMatched stays
-    # stable; ``total`` (dataset-only) still drives the next-link, since appended
-    # collections are a page-0-only augmentation that is never paginated. Cap the
-    # count at the page-0 display limit so numberMatched never claims more
-    # collections than are actually retrievable (only the first 5 are ever shown).
+    # fix(#315): retain the five-item page-0 augmentation for native text search.
+    # fix(#475): explicit Records collection filters participate in the combined
+    # dataset-first result set, including its count and pagination.
     page0_collection_cap = 5
     collection_total = 0
     if collections_applicable:
-        collection_total = min(
-            await count_collections(db, params.q), page0_collection_cap
+        collection_total = await count_collections(
+            db, params.q or "", collection_ids=collection_ids
         )
+        if not collections_paginated:
+            collection_total = min(collection_total, page0_collection_cap)
 
-    # Append collection results on the first page only (display augmentation).
-    if collections_applicable and params.offset == 0:
+    if collections_paginated:
+        collection_limit = max(0, params.limit - len(features))
+        collection_offset = max(0, params.offset - total)
+    else:
+        collection_limit = page0_collection_cap if params.offset == 0 else 0
+        collection_offset = 0
+
+    if collections_applicable and collection_limit:
         coll_results = await search_collections(
-            db, params.q, user, user_roles, limit=page0_collection_cap
+            db,
+            params.q or "",
+            user,
+            user_roles,
+            limit=collection_limit,
+            offset=collection_offset,
+            collection_ids=collection_ids,
         )
         for coll in coll_results:
-            features.append(
-                {
-                    "type": "Feature",
-                    "id": coll["id"],
-                    "geometry": None,
-                    "properties": {
-                        "type": "collection",
-                        "title": coll["name"],
-                        "description": coll["description"],
-                        "record_type": "collection",
-                        "dataset_count": coll["dataset_count"],
-                        "created": coll["created_at"],
-                    },
-                    "links": [
-                        {
-                            "rel": "self",
-                            "href": build_url(
-                                f"/catalog/collections/{coll['id']}",
-                                base_url=public_api_url,
-                            ),
-                            "type": "application/json",
-                        }
-                    ],
-                }
-            )
+            features.append(collection_search_feature(coll, public_api_url))
 
     # Build pagination links
     active_params = params.active_pagination_params()
+    if extra_pagination_params:
+        active_params.update(extra_pagination_params)
     base_path = "/collections/datasets/items"
 
     links = [
@@ -540,9 +550,8 @@ async def _handle_search(
         ),
     ]
 
-    # Next link driven by the dataset-only ``total`` (page-0 collections are not
-    # paginated, so they must not produce a phantom next-link to an empty page).
-    if params.offset + params.limit < total:
+    pagination_total = total + collection_total if collections_paginated else total
+    if params.offset + params.limit < pagination_total:
         links.append(
             OGCRecordLink(
                 rel="next",
@@ -578,8 +587,8 @@ async def _handle_search(
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
-        # fix(#315): dataset total + full collection count = stable across pages
-        # and always >= numberReturned (page 0 shows <=5 collections; later none).
+        # fix(#315): stable across pages; fix(#475): explicitly selected
+        # collections are counted and paginated with datasets.
         numberMatched=total + collection_total,
         numberReturned=len(features),
         features=features,
@@ -720,8 +729,9 @@ async def search_datasets_endpoint(
             )
         params = params.model_copy(update={"cql2_filter_lang": raw_filter_lang})
     result = await _handle_search(db, user, request, params)
-    for name, value in _content_language_headers(
-        _feature_collection_content_language(result)
+    for name, value in standard_response_headers(
+        list(result.links or []),
+        language=feature_collection_content_language(result),
     ).items():
         response.headers[name] = value
     return result
@@ -812,7 +822,11 @@ async def delete_saved_search_endpoint(
 # OGC Collections router
 # ---------------------------------------------------------------------------
 
-collections_router = APIRouter(prefix="/collections", tags=["OGC Features"])
+collections_router = APIRouter(
+    prefix="/collections",
+    tags=["OGC Features"],
+    responses=ERROR_RESPONSES_PUBLIC,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1035,6 +1049,7 @@ def _build_collection_links(public_api_url: str) -> list[dict]:
 @collections_router.get("", response_model=OGCCollectionsResponse)
 async def list_collections(
     request: Request,
+    response: Response,
     offset: int = Query(
         0, ge=0, description="Pagination offset for per-dataset collections"
     ),
@@ -1164,7 +1179,13 @@ async def list_collections(
     nav_links: list[OGCRecordLink] = [
         OGCRecordLink(
             rel="self",
-            href=build_url("/collections", base_url=public_api_url),
+            href=_build_pagination_url(
+                public_api_url,
+                "/collections",
+                {},
+                offset=offset,
+                limit=limit,
+            ),
             type="application/json",
         ),
         OGCRecordLink(
@@ -1203,10 +1224,13 @@ async def list_collections(
             )
         )
 
-    return OGCCollectionsResponse(
+    result = OGCCollectionsResponse(
         collections=[catalog_collection] + dataset_collections,
         links=nav_links,
     )
+    if link_value := link_header_value(nav_links):
+        response.headers["Link"] = link_value
+    return result
 
 
 @collections_router.get("/datasets", response_model=OGCCollectionMetadataResponse)
@@ -1244,94 +1268,6 @@ async def get_record_schema(
     return JSONResponse(
         content=build_record_schema_response(public_api_url),
         media_type="application/schema+json",
-    )
-
-
-# OGC sortby field -> internal sort_by mapping
-_OGC_SORT_MAP = {"title": "name", "created": "date_added", "updated": "last_updated"}
-
-
-def _parse_ogc_sortby(sortby: str) -> tuple[str, bool | None] | JSONResponse:
-    """Parse OGC sortby parameter into (sort_by, sort_desc).
-
-    Returns a (sort_by, sort_desc) tuple on success or a JSONResponse error
-    on invalid input.
-    """
-    # URL query strings decode '+' as space; treat leading space as ascending
-    _field = sortby.lstrip("+- ")
-    sort_desc: bool | None = None
-    if sortby.startswith("-"):
-        sort_desc = True
-    elif sortby.startswith("+") or sortby.startswith(" "):
-        sort_desc = False
-    mapped = _OGC_SORT_MAP.get(_field)
-    if mapped is None:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "code": "InvalidParameterValue",
-                "description": f"Unknown sortby field: {_field}. Valid: {', '.join(_OGC_SORT_MAP.keys())}",
-            },
-        )
-    return mapped, sort_desc
-
-
-async def _lookup_by_external_id(
-    db: AsyncSession,
-    external_id: str,
-    request: Request,
-    user: Identity | None,
-) -> JSONResponse:
-    """Lookup a single OGC record by externalId (dataset UUID).
-
-    Returns a JSONResponse with the record or an error response.
-    """
-    try:
-        record_uuid = uuid.UUID(external_id)
-    except ValueError:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "code": "InvalidParameterValue",
-                "description": f"Invalid externalId: {external_id}",
-            },
-        )
-    from sqlalchemy.orm import joinedload as _jl_ext, selectinload as _sl_ext
-
-    ext_result = await db.execute(
-        select(Dataset)
-        .options(
-            _jl_ext(Dataset.record).options(
-                _sl_ext(Record.keywords),
-                _sl_ext(Record.contacts),
-                _sl_ext(Record.distributions),
-                _sl_ext(Record.translations),
-            ),
-        )
-        .where(Dataset.id == record_uuid)
-    )
-    dataset = ext_result.unique().scalar_one_or_none()
-    if dataset is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
-    # Visibility check (raises 404 if access denied) — mirror get_collection_item.
-    # Without this, an anonymous caller could read any private/restricted/unpublished
-    # dataset's full OGC metadata by UUID via ?externalId=.
-    await check_dataset_access_or_anonymous(db, dataset, record_uuid, user)
-    public_api_url = await get_public_api_url(db, request=request)
-    # fix(#315 follow-up): raster_tiles asset href uses the public APP origin.
-    public_app_url = await get_public_app_url(db, request=request)
-    content = dataset_to_ogc_record(
-        dataset,
-        public_api_url,
-        public_app_url=public_app_url,
-        preferred_languages=parse_accept_languages(request),
-    )
-    return JSONResponse(
-        content=content,
-        media_type="application/geo+json",
-        headers=_content_language_headers(_serialized_feature_language(content)),
     )
 
 
@@ -1373,35 +1309,105 @@ async def get_sortables(
     )
 
 
-@collections_router.get("/datasets/items", response_class=JSONResponse)
+@collections_router.get(
+    "/datasets/items",
+    response_class=JSONResponse,
+    responses={
+        200: {
+            "content": {
+                "application/geo+json": {
+                    "schema": {
+                        "$ref": "#/components/schemas/OGCFeatureCollectionResponse"
+                    }
+                }
+            }
+        },
+        **ERROR_RESPONSES_PUBLIC,
+    },
+)
 async def collection_items(
     request: Request,
     params: SearchQueryParams = Depends(),
-    type_param: str | None = Query(
-        None, alias="type", description="OGC record type filter"
+    type_param: list[str] = Query(
+        default_factory=list,
+        alias="type",
+        description=(
+            "Public OGC resource types as repeated or comma-separated values "
+            "(for example, type=dataset,collection)"
+        ),
+    ),
+    ids: list[str] = Query(
+        default_factory=list,
+        description="Record IDs as repeated or comma-separated UUID values",
+    ),
+    external_ids: list[str] = Query(
+        default_factory=list,
+        alias="externalIds",
+        description=(
+            "Source-system resource identifiers as repeated or comma-separated values"
+        ),
     ),
     sortby: str | None = Query(None, description="OGC sortby: +field or -field"),
     external_id: str | None = Query(
         None,
         alias="externalId",
-        description="OGC Records external identifier filter (matches dataset UUID)",
+        description=(
+            "Deprecated singular compatibility alias for externalIds "
+            "(matches a dataset UUID)"
+        ),
+        deprecated=True,
     ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Records items endpoint -- mirrors /search/datasets."""
-    # OGC externalId -> fetch single record by UUID
-    if external_id:
-        return await _lookup_by_external_id(db, external_id, request, user)
+    parsed_types = parse_array_query_values(type_param, parameter="type")
+    resource_types = (
+        frozenset(value.lower() for value in parsed_types)
+        if parsed_types is not None
+        else None
+    )
+
+    parsed_ids = parse_record_ids(
+        parse_array_query_values(ids, parameter="ids"),
+        parameter="ids",
+    )
+    parsed_external_ids = parse_array_query_values(
+        external_ids, parameter="externalIds"
+    )
+
+    # Keep the singular compatibility alias's historical access behavior while
+    # returning the same FeatureCollection shape as every collection query.
+    legacy_external_id: uuid.UUID | None = None
+    if external_id is not None:
+        legacy_external_id = await validate_legacy_external_id_access(
+            db, external_id, user
+        )
+
+    identifier_sets = [set(values) for values in (parsed_ids,) if values is not None]
+    if legacy_external_id is not None:
+        identifier_sets.append({legacy_external_id})
+
+    record_ids: tuple[uuid.UUID, ...] | None = None
+    if identifier_sets:
+        matching_ids = set.intersection(*identifier_sets)
+        record_ids = tuple(sorted(matching_ids, key=str))
+
+    collection_ids = parsed_ids
+    if legacy_external_id is not None or parsed_external_ids is not None:
+        collection_ids = ()
+
+    # The serialized dataset rows expose the public Records type "dataset".
+    # Internal storage subtypes (vector_dataset, raster_dataset, table, etc.)
+    # remain available through the native record_type parameter but are not
+    # accepted as OGC resource types.
+    if resource_types is not None and "dataset" not in resource_types:
+        record_ids = ()
 
     # Apply OGC-specific overrides via model_copy to keep params immutable
     overrides: dict[str, object] = {}
-    if type_param and not params.record_type:
-        overrides["record_type"] = type_param
     if sortby is not None:
-        parsed = _parse_ogc_sortby(sortby)
-        if isinstance(parsed, JSONResponse):
-            return parsed
+        parsed = parse_ogc_sortby(sortby)
         overrides["sort_by"] = parsed[0]
         overrides["sort_desc"] = parsed[1]
 
@@ -1418,25 +1424,58 @@ async def collection_items(
         overrides["cql2_filter"] = raw_filter
     if raw_filter_lang:
         if raw_filter_lang not in ("cql2-text", "cql2-json"):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "detail": f"Unsupported filter-lang: {raw_filter_lang}. Use cql2-text or cql2-json."
-                },
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unsupported filter-lang: {raw_filter_lang}. "
+                    "Use cql2-text or cql2-json."
+                ),
             )
         overrides["cql2_filter_lang"] = raw_filter_lang
 
     effective_params = params.model_copy(update=overrides) if overrides else params
 
-    result = await _handle_search(db, user, request, effective_params)
+    pagination_params: dict[str, str | list[str]] = {}
+    for parameter in ("type", "ids", "externalIds", "externalId"):
+        values = request.query_params.getlist(parameter)
+        if values:
+            pagination_params[parameter] = values
+
+    result = await _handle_search(
+        db,
+        user,
+        request,
+        effective_params,
+        record_ids=record_ids,
+        collection_ids=collection_ids,
+        external_ids=parsed_external_ids,
+        resource_types=resource_types,
+        extra_pagination_params=pagination_params,
+    )
     return JSONResponse(
         content=result.model_dump(mode="json"),
         media_type="application/geo+json",
-        headers=_content_language_headers(_feature_collection_content_language(result)),
+        headers=standard_response_headers(
+            list(result.links or []),
+            language=feature_collection_content_language(result),
+        ),
     )
 
 
-@collections_router.get("/datasets/items/{record_id}", response_class=JSONResponse)
+@collections_router.get(
+    "/datasets/items/{record_id}",
+    response_class=JSONResponse,
+    responses={
+        200: {
+            "content": {
+                "application/geo+json": {
+                    "schema": {"$ref": "#/components/schemas/OGCRecordResponse"}
+                }
+            }
+        },
+        **ERROR_RESPONSES_PUBLIC,
+    },
+)
 async def get_collection_item(
     record_id: uuid.UUID,
     request: Request,
@@ -1511,7 +1550,10 @@ async def get_collection_item(
     return JSONResponse(
         content=content,
         media_type="application/geo+json",
-        headers=_content_language_headers(_serialized_feature_language(content)),
+        headers=standard_response_headers(
+            content.get("links"),
+            language=serialized_feature_language(content),
+        ),
     )
 
 

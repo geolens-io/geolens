@@ -41,6 +41,7 @@ from app.api.middleware.security import SecurityHeadersMiddleware
 from app.api.middleware.tenant_context import TenantContextMiddleware
 from app.processing.tiles.pool import close_tile_pool, init_tile_pool
 from app.processing.tiles.router import _titiler_client
+from app.standards.ogc.utils import standards_api_path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -89,8 +90,8 @@ async def seed_roles() -> None:
 
 def _warn_if_cors_unset(settings_obj, log) -> None:
     """SEC-08 / M-72: warn loudly when CORS_ALLOWED_ORIGINS is unset in
-    production. DynamicCORSMiddleware will still respond (no breakage),
-    but the operator likely INTENDED to lock down origins and forgot.
+    production. Anonymous standards reads remain browser-accessible, while
+    credentialed application routes require an explicit origin allowlist.
 
     Gated on is_production so dev/test runs don't get the warning. SEC-005:
     previously gated on log_json (the de-facto production indicator); now uses
@@ -101,9 +102,9 @@ def _warn_if_cors_unset(settings_obj, log) -> None:
             "cors_allowed_origins_unset",
             message=(
                 "CORS_ALLOWED_ORIGINS is empty in production. "
-                "All origins will pass the request-origin check; this is "
-                "likely a misconfiguration. Set "
-                "CORS_ALLOWED_ORIGINS=<comma-separated origins> to restrict."
+                "Anonymous standards reads allow any browser origin, but "
+                "credentialed application CORS is disabled. Set "
+                "CORS_ALLOWED_ORIGINS=<comma-separated origins> to enable it."
             ),
         )
 
@@ -770,6 +771,54 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
 
 
 _add_trailing_slash_aliases(app)
+
+
+# OGC API Common requires malformed standards-path parameters to use 400.  The
+# runtime RequestValidationError handler applies that contract; normalize the
+# generated description too so machine clients are not told to expect FastAPI's
+# native 422 response on OGC/STAC/DCAT operations.
+_fastapi_openapi = app.openapi
+
+
+def _standards_aware_openapi() -> dict:
+    schema = _fastapi_openapi()
+    if schema.get("x-geolens-standards-errors") == "400-problem-details":
+        return schema
+
+    for path, path_item in schema.get("paths", {}).items():
+        if standards_api_path(path) is None:
+            continue
+        for method, operation in path_item.items():
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            responses = operation.setdefault("responses", {})
+            responses.pop("422", None)
+            responses.setdefault(
+                "400",
+                {
+                    "description": "Bad request — invalid standards parameters",
+                    "content": {
+                        "application/problem+json": {
+                            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+                        }
+                    },
+                },
+            )
+
+            if path == "/collections/datasets/items" and method == "get":
+                for parameter in operation.get("parameters", []):
+                    if parameter.get("name") in {"type", "ids", "externalIds"}:
+                        # OGC API Records 1.0 requirements 24/30/32 specify
+                        # comma-separated form arrays (explode=false).
+                        parameter["style"] = "form"
+                        parameter["explode"] = False
+
+    schema["x-geolens-standards-errors"] = "400-problem-details"
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _standards_aware_openapi  # type: ignore[method-assign]
 
 init_metrics(app)
 

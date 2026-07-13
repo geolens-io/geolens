@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import structlog
 from datetime import date, datetime, timezone
+import re
 from typing import TYPE_CHECKING
+
+import structlog
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import (
@@ -18,6 +20,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 DCAT_US_CONTEXT = "https://resources.data.gov/dcat-us/3.0.0"
 SERVICE_DISTRIBUTION_TYPES = {"api", "ogcService", "ogc_features", "vector_tiles"}
+_EMAIL_PATTERN = re.compile(r"^mailto:[\w_~!$&'()*+,;=:.-]+@[\w.-]+\.[\w.-]+$")
 
 
 def record_to_dcat_us3(
@@ -25,6 +28,7 @@ def record_to_dcat_us3(
     base_url: str,
     *,
     include_context: bool = True,
+    catalog_contact_email: str | None = None,
 ) -> dict:
     """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile."""
     record = dataset.record
@@ -38,13 +42,14 @@ def record_to_dcat_us3(
     result["identifier"] = str(dataset.id)
     result["title"] = record.title
 
-    if record.summary is not None:
-        result["description"] = record.summary
+    result["description"] = _required_description(record.title, record.summary)
 
     result["publisher"] = _organization(record)
 
     contacts = [_contact_to_dcat_us3(contact) for contact in record.contacts]
     contacts = [contact for contact in contacts if contact is not None]
+    if not contacts and catalog_contact_email is not None:
+        contacts = [_catalog_contact(catalog_contact_email)]
     if contacts:
         result["contactPoint"] = contacts
 
@@ -105,26 +110,32 @@ def record_to_dcat_us3(
     return _strip_empty(result)
 
 
-def catalog_to_dcat_us3(datasets: list[Dataset], base_url: str) -> dict:
+def catalog_to_dcat_us3(
+    datasets: list[Dataset],
+    base_url: str,
+    *,
+    catalog_contact_email: str | None = None,
+) -> dict:
     """Serialize visible datasets to a DCAT-US 3.0 Catalog document.
 
-    Filter-the-feed conformance posture: only records that pass DCAT-US 3.0
-    JSON Schema validation are emitted in ``dataset``. Records missing a
-    mandatory property (e.g. a usable ``contactPoint``) are silently skipped so
-    the feed as a whole stays conformant with zero onboarding friction.
-    Operators who want to *block* incomplete records at publish time can enable
-    the optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
+    Every visible input dataset is emitted. Required descriptions use a
+    deterministic title fallback; missing record contacts use the explicitly
+    configured catalog role mailbox. Without that mailbox, serialization stays
+    truthful and validation reports the unresolved mandatory field.
     """
-    from app.standards.dcat_us.validation import validate_dcat_us3
-
     now = datetime.now(timezone.utc).isoformat()
-    entries: list[dict] = []
-    for ds in datasets:
-        entry = record_to_dcat_us3(ds, base_url, include_context=False)
-        if validate_dcat_us3(entry, "Dataset")["valid"]:
-            entries.append(entry)
+    entries = [
+        record_to_dcat_us3(
+            ds,
+            base_url,
+            include_context=False,
+            catalog_contact_email=catalog_contact_email,
+        )
+        for ds in datasets
+    ]
+    publisher = {"@type": "Organization", "name": "GeoLens"}
 
-    return {
+    result = {
         "@context": DCAT_US_CONTEXT,
         "@id": f"{base_url}/datasets/dcat-us/3.0",
         "@type": "Catalog",
@@ -134,14 +145,48 @@ def catalog_to_dcat_us3(datasets: list[Dataset], base_url: str) -> dict:
         "issued": now,
         "modified": now,
         "language": "en",
-        "publisher": {"@type": "Organization", "name": "GeoLens"},
+        "publisher": publisher,
         "dataset": entries,
     }
+    if catalog_contact_email is not None:
+        result["contactPoint"] = [_catalog_contact(catalog_contact_email)]
+    return result
+
+
+def dcat_us3_fallback_fields(
+    dataset: Dataset,
+    catalog_contact_email: str | None = None,
+) -> tuple[str, ...]:
+    """Return required fields supplied by deterministic profile fallbacks."""
+    fields: list[str] = []
+    if not _has_text(dataset.record.summary):
+        fields.append("description")
+    has_record_contact = any(
+        _contact_to_dcat_us3(contact) is not None for contact in dataset.record.contacts
+    )
+    if not has_record_contact and catalog_contact_email is not None:
+        fields.append("contactPoint")
+    return tuple(fields)
 
 
 def _organization(record: Record) -> dict:
     name = record.source_organization or record.owner_org or "GeoLens"
-    return {"@type": "Organization", "name": name}
+    return {"@type": "Organization", "name": name.strip() or "GeoLens"}
+
+
+def _catalog_contact(contact_email: str) -> dict:
+    """Build a neutral non-personal contact for the catalog operator.
+
+    DCAT-US requires both a formatted name and mail address. When record-level
+    contact metadata is absent, the operator-configured role mailbox keeps the
+    fallback explicit without claiming that the mailbox belongs to a dataset's
+    source publisher.
+    """
+    return {
+        "@type": "Kind",
+        "fn": "Catalog metadata contact",
+        "hasEmail": _mailto(contact_email),
+    }
 
 
 def _contact_to_dcat_us3(contact: RecordContact) -> dict | None:
@@ -149,13 +194,14 @@ def _contact_to_dcat_us3(contact: RecordContact) -> dict | None:
         return None
 
     name = contact.name or contact.organization
-    if name is None:
+    email = _mailto(contact.email.strip())
+    if not _has_text(name) or _EMAIL_PATTERN.fullmatch(email) is None:
         return None
 
     result: dict = {
         "@type": "Kind",
-        "fn": name,
-        "hasEmail": _mailto(contact.email),
+        "fn": name.strip(),
+        "hasEmail": email,
     }
     if contact.organization is not None:
         result["organization-name"] = contact.organization
@@ -164,6 +210,16 @@ def _contact_to_dcat_us3(contact: RecordContact) -> dict | None:
     if contact.role is not None:
         result["title"] = contact.role
     return _strip_empty(result)
+
+
+def _required_description(title: str, summary: str | None) -> str:
+    if _has_text(summary):
+        return summary.strip()
+    return title.strip() or "Untitled dataset"
+
+
+def _has_text(value: str | None) -> bool:
+    return bool(value and value.strip())
 
 
 def _distribution_to_dcat_us3(
@@ -252,7 +308,7 @@ def _concept(value: str) -> dict:
 def _language_code(value: str | None) -> str | None:
     if value is None:
         return "en"
-    code = value.split("-", maxsplit=1)[0].strip().lower()
+    code = value.replace("_", "-").split("-", maxsplit=1)[0].strip().lower()
     if len(code) == 2:
         return code
     return None

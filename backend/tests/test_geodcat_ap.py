@@ -449,22 +449,24 @@ async def test_single_record_geodcat_ap_validation_passes(
         "valid": True,
         "error_count": 0,
         "errors": [],
+        "uses_metadata_fallback": False,
+        "metadata_fallback_fields": [],
     }
 
 
 @pytest.mark.anyio
-async def test_single_record_geodcat_ap_validation_reports_gaps(
+async def test_single_record_geodcat_ap_validation_reports_description_fallback(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Validation reports missing mandatory description instead of hiding it."""
+    """A missing source description uses the title and stays observable."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_geodcat_dataset(
         session, created_by=admin_id, visibility="private"
     )
-    # Strip the summary so dcterms:description goes missing.
+    # Strip the summary so dcterms:description uses the title fallback.
     await session.execute(
         text(
             "UPDATE catalog.records SET summary = NULL "
@@ -480,12 +482,16 @@ async def test_single_record_geodcat_ap_validation_reports_gaps(
     assert resp.status_code == 200
     report = resp.json()
     assert report["schema"] == "Dataset"
-    assert report["valid"] is False
-    assert report["error_count"] >= 1
-    assert any(
-        error["validator"] == "required" and "dcterms:description" in error["message"]
-        for error in report["errors"]
+    assert report["valid"] is True
+    assert report["error_count"] == 0
+    assert report["metadata_fallback_fields"] == ["dcterms:description"]
+
+    export = await client.get(
+        f"/datasets/{ds.id}/geodcat-ap/", headers=admin_auth_header
     )
+    assert export.status_code == 200
+    assert export.json()["dcterms:description"]["@value"] == "GeoDCAT Test Dataset"
+    assert export.headers["x-geolens-metadata-fallback-fields"] == "dcterms:description"
 
 
 @pytest.mark.anyio

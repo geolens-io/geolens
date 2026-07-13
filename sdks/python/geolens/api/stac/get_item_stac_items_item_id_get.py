@@ -8,7 +8,7 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.http_validation_error import HTTPValidationError
+from ...models.problem_detail import ProblemDetail
 from uuid import UUID
 
 
@@ -28,15 +28,15 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | HTTPValidationError | None:
+) -> Any | ProblemDetail | None:
     if response.status_code == 200:
         response_200 = response.json()
         return response_200
 
-    if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
 
-        return response_422
+        return response_400
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | HTTPValidationError]:
+) -> Response[Any | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,7 +59,7 @@ def sync_detailed(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | HTTPValidationError]:
+) -> Response[Any | ProblemDetail]:
     """Get Item
 
      Get a single STAC Item by dataset ID.
@@ -72,7 +72,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -90,7 +90,7 @@ def sync(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | HTTPValidationError | None:
+) -> Any | ProblemDetail | None:
     """Get Item
 
      Get a single STAC Item by dataset ID.
@@ -103,7 +103,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError
+        Any | ProblemDetail
     """
 
     return sync_detailed(
@@ -116,7 +116,7 @@ async def asyncio_detailed(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | HTTPValidationError]:
+) -> Response[Any | ProblemDetail]:
     """Get Item
 
      Get a single STAC Item by dataset ID.
@@ -129,7 +129,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -145,7 +145,7 @@ async def asyncio(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | HTTPValidationError | None:
+) -> Any | ProblemDetail | None:
     """Get Item
 
      Get a single STAC Item by dataset ID.
@@ -158,7 +158,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError
+        Any | ProblemDetail
     """
 
     return (

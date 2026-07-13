@@ -42,8 +42,8 @@ class TestStacConformance:
     def test_conformance_contains_item_search_uri(self):
         assert "https://api.stacspec.org/v1.0.0/item-search" in STAC_CONFORMANCE
 
-    def test_conformance_four_classes(self):
-        assert len(STAC_CONFORMANCE) == 4
+    def test_conformance_three_classes(self):
+        assert len(STAC_CONFORMANCE) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class TestStacCatalog:
         assert catalog.id == "test-catalog"
         assert catalog.type == "Catalog"
         assert catalog.stac_version == "1.0.0"
-        assert len(catalog.conformsTo) == 4
+        assert len(catalog.conformsTo) == 3
 
     def test_catalog_default_values(self):
         """StacCatalog defaults: type=Catalog, stac_version=1.0.0."""
@@ -91,7 +91,7 @@ class TestStacCatalog:
 class TestStacConformanceSchema:
     def test_conformance_schema_instantiation(self):
         conf = StacConformance(conformsTo=STAC_CONFORMANCE)
-        assert len(conf.conformsTo) == 4
+        assert len(conf.conformsTo) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -262,3 +262,4 @@ async def test_collection_items_self_link_preserves_active_params(
     assert qs["datetime"] == ["2024-01-01/2024-12-31"]
     assert qs["limit"] == ["1"]
     assert qs["offset"] == ["2"]
+    assert 'rel="self"' in resp.headers["link"]
