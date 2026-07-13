@@ -126,6 +126,13 @@ class TileConfigResponse(BaseModel):
         default=None,
         description="Deprecated alias for public_api_url. Will be removed in a future release.",
     )
+    mvt_source_layer_prefix: str | None = Field(
+        default="data",
+        description=(
+            "Schema prefix emitted inside vector-tile source-layer names. "
+            "Null when a multi-tenant request has no resolved tenant context."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

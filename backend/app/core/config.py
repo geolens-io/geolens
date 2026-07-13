@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     public_app_url: str | None = None
     public_api_url: str | None = None
     public_base_url: str | None = None
+    # Multi-tenant Host routing is accepted only below this explicit DNS
+    # suffix (for example ``geolens.example``). Exact non-tenant service hosts
+    # are separately allowlisted for health checks, Compose, and test clients.
+    tenant_base_domain: str | None = None
+    tenant_trusted_hosts: str = "localhost,127.0.0.1,::1,api,testserver"
     # Public, monitored organization mailbox used as the DCAT-US contactPoint
     # fallback when a published record has no usable record-level contact.
     dcat_contact_email: str | None = None
@@ -161,6 +166,9 @@ class Settings(BaseSettings):
     tile_cache_ttl: int = 300
 
     database_url_override: str | None = None
+    # Dedicated, read-only tile login. In multi-tenant deployments this login
+    # is a SET-only member of geolens_tile_gateway, never the API/worker role.
+    tile_database_url_override: str | None = None
     database_ssl_mode: str = "prefer"
     database_ssl_ca_cert: str | None = None
     database_pool_pre_ping: bool = True
@@ -263,8 +271,10 @@ class Settings(BaseSettings):
         "public_app_url",
         "public_api_url",
         "public_base_url",
+        "tenant_base_domain",
         "dcat_contact_email",
         "database_url_override",
+        "tile_database_url_override",
         "s3_endpoint",
         "s3_bucket",
         "s3_access_key_id",
@@ -294,6 +304,58 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("tenant_base_domain", mode="after")
+    @classmethod
+    def validate_tenant_base_domain(cls, v: str | None) -> str | None:
+        """Normalize a host-only base suffix; schemes, ports and wildcards fail."""
+        if v is None:
+            return None
+        value = v.strip().lower().rstrip(".")
+        labels = value.split(".")
+        host_label = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+        if (
+            not value
+            or "://" in value
+            or ":" in value
+            or "/" in value
+            or "*" in value
+            or any(host_label.fullmatch(label) is None for label in labels)
+        ):
+            raise ValueError(
+                "TENANT_BASE_DOMAIN must be a host-only DNS suffix such as "
+                "geolens.example (no scheme, port, path, or wildcard)"
+            )
+        return value
+
+    @field_validator("tenant_trusted_hosts", mode="after")
+    @classmethod
+    def validate_tenant_trusted_hosts(cls, v: str) -> str:
+        """Validate the comma-separated exact-host allowlist."""
+        import ipaddress
+
+        normalized: list[str] = []
+        host_label = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
+        for raw_host in v.split(","):
+            host = raw_host.strip().lower().rstrip(".")
+            if not host:
+                continue
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                if (
+                    "://" in host
+                    or ":" in host
+                    or "/" in host
+                    or "*" in host
+                    or host_label.fullmatch(host) is None
+                    or ".." in host
+                ):
+                    raise ValueError(
+                        "TENANT_TRUSTED_HOSTS accepts exact hostnames/IPs only"
+                    ) from None
+            normalized.append(host)
+        return ",".join(dict.fromkeys(normalized))
 
     @field_validator("dcat_contact_email", mode="after")
     @classmethod
@@ -410,6 +472,11 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
     @property
+    def tenant_trusted_hosts_list(self) -> list[str]:
+        """Exact non-tenant hosts accepted by the tenant middleware."""
+        return [host for host in self.tenant_trusted_hosts.split(",") if host]
+
+    @property
     def is_production(self) -> bool:
         """Whether to enforce the production security posture (API docs hidden,
         Secure session cookie).
@@ -449,6 +516,18 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @property
+    def tile_database_url(self) -> str:
+        """Async DSN for the isolated tile pool, falling back for compatibility."""
+        if self.tile_database_url_override:
+            url = self.tile_database_url_override
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            elif url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+            return self._strip_ssl_from_url(url)
+        return self.database_url
 
     @property
     def database_connect_args(self) -> dict:

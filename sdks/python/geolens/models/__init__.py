@@ -134,6 +134,19 @@ from .config_response import ConfigResponse
 from .conformance_response import ConformanceResponse
 from .connectivity_result import ConnectivityResult
 from .connectivity_result_oidc_providers import ConnectivityResultOidcProviders
+from .connector_definition_response import ConnectorDefinitionResponse
+from .connector_definition_response_config_schema import (
+    ConnectorDefinitionResponseConfigSchema,
+)
+from .connector_discover_request import ConnectorDiscoverRequest
+from .connector_discover_request_config import ConnectorDiscoverRequestConfig
+from .connector_discover_response import ConnectorDiscoverResponse
+from .connector_ingest_request import ConnectorIngestRequest
+from .connector_ingest_request_config import ConnectorIngestRequestConfig
+from .connector_ingest_response import ConnectorIngestResponse
+from .connector_list_response import ConnectorListResponse
+from .connector_resource_response import ConnectorResourceResponse
+from .connector_resource_response_metadata import ConnectorResourceResponseMetadata
 from .contact_create import ContactCreate
 from .contact_create_extra_json_type_0 import ContactCreateExtraJsonType0
 from .contact_list_response import ContactListResponse
@@ -696,6 +709,17 @@ __all__ = (
     "ConformanceResponse",
     "ConnectivityResult",
     "ConnectivityResultOidcProviders",
+    "ConnectorDefinitionResponse",
+    "ConnectorDefinitionResponseConfigSchema",
+    "ConnectorDiscoverRequest",
+    "ConnectorDiscoverRequestConfig",
+    "ConnectorDiscoverResponse",
+    "ConnectorIngestRequest",
+    "ConnectorIngestRequestConfig",
+    "ConnectorIngestResponse",
+    "ConnectorListResponse",
+    "ConnectorResourceResponse",
+    "ConnectorResourceResponseMetadata",
     "ContactCreate",
     "ContactCreateExtraJsonType0",
     "ContactListResponse",

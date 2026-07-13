@@ -22,6 +22,7 @@ from app.platform.extensions.defaults import (
     DefaultBrandingExtension,
     DefaultCatalogPort,  # NEW (Phase 230)
     DefaultConnectorExtension,
+    DefaultDataServingExtension,
     DefaultEntitlementPort,  # NEW (Phase 1207)
     DefaultIdentityExtension,
     DefaultNotificationSink,  # NEW (Phase 1229)
@@ -37,6 +38,9 @@ from app.platform.extensions.protocols import (
     AuthExtension,
     BillingExtension,  # NEW (Phase 223)
     BrandingExtension,
+    ConnectorCredentialRef as ConnectorCredentialRef,
+    ConnectorDefinition as ConnectorDefinition,
+    ConnectorResource as ConnectorResource,
     NotificationSink,  # NEW (Phase 1229)
 )
 
@@ -47,6 +51,7 @@ if TYPE_CHECKING:
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231 + 1207)
         AIProviderExtension,
         ConnectorExtension,
+        DataServingExtension,
         EmbeddingProviderExtension,
         EntitlementPort,
         PermissionExtension,
@@ -58,6 +63,11 @@ logger = structlog.stdlib.get_logger(__name__)
 _extensions: dict[str, object] = {}
 _routers: list = []
 _loaded: bool = False
+
+# Foundational overlays register first; wrappers choose a larger value. Entry
+# point iteration order is explicitly unspecified, so composition must never
+# depend on the installer/filesystem order returned by importlib.metadata.
+DEFAULT_EXTENSION_LOAD_PRIORITY = 100
 
 # ---------------------------------------------------------------------------
 # Slot classification (SLOT-01)
@@ -76,6 +86,8 @@ SINGLE_SLOT_KEYS: frozenset[str] = frozenset(
         "audit",
         "auth",
         "entitlement",  # NEW (Phase 1207 / ENTSEAM-01) — cloud overlay claims this in Phase 1213
+        "connectors",
+        "data_serving",
     }
 )
 
@@ -205,28 +217,61 @@ def load_extensions() -> None:
     conflict.
 
     References: SLOT-02, CLOUD-04
+
+    Deterministic composition order
+    -------------------------------
+    A loader may declare an integer ``EXTENSION_LOAD_PRIORITY`` attribute.
+    Lower values load first; ties are ordered by entry-point name. Loaders that
+    omit it use :data:`DEFAULT_EXTENSION_LOAD_PRIORITY`. An overlay that wraps
+    another overlay's single-slot ports must therefore declare a larger value.
+    ``importlib.metadata`` entry-point iteration order is never authoritative.
     """
     global _loaded
 
     _routers.clear()
     _slot_owners.clear()
 
-    eps = entry_points(group="geolens.extensions")
-    for ep in eps:
+    discovered: list[tuple[int, str, object]] = []
+    for ep in entry_points(group="geolens.extensions"):
         try:
             loader = ep.load()
             # OCG-04: check declared overlay API version BEFORE invoking the loader.
             # RuntimeError from check_extension_api_version escapes the broad-except below.
             declared_version = getattr(loader, "EXTENSION_API_VERSION", None)
             check_extension_api_version(ep.name, declared_version)
-            if callable(loader):
-                _run_loader_with_slot_guard(ep.name, loader, _extensions)
-                logger.info("Loaded extension", name=ep.name)
+            if not callable(loader):
+                logger.warning("Extension entry point is not callable", name=ep.name)
+                continue
+
+            try:
+                loader_namespace = vars(loader)
+            except TypeError:
+                loader_namespace = {}
+            priority = loader_namespace.get(
+                "EXTENSION_LOAD_PRIORITY", DEFAULT_EXTENSION_LOAD_PRIORITY
+            )
+            if type(priority) is not int:
+                raise RuntimeError(
+                    f"Extension '{ep.name}' declares invalid "
+                    f"EXTENSION_LOAD_PRIORITY={priority!r}; expected an integer"
+                )
+            discovered.append((priority, ep.name, loader))
         except RuntimeError:
             # Version-mismatch and slot-conflict errors must propagate loudly.
             raise
         except Exception:  # broad: extension entry-point loaders may raise provider-specific errors; logged via logger.warning
             logger.warning("Failed to load extension", name=ep.name, exc_info=True)
+
+    for priority, ep_name, loader in sorted(
+        discovered, key=lambda item: (item[0], item[1])
+    ):
+        try:
+            _run_loader_with_slot_guard(ep_name, loader, _extensions)
+            logger.info("Loaded extension", name=ep_name, priority=priority)
+        except RuntimeError:
+            raise
+        except Exception:  # broad: extension loaders may raise provider-specific errors; logged via logger.warning
+            logger.warning("Failed to load extension", name=ep_name, exc_info=True)
 
     # Extract routers registered by extensions
     routers = _extensions.pop("_routers", [])
@@ -318,6 +363,14 @@ def get_connector_extension() -> "ConnectorExtension":
     ext = _extensions.get("connectors")
     if ext is None:
         return DefaultConnectorExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_data_serving_extension() -> "DataServingExtension":
+    """Return provider-neutral serving hooks or the Community no-op default."""
+    ext = _extensions.get("data_serving")
+    if ext is None:
+        return DefaultDataServingExtension()
     return ext  # type: ignore[return-value]
 
 

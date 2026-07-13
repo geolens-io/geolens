@@ -165,6 +165,49 @@ def _iter_backend_app_python_files() -> list[Path]:
     return sorted((BACKEND_ROOT / "app").rglob("*.py"))
 
 
+@pytest.mark.architecture
+def test_public_core_does_not_import_private_overlay_packages() -> None:
+    """Public application code must depend on extension contracts, not overlays.
+
+    The AST walk covers imports at every scope. Function-local imports still
+    couple the Apache-licensed package to a private namespace and bypass the
+    typed extension registry, even when they happen to be guarded at runtime.
+    """
+
+    private_roots = {"app_enterprise", "geolens_cloud", "geolens_enterprise"}
+    offenders: list[str] = []
+
+    for path in _iter_backend_app_python_files():
+        rel = _repo_style_rel(path)
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=rel)
+        lines = source.splitlines()
+
+        for node in ast.walk(tree):
+            imported_modules: list[str] = []
+            if isinstance(node, ast.Import):
+                imported_modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                imported_modules.append(node.module)
+            else:
+                continue
+
+            if any(
+                module.split(".", 1)[0] in private_roots for module in imported_modules
+            ):
+                offenders.append(
+                    f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                )
+
+    if offenders:
+        pytest.fail(
+            "Public core imports a private overlay package. Define a typed Protocol "
+            "in app.platform.extensions and register the private implementation via "
+            "the geolens.extensions entry-point instead.\nOffending lines:\n"
+            + "\n".join(offenders)
+        )
+
+
 def _normalized_import_root(name: str | None) -> str:
     if name is None:
         return ""
@@ -897,7 +940,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 # History of the previous caps, kept because it records why each file is large:
 #   maps/router.py    1610 → 1700 → 1800 → 1900. Phase 1047 bulk-delete, then PR #118
 #     builder polish took it to 2107; extracting _router_helpers.py brought it back.
-#     Splitting share/media/layers into sub-routers is the remaining work.
+#     Icon/sprite assets and public sharing/export now live in composed sub-routers;
+#     media/layer mutation routes remain in the main router.
 #   search/router.py  1515 → 1600 → 1640 → 1700. OGC record metadata (#315), then the
 #     record_type/sort_by allowlist + to_filters() chokepoint (#317 A2). The OGC
 #     Records array-query contract and explicit GeoJSON response schemas add the
@@ -912,15 +956,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
 _ROUTER_LOC_CAPS: dict[str, int] = {
-    "backend/app/modules/catalog/maps/router.py": 1884,
+    "backend/app/modules/catalog/maps/router.py": 1374,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header parity. Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1733,
+    "backend/app/modules/catalog/search/router.py": 1438,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation.
     "backend/app/standards/stac/router.py": 1584,
-    "backend/app/processing/tiles/router.py": 2077,
+    "backend/app/processing/tiles/router.py": 2044,
 }
 
 
@@ -945,6 +989,58 @@ def test_router_loc_caps_have_no_headroom() -> None:
         pytest.fail(
             "Router LOC ratchets are out of sync with the files they track. Set each "
             "cap to the file's current line count.\n" + "\n".join(drift)
+        )
+
+
+@pytest.mark.architecture
+def test_open_core_decomposition_boundaries_stay_clean() -> None:
+    """Lock the shared-query, sharing, and style decompositions in place."""
+    app_root = _backend_path("app")
+    private_import_offenders: list[str] = []
+    for path in sorted(app_root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if "app.modules.catalog._ilike" in source:
+            private_import_offenders.append(
+                f"{_repo_style_rel(path)} imports removed catalog._ilike"
+            )
+
+    for domain in ("admin", "audit", "embed_tokens"):
+        root = app_root / "modules" / domain
+        for path in sorted(root.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                if node.module == "app.modules.catalog.maps.models":
+                    private_import_offenders.append(
+                        f"{_repo_style_rel(path)} imports catalog map ORM internals"
+                    )
+
+    if private_import_offenders:
+        pytest.fail(
+            "Cross-domain code bypassed stable text/sharing APIs:\n"
+            + "\n".join(private_import_offenders)
+        )
+
+    size_caps = {
+        "backend/app/modules/catalog/maps/style_json.py": 1390,
+        "backend/app/modules/catalog/maps/style_import.py": 450,
+        "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
+        "backend/app/modules/catalog/maps/router_assets.py": 126,
+        "backend/app/modules/catalog/maps/router_sharing.py": 371,
+        "backend/app/modules/catalog/search/query_params.py": 225,
+        "backend/app/modules/catalog/search/router_saved.py": 100,
+        "backend/app/modules/admin/router_operations.py": 275,
+        "backend/app/modules/settings/router_public.py": 150,
+    }
+    oversized = []
+    for rel, cap in size_caps.items():
+        actual = len(_repo_style_path(rel).read_text(encoding="utf-8").splitlines())
+        if actual > cap:
+            oversized.append(f"{rel}: {actual} lines > cap {cap}")
+    if oversized:
+        pytest.fail(
+            "Decomposed modules regrew past their reviewed caps:\n"
+            + "\n".join(oversized)
         )
 
 

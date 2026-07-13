@@ -73,9 +73,11 @@ class CatalogPort(Protocol):
         table_name: str,
         column_info: list[dict],
         dataset: Any,
+        *,
+        schema: str | None = None,
     ) -> dict[str, Any]: ...
 
-    def quote_table(self, table_name: str) -> str: ...
+    def quote_table(self, table_name: str, *, schema: str | None = None) -> str: ...
 
     async def generate_table_name(
         self, title: str, session: AsyncSession
@@ -136,15 +138,29 @@ class CatalogPort(Protocol):
     def validate_table_name(self, table_name: str) -> None: ...
 
     async def add_4326_column(
-        self, session: AsyncSession, table_name: str, source_srid: int
+        self,
+        session: AsyncSession,
+        table_name: str,
+        source_srid: int,
+        *,
+        schema: str | None = None,
     ) -> None: ...
 
     async def grant_reader_access(
-        self, session: AsyncSession, table_name: str
+        self,
+        session: AsyncSession,
+        table_name: str,
+        *,
+        schema: str | None = None,
+        role: str | None = None,
     ) -> None: ...
 
     async def get_column_info(
-        self, session: AsyncSession, table_name: str
+        self,
+        session: AsyncSession,
+        table_name: str,
+        *,
+        schema: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
     async def generate_attribute_metadata(

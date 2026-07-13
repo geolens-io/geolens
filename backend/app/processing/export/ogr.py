@@ -7,6 +7,7 @@ from app.processing.ingest.ogr import (
     OGR2OGR_FILE_TIMEOUT_SECONDS,
     IngestionError,
     _communicate_with_timeout,
+    _tenant_reader_subprocess_env,
     build_pg_conn_str,
 )
 
@@ -107,10 +108,16 @@ async def run_ogr2ogr_export(
     # (mirrors the ingest path) so a slow/large table can't hold an API worker or
     # orphan the ogr2ogr child on client disconnect; also cap the server-side query
     # via libpq statement_timeout so the DB stops working when the child is killed.
-    env = {
-        **os.environ,
-        "PGOPTIONS": f"-c statement_timeout={OGR2OGR_FILE_TIMEOUT_SECONDS * 1000}",
-    }
+    env = _tenant_reader_subprocess_env(
+        schema,
+        base_env={
+            **os.environ,
+            "PGOPTIONS": (
+                f"-c statement_timeout={OGR2OGR_FILE_TIMEOUT_SECONDS * 1000}"
+            ),
+        },
+    )
+    assert env is not None  # base_env is always returned in single-tenant mode
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,

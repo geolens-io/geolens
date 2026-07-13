@@ -17,7 +17,7 @@ Task 1 — Tile path binder + schema-qualified queries:
 Task 2 — Sandbox executor mode-aware role + dataset resolver:
   T2A: execute_safe uses geolens_readonly in single_tenant.
   T2B: execute_safe uses tenant_reader_role(tid) in multi_tenant when tid is set.
-  T2C: execute_safe falls back to geolens_readonly in multi_tenant when tid is None.
+  T2C: execute_safe fails closed in multi_tenant when tid is None.
   T2D: _resolve_dataset_meta resolves the correct-tenant dataset and raises 404 for a
        mismatched-tenant table_name (even if the bare table_name matches).
   T2E: _dataset_cache does NOT return tenant A's meta for tenant B (tenant-prefixed key);
@@ -337,12 +337,8 @@ class TestSandboxRoleSelection:
             current_tenant_var.reset(token)
 
     @pytest.mark.asyncio
-    async def test_multi_tenant_none_tid_falls_back_to_reader(self, monkeypatch):
-        """T2C: In multi_tenant with tid=None, execute_safe falls back to geolens_reader.
-
-        CR-04 (Phase 1209): fallback is geolens_reader (guaranteed by migration 0007)
-        rather than geolens_readonly (only in 0001_baseline which may be squashed).
-        """
+    async def test_multi_tenant_none_tid_fails_closed(self, monkeypatch):
+        """T2C: In multi_tenant with tid=None, execute_safe rejects the query."""
         monkeypatch.setattr(
             "app.platform.sandbox.executor.is_multi_tenant", lambda: True
         )
@@ -358,13 +354,13 @@ class TestSandboxRoleSelection:
                 db_module, "engine", _make_sandbox_engine_mock(executed_stmts)
             ):
                 from app.platform.sandbox.executor import execute_safe
+                from app.platform.sandbox.schemas import SandboxError
 
-                await execute_safe(MagicMock(), "SELECT 1")
+                with pytest.raises(SandboxError) as exc_info:
+                    await execute_safe(MagicMock(), "SELECT 1")
 
-            role_stmts = [s for s in executed_stmts if "SET LOCAL ROLE" in s]
-            assert any(s.strip().endswith("geolens_reader") for s in role_stmts), (
-                f"Expected SET LOCAL ROLE geolens_reader fallback; got: {role_stmts}"
-            )
+            assert exc_info.value.category == "query_failed"
+            assert executed_stmts == []
         finally:
             current_tenant_var.reset(token)
 

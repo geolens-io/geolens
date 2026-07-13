@@ -10,6 +10,8 @@ Covers:
 """
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
 import pytest
@@ -85,6 +87,54 @@ class TestJwtPayloadClaims:
         assert "token_version" in payload, "JWT must include a token_version claim"
         assert isinstance(payload["token_version"], int)
         assert payload["token_version"] >= 1, "token_version must be >= 1"
+        assert "tid" not in payload, "single-tenant JWT shape must remain unchanged"
+
+    async def test_multi_tenant_jwt_carries_tenant_from_user_row(self):
+        """Multi-tenant tokens bind ``tid`` to server-side user membership."""
+        from app.modules.auth.providers import AuthenticatedIdentity
+        from app.modules.auth.service import AuthService
+
+        user_id = uuid.uuid4()
+        tenant_id = uuid.uuid4()
+        result = MagicMock()
+        result.one_or_none.return_value = SimpleNamespace(
+            token_version=3, tenant_id=tenant_id
+        )
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+
+        with patch("app.modules.auth.service.is_multi_tenant", return_value=True):
+            raw = await AuthService(db).create_access_token(
+                AuthenticatedIdentity(user_id=user_id, username="tenant-user")
+            )
+
+        payload = jwt.decode(
+            raw,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+        assert payload["sub"] == str(user_id)
+        assert payload["tid"] == str(tenant_id)
+        assert payload["token_version"] == 3
+
+    async def test_multi_tenant_jwt_requires_user_tenant(self):
+        from app.modules.auth.providers import AuthenticatedIdentity
+        from app.modules.auth.service import AuthService
+
+        result = MagicMock()
+        result.one_or_none.return_value = SimpleNamespace(
+            token_version=1, tenant_id=None
+        )
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+
+        with (
+            patch("app.modules.auth.service.is_multi_tenant", return_value=True),
+            pytest.raises(ValueError, match="without a tenant id"),
+        ):
+            await AuthService(db).create_access_token(
+                AuthenticatedIdentity(user_id=uuid.uuid4(), username="unscoped")
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -3464,6 +3464,192 @@
         "title": "ConnectivityResult",
         "type": "object"
       },
+      "ConnectorDefinitionResponse": {
+        "description": "Public, non-secret connector capabilities advertised by an overlay.",
+        "properties": {
+          "config_schema": {
+            "additionalProperties": true,
+            "title": "Config Schema",
+            "type": "object"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "supports_credentials": {
+            "default": false,
+            "title": "Supports Credentials",
+            "type": "boolean"
+          },
+          "supports_scheduled_sync": {
+            "default": false,
+            "title": "Supports Scheduled Sync",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "config_schema"
+        ],
+        "title": "ConnectorDefinitionResponse",
+        "type": "object"
+      },
+      "ConnectorDiscoverRequest": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          }
+        },
+        "title": "ConnectorDiscoverRequest",
+        "type": "object"
+      },
+      "ConnectorDiscoverResponse": {
+        "properties": {
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorResourceResponse"
+            },
+            "title": "Resources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resources"
+        ],
+        "title": "ConnectorDiscoverResponse",
+        "type": "object"
+      },
+      "ConnectorIngestRequest": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "resource_id": {
+            "description": "API-safe opaque handle returned by connector discovery.",
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,254}$",
+            "title": "Resource Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_id"
+        ],
+        "title": "ConnectorIngestRequest",
+        "type": "object"
+      },
+      "ConnectorIngestResponse": {
+        "properties": {
+          "job_id": {
+            "description": "API-safe opaque handle for the dispatched ingest job.",
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,254}$",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "queued",
+            "default": "queued",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "ConnectorIngestResponse",
+        "type": "object"
+      },
+      "ConnectorListResponse": {
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorDefinitionResponse"
+            },
+            "title": "Connectors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connectors"
+        ],
+        "title": "ConnectorListResponse",
+        "type": "object"
+      },
+      "ConnectorResourceResponse": {
+        "properties": {
+          "id": {
+            "description": "API-safe opaque resource handle. This is never a provider URL, signed locator, or credential.",
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,254}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "ConnectorResourceResponse",
+        "type": "object"
+      },
       "ContactCreate": {
         "properties": {
           "email": {
@@ -14861,6 +15047,19 @@
             "description": "CDN origin URL for tile delivery, if configured.",
             "title": "Cdn Base Url"
           },
+          "mvt_source_layer_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "data",
+            "description": "Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.",
+            "title": "Mvt Source Layer Prefix"
+          },
           "public_api_url": {
             "anyOf": [
               {
@@ -21463,7 +21662,7 @@
     },
     "/auth/refresh/": {
       "post": {
-        "description": "Exchange a valid refresh token for a new access + refresh token pair.",
+        "description": "Exchange a valid refresh token for a new access + refresh token pair.\n\nMulti-tenant clients must call this endpoint on their tenant host. Refresh\ntokens are opaque and carry no bearer ``tid`` claim, so tenant middleware\nbinds the database transaction from that same-origin host before the user\nrow is resolved and the next tenant-bound access token is minted.",
         "operationId": "refresh_auth_refresh__post",
         "requestBody": {
           "content": {
@@ -40767,6 +40966,404 @@
         "summary": "Get Saved Search Endpoint",
         "tags": [
           "Search"
+        ]
+      }
+    },
+    "/services/connectors/": {
+      "get": {
+        "description": "List persistent connectors supplied by an installed overlay.\n\nCommunity's no-op extension returns an empty list; one-shot WFS, OGC API,\nArcGIS, and STAC imports remain on their existing free endpoints.",
+        "operationId": "list_connectors_endpoint_services_connectors__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Connectors Endpoint",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/services/connectors/{connector_name}/discover/": {
+      "post": {
+        "description": "Validate connector config and discover non-secret source resources.",
+        "operationId": "discover_connector_resources_endpoint_services_connectors__connector_name__discover__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_name",
+            "required": true,
+            "schema": {
+              "title": "Connector Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorDiscoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDiscoverResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad gateway \u2014 connector provider failed"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway timeout \u2014 connector provider timed out"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Discover Connector Resources Endpoint",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/services/connectors/{connector_name}/ingest/": {
+      "post": {
+        "description": "Dispatch an overlay-owned ingest and return its opaque job id.",
+        "operationId": "dispatch_connector_ingest_endpoint_services_connectors__connector_name__ingest__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_name",
+            "required": true,
+            "schema": {
+              "title": "Connector Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad gateway \u2014 connector provider failed"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway timeout \u2014 connector provider timed out"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Dispatch Connector Ingest Endpoint",
+        "tags": [
+          "Datasets"
         ]
       }
     },

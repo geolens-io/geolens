@@ -59,54 +59,26 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # Dockerfile) and must contain a pyproject.toml — the guard fails closed
 # otherwise (exit 1).
 #
-# Usage (single enterprise build — derived image, three steps):
-#
-#   1. Place the overlay source in the build context and allow it in .dockerignore:
-#        cp -r /path/to/geolens-enterprise ./enterprise
-#        # Temporarily append to .dockerignore for the enterprise build:
-#        #   !enterprise/
-#        #   !enterprise/**
-#
-#   2. In a DERIVED Dockerfile add a COPY that stages the overlay BEFORE the
-#      INSTALL_OVERLAYS RUN below.  The OSS image intentionally omits it — an
-#      unconditional `COPY enterprise/ /enterprise/` would fail the OSS build:
-#        COPY enterprise/ /enterprise/
-#
-#   3. Build with the ARG set:
-#        docker build \
-#            --build-arg INSTALL_OVERLAYS="/enterprise" \
-#            -t geolens-api:enterprise .
-#
-# Usage (combined enterprise + cloud build):
-#
-#   1. Stage both overlay dirs:
-#        COPY enterprise/ /enterprise/
-#        COPY cloud/ /cloud/
-#        # Allow both in .dockerignore:
-#        #   !enterprise/
-#        #   !enterprise/**
-#        #   !cloud/
-#        #   !cloud/**
-#
-#   2. Build with both dirs listed (space-separated):
-#        docker build \
-#            --build-arg INSTALL_OVERLAYS="/enterprise /cloud" \
-#            -t geolens-api:enterprise-cloud .
+# These arguments are a legacy hook for distributors that vendor and modify
+# this Dockerfile so their own COPY instructions occur before this RUN. They
+# are not a supported derived-image interface: a child Dockerfile cannot insert
+# a COPY into the middle of its parent build. Official paid distributions own
+# an immutable overlay Dockerfile that starts from the completed core runtime,
+# installs a locked wheel at build time, and promotes that same image to API,
+# worker, and migration services.
 #
 # Back-compat alias: INSTALL_ENTERPRISE_OVERLAY (legacy single-overlay ARG from
-# pre-BAKE-01 builds). When set/non-empty, /enterprise is prepended to the
-# effective overlay list, so existing CI pipelines using
-# `--build-arg INSTALL_ENTERPRISE_OVERLAY=1` continue to work unchanged.
+# pre-BAKE-01 distributor-owned Dockerfiles). When their Dockerfile already
+# stages /enterprise, the alias still prepends that path. It does not make an
+# unmodified public build capable of copying a private overlay.
 #
-# When both ARGs are empty (the default) this block is a no-op and the OSS
+# When both ARGs are empty (the only supported public build) this block is a no-op and the OSS
 # image is byte-for-byte unchanged.  CI always builds without the ARGs so the
 # OSS path is exercised on every run.
 #
 # NOTE: overlay dirs are excluded from the OSS build context by .dockerignore
-# (default deny-then-allow pattern), and this OSS Dockerfile has NO unconditional
-# COPY for any overlay (an unconditional copy would break the OSS build).  The
-# guard fails closed unless the operator both allows the overlay dir in
-# .dockerignore (step 1) AND stages it via COPY in a derived image (step 2).
+# and this Dockerfile has no overlay COPY. The guard therefore fails closed in
+# an unmodified checkout. Do not advertise this hook as a paid-image build.
 ARG INSTALL_ENTERPRISE_OVERLAY=
 ARG INSTALL_OVERLAYS=
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -117,9 +89,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     for _dir in ${_effective_overlays}; do \
         if [ ! -d "${_dir}" ] || [ ! -f "${_dir}/pyproject.toml" ]; then \
             echo "ERROR: overlay dir '${_dir}' is missing or has no pyproject.toml." >&2; \
-            echo "Ensure the overlay source is in the build context:" >&2; \
-            echo "  - Add '!${_dir}/' and '!${_dir}/**' to .dockerignore" >&2; \
-            echo "  - Add 'COPY ${_dir#/}/ ${_dir}/' before this RUN in your derived image." >&2; \
+            echo "This legacy hook requires a distributor-owned Dockerfile that stages the overlay before this RUN." >&2; \
+            echo "Use the overlay repository's immutable image build for supported distributions." >&2; \
             exit 1; \
         fi; \
         echo "Baking overlay '${_dir}' into image at build time..." && \
@@ -135,9 +106,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #
 # Note: uv is kept in the runtime layer because the entrypoints and CMD use
 # `uv run --no-dev` to launch uvicorn/worker inside the project environment.
-# The enterprise overlay is NOT installed at runtime (read_only rootfs prevents
-# it — see BUG-003); use the build-time bake path above (ARG
-# INSTALL_ENTERPRISE_OVERLAY) to pre-bake the overlay into an enterprise image.
+# An overlay is NOT installed at runtime (read_only rootfs prevents it — see
+# BUG-003); supported paid distributions use their overlay-owned immutable
+# Dockerfile to install a locked wheel into this completed runtime image.
 # gcc/dev libs are still excluded from the runtime layer.
 #
 # Pin: see the `FROM python:3.14-slim` line below (Dependabot bumps the exact
@@ -287,9 +258,8 @@ RUN set -e; \
     for _dir in ${INSTALL_FRONTEND_OVERLAYS:-}; do \
         if [ ! -f "${_dir}/package.json" ]; then \
             echo "ERROR: frontend overlay '${_dir}' missing package.json." >&2; \
-            echo "Ensure the overlay source is staged in the build context:" >&2; \
-            echo "  - Add '!${_dir#/}/' and '!${_dir#/}/**' to .dockerignore" >&2; \
-            echo "  - Add 'COPY ${_dir#/}/ ${_dir}/' before this stage in your derived image." >&2; \
+            echo "This legacy hook requires a distributor-owned Dockerfile that stages the overlay before this RUN." >&2; \
+            echo "Use the overlay repository's standalone frontend image build instead." >&2; \
             exit 1; \
         fi; \
         echo "Merging frontend overlay '${_dir}' into build context..."; \

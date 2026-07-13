@@ -1476,6 +1476,29 @@ def test_export_uses_data_prefixed_mvt_source_layer_p1_01():
             assert entry["source-layer"] == "data.parcels", entry["id"]
 
 
+def test_export_uses_tenant_prefixed_mvt_source_layer():
+    """Hosted style exports use the physical MVT layer name in every companion."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        paint={"fill-color": "#94a3b8"},
+        label_config={"column": "name"},
+        style_config={"builder": {"outlineColor": "#112233", "outlineWidth": 2}},
+    )
+
+    style = build_maplibre_style(
+        _map(),
+        [layer],
+        mvt_source_layer_prefix=("data_t_12345678_1234_1234_1234_123456789abc"),
+    )
+
+    for entry in style["layers"]:
+        if "source-layer" in entry:
+            assert entry["source-layer"] == (
+                "data_t_12345678_1234_1234_1234_123456789abc.parcels"
+            ), entry["id"]
+
+
 def test_export_tile_url_includes_sorted_cols_for_all_references_p1_02():
     """P1-02/P1-03: cols= contains data-driven, label, paint ['get'], and filter columns."""
     dataset_id = uuid.uuid4()

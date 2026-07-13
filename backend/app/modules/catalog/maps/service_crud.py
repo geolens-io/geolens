@@ -15,7 +15,7 @@ from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
 from app.modules.catalog.maps.service_layers import bulk_check_dataset_access
-from app.modules.catalog._ilike import escape_ilike
+from app.core.text import escape_ilike
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
     _apply_map_visibility_filter,

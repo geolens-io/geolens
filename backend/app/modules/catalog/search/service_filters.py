@@ -12,7 +12,7 @@ from sqlalchemy import exists, func, literal_column, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core.geo import make_bbox_filter
-from app.modules.catalog._ilike import escape_ilike
+from app.core.text import escape_ilike
 from app.modules.catalog.collections.models import CollectionDataset
 from app.modules.catalog.datasets.domain.models import (
     Dataset,

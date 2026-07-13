@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.edition import is_enterprise
 from app.core.identity import Identity
 from app.modules.auth.models import User
-from app.modules.catalog._ilike import escape_ilike
+from app.core.text import escape_ilike
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken

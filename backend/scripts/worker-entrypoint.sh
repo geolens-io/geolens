@@ -49,10 +49,9 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 # edition; GEOLENS_EDITION=enterprise will now trigger a loud startup failure
 # rather than a silent OSS fallback.
 #
-# The architecturally correct path for production Enterprise deployments is to
-# pre-bake the overlay into the image at BUILD TIME using:
-#   docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...
-# (see ARG INSTALL_ENTERPRISE_OVERLAY in Dockerfile)
+# Production paid deployments use the overlay repository's immutable image
+# build, which installs its locked wheel at build time into the completed core
+# runtime. The public Dockerfile does not copy private packages.
 #
 # This block is retained for dev/CI scenarios where the container runs without
 # read_only (e.g. `docker compose up` for local development with a mounted
@@ -66,7 +65,7 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."
     uv add --editable "${ENTERPRISE_PATH}" --no-dev 2>&1 || {
         echo "WARNING: Enterprise package install failed. Under read_only rootfs this is expected." >&2
-        echo "Use the build-time bake path (ARG INSTALL_ENTERPRISE_OVERLAY in Dockerfile) for production." >&2
+        echo "Use the overlay repository's immutable image build for production." >&2
     }
     # Re-own cache after root install so appuser can access it later
     if [ "$(id -u)" -eq 0 ]; then

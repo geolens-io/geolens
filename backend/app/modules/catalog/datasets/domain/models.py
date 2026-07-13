@@ -351,6 +351,19 @@ class Dataset(Base):
             "original_srid IS NULL OR original_srid > 0",
             name="chk_datasets_original_srid_positive",
         ),
+        Index(
+            "uq_datasets_table_name_global",
+            "table_name",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_datasets_table_name_tenant",
+            "tenant_id",
+            "table_name",
+            unique=True,
+            postgresql_where=text("tenant_id IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 
@@ -363,7 +376,7 @@ class Dataset(Base):
         nullable=False,
         unique=True,
     )
-    table_name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    table_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Auto-extracted metadata
     srid: Mapped[int | None] = mapped_column(Integer, nullable=True)

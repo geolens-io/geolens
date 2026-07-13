@@ -10,14 +10,11 @@ from typing import NoReturn
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
 from app.modules.admin.schemas import (
-    AdminApiKeyCreateRequest,
-    AdminApiKeyListItem,
-    AdminApiKeyListResponse,
     AdminJobListResponse,
     AdminJobResponse,
     AdminUserCreate,
@@ -27,8 +24,6 @@ from app.modules.admin.schemas import (
     BackfillResponse,
     CatalogStatsResponse,
     EmbeddingStatsResponse,
-    InfrastructureConfig,
-    InfrastructureResponse,
     SamlToLocalConversion,
     UserListResponse,
     UserNameItem,
@@ -39,21 +34,19 @@ from app.modules.quota.service import get_user_quota_usage_bulk
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.router import limiter  # HARDEN-01: shared rate-limiter instance
-from app.modules.auth.models import ApiKey, User
-from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
+from app.modules.auth.models import User
+from app.modules.auth.schemas import UserResponse
 from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
-from app.modules.catalog.maps.schemas import (
-    AdminShareTokenListResponse,
-    AdminShareTokenResponse,
-)
+from app.modules.admin.router_operations import router as operations_router
 from app.platform.jobs.router import get_retry_capability
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
+router.include_router(operations_router)
 
 
 def _user_response(user: User) -> UserResponse:
@@ -67,18 +60,6 @@ def _user_response(user: User) -> UserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         roles=sorted(r.name for r in user.roles),
-    )
-
-
-def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
-    """Convert an ApiKey ORM object to an AdminApiKeyListItem schema."""
-    return AdminApiKeyListItem(
-        id=key.id,
-        user_id=key.user_id,
-        name=key.name,
-        is_active=key.is_active,
-        created_at=key.created_at,
-        last_used_at=key.last_used_at,
     )
 
 
@@ -659,93 +640,6 @@ async def list_admin_jobs(
 
 
 # ---------------------------------------------------------------------------
-# API Key management endpoints
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
-@router.post(
-    "/api-keys",
-    response_model=ApiKeyCreateResponse,
-    status_code=status.HTTP_201_CREATED,
-    include_in_schema=False,
-)
-@router.post(
-    "/api-keys/",
-    response_model=ApiKeyCreateResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-@limiter.limit("30/minute")
-async def create_api_key(
-    body: AdminApiKeyCreateRequest,
-    request: Request,
-    current_user: User = Depends(require_permission("manage_users")),
-    db: AsyncSession = Depends(get_db),
-) -> ApiKeyCreateResponse:
-    """Create an API key for a user (admin only).
-
-    The raw key is returned only in this response and cannot be retrieved again.
-    """
-    from app.modules.auth.service import create_api_key_for_user
-
-    api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
-
-    ip = get_client_ip(request)
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=current_user.id,
-            action="api_key.create",
-            resource_type="api_key",
-            resource_id=api_key.id,
-            details={"name": body.name, "target_user_id": str(body.user_id)},
-            ip_address=ip,
-        ),
-    )
-    await db.commit()
-
-    return ApiKeyCreateResponse(
-        id=api_key.id,
-        key=raw_key,
-        name=api_key.name,
-        created_at=api_key.created_at,
-    )
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
-@router.get(
-    "/api-keys",
-    response_model=AdminApiKeyListResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
-    include_in_schema=False,
-)
-@router.get(
-    "/api-keys/",
-    response_model=AdminApiKeyListResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
-)
-async def list_api_keys(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    user_id: uuid.UUID | None = Query(None, description="Filter by user ID"),
-    db: AsyncSession = Depends(get_db),
-) -> AdminApiKeyListResponse:
-    """List all API keys (admin only). Never returns the raw key."""
-    stmt = select(ApiKey)
-    if user_id is not None:
-        stmt = stmt.where(ApiKey.user_id == user_id)
-    total = (
-        await db.execute(select(func.count()).select_from(stmt.subquery()))
-    ).scalar_one()
-    result = await db.execute(stmt.offset(skip).limit(limit))
-    keys = result.scalars().all()
-    return AdminApiKeyListResponse(
-        items=[_api_key_response(k) for k in keys],
-        total=total,
-    )
-
-
-# ---------------------------------------------------------------------------
 # AI Status endpoints
 # ---------------------------------------------------------------------------
 
@@ -920,168 +814,3 @@ async def trigger_backfill(
             detail="Embedding backfill failed. See server logs for details.",
         )
     return BackfillResponse(**result)
-
-
-@router.delete(
-    "/api-keys/{key_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-@limiter.limit("30/minute")
-async def revoke_api_key(
-    key_id: uuid.UUID,
-    request: Request,
-    current_user: User = Depends(require_permission("manage_users")),
-    db: AsyncSession = Depends(get_db),
-) -> Response:
-    """Revoke (soft-delete) an API key (admin only)."""
-    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
-    api_key = result.scalar_one_or_none()
-    if api_key is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="API key not found",
-        )
-    api_key.is_active = False
-    ip = get_client_ip(request)
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=current_user.id,
-            action="api_key.revoke",
-            resource_type="api_key",
-            resource_id=key_id,
-            details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
-            ip_address=ip,
-        ),
-    )
-    await db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------------------------------------------------------------------------
-# Infrastructure endpoint
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
-@router.get(
-    "/infrastructure",
-    response_model=InfrastructureResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
-    include_in_schema=False,
-)
-@router.get(
-    "/infrastructure/",
-    response_model=InfrastructureResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
-)
-async def get_infrastructure(
-    db: AsyncSession = Depends(get_db),
-) -> InfrastructureResponse:
-    """Return infrastructure configuration, live health status, and OIDC provider connectivity."""
-    from app.observability.health.service import check_health, check_oidc_health
-
-    # include_errors=True: this is the authenticated admin view, so operators
-    # keep the raw provider error detail (GAP-016 sanitizes only the
-    # unauthenticated /health path).
-    health, oidc_health = await asyncio.gather(
-        check_health(include_errors=True),
-        check_oidc_health(db),
-    )
-
-    config = InfrastructureConfig(
-        storage_provider=app_settings.storage_provider,
-        cache_provider="redis" if app_settings.redis_url else "memory",
-        database_type="external"
-        if app_settings.database_url_override
-        else "docker-compose",
-        database_pooler="external"
-        if app_settings.db_use_external_pooler
-        else "internal",
-        tile_cache="cdn",
-        tile_cache_ttl=app_settings.tile_cache_ttl,
-        cdn_configured=bool(app_settings.cdn_base_url),
-    )
-
-    return InfrastructureResponse(
-        config=config,
-        health=health["providers"],
-        oidc_providers=oidc_health,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Share token management endpoints
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
-@router.get(
-    "/share-tokens",
-    response_model=AdminShareTokenListResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
-    include_in_schema=False,
-)
-@router.get(
-    "/share-tokens/",
-    response_model=AdminShareTokenListResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
-)
-async def list_share_tokens_endpoint(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    search: str | None = Query(None, max_length=200),
-    status: str | None = Query(None, pattern="^(active|expired|revoked)$"),
-    db: AsyncSession = Depends(get_db),
-) -> AdminShareTokenListResponse:
-    """List basic share-token inventory with map info; no quotas or domain controls (admin only)."""
-    from app.modules.catalog.maps.service import list_share_tokens
-
-    tokens, total = await list_share_tokens(
-        db, skip, limit, search=search, status_filter=status
-    )
-    return AdminShareTokenListResponse(
-        tokens=[AdminShareTokenResponse(**t) for t in tokens],
-        total=total,
-    )
-
-
-@router.delete(
-    "/share-tokens/{token_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-@limiter.limit("30/minute")
-async def admin_revoke_share_token(
-    token_id: uuid.UUID,
-    request: Request,
-    current_user: User = Depends(require_permission("manage_users")),
-    db: AsyncSession = Depends(get_db),
-) -> Response:
-    """Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only)."""
-    service = AdminService(db)
-    result = await service.revoke_share_token_with_cascade(token_id)
-    if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Share token not found",
-        )
-    revoked_token_id, map_id, cascade_count = result
-
-    ip = get_client_ip(request)
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=current_user.id,
-            action="map.admin_share_revoke",
-            resource_type="map_share_token",
-            resource_id=revoked_token_id,
-            details={
-                "map_id": str(map_id),
-                "cascade_embed_count": cascade_count,
-            },
-            ip_address=ip,
-        ),
-    )
-
-    await db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

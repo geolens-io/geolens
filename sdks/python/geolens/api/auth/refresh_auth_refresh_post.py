@@ -95,6 +95,11 @@ def sync_detailed(
 
      Exchange a valid refresh token for a new access + refresh token pair.
 
+    Multi-tenant clients must call this endpoint on their tenant host. Refresh
+    tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+    binds the database transaction from that same-origin host before the user
+    row is resolved and the next tenant-bound access token is minted.
+
     Args:
         body (RefreshRequest):
 
@@ -126,6 +131,11 @@ def sync(
 
      Exchange a valid refresh token for a new access + refresh token pair.
 
+    Multi-tenant clients must call this endpoint on their tenant host. Refresh
+    tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+    binds the database transaction from that same-origin host before the user
+    row is resolved and the next tenant-bound access token is minted.
+
     Args:
         body (RefreshRequest):
 
@@ -151,6 +161,11 @@ async def asyncio_detailed(
     """Refresh
 
      Exchange a valid refresh token for a new access + refresh token pair.
+
+    Multi-tenant clients must call this endpoint on their tenant host. Refresh
+    tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+    binds the database transaction from that same-origin host before the user
+    row is resolved and the next tenant-bound access token is minted.
 
     Args:
         body (RefreshRequest):
@@ -180,6 +195,11 @@ async def asyncio(
     """Refresh
 
      Exchange a valid refresh token for a new access + refresh token pair.
+
+    Multi-tenant clients must call this endpoint on their tenant host. Refresh
+    tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+    binds the database transaction from that same-origin host before the user
+    row is resolved and the next tenant-bound access token is minted.
 
     Args:
         body (RefreshRequest):

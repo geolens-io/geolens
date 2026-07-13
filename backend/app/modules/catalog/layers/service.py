@@ -10,6 +10,8 @@ import structlog
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
+from app.core.db.tenant_session import current_tenant_var
 from app.modules.catalog.datasets.domain.models import AttributeMetadata, Dataset
 from app.modules.catalog.datasets.domain.service import create_dataset
 from app.modules.catalog.layers.schemas import (
@@ -51,6 +53,11 @@ async def create_layer(
     if collision_warning:
         logger.info("layer.table_name_collision", warning=collision_warning)
 
+    tenant_id = current_tenant_var.get()
+    data_schema = tenant_data_schema(tenant_id)
+    reader_role = tenant_reader_role(tenant_id)
+    table_ref = get_catalog_port().quote_table(table_name, schema=data_schema)
+
     # 2. Build and execute CREATE TABLE DDL
     col_defs = "gid SERIAL PRIMARY KEY, geom geometry({geom_type}, 4326)".format(
         geom_type=geometry_type,
@@ -63,17 +70,26 @@ async def create_layer(
             pg_type = ALLOWED_COLUMN_TYPES[col.type]
             col_defs += f", {col.name} {pg_type}"
 
-    ddl = f"CREATE TABLE data.{table_name} ({col_defs})"
+    ddl = f"CREATE TABLE {table_ref} ({col_defs})"
     await session.execute(text(ddl))
 
     # 3. Add geom_4326 column + spatial index (source is already 4326)
-    await get_catalog_port().add_4326_column(session, table_name, 4326)
+    await get_catalog_port().add_4326_column(
+        session, table_name, 4326, schema=data_schema
+    )
 
     # 4. Grant geolens_reader SELECT
-    await get_catalog_port().grant_reader_access(session, table_name)
+    await get_catalog_port().grant_reader_access(
+        session,
+        table_name,
+        schema=data_schema,
+        role=reader_role,
+    )
 
     # 5. Get column info for catalog record
-    column_info = await get_catalog_port().get_column_info(session, table_name)
+    column_info = await get_catalog_port().get_column_info(
+        session, table_name, schema=data_schema
+    )
 
     # 6. Create dataset in catalog
     from app.modules.catalog.datasets.domain.schemas import IngestionResult
@@ -96,7 +112,11 @@ async def create_layer(
 
     # 7. Compute quality score
     quality_score = await get_catalog_port().compute_quality_score(
-        session, table_name, column_info, dataset
+        session,
+        table_name,
+        column_info,
+        dataset,
+        schema=data_schema,
     )
     dataset.quality_detail = quality_score
     await session.flush()
@@ -171,7 +191,8 @@ async def add_column(
     pg_type = ALLOWED_COLUMN_TYPES[column_type]
 
     # Execute DDL
-    ddl = f"ALTER TABLE data.{dataset.table_name} ADD COLUMN {column_name} {pg_type}"
+    table_ref = get_catalog_port().quote_table(dataset.table_name)
+    ddl = f"ALTER TABLE {table_ref} ADD COLUMN {column_name} {pg_type}"
     await session.execute(text(ddl))
 
     # Refresh column_info
@@ -245,10 +266,8 @@ async def rename_column(
     if new_name in existing_names:
         raise ValueError(f"Column {new_name!r} already exists on this layer.")
 
-    ddl = (
-        f"ALTER TABLE data.{dataset.table_name} "
-        f"RENAME COLUMN {column_name} TO {new_name}"
-    )
+    table_ref = get_catalog_port().quote_table(dataset.table_name)
+    ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {column_name} TO {new_name}"
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
@@ -302,9 +321,9 @@ async def alter_column_type(
         raise ValueError(f"Column {column_name!r} does not exist on this layer.")
 
     pg_type = ALLOWED_COLUMN_TYPES[new_type]
+    table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = (
-        f"ALTER TABLE data.{dataset.table_name} "
-        f"ALTER COLUMN {column_name} TYPE {pg_type} "
+        f"ALTER TABLE {table_ref} ALTER COLUMN {column_name} TYPE {pg_type} "
         f"USING {column_name}::{pg_type}"
     )
     await session.execute(text(ddl))
@@ -358,7 +377,8 @@ async def drop_column(
         raise ValueError(f"Column {column_name!r} does not exist on this layer.")
 
     # Execute DDL
-    ddl = f"ALTER TABLE data.{dataset.table_name} DROP COLUMN {column_name}"
+    table_ref = get_catalog_port().quote_table(dataset.table_name)
+    ddl = f"ALTER TABLE {table_ref} DROP COLUMN {column_name}"
     await session.execute(text(ddl))
 
     # Refresh column_info

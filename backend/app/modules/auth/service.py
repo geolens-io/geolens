@@ -9,10 +9,11 @@ import jwt
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.tenancy import is_multi_tenant
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.providers.local import hash_password
-from app.core.config import settings
 
 
 class AuthService:
@@ -46,19 +47,33 @@ class AuthService:
         """
         minutes = expire_minutes or settings.access_token_expire_minutes
         now = datetime.now(UTC)
+        multi_tenant = is_multi_tenant()
 
         # Load token_version for this user so we can embed it in the JWT.
         # Using a column-only select avoids a redundant full-row read when the
         # User row was already loaded by the caller (e.g. the login handler),
         # but it is a safe extra query — correctness over micro-optimisation.
-        result = await self.db.execute(
-            select(User.token_version).where(User.id == identity.user_id)
-        )
+        if multi_tenant:
+            result = await self.db.execute(
+                select(User.token_version, User.tenant_id).where(
+                    User.id == identity.user_id
+                )
+            )
+            row = result.one_or_none()
+            _raw_version = row.token_version if row is not None else None
+            tenant_id = row.tenant_id if row is not None else None
+        else:
+            # Preserve the single-tenant query and token payload exactly. The
+            # tenancy axis must remain inert for Community/self-hosted installs.
+            result = await self.db.execute(
+                select(User.token_version).where(User.id == identity.user_id)
+            )
+            _raw_version = result.scalar_one_or_none()
+            tenant_id = None
         # WR-04: use an explicit None check rather than `or 1` so a DB row with
         # token_version=0 is not silently coerced to 1. In normal operation
         # token_version starts at 1 (migration server_default="1"), so 0 is
         # unreachable — but explicit intent is clearer than relying on falsiness.
-        _raw_version = result.scalar_one_or_none()
         token_version: int = _raw_version if _raw_version is not None else 1
 
         payload = {
@@ -69,6 +84,12 @@ class AuthService:
             "exp": now + timedelta(minutes=minutes),
             "iat": now,
         }
+        if multi_tenant:
+            if tenant_id is None:
+                raise ValueError(
+                    "Cannot issue a multi-tenant access token without a tenant id"
+                )
+            payload["tid"] = str(tenant_id)
         return jwt.encode(
             payload,
             settings.jwt_secret_key.get_secret_value(),

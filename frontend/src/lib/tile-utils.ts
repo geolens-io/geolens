@@ -13,14 +13,30 @@ export function resolveTileBaseUrl(
  * builder-audit #338 P1-01: the single MVT `source-layer` name helper.
  *
  * The MapLibre vector source-layer name must match the layer name the tile
- * server emits inside the MVT payload AND the URL path used to sign tiles. This
- * helper centralizes the `data.<table>` convention so the runtime sync, tile
- * signing, and (future) style export/import cannot drift — a mismatch loads the
- * source but renders zero features. The signed tile URLs below build the same
- * `data.<table>` segment, so both consume one definition.
+ * server emits inside the MVT payload AND the URL path used to sign tiles. The
+ * route always uses the logical `data.<table>` segment, while multi-tenant
+ * MVT payloads use the server-provided physical tenant-schema prefix. Passing
+ * that prefix here keeps MapLibre aligned without leaking it into tile signing.
  */
-export function getMvtSourceLayerName(tableName: string): string {
-  return `data.${tableName}`;
+export function getMvtSourceLayerName(
+  tableName: string,
+  sourceLayerPrefix: string | null | undefined = 'data',
+): string {
+  if (sourceLayerPrefix === null) {
+    throw new Error('MVT source-layer prefix is unresolved');
+  }
+  return `${sourceLayerPrefix ?? 'data'}.${tableName}`;
+}
+
+/**
+ * Return true only after tile config resolves without the backend's
+ * multi-tenant fail-closed `null` sentinel. An omitted field stays compatible
+ * with older single-tenant servers and uses the legacy `data` default.
+ */
+export function isMvtSourceLayerConfigReady(
+  tileConfig: { mvt_source_layer_prefix?: string | null } | null | undefined,
+): boolean {
+  return tileConfig != null && tileConfig.mvt_source_layer_prefix !== null;
 }
 
 /**

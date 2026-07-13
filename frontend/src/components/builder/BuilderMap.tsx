@@ -11,7 +11,7 @@ import {
   toMaplibreStyle,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
@@ -271,6 +271,10 @@ export const BuilderMap = memo(function BuilderMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
+  // MapLibre does not support changing a layer's source-layer in place. Wait
+  // for the tenant-aware MVT prefix before the first composition so an async
+  // settings response cannot permanently install the Community `data.*` name.
+  const tileConfigReady = isMvtSourceLayerConfigReady(tileConfig);
   const enabledPluginsQuery = useEnabledPlugins();
   const enabledPluginIds = useMemo(
     () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
@@ -544,8 +548,8 @@ export const BuilderMap = memo(function BuilderMap({
     .join(',');
 
   // Keep a ref to the latest sync inputs so style.load handler can access them
-  const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig });
-  syncInputsRef.current = { layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
+  const syncInputsRef = useRef({ layers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig });
+  syncInputsRef.current = { layers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig };
 
   const layersRef = useRef(layers);
   layersRef.current = layers;
@@ -739,7 +743,15 @@ export const BuilderMap = memo(function BuilderMap({
    * (post-basemap-swap). The token gate stays at each call site.
    */
   const composeSync = useCallback((map: MaplibreMap, { immediateTerrain }: { immediateTerrain: boolean }) => {
-    const { layers: ls, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
+    const {
+      layers: ls,
+      tokenMap: tm,
+      tileConfig: tc,
+      tileConfigReady: tcReady,
+      showBasemapLabels: sbl,
+      basemapConfig: bc,
+    } = syncInputsRef.current;
+    if (!tcReady) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
     const syncInputs = ls.map(toSyncInput);
     syncMapComposition({
@@ -750,7 +762,11 @@ export const BuilderMap = memo(function BuilderMap({
       managedSourcesRef,
       orderKeyRef: lastOrderKeyRef,
       geojsonDataMap: clusterGeoJsonDataRef.current,
-      syncOptions: { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position },
+      syncOptions: {
+        showBasemapLabels: sbl,
+        basemapPosition: bc?.basemap_position,
+        mvtSourceLayerPrefix: tc?.mvt_source_layer_prefix,
+      },
       basemapConfig: bc,
       showBasemapLabels: sbl,
       reorderDataLayerIds: syncInputs,
@@ -769,6 +785,7 @@ export const BuilderMap = memo(function BuilderMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!tileConfigReady) return;
 
     const onStyleLoad = () => {
       const { layers: l, tokenMap: t } = syncInputsRef.current;
@@ -785,7 +802,7 @@ export const BuilderMap = memo(function BuilderMap({
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [mapReady, composeSync]);
+  }, [mapReady, tileConfigReady, composeSync]);
 
   /**
    * Run a full layer sync against the map. Mirrors ViewerMap.tsx's `runSync`
@@ -1053,6 +1070,7 @@ export const BuilderMap = memo(function BuilderMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!tileConfigReady) return;
     // Token gate (ViewerMap-style): wait for tokens before any sync.
     if (layers.length > 0 && tokenMap.size === 0) return;
     // Defense in depth: also wait if any specific layer is still missing its
@@ -1075,7 +1093,7 @@ export const BuilderMap = memo(function BuilderMap({
     // UX-03 (Phase 1051): include basemap_position so dragging basemap top↔bottom
     // re-runs the sync's reorder pipeline (the orderKey check inside
     // syncLayersToMap also includes basemap_position to avoid the no-change skip).
-  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, basemapConfig?.basemap_position, clusterGeoJsonVersion, runSync]);
+  }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, basemapConfig?.basemap_position, clusterGeoJsonVersion, runSync]);
 
   useEffect(() => {
     const map = mapRef.current;

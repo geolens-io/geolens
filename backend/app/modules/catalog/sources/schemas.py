@@ -1,11 +1,81 @@
 """Pydantic request/response models for service probing endpoints."""
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.core.url_redaction import has_url_credentials
+
+CONNECTOR_RESOURCE_HANDLE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,254}$"
+CONNECTOR_RESOURCE_KIND_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
+
+
+class ConnectorDefinitionResponse(BaseModel):
+    """Public, non-secret connector capabilities advertised by an overlay."""
+
+    name: str
+    display_name: str
+    config_schema: dict[str, Any]
+    supports_credentials: bool = False
+    supports_scheduled_sync: bool = False
+
+
+class ConnectorListResponse(BaseModel):
+    connectors: list[ConnectorDefinitionResponse]
+
+
+class ConnectorOperationRequest(BaseModel):
+    """Configuration shared by connector discovery and ingest dispatch."""
+
+    credential_id: str | None = Field(default=None, min_length=1, max_length=255)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectorDiscoverRequest(ConnectorOperationRequest):
+    pass
+
+
+class ConnectorResourceResponse(BaseModel):
+    id: str = Field(
+        min_length=1,
+        max_length=255,
+        pattern=CONNECTOR_RESOURCE_HANDLE_PATTERN,
+        description=(
+            "API-safe opaque resource handle. This is never a provider URL, "
+            "signed locator, or credential."
+        ),
+    )
+    name: str = Field(min_length=1, max_length=500)
+    kind: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=CONNECTOR_RESOURCE_KIND_PATTERN,
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectorDiscoverResponse(BaseModel):
+    resources: list[ConnectorResourceResponse]
+
+
+class ConnectorIngestRequest(ConnectorOperationRequest):
+    resource_id: str = Field(
+        min_length=1,
+        max_length=255,
+        pattern=CONNECTOR_RESOURCE_HANDLE_PATTERN,
+        description="API-safe opaque handle returned by connector discovery.",
+    )
+
+
+class ConnectorIngestResponse(BaseModel):
+    job_id: str = Field(
+        min_length=1,
+        max_length=255,
+        pattern=CONNECTOR_RESOURCE_HANDLE_PATTERN,
+        description="API-safe opaque handle for the dispatched ingest job.",
+    )
+    status: Literal["queued"] = "queued"
 
 
 def _validate_http_url(v: str) -> str:

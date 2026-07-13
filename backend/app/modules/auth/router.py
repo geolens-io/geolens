@@ -185,7 +185,13 @@ async def refresh(
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Exchange a valid refresh token for a new access + refresh token pair."""
+    """Exchange a valid refresh token for a new access + refresh token pair.
+
+    Multi-tenant clients must call this endpoint on their tenant host. Refresh
+    tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+    binds the database transaction from that same-origin host before the user
+    row is resolved and the next tenant-bound access token is minted.
+    """
     # Read token lifetimes from PersistentConfig (hot-reloadable)
     expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)

@@ -36,6 +36,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
+import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -103,6 +104,7 @@ export const DatasetMap = memo(function DatasetMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
+  const tileConfigReady = isMvtSourceLayerConfigReady(tileConfig);
   const { data: rawTileToken } = useTileToken(datasetId);
   // Narrow to the vector-tile shape expected by downstream hooks.
   // Raster tokens are a separate payload with a preformatted tile_url and
@@ -184,6 +186,8 @@ export const DatasetMap = memo(function DatasetMap({
     tileVersion,
     tileToken: tileToken ?? null,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
+    mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
+    mvtSourceLayerReady: tileConfigReady,
     mapRef,
     elevationColumn,
   });
@@ -364,12 +368,15 @@ export const DatasetMap = memo(function DatasetMap({
   // --- Read-only feature click handler (non-editing mode) ---
   useEffect(() => {
     const map = mapInstance;
-    if (!map || !onFeatureClick || !tableName) return;
+    if (!map || !onFeatureClick || !tableName || !tileConfigReady) return;
     // Only active when NOT in drawing/select mode
     if (activeMode) return;
 
     const handleReadOnlyClick = (e: maplibregl.MapMouseEvent) => {
-      const sourceLayer = getSourceLayerName(tableName);
+      const sourceLayer = getSourceLayerName(
+        tableName,
+        tileConfig?.mvt_source_layer_prefix,
+      );
       const features = map.queryRenderedFeatures(e.point, {
         layers: map.getStyle().layers
           ?.filter((l) => (l as Record<string, unknown>)['source-layer'] === sourceLayer)
@@ -382,7 +389,7 @@ export const DatasetMap = memo(function DatasetMap({
     };
     map.on('click', handleReadOnlyClick);
     return () => { map.off('click', handleReadOnlyClick); };
-  }, [activeMode, mapInstance, onFeatureClick, tableName]);
+  }, [activeMode, mapInstance, onFeatureClick, tableName, tileConfigReady, tileConfig?.mvt_source_layer_prefix]);
 
   // --- Escape key listener ---
   useEffect(() => {

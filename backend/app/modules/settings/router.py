@@ -18,34 +18,24 @@ from app.modules.auth.oauth.schemas import (
 )
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
-from app.core.edition import get_edition, is_enterprise
+from app.core.edition import is_enterprise
 from app.core.persistent_config import (
-    BASEMAPS,
-    BRANDING_SHOW_BADGE,
     EMBEDDING_DIMS,
-    ENABLE_DATASET_EDITING,
-    ENABLED_PLUGINS,
     ENTERPRISE_ONLY_TABS,
-    MAP_DEFAULTS,
     PASSWORD_LOGIN_ENABLED,
-    REQUIRE_METADATA_FOR_PUBLISH,
     _registry,
-    get_cached_basemap_proxy_rate_limit,
 )
 from app.modules.auth.router import limiter
 from app.core.public_urls import _is_env_only, get_public_api_url, get_public_app_url
 from app.core.db.models import AppSetting
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.tenancy import is_multi_tenant
 from app.modules.settings.schemas import (
     SETTING_VALIDATORS,
     ApiKeyStatusResponse,
-    BasemapPublicResponse,
-    BrandingResponse,
     ConfigModeResponse,
     DetectEmbeddingDimsResponse,
     EnterpriseTabsResponse,
-    FeatureFlagsResponse,
-    EditionInfoResponse,
-    MapDefaultsResponse,
     NotificationStatusResponse,
     NotificationTestChannelResult,
     NotificationTestResponse,
@@ -56,6 +46,7 @@ from app.modules.settings.schemas import (
     TileConfigResponse,
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.modules.settings.router_public import router as public_router
 
 # Phase 1229 Plan 03 — channel functions imported at module level so tests can
 # monkeypatch at `app.modules.settings.router.send_email` / `.post_webhook`
@@ -66,11 +57,7 @@ from app.platform.notifications.webhook_channel import post_webhook  # noqa: E40
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
-
-
-def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
-    """SEC-S10: per-IP rate limit for the public basemap endpoint (caps key replay)."""
-    return f"{get_cached_basemap_proxy_rate_limit()}/minute"
+router.include_router(public_router)
 
 
 # ---------------------------------------------------------------------------
@@ -935,123 +922,6 @@ async def delete_oauth_provider(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get("/edition", response_model=EditionInfoResponse, include_in_schema=False)
-@router.get("/edition/", response_model=EditionInfoResponse, include_in_schema=False)
-async def edition_info() -> EditionInfoResponse:
-    """Return runtime capability metadata. Public, no auth required."""
-    from app.core.tenancy import TENANCY_MODE_SINGLE, is_multi_tenant
-
-    info = get_edition()
-    return EditionInfoResponse(
-        edition=info.edition,
-        features=list(info.features),
-        tenancy_mode="multi_tenant" if is_multi_tenant() else TENANCY_MODE_SINGLE,
-    )
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
-    "/feature-flags", response_model=FeatureFlagsResponse, include_in_schema=False
-)
-@router.get("/feature-flags/", response_model=FeatureFlagsResponse)
-async def get_feature_flags(
-    db: AsyncSession = Depends(get_db),
-) -> FeatureFlagsResponse:
-    """Return public feature flags (no auth required)."""
-    return FeatureFlagsResponse(
-        enable_dataset_editing=await ENABLE_DATASET_EDITING.get(db),
-        require_metadata_for_publish=await REQUIRE_METADATA_FOR_PUBLISH.get(db),
-    )
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
-@router.get("/branding/", response_model=BrandingResponse)
-async def get_branding(
-    db: AsyncSession = Depends(get_db),
-) -> BrandingResponse:
-    """Return branding configuration (public, no auth required).
-
-    The active ``BrandingExtension`` provides initial defaults for branding
-    keys. PersistentConfig overrides take precedence when set. Community
-    advertises read-only ``show_badge`` only; badge-removal writes and
-    additional branding keys are restricted controls.
-    """
-    from app.platform.extensions import get_branding_extension
-
-    defaults = get_branding_extension().get_branding_defaults()
-    persisted = await BRANDING_SHOW_BADGE.get(db)
-    show_badge = (
-        persisted if persisted is not None else bool(defaults.get("show_badge", True))
-    )
-    return BrandingResponse(show_badge=show_badge)
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
-    "/basemaps",
-    response_model=list[BasemapPublicResponse],
-    include_in_schema=False,
-)
-@router.get("/basemaps/", response_model=list[BasemapPublicResponse])
-@limiter.limit(_basemap_proxy_rate_limit)
-async def get_basemaps(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> list[BasemapPublicResponse]:
-    """Return the configured basemap list (public, no auth required).
-
-    Basemaps with ``{api_key}`` in the URL are filtered out when no key is
-    configured.  When a key IS set the placeholder is resolved server-side.
-    The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
-
-    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
-    includes the substituted ``api_key`` value when configured. Client-side
-    tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
-    exposure and the frontend MUST receive them to load tiles. Do NOT put a
-    backend-only provider key in this field. Rotate the key in the
-    provider dashboard if it is misused. Rate-limited via
-    ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
-    """
-    stored = await BASEMAPS.get(db)
-    result: list[BasemapPublicResponse] = []
-    for entry in stored:
-        url = entry.get("url", "")
-        key_value = entry.get("api_key")
-        if "{api_key}" in url:
-            if not key_value:
-                continue
-            entry = {**entry, "url": url.replace("{api_key}", key_value)}
-        result.append(BasemapPublicResponse(**entry))
-    return result
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
-    "/map-defaults", response_model=MapDefaultsResponse, include_in_schema=False
-)
-@router.get("/map-defaults/", response_model=MapDefaultsResponse)
-async def get_map_defaults(
-    db: AsyncSession = Depends(get_db),
-) -> MapDefaultsResponse:
-    """Return the default map center and zoom (public, no auth required)."""
-    stored = await MAP_DEFAULTS.get(db)
-    return MapDefaultsResponse(**stored)
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
-    "/enabled-plugins", response_model=list[str] | None, include_in_schema=False
-)
-@router.get("/enabled-plugins/", response_model=list[str] | None)
-async def get_enabled_plugins(
-    db: AsyncSession = Depends(get_db),
-) -> list[str] | None:
-    """Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those."""
-    return await ENABLED_PLUGINS.get(db)
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @router.get("/tile-config", response_model=TileConfigResponse, include_in_schema=False)
 @router.get("/tile-config/", response_model=TileConfigResponse)
 async def get_tile_config(
@@ -1061,9 +931,16 @@ async def get_tile_config(
     """Return tile delivery configuration (public, no auth required)."""
     public_app_url = await get_public_app_url(db, request=request)
     public_api_url = await get_public_api_url(db, request=request)
+    tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)
+    mvt_source_layer_prefix = (
+        None
+        if is_multi_tenant() and tenant_id is None
+        else tenant_data_schema(tenant_id)
+    )
     return TileConfigResponse(
         cdn_base_url=app_settings.cdn_base_url,
         public_app_url=public_app_url,
         public_api_url=public_api_url,
         public_base_url=public_api_url,
+        mvt_source_layer_prefix=mvt_source_layer_prefix,
     )

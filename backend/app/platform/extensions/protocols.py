@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,6 +123,23 @@ class ConnectorCredentialRef:
     secret_ref: str
 
 
+@dataclass(frozen=True)
+class ConnectorResource:
+    """Public metadata for one discoverable connector resource.
+
+    The DTO intentionally carries no credentials or provider client objects.
+    ``id`` is an API-safe opaque handle (ASCII letters/digits plus ``._~-``),
+    never a provider URL, signed locator, credential, or provider object ID that
+    itself contains secret material. ``metadata`` is non-secret discovery
+    metadata that core may return to an authorized caller.
+    """
+
+    id: str
+    name: str
+    kind: str
+    metadata: dict[str, Any]
+
+
 @runtime_checkable
 class ConnectorExtension(Protocol):
     """Persistent connector registry seam.
@@ -144,6 +161,69 @@ class ConnectorExtension(Protocol):
         connector_name: str,
         credential_id: str,
     ) -> ConnectorCredentialRef | None: ...
+
+    async def discover_resources(
+        self,
+        db: AsyncSession,
+        connector_name: str,
+        credential_ref: ConnectorCredentialRef | None,
+        config: dict[str, Any],
+    ) -> list[ConnectorResource]: ...
+
+    async def dispatch_ingest(
+        self,
+        db: AsyncSession,
+        connector_name: str,
+        credential_ref: ConnectorCredentialRef | None,
+        resource_id: str,
+        config: dict[str, Any],
+        user_id: str,
+    ) -> str:
+        """Return an API-safe opaque job handle, never a provider URL."""
+        ...
+
+
+@dataclass(frozen=True)
+class TableReadinessResult:
+    """Result of preparing a backing table for a read request.
+
+    ``hydrated`` means the caller may continue immediately. ``warming`` means
+    preparation continues asynchronously and the caller should return 202 with
+    the opaque job identifier. The names describe generic serving state; core
+    does not know which storage tier or provider implements the preparation.
+    """
+
+    status: Literal["hydrated", "warming"]
+    job_id: str | None = None
+
+
+@runtime_checkable
+class TileConcurrencyLimiter(Protocol):
+    """Minimal async concurrency primitive used around a tile database read."""
+
+    async def acquire(self) -> bool: ...
+
+    def release(self) -> None: ...
+
+
+@runtime_checkable
+class DataServingExtension(Protocol):
+    """Provider-neutral hooks for preparing and governing data reads.
+
+    Community uses a no-op implementation. Hosted overlays may prepare data
+    that is not immediately queryable, apply a per-tenant concurrency budget,
+    and override cache policy without public core importing a private package.
+    """
+
+    async def prepare_table_for_read(
+        self, *, table_name: str, tenant_id: str
+    ) -> TableReadinessResult | None: ...
+
+    def get_tile_concurrency_limiter(
+        self, tenant_id: str
+    ) -> TileConcurrencyLimiter | None: ...
+
+    def get_tile_cache_control(self) -> str | None: ...
 
 
 @runtime_checkable

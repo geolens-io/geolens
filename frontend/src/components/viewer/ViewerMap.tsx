@@ -11,7 +11,7 @@ import {
   resolveBasemapId,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, isMvtSourceLayerConfigReady, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
@@ -122,6 +122,7 @@ function toAdapterInput(
   layer: SharedLayerResponse,
   layerKey: string,
   visibleLayers: Set<string>,
+  mvtSourceLayerPrefix?: string | null,
 ): AdapterLayerInput {
   return {
     id: layerKey,
@@ -140,7 +141,7 @@ function toAdapterInput(
     // fix(#394) VT-03: derive via the shared helper instead of a hand-rolled
     // template — the URL path and source-layer name must come from one place
     // or a drift is a silent empty layer (see tile-utils parity test, VT-04).
-    sourceLayer: getMvtSourceLayerName(layer.table_name),
+    sourceLayer: getMvtSourceLayerName(layer.table_name, mvtSourceLayerPrefix),
     tileUrl: '',
   };
 }
@@ -249,6 +250,9 @@ export const ViewerMap = memo(function ViewerMap({
 
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
+  // `source-layer` is immutable in MapLibre. Do not compose vector layers
+  // until the settings response supplies the tenant-aware MVT prefix.
+  const tileConfigReady = isMvtSourceLayerConfigReady(tileConfig);
   // Ref so the `map.on('error', ...)` handler registered once in handleLoad
   // (see below) always reads the current tile config without needing to
   // re-register the handler on every tileConfig change.
@@ -726,8 +730,8 @@ export const ViewerMap = memo(function ViewerMap({
   }, [visibleLayers]);
 
   // Ref to hold current sync inputs so the style.load callback can access them
-  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels, basemapConfig });
-  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
+  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig });
+  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig };
 
   const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
     applyMapBasemapAppearance({
@@ -740,7 +744,16 @@ export const ViewerMap = memo(function ViewerMap({
 
   /** Wrapper: convert viewer state to normalized inputs and run shared composition sync. */
   const runSync = useCallback((map: MaplibreMap) => {
-    const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
+    const {
+      layers: ls,
+      visibleLayers: vl,
+      tokenMap: tm,
+      tileConfig: tc,
+      tileConfigReady: tcReady,
+      showBasemapLabels: sbl,
+      basemapConfig: bc,
+    } = syncInputsRef.current;
+    if (!tcReady) return;
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = createViewerLayerEntries(ls).map(({ layer, key }) => (
       toViewerSyncInput(layer, key, vl)
@@ -757,6 +770,7 @@ export const ViewerMap = memo(function ViewerMap({
         idPrefix: VIEWER_PREFIX,
         showBasemapLabels: sbl,
         basemapPosition: bc?.basemap_position,
+        mvtSourceLayerPrefix: tc?.mvt_source_layer_prefix,
       },
       basemapConfig: bc,
       showBasemapLabels: sbl,
@@ -768,6 +782,7 @@ export const ViewerMap = memo(function ViewerMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!tileConfigReady) return;
     // Gate the first sync on tile tokens arriving: syncLayersToMap branches
     // on `token?.kind === 'raster'` to pick the raster adapter vs. the
     // vector path. If we sync before tokens land, every layer — including
@@ -791,7 +806,7 @@ export const ViewerMap = memo(function ViewerMap({
     }
     runSync(map);
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
-  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
+  }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
 
   // Update tile URLs in-place when vector tokens refresh (token rotation).
   // Narrow the dep to the single primitive the effect actually reads so the
@@ -861,7 +876,7 @@ export const ViewerMap = memo(function ViewerMap({
   const prevVisibleRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !tileConfigReady) return;
 
     const applyVisibilityDiff = () => {
       const prev = prevVisibleRef.current;
@@ -874,7 +889,12 @@ export const ViewerMap = memo(function ViewerMap({
           ? 'hillshade'
           : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
         const adapter = getAdapter(type);
-        const adapterInput = toAdapterInput(layer, key, visibleLayers);
+        const adapterInput = toAdapterInput(
+          layer,
+          key,
+          visibleLayers,
+          tileConfig?.mvt_source_layer_prefix,
+        );
         adapter.syncVisibility(map, adapterInput);
 
         const labelId = prefixed('label', key, VIEWER_PREFIX);
@@ -895,7 +915,7 @@ export const ViewerMap = memo(function ViewerMap({
       return () => { map.off('idle', applyVisibilityDiff); };
     }
     applyVisibilityDiff();
-  }, [visibleLayers, layerEntries, mapReady]);
+  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix]);
 
   // Re-add data layers after any basemap/style change.
   // <MapGL styleDiffing={false}> calls map.setStyle() when mapStyle prop changes,

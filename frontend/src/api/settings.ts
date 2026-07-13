@@ -23,6 +23,7 @@ export interface TileConfig {
   public_app_url: string | null;
   public_api_url: string | null;
   public_base_url: string | null;
+  mvt_source_layer_prefix: string | null;
 }
 
 // --- Unified settings types (admin-only) ---

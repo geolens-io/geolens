@@ -169,9 +169,9 @@ def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
     Raises:
         RuntimeError: When Enterprise is explicitly requested via
             ``GEOLENS_EDITION=enterprise`` but no overlay extension is loaded.
-            The correct remedy is to pre-bake the overlay into the image at
-            build time (see ``ARG INSTALL_ENTERPRISE_OVERLAY`` in Dockerfile)
-            rather than attempting a runtime ``uv add`` under a read-only rootfs.
+            The correct remedy is to use the overlay repository's immutable
+            image build rather than attempting a runtime ``uv add`` under a
+            read-only rootfs.
     """
     env_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
 
@@ -188,9 +188,8 @@ def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
         "was loaded (the geolens.extensions entry-point group is empty). "
         "A runtime 'uv add --editable' cannot install the overlay under a "
         "read_only container rootfs. "
-        "Pre-bake the overlay into the image at build time instead: "
-        "use 'docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...' "
-        "(see ARG INSTALL_ENTERPRISE_OVERLAY in the Dockerfile). "
+        "Use the overlay repository's immutable image build, which installs "
+        "the locked overlay wheel at build time. "
         "The app is refusing to start as community edition when enterprise "
         "was explicitly requested."
     )
@@ -243,8 +242,7 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
         "per-tenant isolation layer (RLS + session GUC, Phase 1208). "
         "Without the overlay the app would serve ALL tenants from a single "
         "unscoped database session — a critical isolation failure. "
-        "Pre-bake the cloud overlay into the image at build time "
-        "(see ARG INSTALL_OVERLAYS in the Dockerfile, Phase 1207 BAKE-01). "
+        "Use the cloud overlay repository's immutable image build. "
         "The app is refusing to start in multi_tenant mode without the "
         "required tenancy isolation layer. "
         "References: GUARD-01, TSEAM-03, T-1207-06."

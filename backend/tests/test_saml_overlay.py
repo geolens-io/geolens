@@ -113,6 +113,9 @@ FIXTURE_SLUG = "fixture"
 FIXTURE_NAMEID = "user@example.com"
 # Embedded in the fixtures' InResponseTo attribute (see generate_fixtures.py).
 FIXTURE_REQUEST_ID = "id-fixture-request-001"
+FIXTURE_RELAY_STATE = "relay-fixture-state-001"
+FIXTURE_REPLAY_RELAY_STATE = "relay-fixture-state-replay-002"
+FIXTURE_ERROR_RELAY_STATE = "relay-fixture-state-error-002"
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +274,7 @@ async def _cleanup_saml_providers(test_db_session):
 
 
 @pytest.fixture
-def saml_router_mounted(saml_overlay_registered):
+async def saml_router_mounted(saml_overlay_registered, client):
     """Compose the registry fixture with FastAPI route mounting/unmounting AND
     edition initialization.
 
@@ -281,22 +284,20 @@ def saml_router_mounted(saml_overlay_registered):
     initialize edition manually so ``require_enterprise`` returns True
     while this test runs.
     """
+    del client  # Initializes the patched DB/session factory used by SAML state.
+
     import app.core.edition as edition_mod
+    import app.core.public_urls as public_urls_mod
+    from app.api.main import app
     from geolens_enterprise.auth.saml import router as saml_router_mod
-    from geolens_enterprise.auth.saml.replay import replay_cache
+    from geolens_enterprise.auth.saml.state import saml_state
 
-    _mount_saml_router(saml_overlay_registered)
     saved_info = edition_mod._info
-    edition_mod.init_edition(["enterprise"])
-
-    # Reset module-level singletons so test order does not affect outcomes.
-    saved_outstanding = dict(saml_router_mod._outstanding_requests)
-    saved_replay = dict(replay_cache._seen)
-    saml_router_mod._outstanding_requests.clear()
-    replay_cache._seen.clear()
-    # Pre-populate the outstanding map so the fixtures (whose InResponseTo
-    # attribute is FIXTURE_REQUEST_ID) are treated as solicited responses.
-    saml_router_mod._outstanding_requests[FIXTURE_REQUEST_ID] = FIXTURE_SLUG
+    saved_get_api_url = public_urls_mod.get_public_api_url
+    saved_get_app_url = public_urls_mod.get_public_app_url
+    router_was_mounted = any(
+        getattr(route, "path", "").startswith("/auth/saml") for route in app.routes
+    )
 
     # Patch get_public_api_url so the ACS URL the SAML router builds matches
     # the fixture's hardcoded Destination attribute. The fixtures were
@@ -304,28 +305,45 @@ def saml_router_mounted(saml_overlay_registered):
     # saml/fixture/acs"; pysaml2 enforces Destination-vs-ACS match
     # ("destination ... not in return addresses ..."). In production the
     # API public URL is admin-configured; in tests we make it the fixture URL.
-    import app.core.public_urls as public_urls_mod
-
-    saved_get_api_url = public_urls_mod.get_public_api_url
-
-    async def _fixture_api_url(db, request=None):  # type: ignore[no-untyped-def]
+    async def _fixture_public_url(  # type: ignore[no-untyped-def]
+        db,
+        *,
+        request=None,
+        for_external_use,
+    ):
+        del db, request
+        assert for_external_use is True
         return "https://geolens.test"
 
-    public_urls_mod.get_public_api_url = _fixture_api_url
-    # The SAML router imported the symbol, so patch the imported binding too.
-    saml_router_mod.get_public_api_url = _fixture_api_url
-
     try:
+        _mount_saml_router(saml_overlay_registered)
+        edition_mod.init_edition(["enterprise"])
+        public_urls_mod.get_public_api_url = _fixture_public_url
+        public_urls_mod.get_public_app_url = _fixture_public_url
+        # The SAML router imported both symbols, so patch its bindings too.
+        # Requiring the production keyword-only external-use flag pins the
+        # host-header trust boundary while supplying a fixed trusted origin.
+        saml_router_mod.get_public_api_url = _fixture_public_url
+        saml_router_mod.get_public_app_url = _fixture_public_url
+
+        # Reset shared PostgreSQL state so test order and worker routing do not
+        # affect outcomes. Seed the request id baked into the signed fixtures.
+        await saml_state.reset_for_testing()
+        await saml_state.seed_request_for_testing(
+            FIXTURE_RELAY_STATE, FIXTURE_REQUEST_ID, FIXTURE_SLUG
+        )
         yield saml_overlay_registered
     finally:
-        edition_mod._info = saved_info
-        saml_router_mod._outstanding_requests.clear()
-        saml_router_mod._outstanding_requests.update(saved_outstanding)
-        replay_cache._seen.clear()
-        replay_cache._seen.update(saved_replay)
-        public_urls_mod.get_public_api_url = saved_get_api_url
-        saml_router_mod.get_public_api_url = saved_get_api_url
-        _unmount_saml_router()
+        try:
+            await saml_state.reset_for_testing()
+        finally:
+            edition_mod._info = saved_info
+            public_urls_mod.get_public_api_url = saved_get_api_url
+            public_urls_mod.get_public_app_url = saved_get_app_url
+            saml_router_mod.get_public_api_url = saved_get_api_url
+            saml_router_mod.get_public_app_url = saved_get_app_url
+            if not router_was_mounted:
+                _unmount_saml_router()
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +404,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": FIXTURE_RELAY_STATE},
         follow_redirects=False,
     )
     assert resp.status_code == 302, (
@@ -435,7 +453,7 @@ async def test_saml_acs_rejects_invalid_signature(
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": FIXTURE_RELAY_STATE},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -457,14 +475,22 @@ async def test_saml_acs_rejects_unsigned(
     saml_response_dir,
 ):
     """SAML-11: unsigned assertion is rejected (want_assertions_signed=True)."""
+    from geolens_enterprise.auth.saml.state import saml_state
+
     await _seed_saml_provider(test_db_session)
     saml_response = _load_fixture_b64(
         "idp_response_unsigned.xml.b64", saml_response_dir
     )
+    await saml_state.seed_request_for_testing(
+        FIXTURE_ERROR_RELAY_STATE, "id-fixture-request-002", FIXTURE_SLUG
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={
+            "SAMLResponse": saml_response,
+            "RelayState": FIXTURE_ERROR_RELAY_STATE,
+        },
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -489,7 +515,7 @@ async def test_saml_acs_rejects_expired_assertion(
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": FIXTURE_RELAY_STATE},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -506,10 +532,10 @@ async def test_saml_acs_rejects_replayed_assertion(
     saml_idp_cert_pem,
 ):
     """SAML-11 / Pitfall 5: same assertion submitted twice is rejected on the
-    second attempt by ReplayCache. The fixture's outstanding-request entry
-    is also re-tracked between submissions so the second failure is
-    attributable to ReplayCache rather than the consumed reqid."""
-    from geolens_enterprise.auth.saml import router as saml_router_mod
+    second attempt by the shared PostgreSQL assertion state. The fixture's request
+    state is re-seeded between submissions so the second failure is
+    attributable to replay detection rather than the consumed request id."""
+    from geolens_enterprise.auth.saml.state import saml_state
 
     await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
     saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
@@ -517,7 +543,7 @@ async def test_saml_acs_rejects_replayed_assertion(
     # First submission succeeds.
     resp1 = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": FIXTURE_RELAY_STATE},
         follow_redirects=False,
     )
     assert resp1.status_code == 302
@@ -525,15 +551,20 @@ async def test_saml_acs_rejects_replayed_assertion(
         f"first POST should succeed: {resp1.headers['location']}"
     )
 
-    # Re-track the reqid (consumed by the first call) so the second call's
-    # rejection is attributable to ReplayCache, not pysaml2's
-    # solicited-only check on the now-missing outstanding entry.
-    saml_router_mod._outstanding_requests[FIXTURE_REQUEST_ID] = FIXTURE_SLUG
+    # Seed a fresh correlation row for the same request id. The assertion digest
+    # remains recorded, so the second failure is attributable to replay
+    # detection rather than a consumed request.
+    await saml_state.seed_request_for_testing(
+        FIXTURE_REPLAY_RELAY_STATE, FIXTURE_REQUEST_ID, FIXTURE_SLUG
+    )
 
     # Second submission of the same assertion is rejected.
     resp2 = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={
+            "SAMLResponse": saml_response,
+            "RelayState": FIXTURE_REPLAY_RELAY_STATE,
+        },
         follow_redirects=False,
     )
     assert resp2.status_code == 302
@@ -562,7 +593,7 @@ async def test_saml_acs_rejects_xsw_attack(
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": FIXTURE_RELAY_STATE},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -605,7 +636,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     Verified against both happy-path and error redirect to confirm the
     query param is consistently present.
     """
-    from geolens_enterprise.auth.saml import router as saml_router_mod
+    from geolens_enterprise.auth.saml.state import saml_state
 
     await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
 
@@ -615,18 +646,19 @@ async def test_saml_acs_redirect_includes_source_query_param(
         data={
             "SAMLResponse": _load_fixture_b64(
                 "idp_response_signed.xml.b64", saml_response_dir
-            )
+            ),
+            "RelayState": FIXTURE_RELAY_STATE,
         },
         follow_redirects=False,
     )
     happy_qs = parse_qs(urlparse(happy.headers["location"]).query)
     assert happy_qs.get("source") == ["saml"], happy.headers["location"]
 
-    # Reset reqid + replay cache for the second call (different fixture so
-    # different assertion id, but the unsigned fixture also uses
-    # FIXTURE_REQUEST_ID via the _outstanding map shape).
-    saml_router_mod._outstanding_requests[FIXTURE_REQUEST_ID] = FIXTURE_SLUG
-    saml_router_mod._outstanding_requests["id-fixture-request-002"] = FIXTURE_SLUG
+    # The unsigned error fixture uses a second request id. Seed its independent
+    # correlation row after the happy-path request has been consumed.
+    await saml_state.seed_request_for_testing(
+        FIXTURE_ERROR_RELAY_STATE, "id-fixture-request-002", FIXTURE_SLUG
+    )
 
     # Error path.
     err = await client.post(
@@ -634,7 +666,8 @@ async def test_saml_acs_redirect_includes_source_query_param(
         data={
             "SAMLResponse": _load_fixture_b64(
                 "idp_response_unsigned.xml.b64", saml_response_dir
-            )
+            ),
+            "RelayState": FIXTURE_ERROR_RELAY_STATE,
         },
         follow_redirects=False,
     )
@@ -993,7 +1026,7 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": FIXTURE_RELAY_STATE},
         follow_redirects=False,
     )
     assert resp.status_code == 302, f"ACS POST failed: {resp.text}"

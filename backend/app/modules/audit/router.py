@@ -298,11 +298,12 @@ async def get_column_ddl_feed(
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.
     """
-    from app.modules.catalog.authorization import check_dataset_access
-    from app.modules.catalog.datasets.domain.service import get_dataset
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
 
     # Step 1: load dataset (404 if not found)
-    dataset = await get_dataset(db, dataset_id)
+    dataset = await port.get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
@@ -311,7 +312,7 @@ async def get_column_ddl_feed(
     # Step 2: enforce visibility / ownership gate
     # check_dataset_access raises HTTPException(404) for non-owners of private datasets,
     # consistent with the column-DDL write endpoints from Phase 1061 Plan 02.
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await port.check_dataset_access(db, dataset, dataset_id, user)
 
     # Step 3: fetch DDL history
     rows, total = await query_column_ddl_history(

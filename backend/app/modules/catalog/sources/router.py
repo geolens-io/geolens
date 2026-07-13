@@ -1,5 +1,7 @@
-"""Service probing and preview API endpoints."""
+"""Service probing, preview, and persistent-connector API endpoints."""
 
+import asyncio
+import hashlib
 import uuid
 from typing import NoReturn
 from urllib.parse import urljoin
@@ -7,10 +9,11 @@ from urllib.parse import urljoin
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.url_redaction import redact_url_credentials
+from app.core.url_redaction import has_url_credentials, redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
 from app.core.identity import Identity
@@ -18,7 +21,7 @@ from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.platform.jobs.models import IngestJob
-from app.platform.extensions import get_catalog_port
+from app.platform.extensions import get_catalog_port, get_connector_extension
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
     fetch_arcgis_layer_preview,
@@ -27,6 +30,13 @@ from app.modules.catalog.sources.adapters.arcgis import (
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.probe import ServiceNotRecognized, detect_service_type
 from app.modules.catalog.sources.schemas import (
+    ConnectorDefinitionResponse,
+    ConnectorDiscoverRequest,
+    ConnectorDiscoverResponse,
+    ConnectorIngestRequest,
+    ConnectorIngestResponse,
+    ConnectorListResponse,
+    ConnectorResourceResponse,
     ProbeRequest,
     ProbeResponse,
     ServicePreviewRequest,
@@ -38,7 +48,7 @@ from app.modules.catalog.sources.security import (
     make_safe_client,
     validate_url_for_ssrf,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, PROBLEM_RESPONSE
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
@@ -46,6 +56,364 @@ IngestionError = get_catalog_port().ingestion_error_class()
 router = APIRouter(
     prefix="/services", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
 )
+
+_CONNECTOR_OPERATION_TIMEOUT_SECONDS = 30.0
+_CONNECTOR_OPERATION_RESPONSES = {
+    502: {
+        **PROBLEM_RESPONSE,
+        "description": "Bad gateway — connector provider failed",
+    },
+    504: {
+        **PROBLEM_RESPONSE,
+        "description": "Gateway timeout — connector provider timed out",
+    },
+}
+_SENSITIVE_CONNECTOR_KEY_SUFFIXES = frozenset(
+    {
+        "accesskey",
+        "accesskeyid",
+        "authorization",
+        "authheader",
+        "bearer",
+        "credential",
+        "credentials",
+        "secret",
+        "secretref",
+        "password",
+        "passphrase",
+        "token",
+        "accesstoken",
+        "refreshtoken",
+        "apikey",
+        "clientsecret",
+        "connectionstring",
+        "dsn",
+        "privatekey",
+        "secretaccesskey",
+        "subscriptionkey",
+    }
+)
+_SENSITIVE_CONNECTOR_EXACT_KEYS = frozenset(
+    {
+        "auth",
+        "credential",
+        "credentials",
+    }
+)
+_SENSITIVE_CONNECTOR_KEY_WORDS = frozenset({"password", "secret", "token"})
+
+
+def _is_sensitive_connector_key(key: object) -> bool:
+    raw = str(key)
+    text = "".join(
+        (" " if index and character.isupper() and raw[index - 1].islower() else "")
+        + character
+        for index, character in enumerate(raw)
+    ).lower()
+    normalized = "".join(character for character in text if character.isalnum())
+    words = {
+        word
+        for word in "".join(
+            character if character.isalnum() else " " for character in text
+        ).split()
+    }
+    return bool(
+        words & _SENSITIVE_CONNECTOR_KEY_WORDS
+        or normalized in _SENSITIVE_CONNECTOR_EXACT_KEYS
+        or any(
+            normalized.endswith(marker) for marker in _SENSITIVE_CONNECTOR_KEY_SUFFIXES
+        )
+    )
+
+
+def _connector_or_404(connector_name: str):  # type: ignore[no-untyped-def]
+    extension = get_connector_extension()
+    if connector_name not in {
+        definition.name for definition in extension.list_connectors()
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
+    return extension
+
+
+async def _connector_credentials(
+    db: AsyncSession,
+    connector_name: str,
+    credential_id: str | None,
+):  # type: ignore[no-untyped-def]
+    if credential_id is None:
+        return None
+    credential = await get_connector_extension().get_credential_ref(
+        db, connector_name, credential_id
+    )
+    if credential is None or credential.connector_name != connector_name:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector credential not found",
+        )
+    return credential
+
+
+def _metadata_contains_secret(value: object) -> bool:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if _is_sensitive_connector_key(key):
+                return True
+            if _metadata_contains_secret(nested):
+                return True
+    elif isinstance(value, list):
+        return any(_metadata_contains_secret(item) for item in value)
+    elif isinstance(value, str):
+        return has_url_credentials(value)
+    return False
+
+
+def _reject_inline_connector_secrets(config: dict[str, object]) -> None:
+    """Require connector secrets to travel only through opaque credential refs."""
+    if _metadata_contains_secret(config):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Connector config cannot contain inline secrets; use credential_id "
+                "to reference stored credentials"
+            ),
+        )
+
+
+def _validate_connector_resources(resources: object) -> list[ConnectorResourceResponse]:
+    """Turn overlay DTOs into the public contract before audit or commit.
+
+    Overlay identifiers are untrusted provider output.  Only an API-safe opaque
+    handle crosses the core boundary; provider URLs (especially signed URLs)
+    must stay inside the overlay.
+    """
+    try:
+        resource_list = list(resources)  # type: ignore[arg-type]
+        if any(
+            _metadata_contains_secret(
+                {
+                    "resource_id_value": resource.id,
+                    "resource_name_value": resource.name,
+                    "resource_kind_value": resource.kind,
+                    "resource_metadata_value": resource.metadata,
+                }
+            )
+            for resource in resource_list
+        ):
+            raise ValueError("secret-bearing connector resource")
+        return [
+            ConnectorResourceResponse(
+                id=resource.id,
+                name=resource.name,
+                kind=resource.kind,
+                metadata=resource.metadata,
+            )
+            for resource in resource_list
+        ]
+    except (AttributeError, TypeError, ValidationError, ValueError) as exc:
+        logger.error("Connector returned an invalid discovery resource")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Connector returned invalid discovery metadata",
+        ) from exc
+
+
+def _validate_connector_job(job_id: object) -> ConnectorIngestResponse:
+    """Validate provider output before writing its dispatch audit event."""
+    try:
+        if isinstance(job_id, str) and has_url_credentials(job_id):
+            raise ValueError("secret-bearing connector job handle")
+        return ConnectorIngestResponse(job_id=job_id)  # type: ignore[arg-type]
+    except (TypeError, ValidationError, ValueError) as exc:
+        logger.error("Connector returned an invalid ingest job handle")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Connector returned an invalid ingest job handle",
+        ) from exc
+
+
+@router.get(
+    "/connectors", response_model=ConnectorListResponse, include_in_schema=False
+)
+@router.get("/connectors/", response_model=ConnectorListResponse)
+async def list_connectors_endpoint(
+    _user: Identity = Depends(require_permission("upload")),
+) -> ConnectorListResponse:
+    """List persistent connectors supplied by an installed overlay.
+
+    Community's no-op extension returns an empty list; one-shot WFS, OGC API,
+    ArcGIS, and STAC imports remain on their existing free endpoints.
+    """
+    return ConnectorListResponse(
+        connectors=[
+            ConnectorDefinitionResponse(
+                name=item.name,
+                display_name=item.display_name,
+                config_schema=item.config_schema,
+                supports_credentials=item.supports_credentials,
+                supports_scheduled_sync=item.supports_scheduled_sync,
+            )
+            for item in get_connector_extension().list_connectors()
+        ]
+    )
+
+
+@router.post(
+    "/connectors/{connector_name}/discover",
+    response_model=ConnectorDiscoverResponse,
+    responses=_CONNECTOR_OPERATION_RESPONSES,
+    include_in_schema=False,
+)
+@router.post(
+    "/connectors/{connector_name}/discover/",
+    response_model=ConnectorDiscoverResponse,
+    responses=_CONNECTOR_OPERATION_RESPONSES,
+)
+async def discover_connector_resources_endpoint(
+    connector_name: str,
+    body: ConnectorDiscoverRequest,
+    user: Identity = Depends(require_permission("upload")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorDiscoverResponse:
+    """Validate connector config and discover non-secret source resources."""
+    extension = _connector_or_404(connector_name)
+    _reject_inline_connector_secrets(body.config)
+    try:
+        config = await extension.validate_config(connector_name, body.config)
+        credential = await _connector_credentials(
+            db, connector_name, body.credential_id
+        )
+        resources = await asyncio.wait_for(
+            extension.discover_resources(db, connector_name, credential, config),
+            timeout=_CONNECTOR_OPERATION_TIMEOUT_SECONDS,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid connector configuration",
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Connector discovery timed out",
+        ) from exc
+    except Exception as exc:
+        logger.error(
+            "Connector discovery failed",
+            connector=connector_name,
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Connector discovery failed",
+        ) from exc
+
+    public_resources = _validate_connector_resources(resources)
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="connector.discover",
+            resource_type="connector",
+            details={
+                "connector": connector_name,
+                "resource_count": len(public_resources),
+                "used_stored_credential": body.credential_id is not None,
+            },
+        ),
+    )
+    await db.commit()
+    return ConnectorDiscoverResponse(resources=public_resources)
+
+
+@router.post(
+    "/connectors/{connector_name}/ingest",
+    response_model=ConnectorIngestResponse,
+    responses=_CONNECTOR_OPERATION_RESPONSES,
+    status_code=status.HTTP_202_ACCEPTED,
+    include_in_schema=False,
+)
+@router.post(
+    "/connectors/{connector_name}/ingest/",
+    response_model=ConnectorIngestResponse,
+    responses=_CONNECTOR_OPERATION_RESPONSES,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def dispatch_connector_ingest_endpoint(
+    connector_name: str,
+    body: ConnectorIngestRequest,
+    user: Identity = Depends(require_permission("upload")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorIngestResponse:
+    """Dispatch an overlay-owned ingest and return its opaque job id."""
+    extension = _connector_or_404(connector_name)
+    _reject_inline_connector_secrets(body.config)
+    try:
+        config = await extension.validate_config(connector_name, body.config)
+        credential = await _connector_credentials(
+            db, connector_name, body.credential_id
+        )
+        job_id = await asyncio.wait_for(
+            extension.dispatch_ingest(
+                db,
+                connector_name,
+                credential,
+                body.resource_id,
+                config,
+                str(user.id),
+            ),
+            timeout=_CONNECTOR_OPERATION_TIMEOUT_SECONDS,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid connector configuration",
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Connector ingest dispatch timed out",
+        ) from exc
+    except Exception as exc:
+        logger.error(
+            "Connector ingest dispatch failed",
+            connector=connector_name,
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Connector ingest dispatch failed",
+        ) from exc
+
+    public_response = _validate_connector_job(job_id)
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="connector.ingest_dispatch",
+            resource_type="connector",
+            details={
+                "connector": connector_name,
+                # Resource handles are validated as API-safe and opaque. Keep a
+                # deterministic correlation value without persisting even that
+                # provider-controlled handle in the audit log.
+                "resource_id_sha256": hashlib.sha256(
+                    body.resource_id.encode("utf-8")
+                ).hexdigest(),
+                "used_stored_credential": body.credential_id is not None,
+            },
+        ),
+    )
+    await db.commit()
+    return public_response
 
 
 async def _probe_audit_fail(

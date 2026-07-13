@@ -31,6 +31,7 @@ import { useBulkLayerActions } from '@/components/builder/hooks/use-bulk-layer-a
 import { useTerrainLayers } from '@/components/builder/hooks/use-terrain-layers';
 import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-layers';
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
+import { useTileConfig } from '@/hooks/use-settings';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
 export function useBuilderLayers(
@@ -48,6 +49,8 @@ export function useBuilderLayers(
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
+  const { data: tileConfig } = useTileConfig();
+  const mvtSourceLayerPrefix = tileConfig?.mvt_source_layer_prefix;
 
   const initializedRef = useRef(false);
   const addDatasetProcessedRef = useRef(false);
@@ -107,7 +110,13 @@ export function useBuilderLayers(
     handleLabelChange,
     handlePopupChange,
     syncStyleConfigToMap,
-  } = useLayerMapSync(localLayers, setLocalLayers, setHasUnsavedChanges, mapInstanceRef);
+  } = useLayerMapSync(
+    localLayers,
+    setLocalLayers,
+    setHasUnsavedChanges,
+    mapInstanceRef,
+    mvtSourceLayerPrefix,
+  );
 
   // STATE-02: per-row style clipboard (copy / paste). Owns the session clipboard
   // ref + geometry-class mirror; the bulk apply-style handler reads the same ref.
@@ -141,6 +150,7 @@ export function useBuilderLayers(
     savedLayerBaselineRef,
     copiedStyleRef,
     syncStyleConfigToMap,
+    mvtSourceLayerPrefix,
   });
 
   // STATE-02: folder-group handlers (create / rename / ungroup / toggle-vis /
@@ -182,6 +192,7 @@ export function useBuilderLayers(
     setLocalLayers,
     setHasUnsavedChanges,
     mapInstanceRef,
+    mvtSourceLayerPrefix,
   });
 
   // Initialize local state from API data (once).

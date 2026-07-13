@@ -1,3 +1,4 @@
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -223,6 +224,79 @@ async def test_get_tile_config_exposes_resolved_public_urls():
     assert response.public_app_url == "https://catalog.example.com"
     assert response.public_api_url == "https://catalog.example.com/api"
     assert response.public_base_url == "https://catalog.example.com/api"
+    assert response.mvt_source_layer_prefix == "data"
+
+
+@pytest.mark.anyio
+async def test_get_tile_config_exposes_tenant_mvt_source_layer_prefix():
+    """The frontend receives the exact source-layer prefix emitted by MVT."""
+    from app.modules.settings import router as settings_router
+
+    tenant_id = uuid.uuid4()
+    request = SimpleNamespace(
+        headers={},
+        url=SimpleNamespace(scheme="https"),
+        scope={},
+        state=SimpleNamespace(tenant_id=str(tenant_id)),
+    )
+    expected = f"data_t_{str(tenant_id).replace('-', '_')}"
+    with (
+        patch.object(
+            settings_router,
+            "app_settings",
+            SimpleNamespace(cdn_base_url=None),
+        ),
+        patch.object(settings_router, "is_multi_tenant", return_value=True),
+        patch.object(
+            settings_router,
+            "tenant_data_schema",
+            return_value=expected,
+        ) as schema_name,
+        patch(
+            "app.modules.settings.router.get_public_app_url",
+            AsyncMock(return_value="https://acme.example.com"),
+        ),
+        patch(
+            "app.modules.settings.router.get_public_api_url",
+            AsyncMock(return_value="https://api.example.com"),
+        ),
+    ):
+        response = await settings_router.get_tile_config(request=request, db=object())
+
+    assert response.mvt_source_layer_prefix == expected
+    schema_name.assert_called_once_with(str(tenant_id))
+
+
+@pytest.mark.anyio
+async def test_get_tile_config_fails_closed_without_tenant_context():
+    """An unscoped hosted request must not advertise the global data schema."""
+    from app.modules.settings import router as settings_router
+
+    request = SimpleNamespace(
+        headers={},
+        url=SimpleNamespace(scheme="https"),
+        scope={},
+        state=SimpleNamespace(tenant_id=None),
+    )
+    with (
+        patch.object(
+            settings_router,
+            "app_settings",
+            SimpleNamespace(cdn_base_url=None),
+        ),
+        patch.object(settings_router, "is_multi_tenant", return_value=True),
+        patch(
+            "app.modules.settings.router.get_public_app_url",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.modules.settings.router.get_public_api_url",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        response = await settings_router.get_tile_config(request=request, db=object())
+
+    assert response.mvt_source_layer_prefix is None
 
 
 # ---------------------------------------------------------------------------

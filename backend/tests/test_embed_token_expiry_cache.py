@@ -155,7 +155,8 @@ class TestEmbedTokenExpiryCacheHit:
     async def test_valid_token_allowed_on_cache_hit(self):
         """
         Fast-path must still work for a token that has NOT expired yet.
-        A cache hit for an unexpired token must return True without hitting DB.
+        A cache hit for an unexpired token must return True after the required
+        live map-layer membership revalidation, without reloading the token row.
         """
         raw_token = _make_raw_token()
         dataset_id = uuid.uuid4()
@@ -178,6 +179,10 @@ class TestEmbedTokenExpiryCacheHit:
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
             patch(
+                "app.modules.embed_tokens.service.map_contains_dataset",
+                new=AsyncMock(return_value=True),
+            ) as membership,
+            patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,
             ) as mock_dt,
@@ -187,6 +192,8 @@ class TestEmbedTokenExpiryCacheHit:
             result = await validate_embed_token_access(raw_token, dataset_id, db)
 
         assert result is True, "Unexpired cached token must still fast-path to True."
+        membership.assert_awaited_once()
+        db.execute.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

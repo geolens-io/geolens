@@ -58,6 +58,31 @@ class TestDatabaseUrlOverride:
         assert "application_name=geolens" in url
 
 
+class TestTileDatabaseUrlOverride:
+    """The tile pool can use a dedicated login without changing other consumers."""
+
+    def test_unset_falls_back_to_runtime_url(self):
+        s = _make_settings(
+            database_url_override="postgresql://app:pass@host:5432/geolens"
+        )
+        assert s.tile_database_url == s.database_url
+
+    def test_postgresql_override_normalizes_for_asyncpg(self):
+        s = _make_settings(
+            tile_database_url_override=(
+                "postgresql://tile:pass@host:5432/geolens?sslmode=require"
+            )
+        )
+        assert s.tile_database_url.startswith("postgresql+asyncpg://tile:pass@")
+        assert "sslmode" not in s.tile_database_url
+
+    def test_postgres_override_normalizes_for_asyncpg(self):
+        s = _make_settings(
+            tile_database_url_override="postgres://tile:pass@host:5432/geolens"
+        )
+        assert s.tile_database_url.startswith("postgresql+asyncpg://tile:pass@")
+
+
 class TestDatabaseUrlSync:
     """Test database_url_sync property with and without override."""
 
@@ -260,6 +285,10 @@ class TestEmptyStringToNone:
     def test_empty_database_url_override(self):
         s = _make_settings(database_url_override="")
         assert s.database_url_override is None
+
+    def test_empty_tile_database_url_override(self):
+        s = _make_settings(tile_database_url_override="")
+        assert s.tile_database_url_override is None
 
     def test_nonempty_redis_url_preserved(self):
         s = _make_settings(redis_url="redis://localhost:6379/0")

@@ -1,4 +1,9 @@
-import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
+import {
+  buildClusterTileUrl,
+  buildSignedTileUrl,
+  getMvtSourceLayerName,
+  isMvtSourceLayerConfigReady,
+} from '@/lib/tile-utils';
 
 describe('buildSignedTileUrl', () => {
   const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
@@ -162,19 +167,47 @@ describe('buildClusterTileUrl', () => {
 
 // ---------------------------------------------------------------------------
 // fix(#394) VT-04: MVT source-layer ↔ tile-layer-name parity pin.
-// The SAME literal is produced by three derivation sites that must never
-// drift, or the layer silently renders empty:
+// The source-layer literal is produced by three derivation sites that must
+// never drift, or the layer silently renders empty:
 //   1. backend `app/processing/tiles/service.py` (`layer_name = f"{schema}.{table}"`,
-//      single_tenant schema == "data") — pinned by
+//      single_tenant schema == "data", hosted schema == data_t_<tid>) — pinned by
 //      `backend/tests/test_mvt_audit_fixes.py::test_get_tile_layer_name_is_schema_qualified`;
 //   2. this helper (the ONLY frontend derivation — builder map-sync, viewer
 //      ViewerMap, and use-map-layers all import it as of fix(#394) VT-03);
 //   3. the exported style.json `_mvt_source_layer` (backend style_json.py).
-// If this assertion ever needs to change, all three sites change together.
+// Tile-config supplies the server-resolved hosted prefix to the frontend.
 // ---------------------------------------------------------------------------
 
 describe('getMvtSourceLayerName (VT-04 parity pin)', () => {
   it('produces the canonical data.{table} literal the tile server emits', () => {
     expect(getMvtSourceLayerName('recent_earthquakes')).toBe('data.recent_earthquakes');
+  });
+
+  it('uses the tenant schema prefix emitted by the tile-config endpoint', () => {
+    expect(
+      getMvtSourceLayerName(
+        'recent_earthquakes',
+        'data_t_12345678_1234_1234_1234_123456789abc',
+      ),
+    ).toBe('data_t_12345678_1234_1234_1234_123456789abc.recent_earthquakes');
+  });
+
+  it('does not collapse an explicitly unresolved tenant prefix to data', () => {
+    expect(() => getMvtSourceLayerName('roads', null)).toThrow(
+      'MVT source-layer prefix is unresolved',
+    );
+  });
+});
+
+describe('isMvtSourceLayerConfigReady', () => {
+  it('fails closed while the request is absent, errored, or explicitly unresolved', () => {
+    expect(isMvtSourceLayerConfigReady(undefined)).toBe(false);
+    expect(isMvtSourceLayerConfigReady(null)).toBe(false);
+    expect(isMvtSourceLayerConfigReady({ mvt_source_layer_prefix: null })).toBe(false);
+  });
+
+  it('accepts resolved tenant config and legacy single-tenant responses', () => {
+    expect(isMvtSourceLayerConfigReady({ mvt_source_layer_prefix: 'data_t_acme' })).toBe(true);
+    expect(isMvtSourceLayerConfigReady({})).toBe(true);
   });
 });

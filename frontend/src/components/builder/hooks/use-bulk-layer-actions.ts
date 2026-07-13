@@ -48,6 +48,7 @@ interface UseBulkLayerActionsParams {
   savedLayerBaselineRef: React.MutableRefObject<MapLayerResponse[]>;
   copiedStyleRef: React.RefObject<CopiedStyle | null>;
   syncStyleConfigToMap: SyncStyleConfigToMap;
+  mvtSourceLayerPrefix?: string | null;
 }
 
 export function useBulkLayerActions({
@@ -63,6 +64,7 @@ export function useBulkLayerActions({
   savedLayerBaselineRef,
   copiedStyleRef,
   syncStyleConfigToMap,
+  mvtSourceLayerPrefix,
 }: UseBulkLayerActionsParams) {
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
@@ -178,10 +180,10 @@ export function useBulkLayerActions({
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
       for (const l of selectedLayers) {
-        applyLayerOpacityToMap(map, l, opacity);
+        applyLayerOpacityToMap(map, l, opacity, mvtSourceLayerPrefix);
       }
     }
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef, mvtSourceLayerPrefix]);
 
   // fix(#392): returns true only when a group was actually created, so the
   // caller (MapBuilderPage) can clear the multi-selection ONLY on success — a

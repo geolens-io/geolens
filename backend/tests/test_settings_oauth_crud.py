@@ -313,3 +313,4 @@ async def test_get_tile_config(client: AsyncClient):
     assert "public_app_url" in data
     assert "public_api_url" in data
     assert "public_base_url" in data
+    assert data["mvt_source_layer_prefix"] == "data"

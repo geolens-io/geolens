@@ -23,6 +23,9 @@ interface UseMapLayersOptions {
   // signed-token object shape it's actually passing through.
   tileToken: { sig: string; exp: number; scope: string } | null;
   tileConfigCdnBaseUrl?: string;
+  mvtSourceLayerPrefix?: string | null;
+  /** Whether the tenant-aware source-layer prefix has finished resolving. */
+  mvtSourceLayerReady?: boolean;
   mapRef: React.RefObject<MaplibreMap | null>;
   /** Column name containing height/elevation data for 3D extrusion (polygon datasets only) */
   elevationColumn?: string | null;
@@ -35,6 +38,8 @@ export function useMapLayers({
   tileVersion,
   tileToken,
   tileConfigCdnBaseUrl,
+  mvtSourceLayerPrefix,
+  mvtSourceLayerReady = true,
   mapRef,
   elevationColumn,
 }: UseMapLayersOptions) {
@@ -43,12 +48,13 @@ export function useMapLayers({
 
   const addVectorLayers = useCallback(
     (map: MaplibreMap) => {
+      if (!mvtSourceLayerReady) return;
       if (!tableName || vectorLayersAdded.current) return;
       if (!geometryType) return;
       if (map.getSource('vector-tile-source')) return;
 
       try {
-        const sourceLayer = getSourceLayerName(tableName);
+        const sourceLayer = getSourceLayerName(tableName, mvtSourceLayerPrefix);
         const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfigCdnBaseUrl;
 
         map.addSource('vector-tile-source', {
@@ -195,8 +201,17 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
-    [tableName, geometryType, tileConfigCdnBaseUrl, tileToken, tileVersion, elevationColumn],
+    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn],
   );
+
+  // DatasetMap's load event can precede the settings request. Re-run the
+  // vector setup when that request settles instead of leaving the map empty
+  // (or creating it early with the wrong immutable source-layer name).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mvtSourceLayerReady) return;
+    addVectorLayers(map);
+  }, [addVectorLayers, mapRef, mvtSourceLayerReady]);
 
   const addRasterLayers = useCallback(
     (map: MaplibreMap) => {

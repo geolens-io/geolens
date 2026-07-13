@@ -69,10 +69,13 @@ _ENTERPRISE_PORT_CHECKS: list[tuple[str, str]] = [
 #: per-tenant plan/quota enforcement (Phase 1213). Without it here, a
 #: multi-tenant worker could boot green while every tenant quota check silently
 #: passes.
+#: data_serving is included for the same fail-closed reason: the Community
+#: default silently disables cold-tier preparation and tenant tile fairness.
 _CLOUD_PORT_CHECKS: list[tuple[str, str]] = [
     ("processing_port", "DefaultProcessingPort"),
     ("catalog_port", "DefaultCatalogPort"),
     ("entitlement", "DefaultEntitlementPort"),
+    ("data_serving", "DefaultDataServingExtension"),
 ]
 
 #: Additive-slot keys written into the `_extensions` registry by CORE bootstrap
@@ -106,9 +109,10 @@ def assert_enterprise_ports_resolved() -> None:
       still covered) requires the enterprise-overlay ports:
       permission, identity, workflow.
     * ``GEOLENS_TENANCY_MODE=multi_tenant`` (the cloud overlay) additionally
-      requires processing_port and catalog_port. The enterprise overlay never
-      registers those, so demanding them under bare enterprise crash-looped the
-      worker while the API served fine — the WORK-02 regression this fixes.
+      requires processing_port, catalog_port, entitlement, and data_serving.
+      The enterprise overlay never registers those, so demanding them under
+      bare enterprise crash-looped the worker while the API served fine — the
+      WORK-02 regression this fixes.
 
     If any required port is still the Default impl, raises ``RuntimeError``
     naming every still-Default port and pointing at the build-time-bake remedy.
@@ -120,6 +124,7 @@ def assert_enterprise_ports_resolved() -> None:
     """
     from app.platform.extensions import (
         get_catalog_port,
+        get_data_serving_extension,
         get_entitlement_port,
         get_identity_extension,
         get_permission_extension,
@@ -131,6 +136,7 @@ def assert_enterprise_ports_resolved() -> None:
         "processing_port": get_processing_port,
         "catalog_port": get_catalog_port,
         "entitlement": get_entitlement_port,
+        "data_serving": get_data_serving_extension,
         "permission": get_permission_extension,
         "identity": get_identity_extension,
         "workflow": get_workflow_extension,
@@ -168,28 +174,22 @@ def assert_enterprise_ports_resolved() -> None:
 
         # Point at the overlay that actually provides each missing tier. The
         # enterprise overlay does NOT ship processing_port/catalog_port, so a
-        # cloud-port failure must send the operator to the cloud overlay build,
-        # not INSTALL_ENTERPRISE_OVERLAY=1 (which bakes /enterprise only).
+        # cloud-port failure must send the operator to the cloud image build.
         cloud_keys = {k for k, _ in _CLOUD_PORT_CHECKS}
         remedies: list[str] = []
         if any(k not in cloud_keys for k in still_default_keys):
-            remedies.append(
-                "the enterprise overlay (build --build-arg INSTALL_OVERLAYS="
-                '"/enterprise", or the legacy --build-arg '
-                "INSTALL_ENTERPRISE_OVERLAY=1)"
-            )
+            remedies.append("the enterprise overlay's immutable image")
         if any(k in cloud_keys for k in still_default_keys):
             remedies.append(
-                "the cloud overlay that provides processing_port/catalog_port "
-                "under GEOLENS_TENANCY_MODE=multi_tenant (build --build-arg "
-                'INSTALL_OVERLAYS="/enterprise /cloud")'
+                "the cloud overlay image that provides processing_port/"
+                "catalog_port/entitlement/data_serving under "
+                "GEOLENS_TENANCY_MODE=multi_tenant"
             )
 
         raise RuntimeError(
             f"A licensed/overlay edition is active but the following single-slot "
             f"ports are still the Default community implementations: [{still_list}]. "
-            f"Pre-bake {' and '.join(remedies)} into the image at build time "
-            f"(see ARG INSTALL_OVERLAYS in the Dockerfile). References: WORK-02."
+            f"Use {' and '.join(remedies)}. References: WORK-02."
         )
 
 

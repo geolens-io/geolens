@@ -19,12 +19,15 @@ class TileConfigResponse:
     """
     Attributes:
         cdn_base_url (None | str | Unset): CDN origin URL for tile delivery, if configured.
+        mvt_source_layer_prefix (None | str | Unset): Schema prefix emitted inside vector-tile source-layer names. Null
+            when a multi-tenant request has no resolved tenant context. Default: 'data'.
         public_api_url (None | str | Unset): Externally-reachable API base URL used in OGC self-links.
         public_app_url (None | str | Unset): Browser-facing app URL used for share links and OAuth redirects.
         public_base_url (None | str | Unset): Deprecated alias for public_api_url. Will be removed in a future release.
     """
 
     cdn_base_url: None | str | Unset = UNSET
+    mvt_source_layer_prefix: None | str | Unset = "data"
     public_api_url: None | str | Unset = UNSET
     public_app_url: None | str | Unset = UNSET
     public_base_url: None | str | Unset = UNSET
@@ -36,6 +39,12 @@ class TileConfigResponse:
             cdn_base_url = UNSET
         else:
             cdn_base_url = self.cdn_base_url
+
+        mvt_source_layer_prefix: None | str | Unset
+        if isinstance(self.mvt_source_layer_prefix, Unset):
+            mvt_source_layer_prefix = UNSET
+        else:
+            mvt_source_layer_prefix = self.mvt_source_layer_prefix
 
         public_api_url: None | str | Unset
         if isinstance(self.public_api_url, Unset):
@@ -60,6 +69,8 @@ class TileConfigResponse:
         field_dict.update({})
         if cdn_base_url is not UNSET:
             field_dict["cdn_base_url"] = cdn_base_url
+        if mvt_source_layer_prefix is not UNSET:
+            field_dict["mvt_source_layer_prefix"] = mvt_source_layer_prefix
         if public_api_url is not UNSET:
             field_dict["public_api_url"] = public_api_url
         if public_app_url is not UNSET:
@@ -81,6 +92,17 @@ class TileConfigResponse:
             return cast(None | str | Unset, data)
 
         cdn_base_url = _parse_cdn_base_url(d.pop("cdn_base_url", UNSET))
+
+        def _parse_mvt_source_layer_prefix(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        mvt_source_layer_prefix = _parse_mvt_source_layer_prefix(
+            d.pop("mvt_source_layer_prefix", UNSET)
+        )
 
         def _parse_public_api_url(data: object) -> None | str | Unset:
             if data is None:
@@ -111,6 +133,7 @@ class TileConfigResponse:
 
         tile_config_response = cls(
             cdn_base_url=cdn_base_url,
+            mvt_source_layer_prefix=mvt_source_layer_prefix,
             public_api_url=public_api_url,
             public_app_url=public_app_url,
             public_base_url=public_base_url,

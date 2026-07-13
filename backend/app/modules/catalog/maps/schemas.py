@@ -1243,26 +1243,6 @@ class OgImageUploadRequest(BaseModel):
     data_uri: str = Field(min_length=22, max_length=750_000)
 
 
-class AdminShareTokenResponse(BaseModel):
-    # #347 (ADM-01): the admin "Published Maps" listing includes public maps that have
-    # no share link, so the token-specific fields are nullable. `created_at` is
-    # the map's creation time (always present).
-    id: uuid.UUID | None = None
-    map_id: uuid.UUID
-    map_name: str
-    token: str | None = None
-    is_active: bool | None = None
-    expires_at: datetime | None = None
-    created_at: datetime
-    created_by: str | None
-    embed_token_count: int = 0
-
-
-class AdminShareTokenListResponse(BaseModel):
-    tokens: list[AdminShareTokenResponse]
-    total: int
-
-
 class VisibilityCheckResponse(BaseModel):
     non_public_datasets: list[str] = Field(
         description="Titles of datasets not publicly visible"

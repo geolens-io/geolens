@@ -48,7 +48,7 @@ const MIRRORS: MirrorShape[] = [
   {
     schema: 'TileConfigResponse',
     source: 'settings.ts TileConfig',
-    required: ['cdn_base_url', 'public_app_url', 'public_api_url', 'public_base_url'],
+    required: ['cdn_base_url', 'public_app_url', 'public_api_url', 'public_base_url', 'mvt_source_layer_prefix'],
     optional: [],
   },
   {

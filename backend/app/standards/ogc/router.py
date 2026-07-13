@@ -22,7 +22,10 @@ from app.modules.catalog.features.service import (
     get_features,
     parse_bbox,
 )
-from app.platform.extensions import get_billing_extensions, has_extension
+from app.platform.extensions import (
+    get_billing_extensions,
+    get_data_serving_extension,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.schemas import (
     ConformanceResponse,
@@ -82,15 +85,13 @@ async def _check_cold_rehydrate(
     record_status: str,
     tenant_id: str,
 ) -> "JSONResponse | None":
-    """Check if an OGC feature table is cold and delegate to the overlay (COLD-02).
+    """Prepare a cold OGC table through the provider-neutral serving seam.
 
     Mirrors the tile-router _check_cold_rehydrate seam exactly:
     - Returns None immediately when record_status != 'cold' (hot — the common path).
-    - Returns None when not is_multi_tenant() or has_extension('cloud') is False
-      (single_tenant / community / enterprise — byte-identical, no import attempted).
-    - Deferred import of geolens_cloud.cold_tier.rehydrate.check_and_rehydrate inside
-      a try/except so the public core image never hard-imports the overlay package.
-    - ImportError → return None (overlay absent, serve normally).
+    - Returns None when not is_multi_tenant() (single-tenant Community and
+      Enterprise remain byte-identical).
+    - The Community extension returns None, so no provider package is imported.
     - Broad Exception → log warning, return None (cold-check failure MUST NEVER fail
       an OGC response — T-1214-17).
 
@@ -108,18 +109,16 @@ async def _check_cold_rehydrate(
     if record_status != "cold":
         return None
 
-    # Guard: cold-tier is cloud-only / multi-tenant.
+    # Table preparation is only relevant in multi-tenant mode. The Community
+    # default is additionally a no-op, preserving the overlay-absent path.
     if not is_multi_tenant():
-        return None
-    if not has_extension("cloud"):
         return None
 
     try:
-        from geolens_cloud.cold_tier.rehydrate import check_and_rehydrate  # type: ignore[import]
-
-        result = await check_and_rehydrate(table_name=table_name, tenant_id=tenant_id)
-    except ImportError:
-        return None
+        result = await get_data_serving_extension().prepare_table_for_read(
+            table_name=table_name,
+            tenant_id=tenant_id,
+        )
     except (
         Exception
     ):  # broad: cold-check failure must NEVER fail an OGC response (T-1214-17)

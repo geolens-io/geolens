@@ -25,7 +25,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from app.modules.catalog._ilike import escape_ilike
+from app.core.text import escape_ilike
 
 
 # ---------------------------------------------------------------------------

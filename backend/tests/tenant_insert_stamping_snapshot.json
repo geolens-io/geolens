@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "description": "Expected PostgreSQL tenant insert-stamping function and trigger boundary. Update only with an intentional, security-reviewed migration.",
+  "function": {
+    "schema": "catalog",
+    "name": "stamp_current_tenant_on_insert",
+    "arguments": "",
+    "result": "trigger",
+    "language": "plpgsql",
+    "security_definer": false,
+    "volatility": "v",
+    "config": [
+      "search_path=pg_catalog, catalog"
+    ],
+    "body_normalized": "DECLARE session_tenant_text text; session_tenant uuid; BEGIN session_tenant_text := NULLIF( current_setting('app.current_tenant', true), '' ); -- No tenant GUC is the intentional single-tenant/migrator path. IF session_tenant_text IS NULL THEN RETURN NEW; END IF; -- An invalid non-empty GUC must fail closed at the UUID cast. session_tenant := session_tenant_text::uuid; IF NEW.tenant_id IS NOT NULL AND NEW.tenant_id IS DISTINCT FROM session_tenant THEN RAISE EXCEPTION 'tenant_id does not match the active tenant for %.%', TG_TABLE_SCHEMA, TG_TABLE_NAME USING ERRCODE = '42501', HINT = 'omit tenant_id or use the active tenant'; END IF; NEW.tenant_id := session_tenant; RETURN NEW; END;",
+    "body_contains": [
+      "NULLIF(",
+      "current_setting('app.current_tenant', true)",
+      "IF session_tenant_text IS NULL THEN",
+      "session_tenant := session_tenant_text::uuid",
+      "NEW.tenant_id IS DISTINCT FROM session_tenant",
+      "USING ERRCODE = '42501'",
+      "NEW.tenant_id := session_tenant"
+    ]
+  },
+  "triggers": [
+    {
+      "schema": "catalog",
+      "table": "collections",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "datasets",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "embed_tokens",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "maps",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "records",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "users",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    }
+  ]
+}

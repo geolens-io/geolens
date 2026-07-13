@@ -25,6 +25,7 @@ from app.platform.cache.provider import init_tile_cache
 # settings already imported above for the tempdir override — do NOT reimport
 from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging
+from app.core.tenancy import is_multi_tenant
 from app.core.runtime.staging import ensure_staging_ready, sweep_orphaned_exports
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
@@ -153,6 +154,20 @@ async def seed_initial_admin() -> None:
             )
 
 
+async def seed_bootstrap_identity() -> None:
+    """Seed global RBAC roles and, only for single-tenant installs, an admin.
+
+    A multi-tenant admin must be created through the Cloud signup transaction,
+    after that transaction provisions and binds its tenant.  A global NULL-
+    tenant user is both unusable and rejected by FORCE RLS.
+    """
+    await seed_roles()
+    if is_multi_tenant():
+        logger.info("Skipping global initial-admin seed in multi-tenant mode")
+        return
+    await seed_initial_admin()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     for attempt in range(1, 4):
@@ -184,8 +199,7 @@ async def lifespan(app: FastAPI):
 
     await assert_schema_in_sync()
 
-    await seed_roles()
-    await seed_initial_admin()
+    await seed_bootstrap_identity()
 
     # SEC-08 / M-72: surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
@@ -934,4 +948,11 @@ async def health(request: Request):
     )
 
 
-__all__ = ["app", "health", "lifespan", "seed_initial_admin", "seed_roles"]
+__all__ = [
+    "app",
+    "health",
+    "lifespan",
+    "seed_bootstrap_identity",
+    "seed_initial_admin",
+    "seed_roles",
+]

@@ -84,6 +84,7 @@ class DatasetProtocol(Protocol):
     """Catalog Dataset surface read by processing/*."""
 
     id: uuid.UUID
+    tenant_id: uuid.UUID | None
     record_id: uuid.UUID
     table_name: str
     geometry_type: str | None

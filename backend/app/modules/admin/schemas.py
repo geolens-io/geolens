@@ -205,6 +205,23 @@ class CatalogStatsResponse(BaseModel):
     )
 
 
+class AdminShareTokenResponse(BaseModel):
+    id: uuid.UUID | None = None
+    map_id: uuid.UUID
+    map_name: str
+    token: str | None = None
+    is_active: bool | None = None
+    expires_at: datetime | None = None
+    created_at: datetime
+    created_by: str | None
+    embed_token_count: int = 0
+
+
+class AdminShareTokenListResponse(BaseModel):
+    tokens: list[AdminShareTokenResponse]
+    total: int
+
+
 class AIStatusResponse(BaseModel):
     provider: str | None = Field(
         description="Active AI provider name (e.g. 'anthropic', 'openai')."

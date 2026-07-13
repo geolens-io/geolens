@@ -1,28 +1,30 @@
-"""Per-tenant data schema + reader-role bootstrap (DP-01, Phase 1209-01).
+"""Per-tenant data-schema naming and least-privilege lifecycle calls.
 
-Provides ``apply_tenant_data_schema(conn, tenant_id)`` — idempotent
-CREATE SCHEMA IF NOT EXISTS data_t_{tenant_id} + CREATE ROLE IF NOT EXISTS
-geolens_reader_t_{tenant_id} (NOLOGIN) + GRANT USAGE/SELECT + ALTER DEFAULT
-PRIVILEGES inside the tenant schema.
+Dynamic tenant DDL is owned by the migration-installed SECURITY DEFINER
+functions in ``catalog``.  API and worker processes call those functions; they
+never need CREATE SCHEMA or CREATEROLE themselves.
 
 Design invariants
 -----------------
 - **single_tenant**: hard no-op — returns immediately, touches NO SQL.
   The shared ``data`` schema + global ``geolens_reader`` stay unchanged.
-- **multi_tenant**: idempotent — uses IF NOT EXISTS so concurrent
-  tenant-provisioning calls (multi-worker) do not fail.
+- **multi_tenant**: idempotent and transaction-bound — callers can provision in
+  the same transaction that inserts ``catalog.tenants``.
 - Tenant id is ALWAYS passed as a validated UUID string (never f-string
   interpolated directly from user input).
 
 Call from tenant provisioning
 -----------------------------
-``apply_tenant_data_schema_from_engine(tenant_id)`` is the convenience
-wrapper called during tenant creation in the overlay (Phase 1211).
+``apply_tenant_data_schema_from_engine(tenant_id)`` is retained for background
+jobs operating on an already-committed tenant.  Tenant creation must pass its
+request session to ``provision_tenant_data_schema`` so row + substrate commit or
+roll back together.
 At boot, ``bootstrap()`` does NOT call this per-tenant — schemas are
 created on demand at tenant-provision time.
 
 Schema naming convention: ``data_t_{tenant_id with hyphens→underscores}``
 Role naming convention:   ``geolens_reader_t_{tenant_id with hyphens→underscores}``
+Writer naming convention: ``geolens_writer_t_{tenant_id with hyphens→underscores}``
 """
 
 from __future__ import annotations
@@ -44,8 +46,10 @@ _TENANT_ID_RE = re.compile(
 def tenant_data_schema(tenant_id: str | None) -> str:
     """Return the data schema name for a tenant.
 
-    In ``single_tenant`` or when ``tenant_id`` is None: returns ``"data"``
-    (the global shared data schema — byte-identical to pre-1209 behavior).
+    In ``single_tenant``: returns ``"data"`` (the global shared data schema —
+    byte-identical to pre-1209 behavior). Multi-tenant callers must supply a
+    tenant id; missing context fails closed instead of falling back to shared
+    storage.
 
     In ``multi_tenant`` with a non-None tenant_id: returns
     ``"data_t_{tenant_id with hyphens replaced by underscores}"``.
@@ -58,7 +62,8 @@ def tenant_data_schema(tenant_id: str | None) -> str:
     Parameters
     ----------
     tenant_id:
-        UUID string for the tenant, or ``None`` (returns global default).
+        UUID string for the tenant. ``None`` is accepted only in single-tenant
+        mode.
 
     Raises
     ------
@@ -67,8 +72,12 @@ def tenant_data_schema(tenant_id: str | None) -> str:
     """
     from app.core.tenancy import is_multi_tenant
 
-    if not is_multi_tenant() or tenant_id is None:
+    if not is_multi_tenant():
         return "data"
+    if tenant_id is None:
+        raise ValueError(
+            "tenant_data_schema: tenant_id is required in multi_tenant mode"
+        )
 
     normalized = tenant_id.lower()
     if not _TENANT_ID_RE.match(normalized):
@@ -81,8 +90,8 @@ def tenant_data_schema(tenant_id: str | None) -> str:
 def tenant_reader_role(tenant_id: str | None) -> str:
     """Return the per-tenant reader role name.
 
-    In ``single_tenant`` or when ``tenant_id`` is None: returns
-    ``"geolens_reader"`` (the global reader role).
+    In ``single_tenant``: returns ``"geolens_reader"`` (the global reader
+    role). Missing tenant context fails closed in multi-tenant mode.
 
     In ``multi_tenant`` with a non-None tenant_id: returns
     ``"geolens_reader_t_{tenant_id with hyphens replaced by underscores}"``.
@@ -94,7 +103,8 @@ def tenant_reader_role(tenant_id: str | None) -> str:
     Parameters
     ----------
     tenant_id:
-        UUID string for the tenant, or ``None`` (returns global default).
+        UUID string for the tenant. ``None`` is accepted only in single-tenant
+        mode.
 
     Raises
     ------
@@ -103,8 +113,12 @@ def tenant_reader_role(tenant_id: str | None) -> str:
     """
     from app.core.tenancy import is_multi_tenant
 
-    if not is_multi_tenant() or tenant_id is None:
+    if not is_multi_tenant():
         return "geolens_reader"
+    if tenant_id is None:
+        raise ValueError(
+            "tenant_reader_role: tenant_id is required in multi_tenant mode"
+        )
 
     normalized = tenant_id.lower()
     if not _TENANT_ID_RE.match(normalized):
@@ -114,23 +128,47 @@ def tenant_reader_role(tenant_id: str | None) -> str:
     return f"geolens_reader_t_{normalized.replace('-', '_')}"
 
 
-async def apply_tenant_data_schema(conn, tenant_id: str) -> None:
-    """Create per-tenant data schema + reader role (multi_tenant only).
+def tenant_writer_role(tenant_id: str | None) -> str:
+    """Return the SET-only per-tenant writer target role.
 
-    In ``single_tenant``: returns immediately — zero SQL, zero cost.
-    In ``multi_tenant``:
-      1. Validates tenant_id is a UUID (never interpolated raw).
-      2. CREATE SCHEMA IF NOT EXISTS data_t_{tenant_id}
-      3. CREATE ROLE IF NOT EXISTS geolens_reader_t_{tenant_id} (NOLOGIN)
-      4. GRANT USAGE ON SCHEMA data_t_{tenant_id} TO geolens_reader_t_{tenant_id}
-      5. GRANT SELECT ON ALL TABLES IN SCHEMA data_t_{tenant_id} TO ...
-      6. ALTER DEFAULT PRIVILEGES IN SCHEMA data_t_{tenant_id}
-             GRANT SELECT ON TABLES TO geolens_reader_t_{tenant_id}
+    Single-tenant deployments keep using the configured database login and
+    therefore return ``"geolens_writer"`` only as an inert naming fallback.
+    Multi-tenant callers must supply a UUID.
+    """
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant():
+        return "geolens_writer"
+    if tenant_id is None:
+        raise ValueError(
+            "tenant_writer_role: tenant_id is required in multi_tenant mode"
+        )
+
+    normalized = _validated_tenant_id(tenant_id, operation="tenant_writer_role")
+    return f"geolens_writer_t_{normalized.replace('-', '_')}"
+
+
+def _validated_tenant_id(tenant_id: str, *, operation: str) -> str:
+    """Return a normalized tenant UUID string before it reaches SQL."""
+    normalized = tenant_id.lower()
+    if not _TENANT_ID_RE.fullmatch(normalized):
+        raise ValueError(f"{operation}: invalid tenant_id: {tenant_id!r}")
+    return normalized
+
+
+async def provision_tenant_data_schema(conn, tenant_id: str) -> None:
+    """Provision a tenant through the migration-owned database boundary.
+
+    ``conn`` may be an ``AsyncConnection`` or ``AsyncSession``.  The function
+    call participates in the caller's transaction, which is required for Cloud
+    create/signup atomicity.  PostgreSQL performs identifier construction,
+    locking, role validation, and grants inside the SECURITY DEFINER function.
 
     Parameters
     ----------
     conn:
-        Open async SQLAlchemy connection in AUTOCOMMIT (for DDL).
+        Open async SQLAlchemy connection or session.  Do not use AUTOCOMMIT for
+        tenant creation.
     tenant_id:
         UUID string for the tenant. Validated — raises ValueError if not UUID.
     """
@@ -138,58 +176,72 @@ async def apply_tenant_data_schema(conn, tenant_id: str) -> None:
 
     if not is_multi_tenant():
         # single_tenant → unconditional no-op: zero SQL, zero cost.
-        logger.debug("apply_tenant_data_schema: single_tenant — skipping (no-op)")
+        logger.debug("provision_tenant_data_schema: single_tenant — skipping (no-op)")
         return
 
-    # IN-02: normalize to lowercase before building identifiers so mixed-case
-    # UUIDs don't produce divergent schema/role names.
-    normalized = tenant_id.lower()
-    if not _TENANT_ID_RE.match(normalized):
-        raise ValueError(f"apply_tenant_data_schema: invalid tenant_id: {tenant_id!r}")
-
-    # All identifiers derive from the validated UUID — string formatting is safe
-    # (same justification as rls.py static-table formatting; UUID chars + underscores
-    # only — no shell/SQL metacharacters possible after hyphen→underscore replacement).
-    schema = f"data_t_{normalized.replace('-', '_')}"
-    role = f"geolens_reader_t_{normalized.replace('-', '_')}"
-
-    await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
-    await conn.execute(
-        text(
-            f"DO $$ BEGIN "
-            f"  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{role}') THEN "
-            f"    CREATE ROLE {role} NOLOGIN; "
-            f"  END IF; "
-            f"END $$"
-        )
+    normalized = _validated_tenant_id(
+        tenant_id, operation="provision_tenant_data_schema"
     )
-    await conn.execute(text(f"GRANT USAGE ON SCHEMA {schema} TO {role}"))
-    await conn.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {role}"))
-    await conn.execute(
-        text(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT ON TABLES TO {role}"
-        )
+    statement = text(
+        "SELECT catalog.provision_tenant_data_schema(CAST(:tenant_id AS uuid))"
+    ).bindparams(tenant_id=normalized)
+    await conn.execute(statement)
+    logger.info(
+        "provision_tenant_data_schema: provisioned",
+        schema=f"data_t_{normalized.replace('-', '_')}",
+        role=f"geolens_reader_t_{normalized.replace('-', '_')}",
     )
-    logger.info("apply_tenant_data_schema: provisioned", schema=schema, role=role)
+
+
+async def apply_tenant_data_schema(conn, tenant_id: str) -> None:
+    """Backward-compatible name for ``provision_tenant_data_schema``."""
+    await provision_tenant_data_schema(conn, tenant_id)
+
+
+async def deprovision_tenant_data_schema(conn, tenant_id: str) -> None:
+    """Remove an already-deleted tenant through the guarded DB boundary.
+
+    The database function refuses to run while ``catalog.tenants`` still has
+    the tenant row.  Callers should delete that row in the same transaction or
+    commit the control-plane deletion before invoking this helper.
+    """
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant():
+        logger.debug("deprovision_tenant_data_schema: single_tenant — skipping (no-op)")
+        return
+
+    normalized = _validated_tenant_id(
+        tenant_id, operation="deprovision_tenant_data_schema"
+    )
+    statement = text(
+        "SELECT catalog.deprovision_tenant_data_schema(CAST(:tenant_id AS uuid))"
+    ).bindparams(tenant_id=normalized)
+    await conn.execute(statement)
+    logger.info("deprovision_tenant_data_schema: complete", tenant_id=normalized)
 
 
 async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
-    """Convenience wrapper: open a connection from the global engine and apply tenant schema DDL.
+    """Provision an already-committed tenant using the global engine.
 
     In ``single_tenant``: delegates to ``apply_tenant_data_schema()`` which returns
     immediately (zero SQL).
 
-    In ``multi_tenant``: opens an AUTOCOMMIT connection (DDL outside a transaction
-    so each statement is visible immediately to other connections), calls
-    ``apply_tenant_data_schema(conn, tenant_id)``, then closes the connection.
+    The SECURITY DEFINER function runs in one ordinary transaction.  Tenant
+    creation paths must instead pass their existing session directly.
     """
     from app.core.db.session import engine
 
-    async with engine.connect() as conn:
-        # AUTOCOMMIT so each DDL statement is its own implicit transaction
-        # and is immediately visible to other connections.
-        await conn.execution_options(isolation_level="AUTOCOMMIT")
+    async with engine.begin() as conn:
         await apply_tenant_data_schema(conn, tenant_id)
+
+
+async def deprovision_tenant_data_schema_from_engine(tenant_id: str) -> None:
+    """Deprovision an already-deleted tenant using the global engine."""
+    from app.core.db.session import engine
+
+    async with engine.begin() as conn:
+        await deprovision_tenant_data_schema(conn, tenant_id)
 
 
 def tenant_shard_id(tenant_id: str | None) -> str | None:

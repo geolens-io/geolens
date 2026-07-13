@@ -50,6 +50,7 @@ interface UseRenderModeLayersParams {
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>;
   setHasUnsavedChanges: React.Dispatch<React.SetStateAction<boolean>>;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
+  mvtSourceLayerPrefix?: string | null;
 }
 
 export function useRenderModeLayers({
@@ -57,6 +58,7 @@ export function useRenderModeLayers({
   setLocalLayers,
   setHasUnsavedChanges,
   mapInstanceRef,
+  mvtSourceLayerPrefix,
 }: UseRenderModeLayersParams) {
   const { t } = useTranslation('builder');
 
@@ -128,7 +130,10 @@ export function useRenderModeLayers({
     // Get tile URL from existing source
     const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
     const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined, layer.tile_version ?? undefined);
-    const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
+    const sourceLayer = getMvtSourceLayerName(
+      layer.dataset_table_name,
+      mvtSourceLayerPrefix,
+    );
 
     const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
       id: layer.id,
@@ -191,7 +196,7 @@ export function useRenderModeLayers({
         map.setLayoutProperty(labelId, 'visibility', vis);
       }
     }
-  }, [mapInstanceRef, t]);
+  }, [mapInstanceRef, mvtSourceLayerPrefix, t]);
 
   /** Cluster transitions are handed to the reactive syncMapComposition, but that
    *  reconciler adds before it removes stale layers and SKIPS adding a layer id

@@ -102,12 +102,12 @@ class TestHelperNamesInMultiTenant:
 
         assert tenant_data_schema(_TENANT_A) == _SCHEMA_A
 
-    def test_tenant_data_schema_none_returns_global_in_multi_tenant(self, monkeypatch):
-        """tenant_data_schema(None) returns 'data' even in multi_tenant (no tenant context)."""
+    def test_tenant_data_schema_none_fails_closed_in_multi_tenant(self, monkeypatch):
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
         from app.core.db.tenant_schema import tenant_data_schema
 
-        assert tenant_data_schema(None) == "data"
+        with pytest.raises(ValueError, match="tenant_id is required"):
+            tenant_data_schema(None)
 
     def test_tenant_reader_role_returns_per_tenant_name(self, monkeypatch):
         """tenant_reader_role(uuid) returns geolens_reader_t_{uuid} in multi_tenant."""
@@ -116,12 +116,19 @@ class TestHelperNamesInMultiTenant:
 
         assert tenant_reader_role(_TENANT_A) == _ROLE_A
 
-    def test_tenant_reader_role_none_returns_global_in_multi_tenant(self, monkeypatch):
-        """tenant_reader_role(None) returns 'geolens_reader' even in multi_tenant."""
+    def test_tenant_reader_role_none_fails_closed_in_multi_tenant(self, monkeypatch):
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
         from app.core.db.tenant_schema import tenant_reader_role
 
-        assert tenant_reader_role(None) == "geolens_reader"
+        with pytest.raises(ValueError, match="tenant_id is required"):
+            tenant_reader_role(None)
+
+    def test_tenant_writer_role_none_fails_closed_in_multi_tenant(self, monkeypatch):
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+        from app.core.db.tenant_schema import tenant_writer_role
+
+        with pytest.raises(ValueError, match="tenant_id is required"):
+            tenant_writer_role(None)
 
 
 # ---------------------------------------------------------------------------
@@ -228,13 +235,22 @@ class TestApplyMultiTenantProvisioning:
     async def test_provisioning_creates_schema_and_role(self, monkeypatch):
         """apply_tenant_data_schema creates data_t_{tid} schema + geolens_reader_t_{tid} role."""
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
-        from app.core.db.tenant_schema import apply_tenant_data_schema
+        from app.core.db.tenant_schema import (
+            apply_tenant_data_schema,
+            deprovision_tenant_data_schema,
+        )
 
         db_url = await _get_test_db_url()
         engine = create_async_engine(db_url, poolclass=NullPool)
         try:
-            async with engine.connect() as conn:
-                await conn.execution_options(isolation_level="AUTOCOMMIT")
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.tenants (id, slug, name) "
+                        "VALUES (CAST(:id AS uuid), :slug, :name)"
+                    ),
+                    {"id": _TENANT_DYNAMIC, "slug": "dp01-dynamic", "name": "DP01"},
+                )
                 await apply_tenant_data_schema(conn, _TENANT_DYNAMIC)
 
                 # Assert schema exists
@@ -265,15 +281,17 @@ class TestApplyMultiTenantProvisioning:
                 assert not rolsuper, f"{_ROLE_DYNAMIC} must NOT be SUPERUSER"
                 assert not rolbypassrls, f"{_ROLE_DYNAMIC} must NOT be BYPASSRLS"
         finally:
-            # Teardown: drop the dynamic test schema + role
+            # Teardown through the same guarded boundary after deleting the row.
             engine2 = create_async_engine(db_url, poolclass=NullPool)
             try:
-                async with engine2.connect() as conn:
-                    await conn.execution_options(isolation_level="AUTOCOMMIT")
+                async with engine2.begin() as conn:
                     await conn.execute(
-                        sa.text(f"DROP SCHEMA IF EXISTS {_SCHEMA_DYNAMIC} CASCADE")
+                        sa.text(
+                            "DELETE FROM catalog.tenants WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": _TENANT_DYNAMIC},
                     )
-                    await conn.execute(sa.text(f"DROP ROLE IF EXISTS {_ROLE_DYNAMIC}"))
+                    await deprovision_tenant_data_schema(conn, _TENANT_DYNAMIC)
             finally:
                 await engine2.dispose()
             await engine.dispose()
@@ -281,13 +299,22 @@ class TestApplyMultiTenantProvisioning:
     async def test_provisioning_is_idempotent(self, monkeypatch):
         """apply_tenant_data_schema called twice does NOT raise (IF NOT EXISTS)."""
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
-        from app.core.db.tenant_schema import apply_tenant_data_schema
+        from app.core.db.tenant_schema import (
+            apply_tenant_data_schema,
+            deprovision_tenant_data_schema,
+        )
 
         db_url = await _get_test_db_url()
         engine = create_async_engine(db_url, poolclass=NullPool)
         try:
-            async with engine.connect() as conn:
-                await conn.execution_options(isolation_level="AUTOCOMMIT")
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.tenants (id, slug, name) "
+                        "VALUES (CAST(:id AS uuid), :slug, :name)"
+                    ),
+                    {"id": _TENANT_DYNAMIC, "slug": "dp01-idempotent", "name": "DP01"},
+                )
                 # First call
                 await apply_tenant_data_schema(conn, _TENANT_DYNAMIC)
                 # Second call — must not raise
@@ -295,12 +322,14 @@ class TestApplyMultiTenantProvisioning:
         finally:
             engine2 = create_async_engine(db_url, poolclass=NullPool)
             try:
-                async with engine2.connect() as conn:
-                    await conn.execution_options(isolation_level="AUTOCOMMIT")
+                async with engine2.begin() as conn:
                     await conn.execute(
-                        sa.text(f"DROP SCHEMA IF EXISTS {_SCHEMA_DYNAMIC} CASCADE")
+                        sa.text(
+                            "DELETE FROM catalog.tenants WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": _TENANT_DYNAMIC},
                     )
-                    await conn.execute(sa.text(f"DROP ROLE IF EXISTS {_ROLE_DYNAMIC}"))
+                    await deprovision_tenant_data_schema(conn, _TENANT_DYNAMIC)
             finally:
                 await engine2.dispose()
             await engine.dispose()
