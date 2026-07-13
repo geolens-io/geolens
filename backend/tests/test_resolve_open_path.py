@@ -63,8 +63,8 @@ class TestResolveOpenPathProviderMatrix:
         )
         assert result == "/data/staging/rasters/abc/cog.tif"
 
-    def test_local_no_tenant_prefix(self):
-        """local provider NEVER emits a tenants/ prefix even when tenant_id provided."""
+    def test_local_with_tenant_uses_physical_namespace(self):
+        """Local multi-tenant storage uses the same physical key namespace as S3."""
         result = self._call(
             "rasters/abc/cog.tif",
             tenant_id="tenant-x",
@@ -72,9 +72,7 @@ class TestResolveOpenPathProviderMatrix:
                 storage_provider="local", upload_staging_dir="/data/staging"
             ),
         )
-        # local uses bare asset_uri (not the tenant-keyed path)
-        assert "tenants/" not in result
-        assert result == "/data/staging/rasters/abc/cog.tif"
+        assert result == "/data/staging/tenants/tenant-x/rasters/abc/cog.tif"
 
     # --- Row 2: s3 + no tenant (single_tenant byte-identical) --------------
 

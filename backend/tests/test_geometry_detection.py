@@ -200,6 +200,70 @@ class TestConstructPointGeometry:
             )
             await test_db_session.commit()
 
+    async def test_preserves_projected_source_srid(self, test_db_session):
+        from app.processing.ingest.metadata import construct_point_geometry
+
+        table = "test_point_projected"
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} ("
+                    "ogc_fid serial PRIMARY KEY, x double precision, y double precision)"
+                )
+            )
+            await test_db_session.execute(
+                text(f"INSERT INTO data.{table} (x, y) VALUES (1113194.9, 1118889.9)")
+            )
+            await test_db_session.commit()
+
+            count = await construct_point_geometry(
+                test_db_session, table, "x", "y", 3857
+            )
+
+            assert count == 1
+            result = await test_db_session.execute(
+                text(f"SELECT ST_SRID(geom), ST_X(geom), ST_Y(geom) FROM data.{table}")
+            )
+            srid, x, y = result.one()
+            assert srid == 3857
+            assert x == pytest.approx(1113194.9)
+            assert y == pytest.approx(1118889.9)
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
+
+    async def test_rejects_non_finite_or_out_of_range_wgs84(self, test_db_session):
+        from app.processing.ingest.metadata import construct_point_geometry
+
+        table = "test_point_invalid_coords"
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} ("
+                    "ogc_fid serial PRIMARY KEY, lng double precision, lat double precision)"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table} (lng, lat) VALUES "
+                    "(181, 0), ('NaN'::double precision, 10)"
+                )
+            )
+            await test_db_session.commit()
+
+            with pytest.raises(ValueError, match="2 row\\(s\\).+EPSG:4326"):
+                await construct_point_geometry(
+                    test_db_session, table, "lng", "lat", 4326
+                )
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
+
     async def test_rejects_invalid_column_name(self, test_db_session):
         from app.processing.ingest.metadata import construct_point_geometry
 
@@ -207,6 +271,33 @@ class TestConstructPointGeometry:
             await construct_point_geometry(
                 test_db_session, "test_tbl", "x col", "y_col"
             )
+
+    async def test_rejects_non_numeric_text_coordinates_cleanly(self, test_db_session):
+        from app.processing.ingest.metadata import construct_point_geometry
+
+        table = "test_point_text_coords"
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} ("
+                    "ogc_fid serial PRIMARY KEY, lng text, lat text)"
+                )
+            )
+            await test_db_session.execute(
+                text(f"INSERT INTO data.{table} (lng, lat) VALUES ('west', '40')")
+            )
+            await test_db_session.commit()
+
+            with pytest.raises(ValueError, match="not numbers"):
+                await construct_point_geometry(
+                    test_db_session, table, "lng", "lat", 4326
+                )
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
 
     async def test_rejects_uppercase_column_name(self, test_db_session):
         """Uppercase column names are rejected by validation regex."""
@@ -292,6 +383,91 @@ class TestConstructWktGeometry:
             assert count == 1
 
         finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
+
+    async def test_projected_wkt_preserves_srid(self, test_db_session):
+        from app.processing.ingest.metadata import construct_wkt_geometry
+
+        table = "test_wkt_projected"
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} (ogc_fid serial PRIMARY KEY, wkt text)"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table} (wkt) "
+                    "VALUES ('POINT(1113194.9 1118889.9)')"
+                )
+            )
+            await test_db_session.commit()
+
+            assert (
+                await construct_wkt_geometry(test_db_session, table, "wkt", 3857) == 1
+            )
+            result = await test_db_session.execute(
+                text(f"SELECT ST_SRID(geom) FROM data.{table}")
+            )
+            assert result.scalar_one() == 3857
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
+
+    async def test_wkt_rejects_out_of_range_wgs84(self, test_db_session):
+        from app.processing.ingest.metadata import construct_wkt_geometry
+
+        table = "test_wkt_invalid_coords"
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} (ogc_fid serial PRIMARY KEY, wkt text)"
+                )
+            )
+            await test_db_session.execute(
+                text(f"INSERT INTO data.{table} (wkt) VALUES ('POINT(181 0)')")
+            )
+            await test_db_session.commit()
+
+            with pytest.raises(ValueError, match="invalid WKT.+EPSG:4326"):
+                await construct_wkt_geometry(test_db_session, table, "wkt", 4326)
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
+
+    async def test_wkt_rejects_malformed_text_without_aborting_outer_transaction(
+        self, test_db_session
+    ):
+        from app.processing.ingest.metadata import construct_wkt_geometry
+
+        table = "test_wkt_malformed"
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} (ogc_fid serial PRIMARY KEY, wkt text)"
+                )
+            )
+            await test_db_session.execute(
+                text(f"INSERT INTO data.{table} (wkt) VALUES ('NOT VALID WKT')")
+            )
+            await test_db_session.commit()
+
+            with pytest.raises(ValueError, match="malformed geometry text"):
+                await construct_wkt_geometry(test_db_session, table, "wkt", 4326)
+
+            # The validation savepoint is rolled back, not the caller's outer
+            # transaction; the session remains usable for cleanup/work.
+            assert (await test_db_session.execute(text("SELECT 1"))).scalar_one() == 1
+        finally:
+            await test_db_session.rollback()
             await test_db_session.execute(
                 text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
             )

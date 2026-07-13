@@ -179,6 +179,18 @@ def _make_reupload_db(job: MagicMock) -> AsyncMock:
     return mock_db
 
 
+def _bind_reupload_job(
+    job: MagicMock, *, dataset_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    """Give router-unit-test jobs the same immutable bindings as real uploads."""
+    job.dataset_id = dataset_id
+    job.created_by = user_id
+    job.user_metadata = {
+        "reupload": True,
+        "dataset_id": str(dataset_id),
+    }
+
+
 class TestReuploadOrphanGuard:
     """Verify reupload defer sites flip the job to ``failed`` on defer failure."""
 
@@ -196,6 +208,7 @@ class TestReuploadOrphanGuard:
             mock_db = _make_reupload_db(job)
             mock_user = MagicMock()
             mock_user.id = uuid.uuid4()
+            _bind_reupload_job(job, dataset_id=dataset_id, user_id=mock_user.id)
 
             mock_dataset = MagicMock()
 
@@ -252,6 +265,7 @@ class TestReuploadOrphanGuard:
             mock_db = _make_reupload_db(job)
             mock_user = MagicMock()
             mock_user.id = uuid.uuid4()
+            _bind_reupload_job(job, dataset_id=dataset_id, user_id=mock_user.id)
 
             mock_dataset = MagicMock()
             request = ReuploadCommitRequest(token=None)
@@ -306,6 +320,7 @@ class TestReuploadOrphanGuard:
             mock_db = _make_reupload_db(job)
             mock_user = MagicMock()
             mock_user.id = uuid.uuid4()
+            _bind_reupload_job(job, dataset_id=dataset_id, user_id=mock_user.id)
 
             mock_dataset = MagicMock()
             request = ReuploadCommitRequest(token=None)

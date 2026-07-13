@@ -115,6 +115,8 @@ async def generate_vector_quicklook(
     table_name: str,
     geometry_type: str,
     size: int = 256,
+    *,
+    schema: str = "data",
 ) -> bytes:
     """Query simplified geometries from PostGIS and render a PNG thumbnail.
 
@@ -124,13 +126,20 @@ async def generate_vector_quicklook(
     if not _TABLE_NAME_RE.match(table_name):
         return _blank_canvas(size)
 
+    from app.processing.ingest.metadata import _qtable
+
+    table_ref = _qtable(table_name, schema=schema)
+
     # Get bounds via ST_Extent (cheap aggregate) and row count for sampling decision
     bounds_sql = text(
         f"SELECT ST_XMin(e) AS minx, ST_YMin(e) AS miny, "
         f"       ST_XMax(e) AS maxx, ST_YMax(e) AS maxy, "
-        f"       (SELECT reltuples::bigint FROM pg_class WHERE relname = :tname) AS est_rows "
-        f"FROM (SELECT ST_Extent(geom_4326) AS e FROM data.{table_name} WHERE geom_4326 IS NOT NULL) sub"
-    ).bindparams(tname=table_name)
+        f"       (SELECT c.reltuples::bigint FROM pg_class c "
+        f"        JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"        WHERE c.relname = :tname AND n.nspname = :schema) AS est_rows "
+        f"FROM (SELECT ST_Extent(geom_4326) AS e FROM {table_ref} "
+        f"WHERE geom_4326 IS NOT NULL) sub"
+    ).bindparams(tname=table_name, schema=schema)
     bounds_result = await db.execute(bounds_sql)
     bounds_row = bounds_result.fetchone()
 
@@ -163,13 +172,13 @@ async def generate_vector_quicklook(
         sample_pct = min(100.0, (max_features / max(est_rows, 1)) * 100 * 1.5)
         geom_sql = text(
             f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), {simplify_tol:.8f}, true)) AS geojson "
-            f"FROM data.{table_name} TABLESAMPLE SYSTEM ({sample_pct:.2f}) "
+            f"FROM {table_ref} TABLESAMPLE SYSTEM ({sample_pct:.2f}) "
             f"WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
         )
     else:
         geom_sql = text(
             f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), {simplify_tol:.8f}, true)) AS geojson "
-            f"FROM data.{table_name} WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
+            f"FROM {table_ref} WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
         )
 
     result = await db.execute(geom_sql)
@@ -261,11 +270,15 @@ async def generate_vector_quicklook_with_timeout(
     geometry_type: str,
     size: int = 256,
     timeout: float = _GENERATION_TIMEOUT_SECONDS,
+    *,
+    schema: str = "data",
 ) -> bytes:
     """Wrapper with timeout protection. Returns blank canvas on timeout."""
     try:
         return await asyncio.wait_for(
-            generate_vector_quicklook(db, table_name, geometry_type, size),
+            generate_vector_quicklook(
+                db, table_name, geometry_type, size, schema=schema
+            ),
             timeout=timeout,
         )
     except asyncio.TimeoutError:

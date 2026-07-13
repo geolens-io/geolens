@@ -43,8 +43,12 @@ def _current_tenant_schema() -> str:
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
 
-    return tenant_data_schema(current_tenant_var.get())
+    tenant_id = current_tenant_var.get()
+    if is_multi_tenant() and tenant_id is None:
+        raise RuntimeError("Ingest task is missing tenant context in multi-tenant mode")
+    return tenant_data_schema(tenant_id)
 
 
 def _current_tenant_role() -> str:
@@ -57,8 +61,12 @@ def _current_tenant_role() -> str:
     """
     from app.core.db.tenant_schema import tenant_reader_role
     from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
 
-    return tenant_reader_role(current_tenant_var.get())
+    tenant_id = current_tenant_var.get()
+    if is_multi_tenant() and tenant_id is None:
+        raise RuntimeError("Ingest task is missing tenant context in multi-tenant mode")
+    return tenant_reader_role(tenant_id)
 
 
 async def _emit_billing_event(
@@ -150,6 +158,7 @@ class IngestContext:
     original_srid: int | None
     user_metadata: dict[str, Any]
     source_url: str | None = None
+    attempt_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -277,7 +286,10 @@ def _parse_temporal_fields(
 
 @asynccontextmanager
 async def _job_phase_session(
-    job_uuid: uuid.UUID, *, phase: str
+    job_uuid: uuid.UUID,
+    *,
+    phase: str,
+    attempt_id: uuid.UUID | None = None,
 ) -> "AsyncGenerator[tuple[AsyncSession, IngestJob | None], None]":
     """Two-phase session bracket for ingest workers (REMED-03 / P2-05).
 
@@ -313,9 +325,10 @@ async def _job_phase_session(
     from sqlalchemy import select
 
     async with async_session() as session:
-        result = await session.execute(
-            select(IngestJob).where(IngestJob.id == job_uuid)
-        )
+        filters = [IngestJob.id == job_uuid]
+        if attempt_id is not None:
+            filters.append(IngestJob.attempt_id == attempt_id)
+        result = await session.execute(select(IngestJob).where(*filters))
         job = result.scalar_one_or_none()
         if job is None:
             structlog.get_logger().warning(
@@ -415,6 +428,7 @@ async def _detect_and_override_geometry(
     *,
     table_name: str,
     user_metadata: dict[str, Any],
+    effective_srid: int,
 ) -> str | None:
     """Apply user x/y or WKT geometry overrides to a freshly-loaded table.
 
@@ -437,7 +451,14 @@ async def _detect_and_override_geometry(
     if x_column and y_column:
         from app.processing.ingest.metadata import construct_point_geometry
 
-        await construct_point_geometry(session, table_name, x_column, y_column)
+        await construct_point_geometry(
+            session,
+            table_name,
+            x_column,
+            y_column,
+            effective_srid,
+            schema=_current_tenant_schema(),
+        )
         return "Point"
 
     if geom_column:
@@ -445,7 +466,13 @@ async def _detect_and_override_geometry(
 
         from app.processing.ingest.metadata import construct_wkt_geometry
 
-        await construct_wkt_geometry(session, table_name, geom_column)
+        await construct_wkt_geometry(
+            session,
+            table_name,
+            geom_column,
+            effective_srid,
+            schema=_current_tenant_schema(),
+        )
         # Re-detect geometry type from the constructed column so downstream
         # metadata reflects what was actually built (lines/polygons/etc).
         result = await session.execute(
@@ -492,9 +519,15 @@ async def _archive_original_file(
     logger = structlog.get_logger()
     archive_key = f"originals/{dataset_id}/{Path(file_path).name}"
     try:
+        from app.core.db.tenant_session import current_tenant_var
+        from app.platform.storage.titiler_url import resolve_storage_key
+
         storage = get_storage()
+        physical_archive_key = resolve_storage_key(
+            archive_key, tenant_id=current_tenant_var.get()
+        )
         with open(file_path, "rb") as fobj:
-            await storage.put(archive_key, fobj)
+            await storage.put(physical_archive_key, fobj)
     except Exception as archive_exc:  # broad: archive is best-effort; S3/local I/O can fail for any reason
         logger.warning(
             log_message,
@@ -553,7 +586,9 @@ async def _run_staging_pipeline(
         if has_geometry:
             await clip_to_mercator_bounds(session, table_name, schema=_schema)
             if effective_srid is not None:
-                await add_4326_column(session, table_name, effective_srid)
+                await add_4326_column(
+                    session, table_name, effective_srid, schema=_schema
+                )
 
     await grant_reader_access(
         session,
@@ -563,7 +598,7 @@ async def _run_staging_pipeline(
     )
 
     metadata = await extract_metadata(session, table_name, schema=_schema)
-    three_d = await detect_3d_metadata(session, table_name)
+    three_d = await detect_3d_metadata(session, table_name, schema=_schema)
 
     if three_d.get("is_3d"):
         elev_promoted = await promote_z_to_elev(
@@ -596,6 +631,7 @@ async def _cleanup_staging_on_failure(
     job,
     exc: Exception,
     task_name: str,
+    attempt_id: uuid.UUID | None = None,
 ) -> None:
     """Roll back, drop staging table, and mark job as failed.
 
@@ -626,16 +662,22 @@ async def _cleanup_staging_on_failure(
             original_error=str(exc),
         )
 
-    await session.execute(
-        sa_update(type(job))
-        .where(type(job).id == job_id)
-        .values(
+    failure_update = sa_update(type(job)).where(type(job).id == job_id)
+    if attempt_id is not None:
+        failure_update = failure_update.where(
+            type(job).attempt_id == attempt_id,
+            type(job).status == "running",
+        )
+    result = await session.execute(
+        failure_update.values(
             status="failed",
             error_message=error_message,
             completed_at=completed_at,
         )
     )
     await session.commit()
+    if attempt_id is not None and not result.rowcount:
+        return
     job.status = "failed"
     job.error_message = error_message
     job.completed_at = completed_at
@@ -703,6 +745,7 @@ async def _ingest_vector_into_staging(
         source_srid=source_srid,
         geometry_type=ogr_geometry_type,
         layer_name=layer_name,
+        schema=_current_tenant_schema(),
     )
 
     reserved_renames = await rename_reserved_columns(
@@ -734,6 +777,7 @@ async def _ingest_vector_into_staging(
             session,
             table_name=target_table,
             user_metadata=user_metadata or {},
+            effective_srid=effective_srid or 4326,
         )
         if override_geom_type is not None:
             has_geometry = True
@@ -833,11 +877,21 @@ async def _generate_quicklook(
         )
 
         ql_bytes = await generate_vector_quicklook(
-            session, table_name, geometry_type, 256
+            session,
+            table_name,
+            geometry_type,
+            256,
+            schema=_current_tenant_schema(),
         )
+        from app.core.db.tenant_session import current_tenant_var
+        from app.platform.storage.titiler_url import resolve_storage_key
+
         ql_storage = get_storage()
         ql_key = f"vectors/{dataset.id}/quicklook_256.png"
-        await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
+        await ql_storage.put(
+            resolve_storage_key(ql_key, tenant_id=current_tenant_var.get()),
+            _io.BytesIO(ql_bytes),
+        )
     except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
         _ql_log.warning(
             "quicklook_failed",
@@ -961,7 +1015,7 @@ async def _finalize_ingest(ctx: IngestContext):
             "effective_srid must be set when has_geometry is True"
         )
         await clip_to_mercator_bounds(session, table_name, schema=_schema)
-        await add_4326_column(session, table_name, ctx.effective_srid)
+        await add_4326_column(session, table_name, ctx.effective_srid, schema=_schema)
 
     # Grant reader access (per-tenant schema+role in multi_tenant; data/geolens_reader in single_tenant)
     await grant_reader_access(
@@ -976,7 +1030,7 @@ async def _finalize_ingest(ctx: IngestContext):
     metadata = await extract_metadata(session, table_name, schema=_schema)
 
     # Detect 3D geometry properties (per Phase 999.2)
-    three_d = await detect_3d_metadata(session, table_name)
+    three_d = await detect_3d_metadata(session, table_name, schema=_schema)
 
     # Attribute promotion: extract ST_Z into elev column for 3D points
     if three_d.get("is_3d"):
@@ -1051,22 +1105,38 @@ async def _finalize_ingest(ctx: IngestContext):
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(
-        session, table_name, metadata.get("column_info", []), dataset
+        session,
+        table_name,
+        metadata.get("column_info", []),
+        dataset,
+        schema=_schema,
     )
     dataset.quality_detail = quality_score
 
-    # Update job to complete and commit dataset + job atomically.
+    # Update job to complete and commit dataset + job atomically. The
+    # attempt predicate is the worker lease fence: if a stale worker resumes
+    # after a retry rotated the token, this no-op raises and the surrounding
+    # phase transaction rolls back the dataset it built.
     # REMED-02 / ingest-audit P2-07: stamp the terminal progress signal so the
     # polling UI sees current_step=complete + progress=1.0 immediately on
     # success. ``rows_processed`` is the feature_count derived by
     # ``extract_metadata`` above; raster ingests (which do not call this
     # helper) leave the column NULL — see tasks_raster.ingest_raster.
-    job.status = "complete"
-    job.dataset_id = dataset.id
-    job.completed_at = datetime.now(timezone.utc)
-    job.current_step = "complete"
-    job.progress = 1.0
-    job.rows_processed = metadata.get("feature_count")
+    from app.platform.jobs.heartbeat import require_ingest_job_update
+
+    await require_ingest_job_update(
+        session,
+        job.id,
+        ctx.attempt_id or job.attempt_id,
+        values={
+            "status": "complete",
+            "dataset_id": dataset.id,
+            "completed_at": datetime.now(timezone.utc),
+            "current_step": "complete",
+            "progress": 1.0,
+            "rows_processed": metadata.get("feature_count"),
+        },
+    )
     await session.commit()
 
     # EVENT-02: notify on ingest complete (non-fatal, after commit — deferred import discipline).
@@ -1415,7 +1485,11 @@ async def _apply_reupload_swap(
         dataset.source_url = source_url
 
     quality_score = await compute_quality_score(
-        session, dataset.table_name, metadata["column_info"], dataset
+        session,
+        dataset.table_name,
+        metadata["column_info"],
+        dataset,
+        schema=_tenant_schema,
     )
     dataset.quality_detail = quality_score
 

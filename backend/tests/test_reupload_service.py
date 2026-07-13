@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 
 from app.modules.catalog.collections.models import DatasetVersion
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.jobs.heartbeat import attempt_scoped_staging_table
 from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.tasks import reupload_service
 from app.platform.jobs.models import IngestJob
@@ -142,8 +143,10 @@ class TestServiceReuploadCommitDispatch:
             select(IngestJob).where(IngestJob.id == job.id)
         )
         updated_job = result.scalar_one()
+        await test_db_session.refresh(updated_job)
         assert "token" not in (updated_job.user_metadata or {})
         assert "super-secret-token" not in str(updated_job.user_metadata)
+        assert updated_job.user_metadata["service_auth_required"] is True
 
 
 class TestServiceReuploadWorker:
@@ -174,14 +177,20 @@ class TestServiceReuploadWorker:
             service_type: str,
             timeout: float = 1800.0,
             token: str | None = None,
+            is_non_spatial: bool = False,
+            append: bool = False,
+            *,
+            schema: str,
         ) -> None:
             import app.core.db as db_module
 
             async with db_module.async_session() as session:
-                await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS "{schema}"."{table_name}"')
+                )
                 await session.execute(
                     text(
-                        f"CREATE TABLE data.{table_name} "
+                        f'CREATE TABLE "{schema}"."{table_name}" '
                         "(gid serial PRIMARY KEY, name text, value integer)"
                     )
                 )
@@ -284,6 +293,7 @@ class TestServiceReuploadWorker:
 
             await reupload_service(
                 job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
                 dataset_id=str(dataset.id),
                 source_url=job.source_url or "",
                 source_layer=job.source_layer or "",
@@ -328,14 +338,20 @@ class TestServiceReuploadWorker:
         await test_db_session.refresh(job)
         assert job.status == "complete"
         assert job.error_message is None
+        assert job.attempt_id is not None
 
-        mock_clip.assert_awaited_once_with(
-            ANY, f"{original_table_name}_staging", schema="data"
+        staging_table = attempt_scoped_staging_table(
+            original_table_name, job.attempt_id
         )
-        mock_add_4326.assert_awaited_once_with(
-            ANY, f"{original_table_name}_staging", 4326
+
+        mock_clip.assert_awaited_once_with(ANY, staging_table, schema="data")
+        mock_add_4326.assert_awaited_once_with(ANY, staging_table, 4326, schema="data")
+        mock_grant.assert_awaited_once_with(
+            ANY,
+            staging_table,
+            schema="data",
+            role="geolens_reader",
         )
-        mock_grant.assert_awaited_once_with(ANY, f"{original_table_name}_staging")
         mock_refresh_attributes.assert_awaited_once()
         mock_quality_score.assert_awaited_once()
         mock_invalidate_catalog.assert_awaited_once_with()
@@ -383,6 +399,7 @@ class TestServiceReuploadWorker:
             ):
                 await reupload_service(
                     job_id=str(job.id),
+                    attempt_id=str(job.attempt_id),
                     dataset_id=str(dataset.id),
                     source_url=job.source_url or "",
                     source_layer=job.source_layer or "",

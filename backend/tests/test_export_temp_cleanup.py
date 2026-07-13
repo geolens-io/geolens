@@ -32,7 +32,9 @@ async def test_ogr_failure_removes_temp_dir(
     monkeypatch.setattr(service, "run_ogr2ogr_export", _boom)
 
     with pytest.raises(ExportError):
-        await service.export_dataset("data_table", "My Dataset", "geojson")
+        await service.export_dataset(
+            "data_table", "My Dataset", "geojson", schema="data"
+        )
 
     assert list((staging_root / "exports").iterdir()) == []
 
@@ -51,7 +53,7 @@ async def test_cancellation_removes_temp_dir(
     import asyncio
 
     with pytest.raises(asyncio.CancelledError):
-        await service.export_dataset("data_table", "My Dataset", "gpkg")
+        await service.export_dataset("data_table", "My Dataset", "gpkg", schema="data")
 
     assert list((staging_root / "exports").iterdir()) == []
 
@@ -71,7 +73,7 @@ async def test_zip_failure_removes_temp_dir(
     monkeypatch.setattr(service, "_zip_export_files", _zip_boom)
 
     with pytest.raises(OSError):
-        await service.export_dataset("data_table", "My Dataset", "shp")
+        await service.export_dataset("data_table", "My Dataset", "shp", schema="data")
 
     assert list((staging_root / "exports").iterdir()) == []
 
@@ -88,7 +90,7 @@ async def test_successful_export_keeps_its_file(
     monkeypatch.setattr(service, "run_ogr2ogr_export", _write)
 
     path, filename, media_type = await service.export_dataset(
-        "data_table", "My Dataset", "geojson"
+        "data_table", "My Dataset", "geojson", schema="data"
     )
 
     assert Path(path).exists()

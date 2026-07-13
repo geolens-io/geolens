@@ -18,6 +18,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -46,6 +47,25 @@ from app.platform.jobs.models import IngestJob
 # (e.g. a 200 MB GeoTIFF) do not consume hundreds of MB of heap per concurrent
 # request.
 _UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
+
+
+async def _await_provider_call_draining(awaitable: Any) -> Any:
+    """Await provider I/O without abandoning its background SDK thread."""
+    provider_task = asyncio.ensure_future(awaitable)
+    cancelled: asyncio.CancelledError | None = None
+    while not provider_task.done():
+        try:
+            # asyncio.wait does not propagate this task's cancellation into the
+            # provider task. Keep draining through repeated shutdown cancels.
+            await asyncio.wait({provider_task})
+        except asyncio.CancelledError as exc:
+            cancelled = cancelled or exc
+
+    if cancelled is not None:
+        if not provider_task.cancelled():
+            provider_task.exception()  # retrieve provider failures before cancelling
+        raise cancelled
+    return provider_task.result()
 
 
 async def discover_unregistered_tables(
@@ -191,40 +211,54 @@ async def save_upload_file(
         storage = get_storage()
         safe_name = Path(file.filename).name  # strip path traversal
         s3_key = f"staging/{job_id}/{safe_name}"
-        if max_size_bytes is not None:
-            # Stream-and-accumulate with a SpooledTemporaryFile so S3 mode
-            # enforces the same size limit as local mode without holding the
-            # entire upload in memory.  SpooledTemporaryFile buffers up to
-            # _UPLOAD_SPOOL_MAX_BYTES in RAM; once that threshold is exceeded
-            # it spills to a real temp file on disk, bounding heap usage to the
-            # spool threshold regardless of upload size (PERF-001).
-            #
-            # The per-chunk 413 check fires BEFORE the chunk is written so
-            # over-limit uploads are rejected mid-stream, matching the existing
-            # local-mode and presigned-URL behavior.  The try/finally ensures
-            # the temp file is closed (and therefore deleted, since
-            # delete=True is the default) on both the success path and the
-            # 413 raise path.
-            total = 0
-            spooled = tempfile.SpooledTemporaryFile(max_size=_UPLOAD_SPOOL_MAX_BYTES)
-            try:
-                while chunk := await file.read(65536):
-                    total += len(chunk)
-                    if total > max_size_bytes:
-                        raise HTTPException(
-                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                            detail=(
-                                f"File size exceeds maximum allowed "
-                                f"({max_size_bytes / (1024 * 1024):.1f} MB)."
-                            ),
-                        )
-                    spooled.write(chunk)
-                spooled.seek(0)
-                await storage.put(s3_key, spooled)
-            finally:
-                spooled.close()
-        else:
-            await storage.put(s3_key, file.file)
+        put_started = False
+        try:
+            if max_size_bytes is not None:
+                # Stream-and-accumulate with a SpooledTemporaryFile so S3 mode
+                # enforces the same size limit as local mode without holding the
+                # entire upload in memory.  SpooledTemporaryFile buffers up to
+                # _UPLOAD_SPOOL_MAX_BYTES in RAM; once that threshold is exceeded
+                # it spills to a real temp file on disk, bounding heap usage to the
+                # spool threshold regardless of upload size (PERF-001).
+                #
+                # The per-chunk 413 check fires BEFORE the chunk is written so
+                # over-limit uploads are rejected mid-stream. The provider call
+                # is drained before the spool closes, preventing cancellation
+                # from making an SDK thread read a closed temporary file.
+                total = 0
+                spooled = tempfile.SpooledTemporaryFile(
+                    max_size=_UPLOAD_SPOOL_MAX_BYTES
+                )
+                try:
+                    while chunk := await file.read(65536):
+                        total += len(chunk)
+                        if total > max_size_bytes:
+                            raise HTTPException(
+                                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                                detail=(
+                                    f"File size exceeds maximum allowed "
+                                    f"({max_size_bytes / (1024 * 1024):.1f} MB)."
+                                ),
+                            )
+                        spooled.write(chunk)
+                    spooled.seek(0)
+                    put_started = True
+                    await _await_provider_call_draining(storage.put(s3_key, spooled))
+                finally:
+                    spooled.close()
+            else:
+                put_started = True
+                await _await_provider_call_draining(storage.put(s3_key, file.file))
+        except BaseException:
+            if put_started:
+                # A drained PUT may have completed just as the request was
+                # cancelled. Remove that now-ownerless object before the route's
+                # job transaction rolls back.
+                try:
+                    await _await_provider_call_draining(storage.delete(s3_key))
+                except BaseException:
+                    pass
+            raise
         return s3_key
 
     staging_dir = Path(settings.upload_staging_dir)
@@ -233,10 +267,12 @@ async def save_upload_file(
     safe_name = Path(file.filename).name  # strip path traversal
     dest = staging_dir / f"{job_id}_{safe_name}"
 
-    loop = asyncio.get_event_loop()
     total = 0
+    # Opening synchronously is intentional: there must be no cancellation point
+    # between acquiring the descriptor and assigning it to ``f``, otherwise a
+    # cancelled executor future can leave an unreachable open descriptor behind.
+    f = open(dest, "wb")
     try:
-        f = await loop.run_in_executor(None, open, dest, "wb")
         try:
             while chunk := await file.read(65536):
                 if max_size_bytes is not None:
@@ -249,10 +285,16 @@ async def save_upload_file(
                                 f"({max_size_bytes / (1024 * 1024):.1f} MB)."
                             ),
                         )
-                await loop.run_in_executor(None, f.write, chunk)
+                # A cancelled request does not stop a worker thread. Drain the
+                # write before closing/unlinking so no background thread can
+                # continue writing through an unlinked descriptor.
+                await run_in_thread_draining(f.write, chunk)
         finally:
-            await loop.run_in_executor(None, f.close)
-    except Exception:  # broad: streaming upload may fail at any I/O step; ensure dest cleanup then re-raise
+            await run_in_thread_draining(f.close)
+    except BaseException:
+        # Includes CancelledError/client disconnect as well as ordinary I/O and
+        # streamed-size failures. The descriptor has been drained and closed by
+        # the inner finally before the path is removed.
         try:
             os.unlink(dest)
         except OSError:
@@ -260,6 +302,17 @@ async def save_upload_file(
         raise
 
     return dest
+
+
+async def _download_to_file_draining(storage: Any, key: str, dest: Path) -> None:
+    """Download to ``dest`` without abandoning provider work on cancellation.
+
+    Storage providers commonly wrap blocking SDKs with ``asyncio.to_thread``.
+    Cancelling that coroutine does not stop the SDK thread, so the caller must
+    shield it from cancellation and wait until it releases the destination
+    before cleanup can safely unlink the file.
+    """
+    await _await_provider_call_draining(storage.get_to_file(key, dest))
 
 
 async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
@@ -279,22 +332,48 @@ async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
     from app.platform.storage import get_storage
 
     storage = get_storage()
-    local_name = f"{job_id}_{Path(file_path).name}" if job_id else Path(file_path).name
-    local_path = Path(settings.upload_staging_dir) / local_name
+    # Every caller owns a distinct local copy. Preview requests may overlap a
+    # worker or another preview for the same job; a deterministic path allowed
+    # one caller's finally block to unlink a file another GDAL process was using.
+    safe_name = Path(file_path).name
+    prefix = f"{job_id}_" if job_id else "download_"
+    fd, unique_path = tempfile.mkstemp(
+        prefix=prefix,
+        suffix=f"_{safe_name}",
+        dir=settings.upload_staging_dir,
+    )
+    os.close(fd)
+    local_path = Path(unique_path)
 
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            await storage.get_to_file(file_path, local_path)
+            await _download_to_file_draining(storage, file_path, local_path)
             return str(local_path)
         except (OSError, asyncio.TimeoutError, ConnectionError) as exc:
             # OSError covers most botocore network failures (BotoCoreError is a subclass).
             # Re-raise immediately on permanent errors (NoSuchKey, AccessDenied) — those
             # surface as ClientError with specific codes; OSError is the transient bucket.
             last_exc = exc
+            local_path.unlink(missing_ok=True)
             if attempt < 2:
                 await asyncio.sleep(2**attempt)  # 1s, 2s
+                # Some storage clients require the destination to exist;
+                # recreate the same caller-owned path for the next attempt.
+                local_path.touch(mode=0o600, exist_ok=False)
                 continue
+            raise
+        except (
+            Exception
+        ):  # broad: permanent storage providers expose backend-specific exception types
+            # Permanent storage errors are not retried, but any partial file is
+            # still owned by this call and must not accumulate in staging.
+            local_path.unlink(missing_ok=True)
+            raise
+        except BaseException:
+            # Cancellation is delivered only after the provider download has
+            # drained, so unlink cannot race a still-running SDK thread.
+            local_path.unlink(missing_ok=True)
             raise
     if last_exc is not None:  # pragma: no cover - unreachable, satisfies type checker
         raise last_exc
@@ -470,7 +549,9 @@ async def register_existing_table(
             # the table in a half-indexed state (R-8).
             try:
                 async with session.begin_nested():
-                    await add_4326_column(session, table_name, srid or 4326)
+                    await add_4326_column(
+                        session, table_name, srid or 4326, schema=_schema
+                    )
             except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
                 raise ValueError(
                     f"Failed to add geom_4326 column to '{table_name}': {exc}"
@@ -608,6 +689,7 @@ async def create_vrt_job(
         await defer_async_with_tenant(
             ingest_vrt,
             job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
             user_id=str(user.id),
             source_dataset_ids=json.dumps(
                 [str(sid) for sid in request.source_dataset_ids]
@@ -732,6 +814,7 @@ async def create_fan_out_jobs(
             await defer_async_with_tenant(
                 ingest_file,
                 job_id=str(new_job.id),
+                attempt_id=str(new_job.attempt_id),
                 file_path=file_path,
                 user_id=str(new_job.created_by or ""),
             )
@@ -816,6 +899,7 @@ async def queue_ingest_job(
             await defer_async_with_tenant(
                 ingest_service,
                 job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
                 source_url=source_url,
                 source_layer=job.source_layer or "",
                 user_id=user_id,
@@ -842,6 +926,7 @@ async def queue_ingest_job(
             await defer_async_with_tenant(
                 ingest_raster,
                 job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
                 file_path=file_path,
                 user_id=user_id,
             )
@@ -871,6 +956,7 @@ async def queue_ingest_job(
         await defer_async_with_tenant(
             task,
             job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
             file_path=file_path,
             user_id=user_id,
         )

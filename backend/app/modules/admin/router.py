@@ -48,6 +48,7 @@ from app.modules.catalog.maps.schemas import (
     AdminShareTokenListResponse,
     AdminShareTokenResponse,
 )
+from app.platform.jobs.router import get_retry_capability
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -631,6 +632,9 @@ async def list_admin_jobs(
     rows, total = await service.list_jobs(
         status=status, user_id=user_id, search=search, skip=skip, limit=limit
     )
+    retry_capabilities = await asyncio.gather(
+        *(get_retry_capability(job) for job, _username in rows)
+    )
     jobs = [
         AdminJobResponse(
             id=job.id,
@@ -638,6 +642,8 @@ async def list_admin_jobs(
             source_filename=job.source_filename,
             dataset_id=job.dataset_id,
             error_message=job.error_message,
+            can_retry=can_retry,
+            retry_reason=retry_reason,
             user_metadata=job.user_metadata,
             created_by=job.created_by,
             username=username,
@@ -645,7 +651,9 @@ async def list_admin_jobs(
             completed_at=job.completed_at,
             created_at=job.created_at,
         )
-        for job, username in rows
+        for (job, username), (can_retry, retry_reason) in zip(
+            rows, retry_capabilities, strict=True
+        )
     ]
     return AdminJobListResponse(jobs=jobs, total=total)
 

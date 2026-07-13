@@ -16,6 +16,8 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.db.tenant_session import current_tenant_var
 from app.platform.extensions import get_permission_extension, get_processing_port
 from app.processing.export.ogr import ExportError
 from app.processing.export.schemas import ExportFormat
@@ -50,6 +52,7 @@ async def _count_selected_features(
     column_info: list[dict] | None,
     bbox: list[float] | None,
     has_geometry: bool,
+    schema: str,
 ) -> int:
     """Bounded COUNT of the rows an export's filters actually select.
 
@@ -83,7 +86,8 @@ async def _count_selected_features(
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
     sql = (
-        f"SELECT COUNT(*) FROM (SELECT 1 FROM {_qtable(table_name)} "
+        f"SELECT COUNT(*) FROM (SELECT 1 FROM "
+        f"{_qtable(table_name, schema=schema)} "
         f"WHERE {where_sql} LIMIT :limit) sub"
     )
     result = await db.execute(text(sql).bindparams(**params))
@@ -118,6 +122,7 @@ async def export_dataset_endpoint(
     filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
     """
     port = get_processing_port()
+    data_schema = tenant_data_schema(current_tenant_var.get())
     # 1. Fetch dataset
     dataset = await port.get_dataset(db, dataset_id)
     if dataset is None:
@@ -256,6 +261,7 @@ async def export_dataset_endpoint(
             column_info=dataset.column_info,
             bbox=bbox_parsed,
             has_geometry=dataset.geometry_type is not None,
+            schema=data_schema,
         )
         if selected > _MAX_EXPORT_FEATURES:
             raise HTTPException(
@@ -281,6 +287,7 @@ async def export_dataset_endpoint(
                     db,
                     dataset.table_name,
                     dataset.record.title,
+                    schema=data_schema,
                     bbox=bbox_parsed,
                     where=where,
                 )
@@ -296,6 +303,7 @@ async def export_dataset_endpoint(
                 dataset.table_name,
                 dataset.record.title,
                 format,
+                schema=data_schema,
                 target_srs=target_crs,
                 bbox=bbox_parsed,
                 where=where,

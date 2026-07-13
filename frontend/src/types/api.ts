@@ -537,6 +537,8 @@ export interface AdminJobResponse {
   source_filename: string | null;
   dataset_id: string | null;
   error_message: string | null;
+  can_retry: boolean;
+  retry_reason: string | null;
   user_metadata: Record<string, unknown> | null;
   created_by: string | null;
   username: string | null;
@@ -575,6 +577,8 @@ export interface JobStatusResponse {
   dataset_id: string | null;
   source_filename: string | null;
   error_message: string | null;
+  can_retry: boolean;
+  retry_reason: string | null;
   warning_message: string | null;
   /**
    * S3: structured warnings surfaced from IngestJob.user_metadata so the

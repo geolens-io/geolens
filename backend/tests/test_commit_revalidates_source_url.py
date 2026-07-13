@@ -147,6 +147,7 @@ class TestIngestServiceWorkerRevalidatesSourceUrl:
                     source_url="https://example.test/wfs",
                     source_layer="roads",
                     user_id=str(uuid.uuid4()),
+                    attempt_id=str(uuid.uuid4()),
                 )
 
         assert "safety check at worker fetch time" in str(exc.value)
@@ -173,6 +174,7 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
                     source_url="https://example.test/wfs",
                     source_layer="roads",
                     user_id=str(uuid.uuid4()),
+                    attempt_id=str(uuid.uuid4()),
                 )
 
         assert "safety check at worker fetch time" in str(exc.value)

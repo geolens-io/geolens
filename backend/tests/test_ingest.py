@@ -68,6 +68,11 @@ def mock_file_save(tmp_path: Path):
 
 
 class TestUpload:
+    def test_upload_config_never_advertises_standalone_vrt(self):
+        from app.processing.ingest.router import _without_standalone_vrt
+
+        assert _without_standalone_vrt(".geojson, .VRT,.tif") == ".geojson,.tif"
+
     async def test_upload_requires_auth(self, client: AsyncClient):
         """POST /ingest/upload without token returns 401."""
         resp = await client.post(
@@ -110,6 +115,57 @@ class TestUpload:
         )
         assert resp.status_code == 400
         assert "not allowed" in resp.json()["detail"].lower()
+
+    async def test_upload_rejects_standalone_vrt_even_when_configured(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        resp = await client.post(
+            "/ingest/upload",
+            files={"file": ("unsafe.vrt", b"<VRTDataset/>", "application/xml")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "standalone vrt" in resp.json()["detail"].lower()
+
+    async def test_s3_validation_download_failure_deletes_uncommitted_source(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_file_save,
+    ):
+        """A failed validation download cannot orphan its just-written S3 key."""
+        source_filename = f"resolve-failure-{uuid.uuid4()}.geojson"
+        storage_key = f"staging/{uuid.uuid4()}/{source_filename}"
+        mock_file_save.side_effect = None
+        mock_file_save.return_value = storage_key
+        storage = AsyncMock()
+
+        with (
+            patch(
+                "app.processing.ingest.router.resolve_file_path",
+                new=AsyncMock(side_effect=RuntimeError("storage unavailable")),
+            ),
+            patch("app.processing.ingest.router.get_storage", return_value=storage),
+        ):
+            response = await client.post(
+                "/ingest/upload",
+                files={
+                    "file": (
+                        source_filename,
+                        b'{"type":"FeatureCollection","features":[]}',
+                        "application/geo+json",
+                    )
+                },
+                headers=admin_auth_header,
+            )
+
+        assert response.status_code == 500
+        storage.delete.assert_awaited_once_with(storage_key)
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == source_filename)
+        )
+        assert result.scalar_one_or_none() is None
 
     async def test_upload_success(
         self,
@@ -874,6 +930,7 @@ async def test_detect_and_override_geometry_returns_none_when_no_override(
         test_db_session,
         table_name="ignored",
         user_metadata={},
+        effective_srid=4326,
     )
     assert geom_type is None
 
@@ -907,6 +964,7 @@ async def test_detect_and_override_geometry_x_y_constructs_point(test_db_session
             test_db_session,
             table_name=table_name,
             user_metadata={"x_column": "lon", "y_column": "lat"},
+            effective_srid=4326,
         )
         assert geom_type == "Point"
 
@@ -963,6 +1021,7 @@ async def test_detect_and_override_geometry_uppercase_column_names_lowered(
             test_db_session,
             table_name=table_name,
             user_metadata={"x_column": "LON", "y_column": "LAT"},
+            effective_srid=4326,
         )
         assert geom_type == "Point"
     finally:
@@ -1003,6 +1062,7 @@ async def test_detect_and_override_geometry_wkt_column_detects_type(test_db_sess
             test_db_session,
             table_name=table_name,
             user_metadata={"geom_column": "wkt_field"},
+            effective_srid=4326,
         )
         # Re-detected from the constructed column — PostGIS GeometryType()
         # returns the uppercase short form (LINESTRING/POLYGON/etc).
@@ -1025,6 +1085,7 @@ async def test_detect_and_override_geometry_empty_strings_treated_as_absent(
         test_db_session,
         table_name="ignored",
         user_metadata={"x_column": "", "y_column": "", "geom_column": ""},
+        effective_srid=4326,
     )
     assert geom_type is None
 
@@ -1476,6 +1537,7 @@ class TestCommitImportDispatch:
         assert call_kwargs["token"] == "bearer-abc"
         await test_db_session.refresh(job)
         assert "token" not in (job.user_metadata or {})
+        assert job.user_metadata["service_auth_required"] is True
 
     async def test_vector_job_with_kitchen_sink_body_silently_ignores_extras(
         self, client, admin_auth_header, test_db_session, mock_ingest_task

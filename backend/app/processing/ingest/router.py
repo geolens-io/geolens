@@ -28,6 +28,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.async_io import (
+    run_in_thread_draining,
+    run_in_thread_draining_capture_cancel,
+)
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -66,6 +70,7 @@ from app.processing.ingest.schemas import (
     VrtMutationResponse,
 )
 from app.processing.ingest.service import (
+    _await_provider_call_draining,
     create_fan_out_jobs,
     create_ingest_job,
     discover_unregistered_tables,
@@ -111,8 +116,33 @@ _FALLBACK_ALLOWED_EXTENSIONS: list[str] = [
     ".zip",
     ".tif",
     ".tiff",
-    ".vrt",
 ]
+
+
+def _reject_standalone_vrt(filename: str) -> None:
+    """Reject raw VRT XML uploads at every HTTP upload boundary.
+
+    A VRT is only valid when GeoLens builds it from catalog-tracked raster
+    sources. Accepting an arbitrary .vrt file would create a ready-looking
+    dataset with no source links and may retain external paths in the XML.
+    """
+    if Path(filename).suffix.lower() == ".vrt":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Standalone VRT uploads are not supported. Create a managed "
+                "VRT from existing raster datasets instead."
+            ),
+        )
+
+
+def _without_standalone_vrt(extensions: str) -> str:
+    """Keep legacy persistent config from advertising a disabled file type."""
+    return ",".join(
+        extension.strip()
+        for extension in extensions.split(",")
+        if extension.strip() and extension.strip().lower() != ".vrt"
+    )
 
 
 async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
@@ -139,7 +169,7 @@ async def get_upload_config(
 ) -> UploadConfigResponse:
     """Return upload configuration including presigned upload availability."""
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
-    allowed_exts = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
+    allowed_exts = _without_standalone_vrt(await UPLOAD_ALLOWED_EXTENSIONS.get(db))
 
     # Advisory remaining-quota hint so the client can cap a batch at what the
     # user can actually create. None when no count cap is set (unlimited).
@@ -178,6 +208,7 @@ async def request_presigned_upload(
         )
 
     allowed_list = await _get_allowed_extensions_safely(db)
+    _reject_standalone_vrt(request.filename)
     validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time
@@ -197,34 +228,40 @@ async def request_presigned_upload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     if request.file_size > threshold:
+        upload_id: str | None = None
         try:
-            upload_id = await asyncio.to_thread(
+            upload_id, initiation_cancel = await run_in_thread_draining_capture_cancel(
                 storage.initiate_multipart_upload,
                 s3_key,
                 request.content_type,
             )
+            if initiation_cancel is not None:
+                raise initiation_cancel
             num_parts = math.ceil(request.file_size / PART_SIZE)
-            urls = list(
-                await asyncio.gather(
-                    *[
-                        asyncio.to_thread(
-                            storage.generate_presigned_part_url,
-                            s3_key,
-                            upload_id,
-                            part_num,
-                        )
-                        for part_num in range(1, num_parts + 1)
-                    ]
+            urls = [
+                await run_in_thread_draining(
+                    storage.generate_presigned_part_url,
+                    s3_key,
+                    upload_id,
+                    part_num,
                 )
-            )
-        except (
-            Exception
-        ):  # broad: S3/MinIO presign-multipart can throw varied SDK errors; map to 502
+                for part_num in range(1, num_parts + 1)
+            ]
+        except BaseException as exc:
+            if upload_id is not None:
+                await abort_presigned_multipart_upload(
+                    storage,
+                    key=s3_key,
+                    upload_id=upload_id,
+                    job_id=job.id,
+                )
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             logger.exception("presigned_multipart_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Storage service unavailable",
-            )
+            ) from exc
         job.user_metadata = {
             "presigned": True,
             "s3_key": s3_key,
@@ -232,7 +269,16 @@ async def request_presigned_upload(
             "multipart": True,
             "expected_size": request.file_size,
         }
-        await db.commit()
+        try:
+            await db.commit()
+        except BaseException:
+            await abort_presigned_multipart_upload(
+                storage,
+                key=s3_key,
+                upload_id=upload_id,
+                job_id=job.id,
+            )
+            raise
         return PresignedUploadResponse(
             job_id=job.id,
             urls=urls,
@@ -242,7 +288,7 @@ async def request_presigned_upload(
         )
     else:
         try:
-            url = await asyncio.to_thread(
+            url = await run_in_thread_draining(
                 storage.generate_presigned_put_url,
                 s3_key,
                 request.content_type,
@@ -303,12 +349,15 @@ async def complete_presigned_upload(
                 detail="Multipart upload completion requires at least one uploaded part",
             )
         try:
-            await asyncio.to_thread(
+            _, completion_cancel = await run_in_thread_draining_capture_cancel(
                 storage.complete_multipart_upload,
                 s3_key,
                 um["upload_id"],
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
+            if completion_cancel is not None:
+                await _await_provider_call_draining(storage.delete(s3_key))
+                raise completion_cancel
         except Exception as exc:  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
             await abort_presigned_multipart_upload(
                 storage,
@@ -366,10 +415,10 @@ async def _cleanup_saved_upload(
         saved_path.unlink(missing_ok=True)
         return
     try:
-        await get_storage().delete(saved_path)
+        await _await_provider_call_draining(get_storage().delete(saved_path))
     except (
-        Exception
-    ):  # broad: S3 SDK can raise various error types; cleanup is best-effort
+        BaseException
+    ):  # broad: cleanup is best-effort and must drain through request cancellation
         logger.warning(
             "S3 cleanup failed during validation error — file may be orphaned",
             s3_key=str(saved_path),
@@ -447,6 +496,7 @@ async def upload_file(
         )
     try:
         allowed_list = await _get_allowed_extensions_safely(db)
+        _reject_standalone_vrt(file.filename)
         validate_file_extension(file.filename, allowed_list)
 
         # IA-P0-02: enforce max_file_size_bytes at HTTP entry. Symmetric
@@ -464,31 +514,34 @@ async def upload_file(
         )
         validation_path = str(saved_path)
         downloaded_validation_path: Path | None = None
-
-        if not isinstance(saved_path, Path):
-            validation_path = await resolve_file_path(saved_path, str(job.id))
-            downloaded_validation_path = Path(validation_path)
-
-        # Inline content validation for immediate feedback
         try:
-            validate_file_content(validation_path, file.filename)
-        except ValueError as exc:
+            if not isinstance(saved_path, Path):
+                validation_path = await resolve_file_path(saved_path, str(job.id))
+                downloaded_validation_path = Path(validation_path)
+
+            # Inline content validation for immediate feedback.
+            try:
+                validate_file_content(validation_path, file.filename)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=str(exc),
+                ) from exc
+
+            # Raster-specific CRS validation — reject files without valid CRS at upload time
+            await _stamp_raster_metadata(job, saved_path, file.filename)
+
+            job.file_path = str(saved_path)
+            await db.commit()
+        except BaseException:
+            # Until the job commit below, this request exclusively owns the
+            # staged source. Resolve/provider/content failures must delete it;
+            # otherwise the transaction rolls back the only retention record.
             await _cleanup_saved_upload(saved_path, str(job.id))
-            if downloaded_validation_path is not None:
-                downloaded_validation_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=str(exc),
-            )
+            raise
         finally:
             if downloaded_validation_path is not None:
                 downloaded_validation_path.unlink(missing_ok=True)
-
-        # Raster-specific CRS validation — reject files without valid CRS at upload time
-        await _stamp_raster_metadata(job, saved_path, file.filename)
-
-        job.file_path = str(saved_path)
-        await db.commit()
 
         return UploadResponse(
             job_id=job.id,
@@ -553,10 +606,10 @@ async def preview_file(
             detail="Job has no associated file — upload must complete before preview",
         )
     file_path: str = job.file_path
+    downloaded_preview_path: Path | None = None
     if not Path(file_path).exists():
-        from app.processing.ingest.service import resolve_file_path
-
         file_path = await resolve_file_path(file_path, str(job.id))
+        downloaded_preview_path = Path(file_path)
 
     # Branch: raster vs vector preview
     um = job.user_metadata or {}
@@ -566,11 +619,18 @@ async def preview_file(
             extract_raster_metadata,
         )
 
+        file_size: int | None = None
         try:
             meta, (compliant, reason) = await asyncio.gather(
                 asyncio.to_thread(extract_raster_metadata, file_path),
                 asyncio.to_thread(check_cog_compliance, file_path),
             )
+            try:
+                import os
+
+                file_size = os.path.getsize(file_path)
+            except OSError:
+                pass
         except (
             Exception
         ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
@@ -581,13 +641,9 @@ async def preview_file(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Unable to preview raster file. The file may be malformed or unsupported.",
             )
-        file_size: int | None = None
-        try:
-            import os
-
-            file_size = os.path.getsize(file_path)
-        except OSError:
-            pass
+        finally:
+            if downloaded_preview_path is not None:
+                downloaded_preview_path.unlink(missing_ok=True)
 
         nodata = meta.get("nodata")
         return RasterPreviewResponse(
@@ -617,6 +673,9 @@ async def preview_file(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Unable to preview file. The file may be malformed or unsupported.",
         )
+    finally:
+        if downloaded_preview_path is not None:
+            downloaded_preview_path.unlink(missing_ok=True)
 
     # CR-01 fix: persist all_layers into job.user_metadata so the fan-out
     # endpoint's layer-name validation has a non-empty set to check against.
@@ -738,6 +797,10 @@ async def commit_import(
     # fields (temporal_start/temporal_end) serialize as ISO strings before
     # going into the JSONB column.
     commit_metadata = commit.model_dump(exclude={"token"}, mode="json")
+    if token:
+        # Persist only the fact that retry needs fresh credentials. The token
+        # remains request-only and is never written to JSONB.
+        commit_metadata["service_auth_required"] = True
     if job.user_metadata:
         # Service jobs already have service_type and layer_id from preview
         merged = {**job.user_metadata, **commit_metadata}
@@ -1013,7 +1076,7 @@ async def add_vrt_source(
     Returns 422 if the source is incompatible with existing sources.
     """
     from app.platform.extensions import get_processing_port
-    from app.processing.raster.models import RasterAsset
+    from app.processing.raster.models import RasterAsset, VrtGeneration
     from sqlalchemy import text
 
     _port = get_processing_port()
@@ -1159,8 +1222,17 @@ async def add_vrt_source(
     # is unreachable.
     previous_status = vrt_asset.status
     previous_generation_id = vrt_asset.current_generation_id
+    generation = VrtGeneration(
+        vrt_dataset_id=dataset_id,
+        status="pending",
+        started_at=datetime.now(timezone.utc),
+        source_count=len(existing_source_ids) + 1,
+        triggered_by=str(user.id),
+    )
+    db.add(generation)
+    await db.flush()
     vrt_asset.status = "regenerating"
-    vrt_asset.current_generation_id = uuid.uuid4()
+    vrt_asset.current_generation_id = generation.id
 
     # 9. Create IngestJob
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
@@ -1181,7 +1253,9 @@ async def add_vrt_source(
         await defer_async_with_tenant(
             regenerate_vrt,
             job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),
+            generation_id=str(generation.id),
             triggered_by=str(user.id),
         )
 
@@ -1189,6 +1263,9 @@ async def add_vrt_source(
         # Revert VRT asset state to what it was before step 8.
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id
+        generation.status = "failed"
+        generation.completed_at = datetime.now(timezone.utc)
+        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
         # Delete the source link we just inserted so the VRT matches
         # its pre-mutation source set.
         await db.execute(
@@ -1229,7 +1306,7 @@ async def remove_vrt_source(
     Returns 404 if the source is not linked to the VRT.
     """
     from app.platform.extensions import get_processing_port
-    from app.processing.raster.models import RasterAsset
+    from app.processing.raster.models import RasterAsset, VrtGeneration
     from sqlalchemy import text
 
     _port = get_processing_port()
@@ -1310,8 +1387,17 @@ async def remove_vrt_source(
     # 6. Set VRT status to regenerating — capture pre-mutation values.
     previous_status = vrt_asset.status
     previous_generation_id = vrt_asset.current_generation_id
+    generation = VrtGeneration(
+        vrt_dataset_id=dataset_id,
+        status="pending",
+        started_at=datetime.now(timezone.utc),
+        source_count=source_count - 1,
+        triggered_by=str(user.id),
+    )
+    db.add(generation)
+    await db.flush()
     vrt_asset.status = "regenerating"
-    vrt_asset.current_generation_id = uuid.uuid4()
+    vrt_asset.current_generation_id = generation.id
 
     # 7. Create IngestJob
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
@@ -1329,7 +1415,9 @@ async def remove_vrt_source(
         await defer_async_with_tenant(
             regenerate_vrt,
             job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),
+            generation_id=str(generation.id),
             triggered_by=str(user.id),
         )
 
@@ -1350,6 +1438,9 @@ async def remove_vrt_source(
         # Revert VRT asset state.
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id
+        generation.status = "failed"
+        generation.completed_at = datetime.now(timezone.utc)
+        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
         # Mark the IngestJob failed.
         job.status = "failed"
         job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"

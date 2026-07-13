@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 import structlog
@@ -10,6 +9,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
+from app.core.async_io import run_in_thread_draining
 from app.modules.quota.service import check_upload_quota
 from app.platform.storage import StorageProvider
 
@@ -40,7 +40,9 @@ async def abort_presigned_multipart_upload(
     if not upload_id:
         return
     try:
-        await asyncio.to_thread(storage.abort_multipart_upload, key, str(upload_id))
+        await run_in_thread_draining(
+            storage.abort_multipart_upload, key, str(upload_id)
+        )
     except Exception:  # broad: cleanup is best-effort after a rejected upload
         logger.warning(
             "presigned_multipart_abort_failed",

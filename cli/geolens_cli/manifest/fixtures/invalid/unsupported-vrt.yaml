@@ -1,0 +1,12 @@
+manifest_version: "1"
+catalog:
+  title: Unsupported VRT manifest
+datasets:
+  - key: flood-depth-mosaic
+    title: Flood depth mosaic
+    sources:
+      - type: vrt
+        uri: ./rasters/flood-depth-mosaic.vrt
+        format: vrt
+    publication:
+      intent: internal

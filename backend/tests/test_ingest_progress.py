@@ -172,6 +172,7 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
     with pytest.raises(IngestionError):
         await tasks_vector.ingest_file.func(
             job_id=str(job_id),
+            attempt_id=str(job.attempt_id),
             file_path=fixture,
             user_id=str(admin_id),
         )
@@ -285,6 +286,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     worker_task = asyncio.create_task(
         tasks_vector.ingest_service.func(
             job_id=str(job_id),
+            attempt_id=str(job.attempt_id),
             source_url="https://example.test/arcgis/rest/services/Address/FeatureServer",
             source_layer="0",
             user_id=str(admin_id),
@@ -355,6 +357,10 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
     await test_db_session.flush()
     await test_db_session.commit()
     job_id = job.id
+    assert job.attempt_id is not None
+    staging_table = tasks_vector.attempt_scoped_staging_table(
+        table_name, job.attempt_id
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -454,6 +460,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
+        attempt_id=str(job.attempt_id),
         source_url="https://example.test/arcgis/rest/services/Big/FeatureServer",
         source_layer="0",
         user_id=str(admin_id),
@@ -465,7 +472,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": False,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -474,7 +481,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -483,7 +490,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -492,7 +499,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -501,7 +508,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -543,6 +550,10 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
     await test_db_session.flush()
     await test_db_session.commit()
     job_id = job.id
+    assert job.attempt_id is not None
+    staging_table = tasks_vector.attempt_scoped_staging_table(
+        table_name, job.attempt_id
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -570,6 +581,13 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         **kwargs,
     ) -> None:
         query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{target_table}"')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{target_table}" (gid serial PRIMARY KEY)')
+        )
+        await test_db_session.commit()
         calls.append(
             {
                 "has_limit": "resultRecordCount" in query,
@@ -624,6 +642,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
+        attempt_id=str(job.attempt_id),
         source_url="https://example.test/arcgis/rest/services/Legacy/FeatureServer",
         source_layer="0",
         user_id=str(admin_id),
@@ -634,7 +653,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
             "has_limit": False,
             "has_offset": False,
             "append": False,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         }
@@ -670,6 +689,10 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
     await test_db_session.flush()
     await test_db_session.commit()
     job_id = job.id
+    assert job.attempt_id is not None
+    staging_table = tasks_vector.attempt_scoped_staging_table(
+        table_name, job.attempt_id
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -697,6 +720,13 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
         **kwargs,
     ) -> None:
         query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{target_table}"')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{target_table}" (gid serial PRIMARY KEY)')
+        )
+        await test_db_session.commit()
         calls.append(
             {
                 "has_limit": "resultRecordCount" in query,
@@ -752,6 +782,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
+        attempt_id=str(job.attempt_id),
         source_url="https://example.test/arcgis/rest/services/Unordered/FeatureServer",
         source_layer="0",
         user_id=str(admin_id),
@@ -763,7 +794,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
             "has_offset": False,
             "has_order": False,
             "append": False,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         }

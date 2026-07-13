@@ -64,8 +64,8 @@ def _make_mock_session_for_recover(
       1. advisory lock query → scalar() returns lock_acquired
       2. stale running IngestJobs → scalars() returns list
       3. orphaned pending IngestJobs → scalars() returns list
-      4. stale regenerating RasterAssets → scalars() returns list
-      5. stale VrtGeneration rows → scalars() returns list
+      4. stale VrtGeneration UPDATE → scalars() returns generation ids
+      5. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
     """
     lock_result = MagicMock()
     lock_result.scalar.return_value = lock_acquired
@@ -80,12 +80,12 @@ def _make_mock_session_for_recover(
         mock_result.scalars.return_value = job_list
         results.append(mock_result)
 
-    for asset_list in [
-        stale_vrt_assets or [],
-        stale_vrt_generations or [],
+    for returned_ids in [
+        [generation.id for generation in (stale_vrt_generations or [])],
+        [asset.dataset_id for asset in (stale_vrt_assets or [])],
     ]:
         mock_result = MagicMock()
-        mock_result.scalars.return_value = asset_list
+        mock_result.scalars.return_value = returned_ids
         results.append(mock_result)
 
     mock_session = AsyncMock()
@@ -109,22 +109,22 @@ def _make_mock_db_for_fail_stale(
     execute() side effects (in order):
       1. stale pending IngestJobs → scalars() returns list
       2. stale running IngestJobs → scalars() returns list
-      3. stale regenerating RasterAssets → scalars() returns list
-      4. stale VrtGeneration rows → scalars() returns list
+      3. stale VrtGeneration UPDATE → scalars() returns generation ids
+      4. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
       5. purge DELETE .. RETURNING file_path (fix #434) → .all() returns
          (file_path,) one-tuples
     (a survivors SELECT fires after 5 only when a deleted row had a non-null
     file_path — keep mock candidates' file_path None)
     """
     results = []
-    for lst in [
+    for returned_ids in [
         stale_jobs_pending or [],
         stale_jobs_running or [],
-        stale_vrt_assets or [],
-        stale_vrt_generations or [],
+        [generation.id for generation in (stale_vrt_generations or [])],
+        [asset.dataset_id for asset in (stale_vrt_assets or [])],
     ]:
         mock_result = MagicMock()
-        mock_result.scalars.return_value = lst
+        mock_result.scalars.return_value = returned_ids
         results.append(mock_result)
 
     delete_result = MagicMock()
@@ -166,14 +166,9 @@ async def test_recover_stale_jobs_resets_stale_regenerating_vrt_asset():
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
 
-    # Asset must be reset to a recoverable status
-    assert stale_asset.status in {"failed", "ready"}, (
-        f"Expected stale regenerating asset to be reset, got status={stale_asset.status!r}"
-    )
-    # Stale VrtGeneration must be marked failed
-    assert stale_gen.status == "failed", (
-        f"Expected stale VrtGeneration to be failed, got status={stale_gen.status!r}"
-    )
+    statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
+    assert any("UPDATE catalog.vrt_generations" in stmt for stmt in statements)
+    assert any("UPDATE catalog.raster_assets" in stmt for stmt in statements)
 
 
 @pytest.mark.asyncio
@@ -227,12 +222,9 @@ async def test_fail_stale_jobs_resets_stale_regenerating_vrt_asset():
 
     await fail_stale_jobs(mock_db)
 
-    assert stale_asset.status in {"failed", "ready"}, (
-        f"Expected periodic sweep to reset stale asset, got status={stale_asset.status!r}"
-    )
-    assert stale_gen.status == "failed", (
-        f"Expected periodic sweep to fail stale VrtGeneration, got {stale_gen.status!r}"
-    )
+    statements = [str(call.args[0]) for call in mock_db.execute.await_args_list]
+    assert any("UPDATE catalog.vrt_generations" in stmt for stmt in statements)
+    assert any("UPDATE catalog.raster_assets" in stmt for stmt in statements)
 
 
 @pytest.mark.asyncio
@@ -483,14 +475,14 @@ async def test_sweep_stale_vrt_assets_returns_count():
     stale_asset = _make_raster_asset(status="regenerating")
     stale_gen = _make_vrt_generation(status="running")
 
-    # Two execute calls: one for assets, one for generations
-    asset_result = MagicMock()
-    asset_result.scalars.return_value = [stale_asset]
+    # Two atomic UPDATEs: generation first, then the asset still pointing to it.
     gen_result = MagicMock()
-    gen_result.scalars.return_value = [stale_gen]
+    gen_result.scalars.return_value = [stale_gen.id]
+    asset_result = MagicMock()
+    asset_result.scalars.return_value = [stale_asset.dataset_id]
 
     mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(side_effect=[asset_result, gen_result])
+    mock_session.execute = AsyncMock(side_effect=[gen_result, asset_result])
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=1)
@@ -504,5 +496,6 @@ async def test_sweep_stale_vrt_assets_returns_count():
     assert assets_recovered == 1
     assert gens_failed == 1
 
-    assert stale_asset.status in {"failed", "ready"}
-    assert stale_gen.status == "failed"
+    statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
+    assert "UPDATE catalog.vrt_generations" in statements[0]
+    assert "UPDATE catalog.raster_assets" in statements[1]

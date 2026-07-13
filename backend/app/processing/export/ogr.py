@@ -44,6 +44,7 @@ async def run_ogr2ogr_export(
     output_path: str,
     driver: str,
     *,
+    schema: str,
     target_srs: str | None = None,
     bbox: list[float] | None = None,
     where: str | None = None,
@@ -55,6 +56,8 @@ async def run_ogr2ogr_export(
         table_name: Source table name (without schema prefix).
         output_path: Destination file path.
         driver: OGR driver name (e.g. "GPKG", "GeoJSON").
+        schema: Source PostgreSQL schema. Required so exports cannot silently
+            read a same-named table from the shared ``data`` schema.
         target_srs: Optional target CRS (e.g. "EPSG:3857").
         bbox: Optional bounding box [minx, miny, maxx, maxy] in WGS84.
         where: Optional SQL WHERE clause for attribute filtering.
@@ -63,6 +66,10 @@ async def run_ogr2ogr_export(
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
     """
+    from app.processing.ingest.metadata import _validate_table_name
+
+    _validate_table_name(table_name)
+    _validate_table_name(schema)
     pg_conn = build_pg_conn_str()
 
     cmd = [
@@ -71,7 +78,7 @@ async def run_ogr2ogr_export(
         driver,
         output_path,
         pg_conn,
-        f"data.{table_name}",
+        f"{schema}.{table_name}",
     ]
 
     if target_srs:

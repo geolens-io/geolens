@@ -149,7 +149,10 @@ def mock_reupload_task_idor(mock_catalog_port_idor):
 def mock_file_save_idor(mock_catalog_port_idor):
     """Mock file save so file upload tests don't write to disk."""
 
-    async def _fake_save(file, job_id: str) -> Path:
+    async def _fake_save(
+        file, job_id: str, *, max_size_bytes: int | None = None
+    ) -> Path:
+        assert max_size_bytes is not None
         staging_dir = Path("/tmp/fake_staging_idor")
         staging_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(file.filename or "").suffix or ".bin"

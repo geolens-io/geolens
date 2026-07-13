@@ -126,8 +126,8 @@ class TestLocalPathByteIdentical:
             f"resolve_vrt_source_path returned {result!r}, expected {expected!r}"
         )
 
-    def test_resolve_open_path_no_tenants_prefix_for_local(self):
-        """local provider NEVER emits a tenants/ prefix even when tenant_id is provided."""
+    def test_resolve_open_path_tenant_prefix_for_local(self):
+        """Local multi-tenant assets resolve under their physical tenant namespace."""
         from app.platform.storage.titiler_url import resolve_open_path
 
         staging = "/app/staging"
@@ -136,9 +136,7 @@ class TestLocalPathByteIdentical:
         with patch("app.core.config.settings", mock):
             result = resolve_open_path(key, tenant_id="some-tenant")
 
-        # local uses bare asset_uri (not the tenant-keyed path) — byte-identical
-        assert "tenants/" not in result
-        assert result == f"{staging}/{key}"
+        assert result == f"{staging}/tenants/some-tenant/{key}"
 
     def test_s3_no_tenant_byte_identical(self):
         """s3 + tenant_id=None -> /vsis3/{bucket}/{key} (STOR-02 byte-identical)."""

@@ -18,6 +18,7 @@
     "datasets": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 100,
       "items": {
         "$ref": "#/$defs/dataset"
       }
@@ -95,6 +96,7 @@
         "sources": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 1,
           "items": {
             "$ref": "#/$defs/source"
           }
@@ -111,11 +113,39 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "uri"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {"type": {"const": "vector"}},
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "uri": {
+                "pattern": "(?i)\\.(?:zip|gpkg|geojson|json|csv|xlsx|xls)(?:[?#].*)?$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"type": {"const": "raster_cog"}},
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "uri": {
+                "pattern": "(?i)\\.(?:tif|tiff)(?:[?#].*)?$"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["vector", "raster_cog", "vrt"],
-          "description": "Source modality."
+          "enum": ["vector", "raster_cog"],
+          "description": "Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff."
         },
         "uri": {
           "type": "string",

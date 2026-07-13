@@ -124,7 +124,7 @@ function toBBox(value: number[] | null | undefined): BBox | null {
     return null;
   }
 
-  if (minX >= maxX || minY >= maxY) {
+  if (minX > maxX || minY > maxY) {
     return null;
   }
 
@@ -201,7 +201,7 @@ function computeBBoxFromPositions(
     maxY = Math.max(maxY, y);
   }
 
-  if (minX >= maxX || minY >= maxY) {
+  if (minX > maxX || minY > maxY) {
     return null;
   }
 
@@ -228,21 +228,34 @@ function buildInteriorBBox(extent: BBox): BBox {
   const width = extent[2] - extent[0];
   const height = extent[3] - extent[1];
 
-  if (width <= 0 || height <= 0) {
-    return extent;
-  }
+  // The API deliberately requires a non-degenerate latitude span. Runtime
+  // fixtures can contain a single point (or a sub-microdegree extent that
+  // collapses when serializeBBox rounds to six decimals), so first pad each
+  // axis to a stable envelope around its center.
+  const minimumSpan = 0.0001;
+  const centerX = (extent[0] + extent[2]) / 2;
+  const centerY = (extent[1] + extent[3]) / 2;
+  const paddedExtent: BBox = [
+    width < minimumSpan ? centerX - minimumSpan / 2 : extent[0],
+    height < minimumSpan ? centerY - minimumSpan / 2 : extent[1],
+    width < minimumSpan ? centerX + minimumSpan / 2 : extent[2],
+    height < minimumSpan ? centerY + minimumSpan / 2 : extent[3],
+  ];
 
-  const insetX = width * 0.2;
-  const insetY = height * 0.2;
+  const paddedWidth = paddedExtent[2] - paddedExtent[0];
+  const paddedHeight = paddedExtent[3] - paddedExtent[1];
+
+  const insetX = paddedWidth * 0.2;
+  const insetY = paddedHeight * 0.2;
   const candidate: BBox = [
-    extent[0] + insetX,
-    extent[1] + insetY,
-    extent[2] - insetX,
-    extent[3] - insetY,
+    paddedExtent[0] + insetX,
+    paddedExtent[1] + insetY,
+    paddedExtent[2] - insetX,
+    paddedExtent[3] - insetY,
   ];
 
   if (candidate[0] >= candidate[2] || candidate[1] >= candidate[3]) {
-    return extent;
+    return paddedExtent;
   }
 
   return candidate;

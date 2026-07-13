@@ -1,0 +1,13 @@
+manifest_version: "1"
+catalog:
+  title: Multiple source manifest
+datasets:
+  - key: mixed-roads
+    title: Mixed road sources
+    sources:
+      - type: vector
+        uri: ./data/roads.geojson
+      - type: vector
+        uri: ./data/roads.gpkg
+    publication:
+      intent: draft

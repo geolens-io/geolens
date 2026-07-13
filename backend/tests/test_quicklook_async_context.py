@@ -112,10 +112,21 @@ def _force_quicklook_timeout(monkeypatch, timeout: float = 0.001) -> None:
     real_wrapper = quicklook_module.generate_vector_quicklook_with_timeout
 
     async def _fast_timeout_wrapper(
-        db, table_name, geometry_type, size=256, timeout_override=timeout
+        db,
+        table_name,
+        geometry_type,
+        size=256,
+        timeout_override=timeout,
+        *,
+        schema="data",
     ):
         return await real_wrapper(
-            db, table_name, geometry_type, size, timeout=timeout_override
+            db,
+            table_name,
+            geometry_type,
+            size,
+            timeout=timeout_override,
+            schema=schema,
         )
 
     monkeypatch.setattr(

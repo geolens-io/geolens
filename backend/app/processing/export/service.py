@@ -120,6 +120,7 @@ async def export_dataset(
     dataset_name: str,
     format_key: str,
     *,
+    schema: str,
     target_srs: str | None = None,
     bbox: list[float] | None = None,
     where: str | None = None,
@@ -131,6 +132,7 @@ async def export_dataset(
         table_name: PostGIS table name (without schema prefix).
         dataset_name: Human-readable dataset name for the output filename.
         format_key: One of the FORMAT_MAP keys (gpkg, geojson, shp, csv).
+        schema: PostgreSQL schema containing ``table_name``.
         target_srs: Optional target CRS (e.g. "EPSG:3857").
         bbox: Optional bounding box [minx, miny, maxx, maxy] in WGS84.
         where: Optional SQL WHERE expression.
@@ -179,6 +181,7 @@ async def export_dataset(
                 table_name,
                 ogr_output,
                 driver,
+                schema=schema,
                 target_srs=target_srs,
                 bbox=bbox,
                 where=where,
@@ -203,6 +206,7 @@ async def export_dataset(
             table_name,
             output_path,
             driver,
+            schema=schema,
             target_srs=target_srs,
             bbox=bbox,
             where=where,

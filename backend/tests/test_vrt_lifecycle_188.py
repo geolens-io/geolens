@@ -4,6 +4,7 @@ import inspect
 import uuid
 from datetime import datetime, timezone
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Task 1: Model & Schema tests
@@ -362,3 +363,39 @@ class TestIngestRouterTriggeredBy:
 
         source = inspect.getsource(ingest_router_mod.remove_vrt_source)
         assert "triggered_by" in source
+
+
+@pytest.mark.anyio
+async def test_remote_vrt_source_health_uses_bounded_safe_http_probe(monkeypatch):
+    from app.modules.catalog.datasets.api import router_vrt
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        status_code = 206
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def stream(self, method, url, *, headers):
+            captured.update(method=method, url=url, headers=headers)
+            return _Response()
+
+    monkeypatch.setattr(router_vrt, "make_safe_client", lambda **_: _Client())
+
+    assert await router_vrt._remote_asset_exists("https://example.test/remote-cog.tif")
+    assert captured == {
+        "method": "GET",
+        "url": "https://example.test/remote-cog.tif",
+        "headers": {"Range": "bytes=0-0"},
+    }

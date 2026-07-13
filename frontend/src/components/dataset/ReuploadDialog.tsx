@@ -74,6 +74,8 @@ const AUTH_ERROR_HINTS = [
   'auth',
 ];
 
+const UNSUPPORTED_REUPLOAD_EXTENSIONS = new Set(['.tif', '.tiff', '.vrt']);
+
 interface ReuploadDialogProps {
   dataset: DatasetResponse;
   open: boolean;
@@ -424,7 +426,14 @@ export function ReuploadDialog({
   );
 
   const reuploadExtensions = useMemo(
-    () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
+    () => uploadConfig?.allowed_extensions
+      ?.split(',')
+      .map((extension) => extension.trim())
+      .filter(
+        (extension) =>
+          Boolean(extension) &&
+          !UNSUPPORTED_REUPLOAD_EXTENSIONS.has(extension.toLowerCase()),
+      ),
     [uploadConfig?.allowed_extensions],
   );
   const reuploadAccept = useMemo(

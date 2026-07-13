@@ -451,6 +451,7 @@ class TestManifestApplyRoundTrip:
 
         async def _capture_vector_ingest(job, user_id, *, db, token=None) -> None:
             queued["job_id"] = str(sa_inspect(job).identity[0])
+            queued["attempt_id"] = str(job.attempt_id)
             queued["file_path"] = job.__dict__.get("file_path") or (
                 "staging/city-parks.geojson"
             )
@@ -487,6 +488,8 @@ class TestManifestApplyRoundTrip:
             source_srid=None,
             geometry_type=None,
             layer_name=None,
+            *,
+            schema,
         ):
             from app.core.db import async_session
             from sqlalchemy import text
@@ -494,7 +497,7 @@ class TestManifestApplyRoundTrip:
             async with async_session() as session:
                 await session.execute(
                     text(
-                        f'CREATE TABLE data."{table_name}" ('
+                        f'CREATE TABLE "{schema}"."{table_name}" ('
                         "gid serial PRIMARY KEY, "
                         "name text, "
                         "geom geometry(Point, 4326)"
@@ -503,7 +506,7 @@ class TestManifestApplyRoundTrip:
                 )
                 await session.execute(
                     text(
-                        f'INSERT INTO data."{table_name}" (name, geom) VALUES '
+                        f'INSERT INTO "{schema}"."{table_name}" (name, geom) VALUES '
                         "('Riverfront Park', ST_SetSRID(ST_Point(-77.0365, 38.8977), 4326)), "
                         "('Market Square', ST_SetSRID(ST_Point(-77.0091, 38.8895), 4326))"
                     )
@@ -524,6 +527,7 @@ class TestManifestApplyRoundTrip:
         ):
             await ingest_file.func(
                 job_id=queued["job_id"],
+                attempt_id=queued["attempt_id"],
                 file_path=queued["file_path"],
                 user_id=queued["user_id"],
             )

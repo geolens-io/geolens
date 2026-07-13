@@ -373,6 +373,11 @@
       },
       "AdminJobResponse": {
         "properties": {
+          "can_retry": {
+            "description": "Whether the failed job can be retried with its retained source.",
+            "title": "Can Retry",
+            "type": "boolean"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -435,6 +440,18 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "retry_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the job cannot be retried, when retry is unavailable.",
+            "title": "Retry Reason"
           },
           "source_filename": {
             "anyOf": [
@@ -506,6 +523,8 @@
           "source_filename",
           "dataset_id",
           "error_message",
+          "can_retry",
+          "retry_reason",
           "user_metadata",
           "created_by",
           "username",
@@ -6688,6 +6707,10 @@
             "title": "Archive Failed",
             "type": "boolean"
           },
+          "can_retry": {
+            "title": "Can Retry",
+            "type": "boolean"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -6764,6 +6787,17 @@
               }
             ],
             "title": "Progress"
+          },
+          "retry_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Reason"
           },
           "rows_processed": {
             "anyOf": [
@@ -6864,6 +6898,8 @@
           "dataset_id",
           "source_filename",
           "error_message",
+          "can_retry",
+          "retry_reason",
           "started_at",
           "completed_at",
           "created_at"
@@ -7249,6 +7285,7 @@
             "items": {
               "$ref": "#/components/schemas/ManifestDataset"
             },
+            "maxItems": 100,
             "minItems": 1,
             "title": "Datasets",
             "type": "array"
@@ -7437,6 +7474,7 @@
             "items": {
               "$ref": "#/components/schemas/ManifestSource"
             },
+            "maxItems": 1,
             "minItems": 1,
             "title": "Sources",
             "type": "array"
@@ -7626,10 +7664,10 @@
             "title": "Title"
           },
           "type": {
+            "description": "Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.",
             "enum": [
               "vector",
-              "raster_cog",
-              "vrt"
+              "raster_cog"
             ],
             "title": "Type",
             "type": "string"

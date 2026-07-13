@@ -1,9 +1,18 @@
 """Backend-local Pydantic models for manifest apply requests."""
 
 import uuid
+from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    ValidationInfo,
+    field_validator,
+)
 
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
 NonEmptyString320 = Annotated[str, Field(min_length=1, max_length=320)]
@@ -52,6 +61,13 @@ ManifestBbox = Annotated[
     Field(min_length=4, max_length=4, description="WGS84 bbox hint."),
 ]
 
+MANIFEST_SOURCE_EXTENSIONS: dict[str, frozenset[str]] = {
+    "vector": frozenset(
+        {".zip", ".gpkg", ".geojson", ".json", ".csv", ".xlsx", ".xls"}
+    ),
+    "raster_cog": frozenset({".tif", ".tiff"}),
+}
+
 
 class _ManifestBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -71,7 +87,15 @@ class ManifestCatalog(_ManifestBaseModel):
 
 
 class ManifestSource(_ManifestBaseModel):
-    type: Literal["vector", "raster_cog", "vrt"]
+    # Manifest v1 can only route sources through the ordinary vector/COG
+    # ingestion lifecycle. Standalone VRT files are deliberately excluded:
+    # their referenced files are not owned or preserved by a manifest apply.
+    type: Literal["vector", "raster_cog"] = Field(
+        description=(
+            "Source modality. Vector sources require zip, gpkg, geojson, json, "
+            "csv, xlsx, or xls; raster_cog sources require tif or tiff."
+        )
+    )
     uri: ManifestSourceUri
     title: NonEmptyString500 | None = None
     description: NonEmptyString5000 | None = None
@@ -105,6 +129,31 @@ class ManifestSource(_ManifestBaseModel):
             )
         return uri
 
+    @field_validator("uri")
+    @classmethod
+    def _require_source_type_extension(cls, uri: str, info: ValidationInfo) -> str:
+        """Keep the declared source modality aligned with its file path."""
+        source_type = info.data.get("type")
+        allowed = MANIFEST_SOURCE_EXTENSIONS.get(str(source_type))
+        if allowed is None:
+            # The ``type`` field reports its own enum error.
+            return uri
+
+        parsed = urlparse(uri)
+        path = parsed.path if parsed.scheme else uri
+        extension = Path(path).suffix.lower()
+        if extension == ".vrt":
+            raise ValueError(
+                "Standalone VRT manifest sources are not supported; create "
+                "a managed VRT from catalog-tracked raster datasets"
+            )
+        if extension not in allowed:
+            expected = ", ".join(sorted(allowed))
+            raise ValueError(
+                f"Manifest source type {source_type!r} requires one of: {expected}"
+            )
+        return uri
+
 
 class ManifestMetadata(_ManifestBaseModel):
     tags: list[NonEmptyString100] | None = None
@@ -132,7 +181,10 @@ class ManifestDataset(_ManifestBaseModel):
     key: ManifestDatasetKey
     title: NonEmptyString500
     description: NonEmptyString5000 | None = None
-    sources: list[ManifestSource] = Field(min_length=1)
+    # Manifest v1 currently routes exactly one source through one ingest job.
+    # Accepting additional entries would include them in the idempotency
+    # fingerprint while silently ignoring every source after the first.
+    sources: list[ManifestSource] = Field(min_length=1, max_length=1)
     metadata: ManifestMetadata | None = None
     publication: ManifestPublication
 
@@ -140,7 +192,10 @@ class ManifestDataset(_ManifestBaseModel):
 class ManifestApplyRequest(_ManifestBaseModel):
     manifest_version: Literal["1"]
     catalog: ManifestCatalog
-    datasets: list[ManifestDataset] = Field(min_length=1)
+    # Keep one request from causing an unbounded number of remote downloads,
+    # quota queries, transactions, and queued jobs. Callers can submit another
+    # batch after this one completes.
+    datasets: list[ManifestDataset] = Field(min_length=1, max_length=100)
     dry_run: bool = False
 
     @field_validator("datasets")

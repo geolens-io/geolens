@@ -1,45 +1,42 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.modules.auth.models import User
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
-from app.processing.ingest.manifest_service import apply_manifest
 from app.processing.ingest.tasks_raster import _is_manifest_vrt_job
 from app.processing.ingest.tasks_vrt import create_vrt_dataset
 
 
-def _vrt_request(*, dry_run: bool = False) -> ManifestApplyRequest:
-    return ManifestApplyRequest.model_validate(
-        {
-            "manifest_version": "1",
-            "catalog": {"title": "Raster mosaic catalog"},
-            "dry_run": dry_run,
-            "datasets": [
-                {
-                    "key": "flood-depth-mosaic",
-                    "title": "Flood depth mosaic",
-                    "description": "Local VRT mosaic assembled from staged sources.",
-                    "sources": [
-                        {
-                            "type": "vrt",
-                            "uri": "./rasters/flood-depth-mosaic.vrt",
-                            "format": "vrt",
-                        }
-                    ],
-                    "metadata": {
-                        "tags": ["hydrology", "flood"],
-                        "organization": "Emergency Management",
-                        "crs": "EPSG:4326",
-                    },
-                    "publication": {"intent": "internal"},
-                }
-            ],
-        }
-    )
+def _vrt_payload(*, dry_run: bool = False) -> dict:
+    return {
+        "manifest_version": "1",
+        "catalog": {"title": "Raster mosaic catalog"},
+        "dry_run": dry_run,
+        "datasets": [
+            {
+                "key": "flood-depth-mosaic",
+                "title": "Flood depth mosaic",
+                "description": "Local VRT mosaic assembled from staged sources.",
+                "sources": [
+                    {
+                        "type": "vrt",
+                        "uri": "./rasters/flood-depth-mosaic.vrt",
+                        "format": "vrt",
+                    }
+                ],
+                "metadata": {
+                    "tags": ["hydrology", "flood"],
+                    "organization": "Emergency Management",
+                    "crs": "EPSG:4326",
+                },
+                "publication": {"intent": "internal"},
+            }
+        ],
+    }
 
 
 async def _admin_user(session):
@@ -48,48 +45,10 @@ async def _admin_user(session):
 
 
 class TestManifestVrtApplyRouting:
-    async def test_vrt_entry_routes_to_existing_raster_queue(
-        self, test_db_session, clean_tables
-    ):
-        user = await _admin_user(test_db_session)
-        request = _vrt_request()
-
-        with patch(
-            "app.processing.ingest.manifest_service.queue_ingest_job",
-            new=AsyncMock(),
-        ) as queue:
-            response = await apply_manifest(test_db_session, request, user)
-
-        result = response.results[0]
-        assert result.action == "create"
-        assert result.job_id is not None
-        queue.assert_awaited_once()
-
-        job = await test_db_session.get(IngestJob, result.job_id)
-        assert job is not None
-        assert job.file_path == "./rasters/flood-depth-mosaic.vrt"
-        assert job.user_metadata["manifest_key"] == "flood-depth-mosaic"
-        assert job.user_metadata["manifest_source_type"] == "vrt"
-        assert job.user_metadata["file_type"] == "raster"
-        assert job.user_metadata["visibility"] == "internal"
-        assert job.user_metadata["record_status"] == "internal"
-
-    async def test_vrt_dry_run_preserves_result_contract_without_queue(
-        self, test_db_session, clean_tables
-    ):
-        user = await _admin_user(test_db_session)
-        request = _vrt_request(dry_run=True)
-
-        with patch(
-            "app.processing.ingest.manifest_service.queue_ingest_job",
-            new=AsyncMock(),
-        ) as queue:
-            response = await apply_manifest(test_db_session, request, user)
-
-        assert response.dry_run is True
-        assert response.results[0].action == "create"
-        assert response.results[0].job_id is None
-        queue.assert_not_awaited()
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_vrt_entry_is_rejected_by_manifest_v1_schema(self, dry_run: bool):
+        with pytest.raises(ValidationError, match="vector.*raster_cog"):
+            ManifestApplyRequest.model_validate(_vrt_payload(dry_run=dry_run))
 
 
 class TestManifestVrtCompletion:

@@ -92,6 +92,28 @@ def _validate_asset_uri(asset_uri: str) -> None:
             )
 
 
+def resolve_storage_key(asset_uri: str, *, tenant_id: str | None = None) -> str:
+    """Resolve a logical DB asset URI to its physical provider key.
+
+    Managed raster/VRT assets are stored with a ``tenants/{tenant_id}/``
+    namespace in multi-tenant mode while the catalog deliberately persists a
+    tenant-agnostic logical URI. Every direct storage operation (exists, list,
+    delete, presign, stream) must cross this seam before touching the provider.
+    Remote STAC URLs are already physical locations and pass through unchanged.
+    """
+    if asset_uri.startswith("http://") or asset_uri.startswith("https://"):
+        return asset_uri
+
+    _validate_asset_uri(asset_uri)
+    from app.core.tenancy import is_multi_tenant
+
+    if is_multi_tenant() and tenant_id is None:
+        raise RuntimeError(
+            "Managed storage access requires tenant context in multi-tenant mode"
+        )
+    return f"tenants/{tenant_id}/{asset_uri}" if tenant_id else asset_uri
+
+
 def resolve_open_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
     """Resolve a logical asset_uri to a GDAL-open-able VSI path.
 
@@ -120,20 +142,18 @@ def resolve_open_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
         return asset_uri
 
     # WR-01: validate BEFORE building any VSI path.
-    _validate_asset_uri(asset_uri)
-
     # In multi_tenant mode, key is prefixed by tenant namespace.
     # In single_tenant, tenant_id is None and key = asset_uri (byte-identical).
-    key = f"tenants/{tenant_id}/{asset_uri}" if tenant_id else asset_uri
+    key = resolve_storage_key(asset_uri, tenant_id=tenant_id)
 
     provider = settings.storage_provider
     if provider == "s3":
         return f"/vsis3/{settings.s3_bucket}/{key}"
     if provider == "azure":
         return f"/vsiaz/{settings.azure_storage_container}/{key}"
-    # local (default) — use bare asset_uri (NOT key) to stay byte-identical
-    # with the existing local path: {upload_staging_dir}/{asset_uri}
-    return f"{settings.upload_staging_dir}/{asset_uri}"
+    # local (default) — physical storage follows the same tenant-prefixed key
+    # convention as S3/Azure. In single-tenant mode key == asset_uri.
+    return f"{settings.upload_staging_dir}/{key}"
 
 
 def build_titiler_cog_url(

@@ -278,6 +278,18 @@ describe('ReuploadDialog', () => {
     expect(screen.getByTestId('reupload-file-dropzone')).toBeInTheDocument();
   });
 
+  it('advertises only formats supported by vector and table reupload', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await openFileSource(user);
+
+    expect(screen.getByText('.geojson')).toBeInTheDocument();
+    expect(screen.queryByText('.tif')).not.toBeInTheDocument();
+    expect(screen.queryByText('.tiff')).not.toBeInTheDocument();
+    expect(screen.queryByText('.vrt')).not.toBeInTheDocument();
+  });
+
   it('moves through service probe and layer selection into schema diff preview', async () => {
     const user = userEvent.setup();
     renderDialog();

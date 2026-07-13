@@ -20,6 +20,15 @@ import structlog
 from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.jobs.heartbeat import (
+    claim_ingest_job_attempt,
+    maintain_ingest_job_heartbeat,
+    maintain_vrt_generation_heartbeat,
+    require_ingest_job_update,
+    resolve_ingest_job_attempt,
+    stop_ingest_job_heartbeat,
+    update_ingest_job_for_attempt,
+)
 from app.core.db import async_session, tenant_task
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import extract_raster_metadata, sha256_file
@@ -32,6 +41,26 @@ from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     task_app,
 )
+
+
+def _prior_generation_storage_keys_to_reap(
+    *,
+    vrt_key: str,
+    quicklook_256_key: str | None,
+    quicklook_512_key: str | None,
+    replace_quicklook_256: bool,
+    replace_quicklook_512: bool,
+    tenant_id: str | None,
+) -> list[str]:
+    """Resolve only prior objects whose catalog pointers will be replaced."""
+    from app.platform.storage.titiler_url import resolve_storage_key
+
+    logical_keys = [vrt_key]
+    if replace_quicklook_256 and quicklook_256_key is not None:
+        logical_keys.append(quicklook_256_key)
+    if replace_quicklook_512 and quicklook_512_key is not None:
+        logical_keys.append(quicklook_512_key)
+    return [resolve_storage_key(key, tenant_id=tenant_id) for key in logical_keys]
 
 
 async def create_vrt_dataset(
@@ -167,6 +196,7 @@ async def ingest_vrt(
     source_dataset_ids: str,
     vrt_type: str,
     resolution_strategy: str,
+    attempt_id: str | None = None,
     **kwargs,
 ) -> None:
     """Background task: build a VRT, extract metadata, and register as a catalog dataset.
@@ -211,12 +241,16 @@ async def ingest_vrt(
     logger_vrt = __import__("logging").getLogger(__name__)
 
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        return
     tmp_dir: str | None = None
     # fix(#430 BA-30): track storage puts so a failure after put (terminal commit /
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
     # them forever — the GAP-017 guard ingest_raster already has.
     written_storage_keys: list[str] = []
     final_status = "failed"
+    heartbeat_task: asyncio.Task[None] | None = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -225,7 +259,10 @@ async def ingest_vrt(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -235,9 +272,13 @@ async def ingest_vrt(
                 return
 
             # 1. Mark running
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             # 2. Parse source dataset IDs
             ids = [uuid.UUID(sid) for sid in _json.loads(source_dataset_ids)]
@@ -255,8 +296,13 @@ async def ingest_vrt(
             ordered_assets = [asset_map[sid] for sid in ids if sid in asset_map]
 
             # 4. Resolve paths (snapshot to plain strings before closing session)
+            from app.core.db.tenant_session import current_tenant_var
+
             source_paths = [
-                resolve_vrt_source_path(asset.asset_uri) for asset in ordered_assets
+                resolve_vrt_source_path(
+                    asset.asset_uri, tenant_id=current_tenant_var.get()
+                )
+                for asset in ordered_assets
             ]
 
             # Snapshot job fields needed in phase 2.
@@ -300,7 +346,10 @@ async def ingest_vrt(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -337,6 +386,13 @@ async def ingest_vrt(
                 base_key = f"rasters/{dataset.id}/{asset_sha256}"
                 vrt_key = f"{base_key}/source.vrt"
 
+                from app.core.db.tenant_session import current_tenant_var
+                from app.platform.storage.titiler_url import resolve_storage_key
+
+                _storage_vrt_key = resolve_storage_key(
+                    vrt_key, tenant_id=current_tenant_var.get()
+                )
+
                 # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction
                 # (step 6) and quicklook generation (step 8) — the in-flight
                 # tmp .vrt must hold concrete resolvable paths for GDAL to open.
@@ -345,7 +401,7 @@ async def ingest_vrt(
                 # CR-01: supply vrt_storage_key so the rewrite computes paths
                 # relative to the VRT's own directory (not the full logical key).
                 _vrt_rewrite_changes = rewrite_vrt_sources(
-                    _Path(vrt_path), vrt_storage_key=vrt_key
+                    _Path(vrt_path), vrt_storage_key=_storage_vrt_key
                 )
                 if _vrt_rewrite_changes:
                     logger_vrt.info(
@@ -360,16 +416,12 @@ async def ingest_vrt(
                 # prepends tenants/{tenant_id}/ to the logical key.  Ingest
                 # must store at the SAME prefixed key so stored key == served key.
                 # single_tenant: tenant_id=None → keys unchanged (byte-identical).
-                from app.core.db.tenant_session import current_tenant_var
-                from app.core.tenancy import is_multi_tenant as _is_multi_tenant
-
-                _vrt_tenant_id = (
-                    current_tenant_var.get() if _is_multi_tenant() else None
+                _storage_ql256_key = resolve_storage_key(
+                    ql256_key, tenant_id=current_tenant_var.get()
                 )
-                _vrt_prefix = f"tenants/{_vrt_tenant_id}/" if _vrt_tenant_id else ""
-                _storage_vrt_key = f"{_vrt_prefix}{vrt_key}"
-                _storage_ql256_key = f"{_vrt_prefix}{ql256_key}"
-                _storage_ql512_key = f"{_vrt_prefix}{ql512_key}"
+                _storage_ql512_key = resolve_storage_key(
+                    ql512_key, tenant_id=current_tenant_var.get()
+                )
 
                 with open(vrt_path, "rb") as fobj:
                     await storage.put(_storage_vrt_key, fobj)
@@ -401,9 +453,16 @@ async def ingest_vrt(
                 session.add(distribution)
 
                 # 12. Finalize job
-                job.status = "complete"
-                job.dataset_id = dataset.id
-                job.completed_at = datetime.now(timezone.utc)
+                await require_ingest_job_update(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "complete",
+                        "dataset_id": dataset.id,
+                        "completed_at": datetime.now(timezone.utc),
+                    },
+                )
                 await session.commit()
                 final_status = "complete"
 
@@ -431,7 +490,11 @@ async def ingest_vrt(
 
             await err_session.execute(
                 sa_update(IngestJob)
-                .where(IngestJob.id == job_uuid)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
+                )
                 .values(
                     status="failed",
                     error_message=str(exc),
@@ -441,6 +504,7 @@ async def ingest_vrt(
             await err_session.commit()
         raise
     finally:
+        await stop_ingest_job_heartbeat(heartbeat_task)
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         # fix(#430 BA-30): reap storage bytes written before a non-complete terminal
@@ -456,13 +520,18 @@ async def ingest_vrt(
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.regenerate_vrt"])
 @tenant_task
 async def regenerate_vrt(
-    job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
+    job_id: str,
+    vrt_dataset_id: str,
+    attempt_id: str | None = None,
+    generation_id: str | None = None,
+    triggered_by: str = "system",
+    **kwargs,
 ) -> None:
     """Background task: rebuild a VRT file after source add/remove and update metadata.
 
-    Atomic swap: new VRT is built to a temp path, then written to the SAME storage key
-    as the existing VRT (asset_uri stays unchanged). Titiler continues serving the old
-    file until the overwrite completes.
+    Atomic publish: the rebuilt VRT is written to generation-specific immutable
+    keys. The RasterAsset pointer changes only in the same transaction that verifies
+    the job attempt and generation ownership, then prior objects are reaped.
 
     Full pipeline:
     1. Mark job running
@@ -474,7 +543,7 @@ async def regenerate_vrt(
     7. Extract metadata from new VRT
     8. Hash and size new VRT
     9. Generate quicklooks (non-fatal)
-    10. Overwrite existing storage key (atomic swap)
+    10. Write immutable generation storage keys
     11. Update RasterAsset metadata fields
     12. Set status='ready', last_regenerated_at, clear current_generation_id
     13. Update dataset footprint geometry
@@ -500,17 +569,25 @@ async def regenerate_vrt(
     from app.platform.extensions import get_processing_port
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset, VrtGeneration
-    from sqlalchemy import func, select, text
+    from sqlalchemy import func, select, text, update
 
     Dataset = get_processing_port().get_dataset_orm_class()
 
     logger_regen = __import__("logging").getLogger(__name__)
 
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        return
     vrt_id = uuid.UUID(vrt_dataset_id)
     tmp_dir: str | None = None
-    generation_id: uuid.UUID | None = None
+    generation_uuid: uuid.UUID | None = None
     vrt_asset_snapshot = None
+    heartbeat_task: asyncio.Task[None] | None = None
+    generation_heartbeat_task: asyncio.Task[None] | None = None
+    written_storage_keys: list[str] = []
+    prior_storage_keys: list[str] = []
+    final_status = "failed"
 
     try:
         # ----------------------------------------------------------------- #
@@ -520,7 +597,10 @@ async def regenerate_vrt(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -530,9 +610,13 @@ async def regenerate_vrt(
                 return
 
             # 1. Mark running
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             # 2. Load VRT RasterAsset
             asset_result = await session.execute(
@@ -557,19 +641,79 @@ async def regenerate_vrt(
             if not source_ids:
                 raise ValueError(f"VRT {vrt_dataset_id} has no source links")
 
-            # 3b. Create VrtGeneration record
-            generation = VrtGeneration(
-                vrt_dataset_id=vrt_id,
-                status="running",
-                started_at=datetime.now(timezone.utc),
-                source_count=len(source_ids),
-                triggered_by=triggered_by,
+            # 3b. Claim the single generation created by the enqueueing API.
+            # Legacy queued deliveries may not carry generation_id; they may
+            # adopt only the exact pointer already stored on the asset. The
+            # compare-and-swap below prevents an old delivery from taking over
+            # a newer generation.
+            requested_generation_id = (
+                uuid.UUID(generation_id)
+                if generation_id is not None
+                else vrt_asset_row.current_generation_id
             )
-            session.add(generation)
-            await session.flush()
-            generation_id = generation.id
-            vrt_asset_row.current_generation_id = generation.id
+            legacy_pointer = vrt_asset_row.current_generation_id
+            generation = None
+            if requested_generation_id is not None:
+                gen_result = await session.execute(
+                    select(VrtGeneration).where(
+                        VrtGeneration.id == requested_generation_id,
+                        VrtGeneration.vrt_dataset_id == vrt_id,
+                    )
+                )
+                generation = gen_result.scalar_one_or_none()
+
+            if generation is None:
+                if generation_id is not None:
+                    raise ValueError(
+                        f"VrtGeneration {generation_id} not found for {vrt_dataset_id}"
+                    )
+                generation = VrtGeneration(
+                    vrt_dataset_id=vrt_id,
+                    status="running",
+                    started_at=datetime.now(timezone.utc),
+                    heartbeat_at=datetime.now(timezone.utc),
+                    source_count=len(source_ids),
+                    triggered_by=triggered_by,
+                )
+                session.add(generation)
+                await session.flush()
+                generation_uuid = generation.id
+                asset_claim = await session.execute(
+                    update(RasterAsset)
+                    .where(
+                        RasterAsset.dataset_id == vrt_id,
+                        RasterAsset.status == "regenerating",
+                        RasterAsset.current_generation_id == legacy_pointer,
+                    )
+                    .values(current_generation_id=generation_uuid)
+                    .returning(RasterAsset.dataset_id)
+                )
+                if asset_claim.scalar_one_or_none() is None:
+                    raise ValueError("VRT generation ownership changed before claim")
+            else:
+                generation_uuid = generation.id
+                generation_claim = await session.execute(
+                    update(VrtGeneration)
+                    .where(
+                        VrtGeneration.id == generation_uuid,
+                        VrtGeneration.status == "pending",
+                    )
+                    .values(
+                        status="running",
+                        started_at=datetime.now(timezone.utc),
+                        heartbeat_at=datetime.now(timezone.utc),
+                    )
+                    .returning(VrtGeneration.id)
+                )
+                if generation_claim.scalar_one_or_none() is None:
+                    raise ValueError("VRT generation is no longer pending")
+                if vrt_asset_row.current_generation_id != generation_uuid:
+                    raise ValueError("VRT generation ownership changed before claim")
+
             await session.commit()
+            generation_heartbeat_task = asyncio.create_task(
+                maintain_vrt_generation_heartbeat(generation_uuid)
+            )
 
             # 4. Load source RasterAsset rows and resolve paths
             source_assets_result = await session.execute(
@@ -579,8 +723,11 @@ async def regenerate_vrt(
             )
             asset_map = {a.dataset_id: a for a in source_assets_result.scalars().all()}
             ordered_assets = [asset_map[sid] for sid in source_ids if sid in asset_map]
+            from app.core.db.tenant_session import current_tenant_var
+
             source_paths = [
-                resolve_vrt_source_path(a.asset_uri) for a in ordered_assets
+                resolve_vrt_source_path(a.asset_uri, tenant_id=current_tenant_var.get())
+                for a in ordered_assets
             ]
 
             # Snapshot the VRT asset's invariant config for phase 2
@@ -625,7 +772,15 @@ async def regenerate_vrt(
                 exc_info=True,
             )
 
-        # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
+        assert generation_uuid is not None
+        generation_base_key = f"rasters/{vrt_id}/generations/{generation_uuid}"
+        next_vrt_storage_key = f"{generation_base_key}/source.vrt"
+        next_ql256_uri = f"{generation_base_key}/quicklook_256.png"
+        next_ql512_uri = f"{generation_base_key}/quicklook_512.png"
+
+        # 10. Write immutable generation objects. The catalog pointer is switched
+        # only after the job lease and current_generation_id are checked together
+        # in phase 2, so a stale worker can never overwrite the live generation.
         #
         # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction (step 6/7)
         # and quicklook generation (step 9) — the in-flight tmp .vrt must hold
@@ -635,8 +790,15 @@ async def regenerate_vrt(
         # to the VRT's own directory (not the full logical key).
         import pathlib as _pathlib
 
+        from app.core.db.tenant_session import current_tenant_var as _ctv
+        from app.platform.storage.titiler_url import resolve_storage_key
+
+        next_vrt_physical_key = resolve_storage_key(
+            next_vrt_storage_key, tenant_id=_ctv.get()
+        )
+
         _regen_rewrite_changes = rewrite_vrt_sources(
-            _pathlib.Path(vrt_path), vrt_storage_key=vrt_storage_key
+            _pathlib.Path(vrt_path), vrt_storage_key=next_vrt_physical_key
         )
         if _regen_rewrite_changes:
             logger_regen.info(
@@ -650,22 +812,32 @@ async def regenerate_vrt(
 
         storage = get_storage()
 
-        # CR-02 (Phase 1210): mirror the ingest-time tenant prefix so the
-        # overwrite lands at the same tenant-prefixed key the serve path uses.
-        # single_tenant: prefix="" → keys unchanged (byte-identical).
-        from app.core.db.tenant_session import current_tenant_var as _ctv
-        from app.core.tenancy import is_multi_tenant as _is_mt
-
-        _regen_tenant_id = _ctv.get() if _is_mt() else None
-        _regen_prefix = f"tenants/{_regen_tenant_id}/" if _regen_tenant_id else ""
+        next_ql256_physical_key = resolve_storage_key(
+            next_ql256_uri, tenant_id=_ctv.get()
+        )
+        next_ql512_physical_key = resolve_storage_key(
+            next_ql512_uri, tenant_id=_ctv.get()
+        )
 
         with open(vrt_path, "rb") as fobj:
-            await storage.put(f"{_regen_prefix}{vrt_storage_key}", fobj)
+            await storage.put(next_vrt_physical_key, fobj)
+        written_storage_keys.append(next_vrt_physical_key)
 
-        if ql256 is not None and vrt_ql256_uri:
-            await storage.put(f"{_regen_prefix}{vrt_ql256_uri}", io.BytesIO(ql256))
-        if ql512 is not None and vrt_ql512_uri:
-            await storage.put(f"{_regen_prefix}{vrt_ql512_uri}", io.BytesIO(ql512))
+        if ql256 is not None:
+            await storage.put(next_ql256_physical_key, io.BytesIO(ql256))
+            written_storage_keys.append(next_ql256_physical_key)
+        if ql512 is not None:
+            await storage.put(next_ql512_physical_key, io.BytesIO(ql512))
+            written_storage_keys.append(next_ql512_physical_key)
+
+        prior_storage_keys = _prior_generation_storage_keys_to_reap(
+            vrt_key=vrt_storage_key,
+            quicklook_256_key=vrt_ql256_uri,
+            quicklook_512_key=vrt_ql512_uri,
+            replace_quicklook_256=ql256 is not None,
+            replace_quicklook_512=ql512 is not None,
+            tenant_id=_ctv.get(),
+        )
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): update RasterAsset metadata, mark
@@ -673,7 +845,10 @@ async def regenerate_vrt(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -689,26 +864,34 @@ async def regenerate_vrt(
                     select(RasterAsset)
                     .join(Dataset, RasterAsset.dataset_id == Dataset.id)
                     .where(Dataset.id == vrt_id)
+                    .with_for_update()
                 )
                 vrt_asset = asset_result.scalar_one_or_none()
                 if vrt_asset is None:
                     raise ValueError(
                         f"VRT dataset {vrt_dataset_id} disappeared between phases"
                     )
+                if vrt_asset.current_generation_id != generation_uuid:
+                    raise ValueError("VRT generation ownership changed before publish")
 
                 # Re-load generation record.
                 gen_result = await session.execute(
-                    select(VrtGeneration).where(VrtGeneration.id == generation_id)
+                    select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
                 )
                 generation = gen_result.scalar_one_or_none()
                 if generation is None:
                     raise ValueError(
-                        f"VrtGeneration {generation_id} disappeared between phases"
+                        f"VrtGeneration {generation_uuid} disappeared between phases"
                     )
 
                 # 11. Update RasterAsset metadata fields
                 nodata_val = meta.get("nodata")
                 vrt_asset.sha256 = new_sha256
+                vrt_asset.asset_uri = next_vrt_storage_key
+                if ql256 is not None:
+                    vrt_asset.quicklook_256_uri = next_ql256_uri
+                if ql512 is not None:
+                    vrt_asset.quicklook_512_uri = next_ql512_uri
                 vrt_asset.size_bytes = new_size
                 vrt_asset.crs_wkt = meta.get("crs_wkt")
                 vrt_asset.epsg = meta.get("epsg")
@@ -755,11 +938,64 @@ async def regenerate_vrt(
                         meta["bbox_wkt"], 4326
                     )
 
+                # Keep download/STAC references aligned with the newly published
+                # immutable generation keys in the same transaction.
+                await session.execute(
+                    text(
+                        "UPDATE catalog.record_distributions SET url = :url "
+                        "WHERE record_id = (SELECT record_id FROM catalog.datasets "
+                        "WHERE id = :dataset_id) AND format = 'vrt'"
+                    ),
+                    {"url": next_vrt_storage_key, "dataset_id": vrt_id},
+                )
+                await session.execute(
+                    text(
+                        "UPDATE catalog.dataset_assets SET href = CASE key "
+                        "WHEN 'vrt' THEN :vrt_key "
+                        "WHEN 'thumbnail' THEN :ql256_key "
+                        "WHEN 'overview' THEN :ql512_key ELSE href END, "
+                        "size_bytes = CASE WHEN key = 'vrt' THEN :size ELSE size_bytes END "
+                        "WHERE dataset_id = :dataset_id AND key IN ('vrt', 'thumbnail', 'overview')"
+                    ),
+                    {
+                        "vrt_key": next_vrt_storage_key,
+                        "ql256_key": next_ql256_uri
+                        if ql256 is not None
+                        else vrt_ql256_uri,
+                        "ql512_key": next_ql512_uri
+                        if ql512 is not None
+                        else vrt_ql512_uri,
+                        "size": new_size,
+                        "dataset_id": vrt_id,
+                    },
+                )
+
                 # 14. Finalize job
-                job.status = "complete"
-                job.dataset_id = vrt_id
-                job.completed_at = datetime.now(timezone.utc)
+                await require_ingest_job_update(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "complete",
+                        "dataset_id": vrt_id,
+                        "completed_at": datetime.now(timezone.utc),
+                    },
+                )
                 await session.commit()
+                final_status = "complete"
+
+                from app.processing.ingest.tasks_raster import (
+                    _cleanup_orphaned_storage_keys,
+                )
+
+                await _cleanup_orphaned_storage_keys(
+                    [
+                        key
+                        for key in prior_storage_keys
+                        if key not in written_storage_keys
+                    ],
+                    job_id=job_id,
+                )
 
                 # 15. Invalidate cache and defer embedding
                 await invalidate_catalog_cache()
@@ -777,25 +1013,36 @@ async def regenerate_vrt(
             job_id=job_id,
             task="regenerate_vrt",
         )
-        if vrt_asset_snapshot is not None:
-            vrt_asset_snapshot.status = "failed"
-            vrt_asset_snapshot.current_generation_id = None
         # Failure handler runs via a fresh session: mark vrt asset failed,
         # mark generation failed, mark job failed.
         async with async_session() as err_session:
             from sqlalchemy import update as sa_update
 
-            # Mark VRT asset failed and clear the generation pointer.
+            await update_ingest_job_for_attempt(
+                err_session,
+                job_uuid,
+                attempt_uuid,
+                values={
+                    "status": "failed",
+                    "error_message": str(exc),
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
+            # Mark only the asset that still points at this exact generation.
+            # If a newer retry owns the pointer, leave its status untouched.
             await err_session.execute(
                 sa_update(RasterAsset)
-                .where(RasterAsset.dataset_id == vrt_id)
+                .where(
+                    RasterAsset.dataset_id == vrt_id,
+                    RasterAsset.current_generation_id == generation_uuid,
+                )
                 .values(status="failed", current_generation_id=None)
             )
 
             # Update generation record on failure.
-            if generation_id is not None:
+            if generation_uuid is not None:
                 gen_result = await err_session.execute(
-                    select(VrtGeneration).where(VrtGeneration.id == generation_id)
+                    select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
                 )
                 gen = gen_result.scalar_one_or_none()
                 if gen:
@@ -807,17 +1054,16 @@ async def regenerate_vrt(
                         ).total_seconds()
                     gen.error_message = str(exc)
 
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(IngestJob.id == job_uuid)
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
-            )
             await err_session.commit()
         raise
     finally:
+        await stop_ingest_job_heartbeat(generation_heartbeat_task)
+        await stop_ingest_job_heartbeat(heartbeat_task)
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+        if final_status != "complete" and written_storage_keys:
+            from app.processing.ingest.tasks_raster import (
+                _cleanup_orphaned_storage_keys,
+            )
+
+            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)

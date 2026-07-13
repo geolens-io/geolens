@@ -558,6 +558,19 @@ class TestDeferAsyncWithTenant:
             current_tenant_var.reset(token)
         task.defer_async.assert_awaited_once_with(job_id="j1", tenant_id=explicit)
 
+    @pytest.mark.asyncio
+    async def test_multi_tenant_enqueue_without_context_fails_closed(self):
+        from app.core.db.tenant_session import defer_async_with_tenant
+
+        task = MagicMock()
+        task.defer_async = AsyncMock()
+        with patch.dict(os.environ, {"GEOLENS_TENANCY_MODE": "multi_tenant"}):
+            _reload_settings()
+            with pytest.raises(RuntimeError, match="without tenant context"):
+                await defer_async_with_tenant(task, job_id="j1")
+        task.defer_async.assert_not_awaited()
+        _reload_settings()
+
 
 class TestTenantTaskDecorator:
     """tenant_task binds current_tenant_var from the tenant_id job kwarg at entry."""
@@ -598,6 +611,24 @@ class TestTenantTaskDecorator:
             _reload_settings()
             result = await _task(record_id="r1", tenant_id=str(uuid.uuid4()))
         assert result == "r1"
+        _reload_settings()
+
+    @pytest.mark.asyncio
+    async def test_missing_tenant_id_fails_before_task_body(self):
+        from app.core.db.tenant_session import tenant_task
+
+        called = False
+
+        @tenant_task
+        async def _task():
+            nonlocal called
+            called = True
+
+        with patch.dict(os.environ, {"GEOLENS_TENANCY_MODE": "multi_tenant"}):
+            _reload_settings()
+            with pytest.raises(RuntimeError, match="missing tenant context"):
+                await _task()
+        assert called is False
         _reload_settings()
 
     @pytest.mark.asyncio

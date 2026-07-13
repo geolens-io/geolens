@@ -7,7 +7,7 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -85,47 +85,47 @@ async def sweep_stale_vrt_assets(
     # We query via VrtGeneration so the staleness signal is the
     # regeneration start time, not the asset's last_regenerated_at
     # (which is only written on successful completion).
-    stale_asset_result = await db.execute(
-        select(RasterAsset).where(
-            RasterAsset.status == "regenerating",
-            RasterAsset.dataset_id.in_(
-                select(VrtGeneration.vrt_dataset_id).where(
-                    VrtGeneration.status.in_(["pending", "running"]),
-                    VrtGeneration.started_at < stale_cutoff,
-                )
+    # Fail generation leases atomically. The status + liveness predicates are
+    # re-evaluated by PostgreSQL at UPDATE time, so a heartbeat racing the
+    # sweep wins and the generation remains live.
+    stale_gen_result = await db.execute(
+        update(VrtGeneration)
+        .where(
+            VrtGeneration.status.in_(["pending", "running"]),
+            func.coalesce(VrtGeneration.heartbeat_at, VrtGeneration.started_at)
+            < stale_cutoff,
+        )
+        .values(
+            status="failed",
+            completed_at=now,
+            error_message=(
+                f"Stale: regeneration running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
             ),
         )
+        .returning(VrtGeneration.id)
     )
-    stale_assets = list(stale_asset_result.scalars())
-    for asset in stale_assets:
-        asset.status = "failed"
-        asset.current_generation_id = None
+    stale_generation_ids = list(stale_gen_result.scalars())
+
+    # Clear an asset only if it still points at the generation just failed.
+    # A newer regeneration has a different current_generation_id and is fenced.
+    stale_asset_result = await db.execute(
+        update(RasterAsset)
+        .where(
+            RasterAsset.status == "regenerating",
+            RasterAsset.current_generation_id.in_(stale_generation_ids),
+        )
+        .values(status="failed", current_generation_id=None)
+        .returning(RasterAsset.dataset_id)
+    )
+    stale_asset_ids = list(stale_asset_result.scalars())
+    for dataset_id in stale_asset_ids:
         log.warning(
             "Recovered stale regenerating VRT asset",
-            dataset_id=str(asset.dataset_id),
+            dataset_id=str(dataset_id),
             stale_cutoff=str(stale_cutoff),
         )
 
-    # --- 2. Mark orphaned VrtGeneration rows as failed ---
-    stale_gen_result = await db.execute(
-        select(VrtGeneration).where(
-            VrtGeneration.status.in_(["pending", "running"]),
-            VrtGeneration.started_at < stale_cutoff,
-        )
-    )
-    stale_gens = list(stale_gen_result.scalars())
-    for gen in stale_gens:
-        gen.status = "failed"
-        gen.completed_at = now
-        gen.error_message = (
-            f"Stale: regeneration running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
-        )
-        log.warning(
-            "Marked stale VrtGeneration as failed",
-            generation_id=str(gen.id),
-        )
-
-    return len(stale_assets), len(stale_gens)
+    return len(stale_asset_ids), len(stale_generation_ids)
 
 
 async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
@@ -133,7 +133,8 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
 
     Stale rules:
       - status='pending' and created_at older than PENDING_TIMEOUT_SECONDS (orphan, never queued)
-      - status='running' and started_at older than JOB_TIMEOUT_SECONDS (worker crashed mid-job)
+      - status='running' and heartbeat_at/started_at older than JOB_TIMEOUT_SECONDS
+        (worker lease expired)
 
     Also sweeps VRT RasterAsset rows stuck in status='regenerating' past
     JOB_TIMEOUT_SECONDS (GAP-002) via the shared ``sweep_stale_vrt_assets``
@@ -144,32 +145,39 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
     now = datetime.now(timezone.utc)
     pending_cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
 
-    result = await db.execute(
-        select(IngestJob).where(
+    pending_result = await db.execute(
+        update(IngestJob)
+        .where(
             IngestJob.status == "pending",
             IngestJob.created_at < pending_cutoff,
         )
+        .values(
+            status="failed",
+            error_message="Stale: pending for over 1 hour (never queued)",
+            completed_at=now,
+        )
+        .returning(IngestJob.id)
     )
-    pending_jobs = list(result.scalars())
-    for job in pending_jobs:
-        job.status = "failed"
-        job.error_message = "Stale: pending for over 1 hour (never queued)"
-        job.completed_at = now
+    pending_job_ids = list(pending_result.scalars())
 
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
-    result = await db.execute(
-        select(IngestJob).where(
+    running_result = await db.execute(
+        update(IngestJob)
+        .where(
             IngestJob.status == "running",
-            IngestJob.started_at < running_cutoff,
+            func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+            < running_cutoff,
         )
+        .values(
+            status="failed",
+            error_message=(
+                f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
+            ),
+            completed_at=now,
+        )
+        .returning(IngestJob.id)
     )
-    running_jobs = list(result.scalars())
-    for job in running_jobs:
-        job.status = "failed"
-        job.error_message = (
-            f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
-        )
-        job.completed_at = now
+    running_job_ids = list(running_result.scalars())
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
     await sweep_stale_vrt_assets(db, running_cutoff)
@@ -287,7 +295,7 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
                 )
 
     await db.commit()
-    return len(pending_jobs), len(running_jobs)
+    return len(pending_job_ids), len(running_job_ids)
 
 
 @router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
@@ -343,30 +351,106 @@ async def get_job_status(
 
     now = datetime.now(timezone.utc)
 
-    # Auto-fail jobs stuck in "running" beyond the timeout
-    if job.status == "running" and job.started_at is not None:
-        elapsed = (now - job.started_at).total_seconds()
+    # Auto-fail jobs whose worker lease has expired. Fall back to started_at
+    # for jobs created before heartbeat support was deployed.
+    liveness_at = job.heartbeat_at or job.started_at
+    if job.status == "running" and liveness_at is not None:
+        elapsed = (now - liveness_at).total_seconds()
         if elapsed > JOB_TIMEOUT_SECONDS:
-            job.status = "failed"
-            job.error_message = f"Timed out after {int(elapsed)}s"
-            job.completed_at = now
+            await db.execute(
+                update(IngestJob)
+                .where(
+                    IngestJob.id == job.id,
+                    IngestJob.attempt_id == job.attempt_id,
+                    IngestJob.status == "running",
+                    func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+                    < now - timedelta(seconds=JOB_TIMEOUT_SECONDS),
+                )
+                .values(
+                    status="failed",
+                    error_message=f"Worker heartbeat expired after {int(elapsed)}s",
+                    completed_at=now,
+                )
+            )
             await db.commit()
+            await db.refresh(job)
 
     # Auto-fail jobs stuck in "pending" beyond the timeout (orphaned / never queued)
     if job.status == "pending" and job.created_at is not None:
         elapsed = (now - job.created_at).total_seconds()
         if elapsed > PENDING_TIMEOUT_SECONDS:
-            job.status = "failed"
-            job.error_message = (
-                f"Stale: pending for {int(elapsed)}s without being processed"
+            await db.execute(
+                update(IngestJob)
+                .where(
+                    IngestJob.id == job.id,
+                    IngestJob.attempt_id == job.attempt_id,
+                    IngestJob.status == "pending",
+                    IngestJob.created_at
+                    < now - timedelta(seconds=PENDING_TIMEOUT_SECONDS),
+                )
+                .values(
+                    status="failed",
+                    error_message=(
+                        f"Stale: pending for {int(elapsed)}s without being processed"
+                    ),
+                    completed_at=now,
+                )
             )
-            job.completed_at = now
             await db.commit()
+            await db.refresh(job)
 
-    return _job_to_status_response(job)
+    return await _job_to_status_response(job)
 
 
-def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
+async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
+    if job.status != "failed":
+        return False, None
+    if bool((job.user_metadata or {}).get("reupload")):
+        return (
+            False,
+            "Dataset replacement jobs cannot be replayed as ordinary imports. Start the reupload again.",
+        )
+    if bool((job.user_metadata or {}).get("service_auth_required")):
+        return (
+            False,
+            "This service import requires fresh credentials. Start the import again to re-authenticate.",
+        )
+    if job.source_url and not job.file_path:
+        return True, None
+    if not job.file_path:
+        return False, "The source is no longer available. Start the import again."
+
+    if Path(job.file_path).exists():
+        return True, None
+    if job.file_path.startswith("/"):
+        return False, "Staging file no longer available. Please re-upload."
+
+    try:
+        from app.platform.storage import get_storage
+
+        if await get_storage().exists(job.file_path):
+            return True, None
+    except (
+        Exception
+    ):  # broad: storage implementations expose provider-specific failures
+        log.warning(
+            "retry_source_availability_check_failed",
+            job_id=str(job.id),
+            storage_key=job.file_path,
+            exc_info=True,
+        )
+        return False, "Source availability could not be verified. Try again later."
+
+    return False, "The staging object is no longer available. Please re-upload."
+
+
+async def get_retry_capability(job: IngestJob) -> tuple[bool, str | None]:
+    """Return the retry contract shared by user and admin job surfaces."""
+
+    return await _retry_capability(job)
+
+
+async def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
     """Extract warnings + structured metadata from ``user_metadata`` (S3/TYPE-2).
 
     Shared by ``get_job_status`` (lookup by job_id) and
@@ -426,12 +510,16 @@ def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
                 if key in ("temporal_start", "temporal_end"):
                     temporal_parse_errors[cast(TemporalParseKey, key)] = str(v)
 
+    can_retry, retry_reason = await _retry_capability(job)
+
     return JobStatusResponse(
         id=job.id,
         status=job.status,
         dataset_id=job.dataset_id,
         source_filename=job.source_filename,
         error_message=job.error_message,
+        can_retry=can_retry,
+        retry_reason=retry_reason,
         warning_message=warning_message,
         warnings=warnings,
         # REMED-02 / ingest-audit P2-07: surface worker-written progress fields.
@@ -509,7 +597,7 @@ async def get_job_status_by_dataset(
         # page can treat it as "no warnings" without a console 404.
         return None
 
-    return _job_to_status_response(job)
+    return await _job_to_status_response(job)
 
 
 @router.post(
@@ -553,24 +641,48 @@ async def retry_job(
             detail="Only failed jobs can be retried",
         )
 
-    # Validate staging file exists for file jobs before touching DB state.
-    is_service_job = bool(job.source_url and not job.file_path)
-    if not is_service_job:
-        if not job.file_path or not Path(job.file_path).exists():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Staging file no longer available. Please re-upload.",
-            )
+    can_retry, retry_reason = await _retry_capability(job)
+    if not can_retry:
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if bool((job.user_metadata or {}).get("service_auth_required"))
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=retry_reason or "This job cannot be retried.",
+        )
 
     # Reset the job to pending and commit before re-queueing so the
     # orphan guard in queue_ingest_job can flip it back to failed if
     # the queue is down (RESILIENCE-2).
-    job.status = "pending"
-    job.error_message = None
-    job.started_at = None
-    job.completed_at = None
-    job.dataset_id = None
+    previous_attempt_id = job.attempt_id
+    next_attempt_id = uuid.uuid4()
+    retry_result = await db.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.status == "failed",
+            IngestJob.attempt_id == previous_attempt_id,
+        )
+        .values(
+            status="pending",
+            attempt_id=next_attempt_id,
+            error_message=None,
+            started_at=None,
+            heartbeat_at=None,
+            completed_at=None,
+            dataset_id=None,
+        )
+    )
+    if not retry_result.rowcount:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job was already retried by another request",
+        )
     await db.commit()
+    await db.refresh(job)
 
     await queue_ingest_job(job, str(job.created_by), db=db)
 

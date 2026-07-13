@@ -363,4 +363,30 @@ describe('DatasetPage editable affordance integration', () => {
 
     expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
   });
+
+  it('does not offer reupload for raster datasets', async () => {
+    setUser(EDITOR_USER);
+    mockUseDataset.mockReturnValue({
+      data: {
+        ...makeDataset(),
+        record_type: 'raster_dataset',
+        raster: {
+          tile_url: '/raster-tiles/test/{z}/{x}/{y}.png',
+        } as DatasetResponse['raster'],
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useDataset>);
+    const user = userEvent.setup();
+
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+
+    expect(
+      await screen.findByRole('menuitem', { name: 'Create VRT' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Re-Upload' }),
+    ).not.toBeInTheDocument();
+  });
 });

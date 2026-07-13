@@ -153,6 +153,12 @@ class AdminJobResponse(BaseModel):
         description="ID of the dataset created by this job, if completed successfully."
     )
     error_message: str | None = Field(description="Error details if the job failed.")
+    can_retry: bool = Field(
+        description="Whether the failed job can be retried with its retained source."
+    )
+    retry_reason: str | None = Field(
+        description="Why the job cannot be retried, when retry is unavailable."
+    )
     user_metadata: dict[str, Any] | None = Field(
         description="User-supplied metadata captured at upload time (title, summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys: title, summary, visibility, file_type, vrt_type, warnings.",
     )

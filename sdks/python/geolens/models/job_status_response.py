@@ -36,11 +36,13 @@ T = TypeVar("T", bound="JobStatusResponse")
 class JobStatusResponse:
     """
     Attributes:
+        can_retry (bool):
         completed_at (datetime.datetime | None):
         created_at (datetime.datetime):
         dataset_id (None | UUID):
         error_message (None | str):
         id (UUID):
+        retry_reason (None | str):
         source_filename (None | str):
         started_at (datetime.datetime | None):
         status (JobStatusResponseStatus):
@@ -53,11 +55,13 @@ class JobStatusResponse:
         warnings (list[DbfTruncationCollisionWarning | ReservedRenameWarning] | Unset):
     """
 
+    can_retry: bool
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
     dataset_id: None | UUID
     error_message: None | str
     id: UUID
+    retry_reason: None | str
     source_filename: None | str
     started_at: datetime.datetime | None
     status: JobStatusResponseStatus
@@ -74,6 +78,8 @@ class JobStatusResponse:
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.reserved_rename_warning import ReservedRenameWarning
+
+        can_retry = self.can_retry
 
         completed_at: None | str
         if isinstance(self.completed_at, datetime.datetime):
@@ -93,6 +99,9 @@ class JobStatusResponse:
         error_message = self.error_message
 
         id = str(self.id)
+
+        retry_reason: None | str
+        retry_reason = self.retry_reason
 
         source_filename: None | str
         source_filename = self.source_filename
@@ -153,11 +162,13 @@ class JobStatusResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "can_retry": can_retry,
                 "completed_at": completed_at,
                 "created_at": created_at,
                 "dataset_id": dataset_id,
                 "error_message": error_message,
                 "id": id,
+                "retry_reason": retry_reason,
                 "source_filename": source_filename,
                 "started_at": started_at,
                 "status": status,
@@ -191,6 +202,7 @@ class JobStatusResponse:
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
         d = dict(src_dict)
+        can_retry = d.pop("can_retry")
 
         def _parse_completed_at(data: object) -> datetime.datetime | None:
             if data is None:
@@ -232,6 +244,13 @@ class JobStatusResponse:
         error_message = _parse_error_message(d.pop("error_message"))
 
         id = UUID(d.pop("id"))
+
+        def _parse_retry_reason(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        retry_reason = _parse_retry_reason(d.pop("retry_reason"))
 
         def _parse_source_filename(data: object) -> None | str:
             if data is None:
@@ -346,11 +365,13 @@ class JobStatusResponse:
                 warnings.append(warnings_item)
 
         job_status_response = cls(
+            can_retry=can_retry,
             completed_at=completed_at,
             created_at=created_at,
             dataset_id=dataset_id,
             error_message=error_message,
             id=id,
+            retry_reason=retry_reason,
             source_filename=source_filename,
             started_at=started_at,
             status=status,

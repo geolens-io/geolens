@@ -3798,6 +3798,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/records/{record_id}/translations/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Translations Endpoint
+         * @description List localized title/summary variants visible with the parent record.
+         */
+        get: operations["list_translations_endpoint_records__record_id__translations__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/records/{record_id}/translations/{language}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upsert Translation Endpoint
+         * @description Create or replace one localized title/summary variant.
+         */
+        put: operations["upsert_translation_endpoint_records__record_id__translations__language___put"];
+        post?: never;
+        /**
+         * Delete Translation Endpoint
+         * @description Delete one localized title/summary variant.
+         */
+        delete: operations["delete_translation_endpoint_records__record_id__translations__language___delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/datasets/": {
         parameters: {
             query?: never;
@@ -4947,6 +4991,11 @@ export interface components {
         /** AdminJobResponse */
         AdminJobResponse: {
             /**
+             * Can Retry
+             * @description Whether the failed job can be retried with its retained source.
+             */
+            can_retry: boolean;
+            /**
              * Completed At
              * @description Timestamp when the job finished (success or failure).
              */
@@ -4978,6 +5027,11 @@ export interface components {
              * @description Unique ingestion job identifier.
              */
             id: string;
+            /**
+             * Retry Reason
+             * @description Why the job cannot be retried, when retry is unavailable.
+             */
+            retry_reason: string | null;
             /**
              * Source Filename
              * @description Original filename of the uploaded file, if applicable.
@@ -6452,7 +6506,7 @@ export interface components {
             is_dem?: boolean | null;
             /**
              * Language
-             * @description ISO 639-1 language code, e.g. en, fr
+             * @description BCP 47 primary language tag, e.g. en, fr, or pt-BR
              */
             language?: string | null;
             /** License */
@@ -7682,6 +7736,8 @@ export interface components {
              * @default false
              */
             archive_failed: boolean;
+            /** Can Retry */
+            can_retry: boolean;
             /** Completed At */
             completed_at: string | null;
             /**
@@ -7702,6 +7758,8 @@ export interface components {
             id: string;
             /** Progress */
             progress?: number | null;
+            /** Retry Reason */
+            retry_reason: string | null;
             /** Rows Processed */
             rows_processed?: number | null;
             /** Source Filename */
@@ -7988,9 +8046,10 @@ export interface components {
             title?: string | null;
             /**
              * Type
+             * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.
              * @enum {string}
              */
-            type: "vector" | "raster_cog" | "vrt";
+            type: "vector" | "raster_cog";
             /**
              * Uri
              * @description Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
@@ -11246,6 +11305,34 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /** TranslationListResponse */
+        TranslationListResponse: {
+            /** Total */
+            total: number;
+            /** Translations */
+            translations: components["schemas"]["TranslationResponse"][];
+        };
+        /** TranslationResponse */
+        TranslationResponse: {
+            /** Language */
+            language: string;
+            /**
+             * Record Id
+             * Format: uuid
+             */
+            record_id: string;
+            /** Summary */
+            summary: string | null;
+            /** Title */
+            title: string;
+        };
+        /** TranslationUpsert */
+        TranslationUpsert: {
+            /** Summary */
+            summary?: string | null;
+            /** Title */
+            title: string;
         };
         /** TypeChange */
         TypeChange: {
@@ -28527,6 +28614,288 @@ export interface operations {
             path: {
                 record_id: string;
                 keyword_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_translations_endpoint_records__record_id__translations__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationListResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upsert_translation_endpoint_records__record_id__translations__language___put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+                /** @description BCP 47 language tag, for example fr or pt-BR */
+                language: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranslationUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_translation_endpoint_records__record_id__translations__language___delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+                /** @description BCP 47 language tag, for example fr or pt-BR */
+                language: string;
             };
             cookie?: never;
         };

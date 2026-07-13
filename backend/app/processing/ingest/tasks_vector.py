@@ -10,6 +10,15 @@ import structlog
 from sqlalchemy import text
 
 from app.core.db.tenant_session import tenant_task
+from app.platform.jobs.heartbeat import (
+    attempt_scoped_staging_table,
+    claim_ingest_job_attempt,
+    maintain_ingest_job_heartbeat,
+    require_ingest_job_update,
+    resolve_ingest_job_attempt,
+    update_ingest_job_for_attempt,
+    stop_ingest_job_heartbeat,
+)
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import (
     IngestContext,
@@ -36,13 +45,64 @@ _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
 _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE = 2000
 
 
-async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
+async def _publish_attempt_staging_table(
+    session,
+    *,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    staging_table: str,
+    live_table: str,
+) -> None:
+    """Publish one attempt's physical table while holding its job-row lease."""
+    await require_ingest_job_update(
+        session,
+        job_id,
+        attempt_id,
+        values={"heartbeat_at": datetime.now(timezone.utc)},
+    )
+    await session.execute(
+        text(
+            f"ALTER TABLE {_qtable(staging_table, schema=_current_tenant_schema())} "
+            f'RENAME TO "{live_table}"'
+        )
+    )
+
+
+async def _drop_attempt_staging_table(staging_table: str) -> None:
+    """Best-effort cleanup limited to the caller's attempt-owned table."""
+    if not staging_table:
+        return
+
+    from app.core.db import async_session
+
+    try:
+        async with async_session() as session:
+            await session.execute(
+                text(
+                    f"DROP TABLE IF EXISTS "
+                    f"{_qtable(staging_table, schema=_current_tenant_schema())} CASCADE"
+                )
+            )
+            await session.commit()
+    except Exception:
+        structlog.get_logger().warning(
+            "attempt_staging_cleanup_failed",
+            staging_table=staging_table,
+            exc_info=True,
+        )
+
+
+async def _heartbeat_service_import_progress(
+    job_uuid: uuid.UUID, attempt_id: uuid.UUID
+) -> None:
     """Advance service-ingest progress while GDAL loads remote features."""
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
         try:
             async with _job_phase_session(
-                job_uuid, phase="service_import_heartbeat"
+                job_uuid,
+                phase="service_import_heartbeat",
+                attempt_id=attempt_id,
             ) as (session, job):
                 if job is None:
                     return
@@ -73,7 +133,11 @@ async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
 
 
 async def _write_service_import_progress(
-    job_uuid: uuid.UUID, *, imported_rows: int, feature_count: int
+    job_uuid: uuid.UUID,
+    attempt_id: uuid.UUID,
+    *,
+    imported_rows: int,
+    feature_count: int,
 ) -> None:
     if feature_count <= 0:
         return
@@ -86,7 +150,9 @@ async def _write_service_import_progress(
         * completed_ratio,
     )
 
-    async with _job_phase_session(job_uuid, phase="service_import_chunk_progress") as (
+    async with _job_phase_session(
+        job_uuid, phase="service_import_chunk_progress", attempt_id=attempt_id
+    ) as (
         session,
         job,
     ):
@@ -193,7 +259,13 @@ def _should_unlink_staging(
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
 @tenant_task
-async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
+async def ingest_file(
+    job_id: str,
+    file_path: str,
+    user_id: str,
+    attempt_id: str | None = None,
+    **kwargs,
+) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
 
     Full pipeline:
@@ -221,8 +293,17 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
     from app.platform.jobs.models import IngestJob
 
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        structlog.get_logger().warning(
+            "Tokenless ingest delivery could not adopt pending legacy job",
+            job_id=job_id,
+        )
+        return
     original_file_path = file_path
     final_status: str = "pending"
+    staging_table_name = ""
+    heartbeat_task: asyncio.Task[None] | None = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -232,7 +313,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # variables so the ogr2ogr subprocess can run without a session
         # held open (#100 greenlet rule lives in the helper docstring).
         # ----------------------------------------------------------------- #
-        async with _job_phase_session(job_uuid, phase="phase1") as (session, job):
+        async with _job_phase_session(
+            job_uuid, phase="phase1", attempt_id=attempt_uuid
+        ) as (session, job):
             if job is None:
                 return
 
@@ -240,11 +323,15 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # REMED-02 / ingest-audit P2-07: stamp current_step + progress
             # together with status so the polling UI gets a fresh "validating"
             # signal on the very first poll after the worker picks up the job.
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
             job.current_step = "validating"
             job.progress = 0.0
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path
@@ -259,9 +346,16 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     source_filename=job.source_filename,
                 )
             except ValueError as exc:
-                job.status = "failed"
-                job.error_message = str(exc)
-                job.completed_at = datetime.now(timezone.utc)
+                await update_ingest_job_for_attempt(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "failed",
+                        "error_message": str(exc),
+                        "completed_at": datetime.now(timezone.utc),
+                    },
+                )
                 await session.commit()
                 # retry=0: no retry will ever occur, so unlink the staging
                 # file to prevent permanent orphaning.
@@ -294,13 +388,20 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 and not assumes_4326
                 and srid_override is None
             ):
-                job.status = "failed"
-                job.error_message = (
-                    "Missing CRS: no coordinate system detected. "
-                    "Ensure the file includes CRS information "
-                    "(e.g., .prj file for Shapefiles)."
+                await update_ingest_job_for_attempt(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "failed",
+                        "error_message": (
+                            "Missing CRS: no coordinate system detected. "
+                            "Ensure the file includes CRS information "
+                            "(e.g., .prj file for Shapefiles)."
+                        ),
+                        "completed_at": datetime.now(timezone.utc),
+                    },
                 )
-                job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 final_status = "failed"
                 return
@@ -310,6 +411,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             table_name, collision_warning = await generate_table_name(
                 dataset_name, session
             )
+            staging_table_name = attempt_scoped_staging_table(table_name, attempt_uuid)
             if collision_warning:
                 job.user_metadata = {
                     **(job.user_metadata or {}),
@@ -339,6 +441,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # then construct geometry post-import. This ensures the override
         # works even for CSVs where GDAL would auto-detect geometry.
         ogr_geometry_type = None if user_wants_geom else geometry_type
+        effective_srid = _resolve_effective_srid(
+            detected_srid=srid,
+            srid_override=srid_override,
+        )
 
         # REMED-02 / ingest-audit P2-07: write current_step="ogr2ogr" BEFORE
         # the long subprocess so the UI sees the transition even if ogr2ogr
@@ -346,7 +452,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # greenlet rule forbids holding a session open across run_ogr2ogr,
         # but the progress write must commit so it cannot be lost on
         # rollback if ogr2ogr raises.
-        async with _job_phase_session(job_uuid, phase="progress_write_ogr2ogr") as (
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_ogr2ogr", attempt_id=attempt_uuid
+        ) as (
             _progress_session,
             _progress_job,
         ):
@@ -357,11 +465,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
         await run_ogr2ogr(
             file_path,
-            table_name,
+            staging_table_name,
             db_conn_str,
             source_srid=srid,
             geometry_type=ogr_geometry_type,
             layer_name=layer_name,
+            schema=_current_tenant_schema(),
         )
 
         # ----------------------------------------------------------------- #
@@ -370,7 +479,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # session — its attributes were already snapshotted into
         # ``um`` / ``source_filename`` / ``layer_name`` above.
         # ----------------------------------------------------------------- #
-        async with _job_phase_session(job_uuid, phase="phase2") as (session, job):
+        async with _job_phase_session(
+            job_uuid, phase="phase2", attempt_id=attempt_uuid
+        ) as (session, job):
             if job is None:
                 return
 
@@ -396,7 +507,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             from app.processing.ingest.metadata import rename_reserved_columns
 
             reserved_renames = await rename_reserved_columns(
-                session, table_name, schema=_current_tenant_schema()
+                session, staging_table_name, schema=_current_tenant_schema()
             )
             if reserved_renames:
                 from app.processing.ingest.warnings import (
@@ -429,25 +540,21 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     )
                     structlog.get_logger().warning(
                         "Shapefile DBF 10-char truncation collision detected",
-                        table=table_name,
+                        table=staging_table_name,
                         collisions=dbf_collisions,
                     )
 
             if user_wants_geom:
                 override_geom_type = await _detect_and_override_geometry(
                     session,
-                    table_name=table_name,
+                    table_name=staging_table_name,
                     user_metadata=um,
+                    attempt_id=attempt_uuid,
+                    effective_srid=effective_srid,
                 )
                 if override_geom_type is not None:
                     has_geometry = True
                     geometry_type = override_geom_type
-
-            # Use srid_override if provided
-            effective_srid = _resolve_effective_srid(
-                detected_srid=srid,
-                srid_override=srid_override,
-            )
 
             # 4. Determine source format from file extension
             suffix = Path(file_path).suffix.lower()
@@ -455,6 +562,18 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             source_format = suffix.lstrip(".")
             if source_format == "zip":
                 source_format = "shapefile"
+
+            # ogr2ogr writes only to an attempt-owned physical table. Acquire
+            # the job row under the attempt predicate before publishing it;
+            # the rename and _finalize_ingest's terminal update commit in the
+            # same transaction, so a stale worker can never expose its table.
+            await _publish_attempt_staging_table(
+                session,
+                job_id=job_uuid,
+                attempt_id=attempt_uuid,
+                staging_table=staging_table_name,
+                live_table=table_name,
+            )
 
             # 5-9. Shared post-ogr2ogr pipeline
             dataset = await _finalize_ingest(
@@ -469,6 +588,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     source_filename=source_filename,
                     original_srid=srid,
                     user_metadata=um,
+                    attempt_id=attempt_uuid,
                 )
             )
 
@@ -508,7 +628,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # ignored — we issue a SQL UPDATE rather than mutating the ORM row
         # so a NULL job (race with row delete) still produces a clean
         # no-op update instead of an AttributeError.
-        async with _job_phase_session(job_uuid, phase="error_write") as (
+        async with _job_phase_session(
+            job_uuid, phase="error_write", attempt_id=attempt_uuid
+        ) as (
             err_session,
             _err_job,
         ):
@@ -516,7 +638,11 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
             await err_session.execute(
                 sa_update(IngestJob)
-                .where(IngestJob.id == job_uuid)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
+                )
                 .values(
                     status="failed",
                     error_message=str(exc),
@@ -527,6 +653,8 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         final_status = "failed"
         raise
     finally:
+        await stop_ingest_job_heartbeat(heartbeat_task)
+        await _drop_attempt_staging_table(staging_table_name)
         # Clean up local file on success always; on failure only if it was
         # a resolve_file_path download (source of truth is S3, not the
         # local copy). Local-only uploads are kept for retry.
@@ -554,7 +682,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
             # yields the IngestJob row directly, so we just check user_metadata.
-            async with _job_phase_session(job_uuid, phase="cleanup_check") as (
+            async with _job_phase_session(
+                job_uuid, phase="cleanup_check", attempt_id=attempt_uuid
+            ) as (
                 _check_session,
                 _check_job,
             ):
@@ -604,6 +734,7 @@ async def ingest_service(
     source_url: str,
     source_layer: str,
     user_id: str,
+    attempt_id: str | None = None,
     token: str | None = None,
     **kwargs,
 ) -> None:
@@ -646,6 +777,15 @@ async def ingest_service(
 
     port = get_processing_port()
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        structlog.get_logger().warning(
+            "Tokenless ingest delivery could not adopt pending legacy job",
+            job_id=job_id,
+        )
+        return
+    staging_table_name = ""
+    heartbeat_task: asyncio.Task[None] | None = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -653,7 +793,9 @@ async def ingest_service(
         # P2-05): load job, mark running, generate table name. Snapshot all
         # values needed for phase 2.
         # ----------------------------------------------------------------- #
-        async with _job_phase_session(job_uuid, phase="phase1") as (session, job):
+        async with _job_phase_session(
+            job_uuid, phase="phase1", attempt_id=attempt_uuid
+        ) as (session, job):
             if job is None:
                 return
 
@@ -663,11 +805,15 @@ async def ingest_service(
             # ingests too. The service path has the same step boundaries as
             # the file path (validating -> ogr2ogr -> finalize -> complete)
             # except there is no "archiving" — services don't archive originals.
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
             job.current_step = "validating"
             job.progress = 0.0
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             # 2. Determine service type from job metadata
             um = job.user_metadata or {}
@@ -690,6 +836,7 @@ async def ingest_service(
             table_name, collision_warning = await generate_table_name(
                 dataset_name, session
             )
+            staging_table_name = attempt_scoped_staging_table(table_name, attempt_uuid)
             if collision_warning:
                 job.user_metadata = {
                     **(job.user_metadata or {}),
@@ -706,7 +853,9 @@ async def ingest_service(
         # REMED-02 / ingest-audit P2-07: stamp current_step="ogr2ogr" before
         # the long remote-service fetch (same brief-session pattern as
         # ingest_file). Routed through _job_phase_session per REMED-03.
-        async with _job_phase_session(job_uuid, phase="progress_write_ogr2ogr") as (
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_ogr2ogr", attempt_id=attempt_uuid
+        ) as (
             _progress_session,
             _progress_job,
         ):
@@ -754,14 +903,17 @@ async def ingest_service(
                     await run_ogr2ogr_service(
                         _src,
                         _layer,
-                        table_name,
+                        staging_table_name,
                         db_conn_str,
                         service_type,
                         token=token,
                         is_non_spatial=is_non_spatial,
                         append=append,
+                        schema=_current_tenant_schema(),
                     )
-                    next_imported_rows = await _count_service_import_rows(table_name)
+                    next_imported_rows = await _count_service_import_rows(
+                        staging_table_name
+                    )
                     if next_imported_rows <= imported_rows:
                         from app.processing.ingest.ogr import IngestionError
 
@@ -773,6 +925,7 @@ async def ingest_service(
                     imported_rows = next_imported_rows
                     await _write_service_import_progress(
                         job_uuid,
+                        attempt_uuid,
                         imported_rows=imported_rows,
                         feature_count=feature_count,
                     )
@@ -790,15 +943,16 @@ async def ingest_service(
             await run_ogr2ogr_service(
                 _src,
                 _layer,
-                table_name,
+                staging_table_name,
                 db_conn_str,
                 service_type,
                 token=token,
                 is_non_spatial=is_non_spatial,
+                schema=_current_tenant_schema(),
             )
 
         service_progress_task = asyncio.create_task(
-            _heartbeat_service_import_progress(job_uuid)
+            _heartbeat_service_import_progress(job_uuid, attempt_uuid)
         )
         try:
             await _run_service_import_with_wfs_fallback(
@@ -812,7 +966,9 @@ async def ingest_service(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
         # ----------------------------------------------------------------- #
-        async with _job_phase_session(job_uuid, phase="phase2") as (session, job):
+        async with _job_phase_session(
+            job_uuid, phase="phase2", attempt_id=attempt_uuid
+        ) as (session, job):
             if job is None:
                 return
 
@@ -829,7 +985,7 @@ async def ingest_service(
             from app.processing.ingest.metadata import rename_reserved_columns
 
             reserved_renames = await rename_reserved_columns(
-                session, table_name, schema=_current_tenant_schema()
+                session, staging_table_name, schema=_current_tenant_schema()
             )
             if reserved_renames:
                 from app.processing.ingest.warnings import (
@@ -841,6 +997,13 @@ async def ingest_service(
             # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = (
                 f"{source_url}/{layer_id}" if layer_id is not None else source_url
+            )
+            await _publish_attempt_staging_table(
+                session,
+                job_id=job_uuid,
+                attempt_id=attempt_uuid,
+                staging_table=staging_table_name,
+                live_table=table_name,
             )
             await _finalize_ingest(
                 IngestContext(
@@ -855,6 +1018,7 @@ async def ingest_service(
                     original_srid=None,
                     user_metadata=um,
                     source_url=dataset_source_url,
+                    attempt_id=attempt_uuid,
                 )
             )
 
@@ -876,7 +1040,9 @@ async def ingest_service(
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
         # REMED-03 / P2-05: route through _job_phase_session.
-        async with _job_phase_session(job_uuid, phase="error_write") as (
+        async with _job_phase_session(
+            job_uuid, phase="error_write", attempt_id=attempt_uuid
+        ) as (
             err_session,
             _err_job,
         ):
@@ -884,7 +1050,11 @@ async def ingest_service(
 
             await err_session.execute(
                 sa_update(IngestJob)
-                .where(IngestJob.id == job_uuid)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
+                )
                 .values(
                     status="failed",
                     error_message=str(exc),
@@ -893,3 +1063,6 @@ async def ingest_service(
             )
             await err_session.commit()
         raise
+    finally:
+        await stop_ingest_job_heartbeat(heartbeat_task)
+        await _drop_attempt_staging_table(staging_table_name)

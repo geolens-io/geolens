@@ -446,7 +446,7 @@ export function DatasetPage() {
       icon: Upload,
       onSelect: () => setActiveDialog('reupload'),
       priority: 10,
-      visible: canEdit && !isVrt,
+      visible: canEdit && !isRaster && !isVrt,
       variant: 'outline',
     },
     {
@@ -629,7 +629,7 @@ export function DatasetPage() {
         />
       )}
 
-      {canEdit && !isVrt && (
+      {canEdit && !isRaster && !isVrt && (
         <Suspense fallback={null}>
           <ReuploadDialog
             dataset={dataset}

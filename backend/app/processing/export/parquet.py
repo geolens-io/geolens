@@ -141,6 +141,7 @@ async def export_parquet(
     table_name: str,
     dataset_name: str,
     *,
+    schema: str,
     bbox: list[float] | None = None,
     where: str | None = None,
 ) -> tuple[str, str, str]:
@@ -157,7 +158,7 @@ async def export_parquet(
     # filter validation — dataset.column_info is nullable, and trusting it would
     # (a) silently export geometry-only and (b) reject a valid filter on a
     # metadata-less dataset even though the columns are right here.
-    live_columns = await get_column_info(db, table_name)
+    live_columns = await get_column_info(db, table_name, schema=schema)
     attr_names = _attr_names(live_columns)
 
     if where is not None:
@@ -209,7 +210,8 @@ async def export_parquet(
     # (LIMIT stops the scan at cap+1) before streaming millions of rows into
     # Python lists and OOMing the worker.
     count_sql = (
-        f"SELECT COUNT(*) FROM (SELECT 1 FROM {_qtable(table_name)} t "
+        f"SELECT COUNT(*) FROM (SELECT 1 FROM "
+        f"{_qtable(table_name, schema=schema)} t "
         f"WHERE {where_sql} LIMIT :__cap) sub"
     )
     count = (
@@ -233,7 +235,7 @@ async def export_parquet(
     select_parts.append("ST_AsBinary(geom_4326)")
     sql = (
         f"SELECT {', '.join(select_parts)} "
-        f"FROM {_qtable(table_name)} t WHERE {where_sql}"
+        f"FROM {_qtable(table_name, schema=schema)} t WHERE {where_sql}"
     )
 
     geom: list[bytes | None] = []
