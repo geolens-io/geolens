@@ -8,7 +8,7 @@ Design invariants
 -----------------
 - **single_tenant**: hard no-op — returns immediately, touches NO SQL.  RLS
   stays DISABLED (default) → zero planner cost, byte-identical to pre-1208.
-- **multi_tenant**: for each of the 6 tenant-shared tables, reads
+- **multi_tenant**: for each tenant-shared table, reads
   ``pg_class.relrowsecurity`` and ``pg_class.relforcerowsecurity`` FIRST and
   only issues ``ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY`` when the
   flag is not already set.  Steady-state boots are a cheap catalog read — no
@@ -43,9 +43,9 @@ from sqlalchemy import text
 
 logger = structlog.stdlib.get_logger(__name__)
 
-#: The 6 tenant-shared control-plane tables that received ``tenant_id`` in
-#: ``0005_dormant_tenancy`` and got ``tenant_isolation_*`` policies in
-#: ``0006_tenant_rls``.  All live in the ``catalog`` schema.
+#: Tenant-shared control-plane tables protected by ``tenant_isolation_*``
+#: policies. The original six were introduced in 0005/0006; later migrations
+#: extend this boundary when a child table needs an independent tenant key.
 RLS_TABLES: tuple[str, ...] = (
     "users",
     "records",
@@ -53,9 +53,12 @@ RLS_TABLES: tuple[str, ...] = (
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 )
 
-#: The 6 policy names created by 0006_tenant_rls.
+#: Policy names for the complete current tenant boundary.
 RLS_POLICY_NAMES: tuple[str, ...] = tuple(f"tenant_isolation_{t}" for t in RLS_TABLES)
 
 
@@ -130,7 +133,8 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
                     WHERE protected_namespace.nspname = 'catalog'
                       AND protected_relation.relname IN (
                           'users', 'records', 'datasets', 'maps',
-                          'collections', 'embed_tokens'
+                          'collections', 'embed_tokens', 'oauth_accounts',
+                          'audit_logs', 'ingest_jobs'
                       )
                       AND protected_relation.relkind IN ('r', 'p')
                       AND pg_catalog.pg_has_role(
@@ -226,7 +230,7 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
 
 
 async def apply_tenancy_rls(conn) -> None:
-    """Enable + FORCE RLS on the 6 tenant-shared tables (multi_tenant only).
+    """Enable + FORCE RLS on every tenant-shared table (multi_tenant only).
 
     In ``single_tenant`` (the default): returns immediately — zero SQL, zero
     planner cost (T-1208-07).

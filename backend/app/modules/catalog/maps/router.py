@@ -80,6 +80,9 @@ from app.modules.embed_tokens.service import (
     revoke_embed_tokens_by_map,
     revoke_embed_tokens_for_dropped_datasets,
 )
+from app.platform.storage.titiler_url import (
+    resolve_current_storage_key as _map_asset_storage_key,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 from app.modules.catalog.maps._router_helpers import (
     _build_layer_response,
@@ -949,7 +952,7 @@ async def upload_thumbnail(
 
     storage = get_storage()
     try:
-        await storage.put(storage_key, image_bytes)
+        await storage.put(_map_asset_storage_key(storage_key), image_bytes)
     except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
         logger.exception("thumbnail_upload_failed", map_id=str(map_id))
         raise HTTPException(
@@ -983,7 +986,7 @@ async def get_thumbnail(
 
     storage = get_storage()
     try:
-        data = await storage.get(map_obj.thumbnail_uri)
+        data = await storage.get(_map_asset_storage_key(map_obj.thumbnail_uri))
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1080,7 +1083,7 @@ async def upload_og_image(
 
     storage = get_storage()
     try:
-        await storage.put(storage_key, image_bytes)
+        await storage.put(_map_asset_storage_key(storage_key), image_bytes)
     except Exception:  # broad: S3/MinIO/local storage can throw varied errors -> 502
         logger.exception("og_image_upload_failed", map_id=str(map_id))
         raise HTTPException(
@@ -1119,7 +1122,7 @@ async def get_og_image(
 
     storage = get_storage()
     try:
-        data = await storage.get(map_obj.og_image_uri)
+        data = await storage.get(_map_asset_storage_key(map_obj.og_image_uri))
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

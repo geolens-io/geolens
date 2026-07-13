@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.platform.cache import get_cache
+from app.platform.cache import get_cache, tenant_cache_key
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
@@ -139,7 +139,11 @@ async def list_collections_endpoint(
 
     # Cache admin views only (non-admin results vary by user identity)
     is_admin = "admin" in user_roles
-    cache_key = f"catalog:collections:admin:{skip}:{limit}" if is_admin else None
+    cache_key = (
+        tenant_cache_key(f"catalog:collections:admin:{skip}:{limit}")
+        if is_admin
+        else None
+    )
 
     if cache_key:
         cache = get_cache()

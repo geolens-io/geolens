@@ -837,7 +837,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # scoped layers into the visibility-filtered set (SEC-022 capability
         # parity with the tile path) + tile_version threading. Cap raised
         # 660 → 720 (~29 LOC headroom).
-        "backend/app/modules/catalog/maps/service_public.py": 720,
+        # Hosted opaque-share isolation joins every token operation through
+        # its RLS-visible Map/User parent (+9 LOC). Cap 720 -> 735 leaves
+        # only six lines before the next required split review.
+        "backend/app/modules/catalog/maps/service_public.py": 735,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
@@ -956,15 +959,18 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
 _ROUTER_LOC_CAPS: dict[str, int] = {
-    "backend/app/modules/catalog/maps/router.py": 1374,
+    # Tenant-owned media now crosses the shared logical-to-physical storage
+    # seam. Keep the ratchet exact after the three-line import expansion.
+    "backend/app/modules/catalog/maps/router.py": 1377,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header parity. Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1438,
+    "backend/app/modules/catalog/search/router.py": 1423,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation.
     "backend/app/standards/stac/router.py": 1584,
-    "backend/app/processing/tiles/router.py": 2044,
+    # Central tenant-bound scope resolution replaced duplicated inline logic.
+    "backend/app/processing/tiles/router.py": 2038,
 }
 
 

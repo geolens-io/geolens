@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 from app.core.edition import is_enterprise
 from app.core.tenancy import is_multi_tenant
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import (
@@ -27,6 +28,18 @@ from app.modules.catalog.maps.sharing import (
 from app.platform.extensions import get_processing_port
 
 logger = structlog.stdlib.get_logger(__name__)
+
+
+def _embed_token_cache_key(token_hash: str) -> str:
+    """Return the active tenant's validation-cache key.
+
+    A token presented through the wrong hosted tenant must not populate a
+    fleet-global negative entry that can deny the token's rightful tenant.
+    ``tenant_cache_key`` preserves the historical key byte-for-byte in
+    single-tenant mode and fails closed without a hosted tenant context.
+    """
+    return tenant_cache_key(f"embed_token:{token_hash}")
+
 
 # BUG-028: urlparse(...).hostname strips IPv6 brackets, so the loopback literal
 # stored here must be the UNBRACKETED form '::1' to match what
@@ -171,7 +184,7 @@ async def create_embed_token(
         try:
             cache = get_cache()
             for h in revoked_hashes:
-                await cache.delete(f"embed_token:{h}")
+                await cache.delete(_embed_token_cache_key(h))
         except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
             logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -250,7 +263,7 @@ async def revoke_embed_token(
     # Best-effort cache invalidation
     try:
         cache = get_cache()
-        await cache.delete(f"embed_token:{token.token_hash}")
+        await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -296,7 +309,7 @@ async def revoke_embed_tokens_by_map(
     try:
         cache = get_cache()
         for token in tokens:
-            await cache.delete(f"embed_token:{token.token_hash}")
+            await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -366,7 +379,7 @@ async def update_embed_token(
     # Invalidate cache so changes take effect immediately
     try:
         cache = get_cache()
-        await cache.delete(f"embed_token:{token.token_hash}")
+        await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -443,8 +456,14 @@ async def validate_embed_token_access(
     Checks allowed_origins when domain-locking is enabled.
     Tracks usage on cache miss with explicit commit.
     """
+    # Hosted validation is meaningful only inside a verified tenant request or
+    # worker context.  Return a generic denial instead of letting cache-key
+    # construction raise, so an unscoped host cannot become an error oracle.
+    if is_multi_tenant() and not tenant_cache_context_available():
+        return False
+
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    cache_key = f"embed_token:{token_hash}"
+    cache_key = _embed_token_cache_key(token_hash)
 
     cache = get_cache()
     token: EmbedToken | None = None
@@ -710,7 +729,7 @@ async def bulk_revoke_embed_tokens(
     try:
         cache = get_cache()
         for token in tokens:
-            await cache.delete(f"embed_token:{token.token_hash}")
+            await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 

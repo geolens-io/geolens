@@ -369,6 +369,40 @@ class TestContacts:
         )
         assert list_resp.json()["total"] == 0
 
+    async def test_contact_mutations_require_matching_record_path(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A child UUID cannot be mutated through a different authorized record."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        owner = await create_dataset(test_db_session, created_by=admin_id)
+        other = await create_dataset(test_db_session, created_by=admin_id)
+        created = await client.post(
+            f"/records/{owner.record_id}/contacts/",
+            json={"role": "author", "name": "Owner"},
+            headers=admin_auth_header,
+        )
+        contact_id = created.json()["id"]
+
+        patched = await client.patch(
+            f"/records/{other.record_id}/contacts/{contact_id}/",
+            json={"name": "Cross-record"},
+            headers=admin_auth_header,
+        )
+        deleted = await client.delete(
+            f"/records/{other.record_id}/contacts/{contact_id}/",
+            headers=admin_auth_header,
+        )
+
+        assert patched.status_code == 404
+        assert deleted.status_code == 404
+        owner_contacts = await client.get(
+            f"/records/{owner.record_id}/contacts/", headers=admin_auth_header
+        )
+        assert owner_contacts.json()["contacts"][0]["name"] == "Owner"
+
     async def test_contact_requires_auth(
         self, client: AsyncClient, test_db_session: AsyncSession
     ):
@@ -819,6 +853,51 @@ class TestDistributions:
             headers=admin_auth_header,
         )
         assert del_resp.status_code == 204
+
+    async def test_distribution_mutations_require_matching_record_path(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A distribution UUID cannot be changed through another record path."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        owner = await create_dataset(test_db_session, created_by=admin_id)
+        other = await create_dataset(test_db_session, created_by=admin_id)
+        created = await client.post(
+            f"/records/{owner.record_id}/distributions/",
+            json={
+                "distribution_type": "api",
+                "format": "json",
+                "url": "https://example.test/owner",
+                "title": "Owner",
+            },
+            headers=admin_auth_header,
+        )
+        distribution_id = created.json()["id"]
+
+        patched = await client.patch(
+            f"/records/{other.record_id}/distributions/{distribution_id}/",
+            json={"title": "Cross-record"},
+            headers=admin_auth_header,
+        )
+        deleted = await client.delete(
+            f"/records/{other.record_id}/distributions/{distribution_id}/",
+            headers=admin_auth_header,
+        )
+
+        assert patched.status_code == 404
+        assert deleted.status_code == 404
+        owner_distributions = await client.get(
+            f"/records/{owner.record_id}/distributions/",
+            headers=admin_auth_header,
+        )
+        manual = next(
+            item
+            for item in owner_distributions.json()["distributions"]
+            if item["id"] == distribution_id
+        )
+        assert manual["title"] == "Owner"
 
     async def test_update_auto_generated_blocked(
         self,

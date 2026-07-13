@@ -22,6 +22,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
+
 
 class TestMultiTenantIngestKeyAlignment:
     """CR-02: ingest storage key must match serve-time resolve_open_path key."""
@@ -117,3 +122,59 @@ class TestMultiTenantIngestKeyAlignment:
         assert ingest_storage_key == serve_object_key, (
             f"S3 CR-02: ingest key {ingest_storage_key!r} != serve key {serve_object_key!r}"
         )
+
+    def test_raster_worker_resolves_all_managed_keys_for_active_tenant(
+        self, monkeypatch
+    ):
+        from app.processing.ingest.tasks_raster import (
+            _resolve_managed_raster_storage_keys,
+        )
+
+        tenant_id = "00000000-0000-0000-0000-000000000001"
+        logical = (
+            "rasters/dataset/sha/source.cog.tif",
+            "rasters/dataset/sha/quicklook_256.png",
+            "rasters/dataset/sha/quicklook_512.png",
+        )
+        monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+        token = current_tenant_var.set(tenant_id)
+        try:
+            assert _resolve_managed_raster_storage_keys(*logical) == tuple(
+                f"tenants/{tenant_id}/{key}" for key in logical
+            )
+        finally:
+            current_tenant_var.reset(token)
+
+    def test_raster_worker_storage_keys_are_single_tenant_exact(self, monkeypatch):
+        from app.processing.ingest.tasks_raster import (
+            _resolve_managed_raster_storage_keys,
+        )
+
+        logical = (
+            "rasters/dataset/sha/source.cog.tif",
+            "rasters/dataset/sha/quicklook_256.png",
+            "rasters/dataset/sha/quicklook_512.png",
+        )
+        monkeypatch.setattr(settings, "geolens_tenancy_mode", "single_tenant")
+        token = current_tenant_var.set("stray-hosted-context")
+        try:
+            assert _resolve_managed_raster_storage_keys(*logical) == logical
+        finally:
+            current_tenant_var.reset(token)
+
+    def test_raster_worker_fails_closed_without_hosted_tenant(self, monkeypatch):
+        from app.processing.ingest.tasks_raster import (
+            _resolve_managed_raster_storage_keys,
+        )
+
+        monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+        token = current_tenant_var.set(None)
+        try:
+            with pytest.raises(RuntimeError, match="requires tenant context"):
+                _resolve_managed_raster_storage_keys(
+                    "rasters/dataset/sha/source.cog.tif",
+                    "rasters/dataset/sha/quicklook_256.png",
+                    "rasters/dataset/sha/quicklook_512.png",
+                )
+        finally:
+            current_tenant_var.reset(token)

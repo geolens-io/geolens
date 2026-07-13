@@ -16,6 +16,8 @@ Requirements:
 
 import hashlib
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
@@ -24,6 +26,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
 from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.embed_tokens.models import EmbedToken
@@ -34,7 +37,7 @@ from app.modules.embed_tokens.service import (
     update_embed_token,
     validate_embed_token_access,
 )
-from app.platform.cache import init_cache
+from app.platform.cache import init_cache, tenant_cache_key
 from app.platform.cache.provider import get_cache
 
 from tests.conftest import _run_with_too_many_clients_retry
@@ -72,6 +75,16 @@ async def _init_tile_pool_for_tests(request):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _tenant_context(tenant_id: str | uuid.UUID) -> Iterator[None]:
+    """Install the verified hosted-tenant context used by request services."""
+    context_token = current_tenant_var.set(str(tenant_id))
+    try:
+        yield
+    finally:
+        current_tenant_var.reset(context_token)
 
 
 async def _create_private_dataset(
@@ -1729,17 +1742,18 @@ class TestEmbedTokenTenantPinning:
         # Flush cache → DB-miss path
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         cache = get_cache()
-        await cache.delete(f"embed_token:{token_hash}")
+        with _tenant_context(ctx.tenant_a):
+            await cache.delete(tenant_cache_key(f"embed_token:{token_hash}"))
 
-        val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
-        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
-        try:
-            async with val_sm() as session:
-                result = await validate_embed_token_access(
-                    raw_token, extra_ds_id, session
-                )
-        finally:
-            await val_engine.dispose()
+            val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+            val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+            try:
+                async with val_sm() as session:
+                    result = await validate_embed_token_access(
+                        raw_token, extra_ds_id, session
+                    )
+            finally:
+                await val_engine.dispose()
 
         await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id, extra_ds_id])
 
@@ -1778,17 +1792,18 @@ class TestEmbedTokenTenantPinning:
         # Flush cache → DB-miss path
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         cache = get_cache()
-        await cache.delete(f"embed_token:{token_hash}")
+        with _tenant_context(ctx.tenant_a):
+            await cache.delete(tenant_cache_key(f"embed_token:{token_hash}"))
 
-        val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
-        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
-        try:
-            async with val_sm() as session:
-                result = await validate_embed_token_access(
-                    raw_token, primary_ds_id, session
-                )
-        finally:
-            await val_engine.dispose()
+            val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+            val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+            try:
+                async with val_sm() as session:
+                    result = await validate_embed_token_access(
+                        raw_token, primary_ds_id, session
+                    )
+            finally:
+                await val_engine.dispose()
 
         await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id])
 
@@ -1828,29 +1843,30 @@ class TestEmbedTokenTenantPinning:
         # Flush cache, then do a DB-miss call to populate it
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         cache = get_cache()
-        await cache.delete(f"embed_token:{token_hash}")
+        with _tenant_context(ctx.tenant_a):
+            await cache.delete(tenant_cache_key(f"embed_token:{token_hash}"))
 
-        val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
-        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
-        try:
-            async with val_sm() as session:
-                # First call: DB-miss → populates cache with tenant_id payload
-                _allow = await validate_embed_token_access(
-                    raw_token, primary_ds_id, session
-                )
-        finally:
-            await val_engine.dispose()
+            val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+            val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+            try:
+                async with val_sm() as session:
+                    # First call: DB-miss → populates cache with tenant_id payload
+                    _allow = await validate_embed_token_access(
+                        raw_token, primary_ds_id, session
+                    )
+            finally:
+                await val_engine.dispose()
 
-        # Second call: cache-hit path — cross-tenant dataset must still deny
-        val_engine2 = create_async_engine(ctx.db_url, poolclass=NullPool)
-        val_sm2 = async_sessionmaker(val_engine2, expire_on_commit=False)
-        try:
-            async with val_sm2() as session:
-                result = await validate_embed_token_access(
-                    raw_token, extra_ds_id, session
-                )
-        finally:
-            await val_engine2.dispose()
+            # Second call: cache-hit path — cross-tenant dataset must still deny
+            val_engine2 = create_async_engine(ctx.db_url, poolclass=NullPool)
+            val_sm2 = async_sessionmaker(val_engine2, expire_on_commit=False)
+            try:
+                async with val_sm2() as session:
+                    result = await validate_embed_token_access(
+                        raw_token, extra_ds_id, session
+                    )
+            finally:
+                await val_engine2.dispose()
 
         await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id, extra_ds_id])
 
@@ -2020,18 +2036,19 @@ class TestEmbedTokenNullTenantDeny:
         # Flush cache to exercise DB-miss path
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         cache = get_cache()
-        await cache.delete(f"embed_token:{token_hash}")
+        with _tenant_context(ctx.tenant_a):
+            await cache.delete(tenant_cache_key(f"embed_token:{token_hash}"))
 
-        # Validate — CR-01 must deny: both token_tenant and dataset_tenant are None
-        val_engine = create_async_engine(db_url, poolclass=NullPool)
-        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
-        try:
-            async with val_sm() as session:
-                result = await validate_embed_token_access(
-                    raw_token, null_ds_id, session
-                )
-        finally:
-            await val_engine.dispose()
+            # Validate — CR-01 must deny: both token and dataset tenants are None.
+            val_engine = create_async_engine(db_url, poolclass=NullPool)
+            val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+            try:
+                async with val_sm() as session:
+                    result = await validate_embed_token_access(
+                        raw_token, null_ds_id, session
+                    )
+            finally:
+                await val_engine.dispose()
 
         # Teardown
         import sqlalchemy as sa
@@ -2123,15 +2140,18 @@ class TestEmbedTokenNullTenantDeny:
 
         # Flush cache — DB-miss path
         cache = get_cache()
-        await cache.delete(f"embed_token:{token_hash}")
+        with _tenant_context(ctx.tenant_a):
+            await cache.delete(tenant_cache_key(f"embed_token:{token_hash}"))
 
-        val_engine = create_async_engine(db_url, poolclass=NullPool)
-        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
-        try:
-            async with val_sm() as session:
-                result = await validate_embed_token_access(raw_token, ds_id, session)
-        finally:
-            await val_engine.dispose()
+            val_engine = create_async_engine(db_url, poolclass=NullPool)
+            val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+            try:
+                async with val_sm() as session:
+                    result = await validate_embed_token_access(
+                        raw_token, ds_id, session
+                    )
+            finally:
+                await val_engine.dispose()
 
         # Teardown: delete the manually-inserted token, then the map/dataset
         import sqlalchemy as _sa

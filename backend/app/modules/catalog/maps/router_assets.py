@@ -1,7 +1,3 @@
-"""Reusable map icon and MapLibre sprite asset routes."""
-
-from __future__ import annotations
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -15,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.identity import Identity
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import require_mode_permission, require_permission
 from app.modules.catalog.maps.schemas import MapIconListResponse, MapIconResponse
 from app.modules.catalog.maps.sprites import (
     build_sprite_index,
@@ -26,6 +22,10 @@ from app.modules.catalog.maps.sprites import (
 )
 
 router = APIRouter()
+
+require_icon_catalog_admin = require_mode_permission(
+    single_tenant="edit_metadata", multi_tenant="manage_tenants"
+)
 
 
 @router.get("/icons", response_model=MapIconListResponse)
@@ -42,7 +42,7 @@ async def list_map_icons_endpoint(
 )
 async def upload_map_icon_endpoint(
     file: UploadFile = File(...),
-    user: Identity = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_icon_catalog_admin),
     db: AsyncSession = Depends(get_db),
 ) -> MapIconResponse:
     """Upload a reusable SVG or PNG icon for symbol layers."""

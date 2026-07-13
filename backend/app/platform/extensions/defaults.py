@@ -472,22 +472,31 @@ class DefaultProcessingPort:
     async def get_catalog_vocabulary(self, session):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
-        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
 
-        stmt = select(RecordKeyword.keyword).distinct()
+        # RecordKeyword is not itself tenant-scoped. Join through Record so the
+        # database's Record RLS policy constrains the vocabulary to the active
+        # tenant in hosted mode; with RLS disabled this is byte-for-byte the
+        # same result set as the historical single-tenant query.
+        stmt = (
+            select(RecordKeyword.keyword)
+            .join(Record, RecordKeyword.record_id == Record.id)
+            .distinct()
+        )
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
 
     async def get_keywords_for_records(self, session, record_ids):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
-        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
 
         if not record_ids:
             return []
 
         stmt = (
             select(RecordKeyword.keyword)
+            .join(Record, RecordKeyword.record_id == Record.id)
             .where(RecordKeyword.record_id.in_(record_ids))
             .distinct()
         )

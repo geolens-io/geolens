@@ -42,7 +42,7 @@ log = structlog.get_logger()
 RECOVERY_LOCK_KEY = 224_001
 
 
-async def recover_stale_jobs() -> None:
+async def _recover_stale_jobs_for_current_scope() -> None:
     """Mark stale jobs as failed using an advisory lock + heartbeat lease.
 
     Running workers renew ``heartbeat_at``. Recovery falls back to
@@ -165,6 +165,45 @@ async def recover_stale_jobs() -> None:
                 pending_recovered=len(orphaned_jobs),
                 vrt_assets_recovered=vrt_assets_recovered,
                 vrt_gens_failed=vrt_gens_failed,
+            )
+
+
+async def _registered_tenant_ids_for_recovery() -> list[str]:
+    """Read the global tenant registry without touching an RLS child table."""
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        result = await session.execute(
+            text("SELECT id FROM catalog.tenants ORDER BY id")
+        )
+        return [str(tenant_id) for tenant_id in result.scalars()]
+
+
+async def recover_stale_jobs() -> None:
+    """Recover stale jobs once globally or once per hosted tenant.
+
+    The historical single-tenant path remains one direct recovery call. In
+    hosted mode ``ingest_jobs`` is FORCE-RLS protected, so each recovery must
+    run with an active tenant GUC. A failure is isolated to that tenant and is
+    logged before recovery continues for the rest of the fleet.
+    """
+    from app.core.db.tenant_session import tenant_job_context
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant():
+        await _recover_stale_jobs_for_current_scope()
+        return
+
+    for tenant_id in await _registered_tenant_ids_for_recovery():
+        try:
+            with tenant_job_context(tenant_id):
+                await _recover_stale_jobs_for_current_scope()
+        except Exception as exc:  # broad: startup recovery continues per tenant
+            log.warning(
+                "Stale job recovery failed for tenant",
+                tenant_id=tenant_id,
+                error=str(exc),
+                exc_info=True,
             )
 
 

@@ -9,11 +9,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
+from starlette.requests import Request
+from unittest.mock import AsyncMock
+from urllib.parse import urlencode
 
 from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.service import AuthService
+from app.modules.catalog.datasets.api.router_export import _resolve_download_user
 from tests.factories import get_user_id
 
 
@@ -36,6 +43,7 @@ async def test_create_download_token_has_typ_and_scope(test_db_session):
     assert payload["typ"] == "download"
     assert payload["scope"] == f"dataset:{dataset_id}"
     assert payload["sub"] == str(user_id)
+    assert "tid" not in payload
     # exp - iat ≤ 120 seconds
     assert payload["exp"] - payload["iat"] <= 120
 
@@ -117,3 +125,56 @@ async def test_session_jwt_in_authorization_header_still_works(
     # Specifically NOT 401 (auth passed). Likely 404 (dataset not found) or
     # 403 (missing export permission). Both are acceptable outcomes here.
     assert resp.status_code != 401
+
+
+async def test_multi_tenant_download_token_requires_and_emits_tenant(
+    test_db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+    identity = AuthenticatedIdentity(user_id=uuid.uuid4(), username="alice")
+    dataset_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    service = AuthService(test_db_session)
+
+    with pytest.raises(ValueError, match="without a tenant id"):
+        service.create_download_token(identity, dataset_id)
+
+    payload = _decode(
+        service.create_download_token(identity, dataset_id, tenant_id=tenant_id)
+    )
+    assert payload["tid"] == str(tenant_id)
+
+
+async def test_multi_tenant_download_token_rejects_wrong_host(
+    test_db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+    dataset_id = uuid.uuid4()
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    token = AuthService(test_db_session).create_download_token(
+        AuthenticatedIdentity(user_id=uuid.uuid4(), username="alice"),
+        dataset_id,
+        tenant_id=tenant_a,
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": f"/datasets/{dataset_id}/download/cog",
+            "path_params": {"dataset_id": dataset_id},
+            "query_string": urlencode({"token": token}).encode(),
+            "headers": [],
+        }
+    )
+    context_token = current_tenant_var.set(str(tenant_b))
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await _resolve_download_user(request, AsyncMock(), None)
+    finally:
+        current_tenant_var.reset(context_token)
+
+    assert exc_info.value.status_code == 401
+    assert "invalid or expired" in str(exc_info.value.detail).lower()

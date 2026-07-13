@@ -34,6 +34,9 @@ _SHARED_TABLES = [
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
 _TENANT_TABLES = [

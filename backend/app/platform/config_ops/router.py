@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import require_mode_permission
 from app.platform.config_ops.exceptions import ConfigLockedError, ConfigValidationError
 from app.platform.config_ops.schemas import (
     ConfigImportRequest,
@@ -30,6 +30,10 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
+require_config_operator = require_mode_permission(
+    single_tenant="manage_settings", multi_tenant="manage_tenants"
+)
+
 router = APIRouter(
     prefix="/config-ops", tags=["config-ops"], responses=ERROR_RESPONSES_AUTH
 )
@@ -46,7 +50,7 @@ router = APIRouter(
     },
 )
 async def export_configuration(
-    user: Identity = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_config_operator),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Export full configuration as JSON (settings + OAuth providers, secrets redacted).
@@ -70,7 +74,7 @@ async def import_configuration(
     data: ConfigImportRequest,
     request: Request,
     mode: ImportMode = Query("merge"),
-    user: Identity = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_config_operator),
     db: AsyncSession = Depends(get_db),
 ) -> ImportResult:
     """Import configuration in merge or overwrite mode.
@@ -107,7 +111,7 @@ async def import_configuration(
 
 @router.post("/validate/", response_model=ConnectivityResult)
 async def validate_configuration(
-    user: Identity = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_config_operator),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectivityResult:
     """Validate connectivity to storage, cache, and all enabled OIDC providers.
@@ -122,7 +126,7 @@ async def validate_configuration(
 async def dry_run_configuration(
     data: ConfigImportRequest,
     mode: ImportMode = Query("merge"),
-    user: Identity = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_config_operator),
     db: AsyncSession = Depends(get_db),
 ) -> DryRunResponse:
     """Preview what an import would change without applying any modifications."""

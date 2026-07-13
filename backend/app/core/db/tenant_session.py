@@ -293,8 +293,8 @@ def _before_tenant_cursor_execute(
 
 
 def _after_tenant_cursor_execute(
-    _conn: object,
-    cursor: object,
+    conn: Connection,
+    _cursor: object,
     _statement: str,
     _parameters: object,
     context: object,
@@ -303,8 +303,16 @@ def _after_tenant_cursor_execute(
     """Return to the session login after a tenant data-plane statement."""
     if not getattr(context, "_geolens_tenant_role_bound", False):
         return
-    cursor.execute("SET LOCAL ROLE NONE")  # type: ignore[attr-defined]
-    setattr(context, "_geolens_tenant_role_bound", False)
+    # The statement cursor owns the SELECT result metadata and pending rows.
+    # Executing the reset on that cursor would replace the result with the
+    # command-only SET response before SQLAlchemy can consume it. A sibling
+    # cursor changes the same connection-local role without touching the result.
+    reset_cursor = conn.connection.cursor()
+    try:
+        reset_cursor.execute("SET LOCAL ROLE NONE")
+    finally:
+        reset_cursor.close()
+        setattr(context, "_geolens_tenant_role_bound", False)
 
 
 def _normalize_context_tenant_id(tenant_id: str, *, operation: str) -> str:

@@ -129,6 +129,36 @@ def test_build_maplibre_style_exports_clean_sources_layers_and_viewport():
     assert style["layers"][1]["layout"]["text-font"] == ["Noto Sans Regular"]
 
 
+def test_hosted_style_tile_signature_is_bound_to_active_tenant(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+
+    tenant_id = "00000000-0000-0000-0000-0000000000aa"
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(tenant_id)
+    try:
+        style = build_maplibre_style(_map(), [_layer()])
+    finally:
+        current_tenant_var.reset(token)
+
+    tile_url = next(iter(style["sources"].values()))["tiles"][0]
+    params = parse_qs(urlsplit(tile_url).query)
+    scope = f"{tenant_id}:public_stops"
+    assert params["scope"] == [scope]
+    assert verify_tile_signature(scope, int(params["exp"][0]), params["sig"][0])
+
+
+def test_hosted_style_tile_signature_fails_closed_without_tenant(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(None)
+    try:
+        with pytest.raises(RuntimeError, match="Tenant context is required"):
+            build_maplibre_style(_map(), [_layer()])
+    finally:
+        current_tenant_var.reset(token)
+
+
 def test_build_maplibre_style_consolidates_symbol_label_output():
     layer = _layer(
         style_config={

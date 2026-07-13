@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import time
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -534,13 +533,7 @@ collections_router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------------
-# TTL cache for collection metadata aggregates
-# ---------------------------------------------------------------------------
-
-_COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
-_COLLECTION_META_TTL = 60  # seconds
-_COLLECTION_META_MAX_SIZE = 200
+_COLLECTION_META_CACHE = search_cache._COLLECTION_META_CACHE
 
 
 async def _build_collection_metadata(
@@ -553,15 +546,13 @@ async def _build_collection_metadata(
     Results are cached for 60 seconds keyed by user-id (or 'anon') to avoid
     redundant aggregate queries on every request.
     """
-    cache_key = str(user.id) if user is not None else "anon"
-    cached = _COLLECTION_META_CACHE.get(cache_key)
+    cache_key = search_cache.collection_metadata_cache_key(
+        str(user.id) if user is not None else "anon"
+    )
+    cached = search_cache.get_collection_metadata_cached(cache_key)
     if cached is not None:
-        ts, data = cached
-        if time.monotonic() - ts < _COLLECTION_META_TTL:
-            # Re-stamp links with current public_api_url (may differ per request)
-            data = dict(data)
-            data["links"] = _build_collection_links(public_api_url)
-            return data
+        cached["links"] = _build_collection_links(public_api_url)
+        return cached
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -689,13 +680,7 @@ async def _build_collection_metadata(
     if summaries:
         collection["summaries"] = summaries
 
-    # Store in cache — evict oldest entries if over max size
-    _COLLECTION_META_CACHE[cache_key] = (time.monotonic(), collection)
-    if len(_COLLECTION_META_CACHE) > _COLLECTION_META_MAX_SIZE:
-        oldest_key = min(
-            _COLLECTION_META_CACHE, key=lambda k: _COLLECTION_META_CACHE[k][0]
-        )
-        _COLLECTION_META_CACHE.pop(oldest_key, None)
+    search_cache.set_collection_metadata_cached(cache_key, collection)
 
     return collection
 

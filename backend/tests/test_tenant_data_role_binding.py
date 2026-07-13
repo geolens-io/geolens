@@ -41,10 +41,37 @@ def test_select_uses_tenant_reader_and_resets_after_statement(monkeypatch):
         monkeypatch,
         f'SELECT * FROM "{_SCHEMA_A}"."roads"',
     )
+    connection = MagicMock()
+    reset_cursor = connection.connection.cursor.return_value
 
     cursor.execute.assert_called_once_with(f'SET LOCAL ROLE "{_READER_A}"')
-    _after_tenant_cursor_execute(object(), cursor, "", (), context, False)
-    assert cursor.execute.call_args_list[-1].args == ("SET LOCAL ROLE NONE",)
+    _after_tenant_cursor_execute(connection, cursor, "", (), context, False)
+
+    # The SELECT cursor must remain untouched so SQLAlchemy can still consume
+    # its result metadata and rows after the event returns.
+    cursor.execute.assert_called_once_with(f'SET LOCAL ROLE "{_READER_A}"')
+    reset_cursor.execute.assert_called_once_with("SET LOCAL ROLE NONE")
+    reset_cursor.close.assert_called_once_with()
+    assert context._geolens_tenant_role_bound is False
+
+
+def test_role_reset_closes_sibling_cursor_when_reset_fails(monkeypatch):
+    from app.core.db.tenant_session import _after_tenant_cursor_execute
+
+    cursor, context = _bind(
+        monkeypatch,
+        f'SELECT * FROM "{_SCHEMA_A}"."roads"',
+    )
+    connection = MagicMock()
+    reset_cursor = connection.connection.cursor.return_value
+    reset_cursor.execute.side_effect = RuntimeError("reset failed")
+
+    with pytest.raises(RuntimeError, match="reset failed"):
+        _after_tenant_cursor_execute(connection, cursor, "", (), context, False)
+
+    cursor.execute.assert_called_once_with(f'SET LOCAL ROLE "{_READER_A}"')
+    reset_cursor.close.assert_called_once_with()
+    assert context._geolens_tenant_role_bound is False
 
 
 @pytest.mark.parametrize(

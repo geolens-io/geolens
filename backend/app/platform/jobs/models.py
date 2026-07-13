@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -34,6 +34,7 @@ class IngestJob(Base):
             "status",
             postgresql_where=text("status IN ('running', 'pending')"),
         ),
+        Index("ix_catalog_ingest_jobs_tenant_id", "tenant_id"),
         {"schema": "catalog"},
     )
 
@@ -44,6 +45,11 @@ class IngestJob(Base):
         ForeignKey("catalog.datasets.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+    # Durable tenant ownership remains after nullable creator/dataset FKs are
+    # cleared. The database derives/stamps and validates this key.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
     )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"

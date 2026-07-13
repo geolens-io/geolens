@@ -59,6 +59,7 @@ class AdminService:
         result = await self.db.execute(
             select(func.count())
             .select_from(UserRole)
+            .join(User, UserRole.user_id == User.id)
             .join(Role, UserRole.role_id == Role.id)
             .where(Role.name == "admin", UserRole.user_id != exclude_user_id)
         )
@@ -344,6 +345,7 @@ class AdminService:
             pattern = func.concat(
                 "%", func.catalog.immutable_unaccent(escape_ilike(search).lower()), "%"
             )
+
             filters.append(
                 func.lower(func.catalog.immutable_unaccent(User.username)).like(
                     pattern, escape="\\"
@@ -516,15 +518,16 @@ class AdminService:
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics."""
         try:
-            total_result = await self.db.execute(
-                text("SELECT COUNT(*) FROM catalog.records")
+            result = await self.db.execute(
+                text(
+                    "SELECT COUNT(DISTINCT visible_record.id) AS total_records, "
+                    "COUNT(DISTINCT embedding.record_id) AS embedded_records "
+                    "FROM catalog.records AS visible_record "
+                    "LEFT JOIN catalog.record_embeddings AS embedding "
+                    "ON embedding.record_id = visible_record.id"
+                )
             )
-            total_records = total_result.scalar_one()
-
-            embedded_result = await self.db.execute(
-                text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
-            )
-            embedded_records = embedded_result.scalar_one()
+            total_records, embedded_records = result.one()
         except Exception:  # broad: pgvector table may be missing or DB unavailable; degrade to zeros for admin UI
             logger.warning("Failed to query embedding stats", exc_info=True)
             return EmbeddingStatsResponse(

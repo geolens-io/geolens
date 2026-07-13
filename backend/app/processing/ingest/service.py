@@ -40,6 +40,7 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import IngestJob
+from app.platform.storage.titiler_url import resolve_current_storage_key
 
 # Spool threshold for S3 uploads (PERF-001): SpooledTemporaryFile buffers this
 # many bytes in memory before spilling to a real temp file on disk.  16 MiB is
@@ -211,6 +212,7 @@ async def save_upload_file(
         storage = get_storage()
         safe_name = Path(file.filename).name  # strip path traversal
         s3_key = f"staging/{job_id}/{safe_name}"
+        physical_s3_key = resolve_current_storage_key(s3_key)
         put_started = False
         try:
             if max_size_bytes is not None:
@@ -243,19 +245,23 @@ async def save_upload_file(
                         spooled.write(chunk)
                     spooled.seek(0)
                     put_started = True
-                    await _await_provider_call_draining(storage.put(s3_key, spooled))
+                    await _await_provider_call_draining(
+                        storage.put(physical_s3_key, spooled)
+                    )
                 finally:
                     spooled.close()
             else:
                 put_started = True
-                await _await_provider_call_draining(storage.put(s3_key, file.file))
+                await _await_provider_call_draining(
+                    storage.put(physical_s3_key, file.file)
+                )
         except BaseException:
             if put_started:
                 # A drained PUT may have completed just as the request was
                 # cancelled. Remove that now-ownerless object before the route's
                 # job transaction rolls back.
                 try:
-                    await _await_provider_call_draining(storage.delete(s3_key))
+                    await _await_provider_call_draining(storage.delete(physical_s3_key))
                 except BaseException:
                     pass
             raise
@@ -323,7 +329,10 @@ async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
     download retries up to 2 times on transient network failures with linear
     backoff so a single S3 blip mid-ingest doesn't force the user to reupload.
     """
-    if Path(file_path).exists():
+    from app.core.tenancy import is_multi_tenant
+
+    candidate = Path(file_path)
+    if candidate.exists() and (candidate.is_absolute() or not is_multi_tenant()):
         return file_path
 
     # File was uploaded directly to S3 via presigned URL
@@ -332,6 +341,14 @@ async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
     from app.platform.storage import get_storage
 
     storage = get_storage()
+    # Manifest storage sources are operator-owned physical keys and must be
+    # consumed exactly as declared. Only GeoLens upload staging keys are
+    # logical catalog/job identifiers that cross the tenant resolver.
+    physical_file_path = (
+        resolve_current_storage_key(file_path)
+        if file_path.startswith("staging/")
+        else file_path
+    )
     # Every caller owns a distinct local copy. Preview requests may overlap a
     # worker or another preview for the same job; a deterministic path allowed
     # one caller's finally block to unlink a file another GDAL process was using.
@@ -348,7 +365,7 @@ async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            await _download_to_file_draining(storage, file_path, local_path)
+            await _download_to_file_draining(storage, physical_file_path, local_path)
             return str(local_path)
         except (OSError, asyncio.TimeoutError, ConnectionError) as exc:
             # OSError covers most botocore network failures (BotoCoreError is a subclass).

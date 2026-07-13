@@ -32,7 +32,7 @@ from app.modules.admin.schemas import (
 from app.modules.admin.service import AdminService
 from app.modules.quota.service import get_user_quota_usage_bulk
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import require_mode_permission, require_permission
 from app.modules.auth.router import limiter  # HARDEN-01: shared rate-limiter instance
 from app.modules.auth.models import User
 from app.modules.auth.schemas import UserResponse
@@ -47,6 +47,10 @@ logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 router.include_router(operations_router)
+
+require_ai_status_admin = require_mode_permission(
+    single_tenant="manage_users", multi_tenant="manage_tenants"
+)
 
 
 def _user_response(user: User) -> UserResponse:
@@ -688,13 +692,13 @@ def _ai_status(
 @router.get(
     "/ai-status",
     response_model=AIStatusResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
+    dependencies=[Depends(require_ai_status_admin)],
     include_in_schema=False,
 )
 @router.get(
     "/ai-status/",
     response_model=AIStatusResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
+    dependencies=[Depends(require_ai_status_admin)],
 )
 async def get_ai_status(
     db: AsyncSession = Depends(get_db),
@@ -731,7 +735,7 @@ async def get_ai_status(
 async def update_ai_status(
     body: AIStatusUpdate,
     request: Request,
-    user: User = Depends(require_permission("manage_users")),
+    user: User = Depends(require_ai_status_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
     """Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only)."""

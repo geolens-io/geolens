@@ -45,6 +45,8 @@ import uuid
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from starlette.requests import Request
+from unittest.mock import AsyncMock
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -169,6 +171,45 @@ def _patch_persistent_config(monkeypatch, config_obj, value: bool):
     else:
         # Static env_default; patch the instance attribute.
         monkeypatch.setattr(config_obj, "_env_default_static", value, raising=False)
+
+
+@pytest.mark.anyio
+async def test_hosted_verification_email_uses_validated_tenant_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    captured_send_email: list,
+):
+    from app.core.config import settings
+    from app.modules.auth.verification_email import send_verification_email
+
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setattr(settings, "public_app_url", "https://fleet.example.test")
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "https",
+            "path": "/auth/register",
+            "root_path": "/api",
+            "headers": [(b"host", b"tenant-a.example.test")],
+            "query_string": b"",
+        }
+    )
+    request.state.tenant_id = str(uuid.uuid4())
+    request.state.tenant_public_origin = "https://tenant-a.example.test"
+
+    await send_verification_email(
+        AsyncMock(),
+        to_email="new-user@example.test",
+        raw_token="tenant-verification-token",
+        request=request,
+    )
+
+    assert len(captured_send_email) == 1
+    body = captured_send_email[0].body
+    assert (
+        "https://tenant-a.example.test/verify-email?token=tenant-verification-token"
+    ) in body
+    assert "fleet.example.test" not in body
 
 
 # ---------------------------------------------------------------------------

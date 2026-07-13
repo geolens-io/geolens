@@ -423,6 +423,9 @@ class TestResolveTenantUuid:
 
         assert result == str(target)
         session.scalar.assert_awaited_once()
+        statement = session.scalar.await_args.args[0]
+        assert "WHERE slug = :slug" in str(statement)
+        assert "LIMIT" not in str(statement).upper()
 
     @pytest.mark.asyncio
     async def test_unknown_slug_returns_none(self):

@@ -1218,12 +1218,9 @@ def _build_tile_token_for_dataset(
     # context even if both tenants share the same table_name.
     # single_tenant: scope = bare table_name — byte-identical to pre-1209.
     exp = round_expiry()
-    _scope_tid = current_tenant_var.get() if is_multi_tenant() else None
-    scope = (
-        f"{_scope_tid}:{dataset.table_name}"
-        if _scope_tid is not None
-        else dataset.table_name
-    )
+    from app.core.tenancy import tenant_bound_scope
+
+    scope = tenant_bound_scope(dataset.table_name)
     sig = generate_tile_signature(scope, exp)
 
     return VectorTileToken(
@@ -1533,12 +1530,9 @@ async def _authorize_vector_tile_request(
         # WR-03 (Phase 1209-CR): expected scope mirrors _build_tile_token_for_dataset:
         # in multi_tenant the scope is "{tid}:{table_name}" to prevent cross-tenant
         # token replay.  single_tenant: scope is bare table_name — unchanged.
-        _verify_tid = current_tenant_var.get() if is_multi_tenant() else None
-        _expected_scope = (
-            f"{_verify_tid}:{meta.table_name}"
-            if _verify_tid is not None
-            else meta.table_name
-        )
+        from app.core.tenancy import tenant_bound_scope
+
+        _expected_scope = tenant_bound_scope(meta.table_name)
         if scope != _expected_scope:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"

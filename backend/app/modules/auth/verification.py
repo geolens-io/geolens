@@ -25,7 +25,7 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import EmailVerificationToken, User
@@ -101,6 +101,7 @@ async def redeem_verification_token(
             EmailVerificationToken.token_hash == token_hash,
             EmailVerificationToken.consumed_at.is_(None),
             EmailVerificationToken.expires_at > now,
+            EmailVerificationToken.user_id.in_(select(User.id)),
         )
         .values(consumed_at=now)
         .returning(EmailVerificationToken.user_id)

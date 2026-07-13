@@ -19,9 +19,17 @@ def _app_with_probe():
 
     called: list[bool] = []
 
-    async def _probe(_request):
+    async def _probe(request):
         called.append(True)
-        return JSONResponse({"ok": True})
+        return JSONResponse(
+            {
+                "ok": True,
+                "tenant_id": getattr(request.state, "tenant_id", None),
+                "tenant_public_origin": getattr(
+                    request.state, "tenant_public_origin", None
+                ),
+            }
+        )
 
     app = Starlette(routes=[Route("/{path:path}", _probe)])
     app.add_middleware(TenantContextMiddleware)
@@ -105,6 +113,8 @@ def test_configured_tenant_suffix_resolves_slug(monkeypatch):
     assert response.status_code == 200
     assert called == [True]
     assert seen == ["acme"]
+    assert response.json()["tenant_id"] == tenant_id
+    assert response.json()["tenant_public_origin"] == "http://acme.geolens.app:443"
 
 
 @pytest.mark.parametrize(

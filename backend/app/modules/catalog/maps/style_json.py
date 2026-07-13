@@ -34,6 +34,7 @@ from app.modules.catalog.maps.style_sanitizers import (
     finite_number as _finite_number,
 )
 from app.platform.extensions import get_catalog_port
+from app.core.tenancy import tenant_bound_scope
 
 __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
 
@@ -363,14 +364,13 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
     port = get_catalog_port()
     exp = port.round_tile_expiry()
+    scope = tenant_bound_scope(layer.dataset_table_name)
     params: dict[str, Any] = {
-        "sig": port.generate_tile_signature(layer.dataset_table_name, exp),
+        "sig": port.generate_tile_signature(scope, exp),
         "exp": exp,
-        "scope": layer.dataset_table_name,
+        "scope": scope,
     }
-    # builder-audit #338 P1-02/P1-03: opt the referenced attribute columns into the tile
-    # so data-driven styling, labels, heatmap weights, 3D heights, and filter refs
-    # evaluate against real data at z<10. Stable, sorted to keep the URL determinate.
+    # Include the stable attribute projection needed by data-driven styles at z<10.
     cols = _data_driven_columns_for_layer(layer)
     if cols:
         params["cols"] = ",".join(cols)

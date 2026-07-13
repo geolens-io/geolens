@@ -27,7 +27,7 @@ from app.modules.admin.schemas import (
 )
 from app.modules.admin.service import AdminService
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import require_mode_permission, require_permission
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.router import limiter
 from app.modules.auth.schemas import ApiKeyCreateResponse
@@ -69,9 +69,18 @@ async def create_api_key(
 
     The raw key is returned only in this response and cannot be retrieved again.
     """
-    from app.modules.auth.service import create_api_key_for_user
+    from app.modules.auth.service import (
+        ApiKeyTargetUserNotFoundError,
+        create_api_key_for_user,
+    )
 
-    api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
+    try:
+        api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
+    except ApiKeyTargetUserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        ) from exc
     await audit_emit(
         db,
         AuditEvent(
@@ -110,7 +119,7 @@ async def list_api_keys(
     db: AsyncSession = Depends(get_db),
 ) -> AdminApiKeyListResponse:
     """List all API keys (admin only). Never returns the raw key."""
-    stmt = select(ApiKey)
+    stmt = select(ApiKey).join(User, ApiKey.user_id == User.id)
     if user_id is not None:
         stmt = stmt.where(ApiKey.user_id == user_id)
     total = (
@@ -132,7 +141,11 @@ async def revoke_api_key(
 ) -> Response:
     """Revoke (soft-delete) an API key (admin only)."""
     api_key = (
-        await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+        await db.execute(
+            select(ApiKey)
+            .join(User, ApiKey.user_id == User.id)
+            .where(ApiKey.id == key_id)
+        )
     ).scalar_one_or_none()
     if api_key is None:
         raise HTTPException(status_code=404, detail="API key not found")
@@ -155,15 +168,18 @@ async def revoke_api_key(
 @router.get(
     "/infrastructure",
     response_model=InfrastructureResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
 )
 @router.get(
     "/infrastructure/",
     response_model=InfrastructureResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def get_infrastructure(
+    _user: User = Depends(
+        require_mode_permission(
+            single_tenant="manage_users", multi_tenant="manage_tenants"
+        )
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> InfrastructureResponse:
     """Return infrastructure configuration, live health status, and OIDC provider connectivity."""

@@ -108,9 +108,18 @@ async def create_share_token(
 ) -> MapShareToken:
     """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
     _reject_custom_expiration_in_community(expires_at)
+    visible_map_id = await session.scalar(select(Map.id).where(Map.id == map_id))
+    visible_creator_id = await session.scalar(
+        select(User.id).where(User.id == created_by)
+    )
+    if visible_map_id is None or visible_creator_id is None:
+        raise ValueError("Map not found")
+
     # Check for existing token
     existing = await session.execute(
-        select(MapShareToken).where(MapShareToken.map_id == map_id)
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(MapShareToken.map_id == visible_map_id)
     )
     token_obj = existing.scalar_one_or_none()
     if token_obj is not None:
@@ -131,10 +140,10 @@ async def create_share_token(
     # 32 bytes per SEC-10
     raw_token = secrets.token_urlsafe(32)
     token_obj = MapShareToken(
-        map_id=map_id,
+        map_id=visible_map_id,
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         token_hint=raw_token[:8],
-        created_by=created_by,
+        created_by=visible_creator_id,
         expires_at=expires_at,
     )
     token_obj._raw_token = raw_token  # transient, not persisted
@@ -151,7 +160,9 @@ async def update_share_token(
     """Update expiration on the active share token for a map. Returns None if no active token."""
     _reject_custom_expiration_in_community(expires_at)
     result = await session.execute(
-        select(MapShareToken).where(
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(
             MapShareToken.map_id == map_id,
             MapShareToken.is_active.is_(True),
         )
@@ -169,7 +180,9 @@ async def get_active_share_token(
 ) -> MapShareToken | None:
     """Return the active share token for a map, or None if no active token exists."""
     result = await session.execute(
-        select(MapShareToken).where(
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(
             MapShareToken.map_id == map_id,
             MapShareToken.is_active.is_(True),
         )
@@ -188,7 +201,9 @@ async def _validate_share_token(
     """
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.token_hash == token_hash)
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(MapShareToken.token_hash == token_hash)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
@@ -605,7 +620,9 @@ async def revoke_share_token(
 ) -> MapShareToken | None:
     """Soft-revoke a share token by setting is_active=False. Returns token if found, None otherwise."""
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.id == token_id)
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(MapShareToken.id == token_id)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
@@ -697,7 +714,9 @@ async def revoke_share_token_by_map(
 ) -> bool:
     """Revoke all share tokens for a map. Returns True if any were revoked."""
     result = await session.execute(
-        select(MapShareToken).where(
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(
             MapShareToken.map_id == map_id,
             MapShareToken.is_active.is_(True),
         )

@@ -346,7 +346,7 @@ async def update_contact_endpoint(
     await _check_record_ownership(db, record_id, user)
     try:
         contact = await update_contact(
-            db, contact_id, **body.model_dump(exclude_none=True)
+            db, contact_id, record_id, **body.model_dump(exclude_none=True)
         )
         await db.commit()
         await db.refresh(contact)
@@ -376,7 +376,7 @@ async def delete_contact_endpoint(
     """Delete a contact."""
     await _check_record_ownership(db, record_id, user)
     try:
-        await delete_contact(db, contact_id)
+        await delete_contact(db, contact_id, record_id)
         await db.commit()
     except ValueError:
         raise HTTPException(
@@ -554,7 +554,7 @@ async def update_distribution_endpoint(
     await _check_record_ownership(db, record_id, user)
     try:
         dist = await update_distribution(
-            db, distribution_id, **body.model_dump(exclude_none=True)
+            db, distribution_id, record_id, **body.model_dump(exclude_none=True)
         )
         await db.commit()
         await db.refresh(dist)
@@ -590,7 +590,7 @@ async def delete_distribution_endpoint(
     """Delete a distribution (manual only; auto-generated distributions are immutable)."""
     await _check_record_ownership(db, record_id, user)
     try:
-        await delete_distribution(db, distribution_id)
+        await delete_distribution(db, distribution_id, record_id)
         await db.commit()
     except ValueError as e:
         if "auto-generated" in str(e).lower():

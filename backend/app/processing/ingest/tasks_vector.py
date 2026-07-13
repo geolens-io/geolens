@@ -36,6 +36,7 @@ from app.processing.ingest.tasks_common import (
     resolve_service_type,
     task_app,
 )
+from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
 _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
@@ -713,11 +714,14 @@ async def ingest_file(
             final_status in ("complete", "failed")
             and file_path != original_file_path
             and not is_fan_out_child
+            and original_file_path.startswith("staging/")
         ):
             try:
                 from app.platform.storage import get_storage
 
-                await get_storage().delete(original_file_path)
+                await get_storage().delete(
+                    resolve_current_storage_key(original_file_path)
+                )
             except Exception:  # broad: best-effort staging cleanup; never fail the task
                 structlog.get_logger().warning(
                     "Failed to delete staging source object",

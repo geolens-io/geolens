@@ -195,13 +195,16 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_dp05_shard_routing_pgbouncer",
     "test_dormant_tenancy_migration_roundtrip",
     "test_dormant_tenancy_schema",
+    "test_audit_job_tenant_isolation",
     "test_entitlement_port",
     "test_extension_api_version",
     "test_gate01_cross_tenant_isolation",
     "test_iso05_db_privilege_guc_survival",
     "test_iso_single_tenant_byte_identical",
+    "test_oauth_account_tenant_isolation",
     "test_tenancy_mode",
     "test_tenant_rls_migration",
+    "test_tenant_job_recovery",
     "test_tenant_session_guc",
     # (2) cluster-global geolens_reader role GRANT/REVOKE mutators — must not run
     #     concurrently with each other or the group above (pg_shdepend contention).
@@ -211,6 +214,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_ogc_features",
     "test_rls_drift_gate",
     "test_rls_leak_lint",
+    "test_vrt_stale_sweep_gap002",
 }
 
 

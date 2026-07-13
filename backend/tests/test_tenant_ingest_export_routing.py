@@ -122,6 +122,36 @@ def test_managed_storage_fails_closed_without_tenant_context(monkeypatch):
         resolve_storage_key("rasters/dataset-id/source.cog.tif")
 
 
+def test_map_assets_use_physical_tenant_namespace(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.catalog.maps.router import _map_asset_storage_key
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set("tenant-a")
+    try:
+        assert _map_asset_storage_key("maps/thumbnails/map-id.png") == (
+            "tenants/tenant-a/maps/thumbnails/map-id.png"
+        )
+        assert _map_asset_storage_key("maps/og-images/map-id.jpg") == (
+            "tenants/tenant-a/maps/og-images/map-id.jpg"
+        )
+    finally:
+        current_tenant_var.reset(token)
+
+
+def test_map_assets_fail_closed_without_hosted_tenant(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.catalog.maps.router import _map_asset_storage_key
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(None)
+    try:
+        with pytest.raises(RuntimeError, match="requires tenant context"):
+            _map_asset_storage_key("maps/thumbnails/map-id.png")
+    finally:
+        current_tenant_var.reset(token)
+
+
 def test_vrt_rewrite_relativizes_with_physical_tenant_key(tmp_path):
     import posixpath
     from xml.etree.ElementTree import parse

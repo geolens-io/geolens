@@ -1,10 +1,29 @@
 """Tests for OAuth/OIDC integration (Phase 118)."""
 
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
+from starlette.requests import Request
+from starlette.responses import RedirectResponse
+
+
+_SAML_ONLY_SERVICE_INPUTS = (
+    ("provider_type", "saml"),
+    ("idp_entity_id", "https://idp.example.test/entity"),
+    ("idp_sso_url", "https://idp.example.test/sso"),
+    (
+        "idp_certificate",
+        "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+    ),
+    ("sp_entity_id", "https://sp.example.test/saml/metadata"),
+)
+
+_PAID_IDP_MAPPING_SERVICE_INPUTS = (
+    ("group_claim", "groups"),
+    ("group_role_mapping", {"admins": "admin"}),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -192,14 +211,19 @@ class TestOAuthProviderModel:
 
 
 class TestOAuthAccountModel:
-    def test_has_unique_constraint(self):
+    def test_has_tenant_scoped_unique_indexes(self):
         from app.modules.auth.oauth.models import OAuthAccount
 
         table = OAuthAccount.__table__
-        constraints = [
-            c.name for c in table.constraints if hasattr(c, "name") and c.name
-        ]
-        assert "uq_oauth_account_provider_subject" in constraints
+        indexes = {index.name: index for index in table.indexes}
+        assert "uq_oauth_accounts_provider_subject_global" in indexes
+        assert "uq_oauth_accounts_provider_subject_tenant" in indexes
+        assert indexes["uq_oauth_accounts_provider_subject_global"].unique is True
+        assert indexes["uq_oauth_accounts_provider_subject_tenant"].unique is True
+        assert [
+            column.name
+            for column in indexes["uq_oauth_accounts_provider_subject_tenant"].columns
+        ] == ["tenant_id", "provider_id", "subject"]
 
     def test_has_provider_and_user_fks(self):
         from app.modules.auth.oauth.models import OAuthAccount
@@ -207,7 +231,9 @@ class TestOAuthAccountModel:
         col_names = {c.name for c in OAuthAccount.__table__.columns}
         assert "provider_id" in col_names
         assert "user_id" in col_names
+        assert "tenant_id" in col_names
         assert "subject" in col_names
+        assert OAuthAccount.__table__.c.tenant_id.nullable is True
 
 
 class TestUserAuthProviderColumn:
@@ -232,6 +258,205 @@ class TestUserAuthProviderColumn:
 
 class TestOAuthProviderCRUD:
     """Test provider CRUD operations via service layer."""
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        _SAML_ONLY_SERVICE_INPUTS,
+        ids=[field for field, _value in _SAML_ONLY_SERVICE_INPUTS],
+    )
+    async def test_create_provider_community_rejects_direct_saml_input(
+        self, field, value
+    ):
+        """The service gate survives callers that bypass Pydantic validation."""
+        from app.modules.auth.oauth.schemas import (
+            SAML_PROVIDER_ERROR,
+            SAML_PROVIDER_FIELDS,
+            OAuthProviderCreate,
+        )
+        from app.modules.auth.oauth.service import create_provider
+
+        covered_fields = {
+            name
+            for name, _value in _SAML_ONLY_SERVICE_INPUTS
+            if name != "provider_type"
+        }
+        assert covered_fields == set(SAML_PROVIDER_FIELDS)
+        payload = {
+            "slug": "direct-community-create",
+            "display_name": "Direct Community Create",
+            "provider_type": "oidc",
+            "client_id": "direct-client",
+            "client_secret": "direct-secret",
+            field: value,
+        }
+        data = OAuthProviderCreate.model_construct(**payload)
+        db = MagicMock()
+
+        with pytest.raises(ValueError, match=SAML_PROVIDER_ERROR):
+            await create_provider(db, data)
+
+        db.add.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        _SAML_ONLY_SERVICE_INPUTS,
+        ids=[field for field, _value in _SAML_ONLY_SERVICE_INPUTS],
+    )
+    async def test_update_provider_community_rejects_direct_saml_input(
+        self, field, value
+    ):
+        """Every SAML-only update is rejected after bypassing schema validators."""
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.schemas import (
+            SAML_PROVIDER_ERROR,
+            OAuthProviderUpdate,
+        )
+        from app.modules.auth.oauth.service import update_provider
+
+        provider = OAuthProvider(
+            id=uuid.uuid4(),
+            slug="direct-community-update",
+            display_name="Direct Community Update",
+            provider_type="oidc",
+            client_id="direct-client",
+            client_secret_encrypted="encrypted-secret",
+        )
+        data = OAuthProviderUpdate.model_construct(**{field: value})
+        locked_result = MagicMock()
+        locked_result.scalar_one.return_value = provider
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=locked_result)
+
+        with pytest.raises(ValueError, match=SAML_PROVIDER_ERROR):
+            await update_provider(db, provider, data)
+
+        db.execute.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        _PAID_IDP_MAPPING_SERVICE_INPUTS,
+        ids=[field for field, _value in _PAID_IDP_MAPPING_SERVICE_INPUTS],
+    )
+    async def test_create_provider_community_rejects_direct_paid_mapping_input(
+        self, field, value
+    ):
+        """The service rejects paid IdP mapping when schema validation is bypassed."""
+        from app.modules.auth.oauth.schemas import (
+            IDP_MAPPING_ERROR,
+            OAuthProviderCreate,
+        )
+        from app.modules.auth.oauth.service import create_provider
+
+        data = OAuthProviderCreate.model_construct(
+            slug="direct-community-mapping-create",
+            display_name="Direct Community Mapping Create",
+            provider_type="oidc",
+            client_id="direct-client",
+            client_secret="direct-secret",
+            **{field: value},
+        )
+        db = MagicMock()
+
+        with pytest.raises(ValueError, match=IDP_MAPPING_ERROR):
+            await create_provider(db, data)
+
+        db.add.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        _PAID_IDP_MAPPING_SERVICE_INPUTS,
+        ids=[field for field, _value in _PAID_IDP_MAPPING_SERVICE_INPUTS],
+    )
+    async def test_update_provider_community_rejects_direct_paid_mapping_input(
+        self, field, value
+    ):
+        """The update service independently enforces the paid mapping boundary."""
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.schemas import (
+            IDP_MAPPING_ERROR,
+            OAuthProviderUpdate,
+        )
+        from app.modules.auth.oauth.service import update_provider
+
+        provider = OAuthProvider(
+            id=uuid.uuid4(),
+            slug="direct-community-mapping-update",
+            display_name="Direct Community Mapping Update",
+            provider_type="oidc",
+            client_id="direct-client",
+            client_secret_encrypted="encrypted-secret",
+        )
+        data = OAuthProviderUpdate.model_construct(**{field: value})
+        locked_result = MagicMock()
+        locked_result.scalar_one.return_value = provider
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=locked_result)
+
+        with pytest.raises(ValueError, match=IDP_MAPPING_ERROR):
+            await update_provider(db, provider, data)
+
+        db.execute.assert_awaited_once()
+
+    async def test_create_provider_community_allows_direct_mapping_clear_values(
+        self, monkeypatch
+    ):
+        """The service preserves the None/empty-map Community clear carve-out."""
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        monkeypatch.setattr(
+            "app.modules.auth.oauth.service.encrypt_secret", lambda value: value
+        )
+        data = OAuthProviderCreate.model_construct(
+            slug="direct-community-mapping-clear",
+            display_name="Direct Community Mapping Clear",
+            provider_type="oidc",
+            client_id="direct-client",
+            client_secret="direct-secret",
+            group_claim=None,
+            group_role_mapping={},
+        )
+        db = MagicMock()
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        provider = await create_provider(db, data)
+
+        assert provider.group_claim is None
+        assert provider.group_role_mapping == {}
+        db.add.assert_called_once_with(provider)
+
+    async def test_update_provider_community_allows_direct_mapping_clear_values(self):
+        """The update service allows clearing legacy paid mapping state."""
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+        from app.modules.auth.oauth.service import update_provider
+
+        provider = OAuthProvider(
+            id=uuid.uuid4(),
+            slug="direct-community-mapping-clear",
+            display_name="Direct Community Mapping Clear",
+            provider_type="oidc",
+            client_id="direct-client",
+            client_secret_encrypted="encrypted-secret",
+            group_claim="groups",
+            group_role_mapping={"admins": "admin"},
+        )
+        data = OAuthProviderUpdate.model_construct(
+            group_claim=None,
+            group_role_mapping={},
+        )
+        locked_result = MagicMock()
+        locked_result.scalar_one.return_value = provider
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=locked_result)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        updated = await update_provider(db, provider, data)
+
+        assert updated.group_claim is None
+        assert updated.group_role_mapping == {}
 
     async def test_create_provider_encrypts_secret(self, client, test_db_session):
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
@@ -1078,6 +1303,90 @@ class TestOAuthLoginEndpoint:
             follow_redirects=False,
         )
         assert resp.status_code == 404
+
+    async def test_hosted_login_and_callback_stay_on_validated_tenant_host(
+        self,
+        test_db_session,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Hosted OAuth never falls back to fleet-global PUBLIC_* URLs."""
+        from app.core.config import settings
+        from app.core.db.tenant_session import current_tenant_var
+        from app.modules.auth.oauth import router as oauth_router
+
+        tenant_id = str(uuid.uuid4())
+        monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+        monkeypatch.setattr(settings, "public_app_url", "https://fleet.example.test")
+        monkeypatch.setattr(
+            settings, "public_api_url", "https://api.fleet.example.test"
+        )
+
+        def tenant_request(path: str) -> Request:
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "scheme": "https",
+                    "server": ("tenant-a.example.test", 443),
+                    "path": path,
+                    "root_path": "/api",
+                    "headers": [(b"host", b"tenant-a.example.test")],
+                    "query_string": b"",
+                    "session": {},
+                }
+            )
+            request.state.tenant_id = tenant_id
+            request.state.tenant_public_origin = "https://tenant-a.example.test"
+            return request
+
+        oauth_client = MagicMock()
+        oauth_client.authorize_redirect = AsyncMock(
+            side_effect=lambda _request, redirect_uri: RedirectResponse(
+                f"https://idp.example.test?redirect_uri={redirect_uri}"
+            )
+        )
+        context_token = current_tenant_var.set(tenant_id)
+        try:
+            with (
+                patch.object(
+                    oauth_router,
+                    "build_oauth_client",
+                    AsyncMock(return_value=(oauth_client, MagicMock())),
+                ),
+                patch.object(oauth_router, "audit_emit", AsyncMock()),
+            ):
+                await oauth_router.oauth_login(
+                    "tenant-oidc",
+                    tenant_request("/auth/oauth/tenant-oidc/login"),
+                    test_db_session,
+                )
+
+            redirect_uri = oauth_client.authorize_redirect.await_args.args[1]
+            assert redirect_uri == (
+                "https://tenant-a.example.test/api/auth/oauth/tenant-oidc/callback"
+            )
+
+            with (
+                patch.object(
+                    oauth_router,
+                    "build_oauth_client",
+                    AsyncMock(side_effect=RuntimeError("provider failure")),
+                ),
+                patch.object(oauth_router, "audit_emit", AsyncMock()),
+            ):
+                callback = await oauth_router.oauth_callback(
+                    "tenant-oidc",
+                    tenant_request("/auth/oauth/tenant-oidc/callback"),
+                    test_db_session,
+                )
+        finally:
+            current_tenant_var.reset(context_token)
+
+        assert callback.status_code == 302
+        assert callback.headers["location"].startswith(
+            "https://tenant-a.example.test/oauth/callback#error=oauth_failed"
+        )
+        assert "fleet.example.test" not in callback.headers["location"]
 
 
 class TestOAuthCallbackCSRF:

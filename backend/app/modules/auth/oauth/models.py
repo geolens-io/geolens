@@ -8,12 +8,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     String,
     Text,
-    UniqueConstraint,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -95,8 +96,20 @@ class OAuthAccount(Base):
 
     __tablename__ = "oauth_accounts"
     __table_args__ = (
-        UniqueConstraint(
-            "provider_id", "subject", name="uq_oauth_account_provider_subject"
+        Index(
+            "uq_oauth_accounts_provider_subject_global",
+            "provider_id",
+            "subject",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_oauth_accounts_provider_subject_tenant",
+            "tenant_id",
+            "provider_id",
+            "subject",
+            unique=True,
+            postgresql_where=text("tenant_id IS NOT NULL"),
         ),
         {"schema": "catalog"},
     )
@@ -109,6 +122,11 @@ class OAuthAccount(Base):
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # NULL is the dormant single-tenant scope. In hosted mode PostgreSQL stamps
+    # this from app.current_tenant and RLS keeps account links tenant-local.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
     )
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

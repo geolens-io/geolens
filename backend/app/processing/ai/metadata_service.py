@@ -21,6 +21,7 @@ from app.processing.ai.metadata_schemas import (
     SummaryDraftResponse,
 )
 from app.core.config import settings
+from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
@@ -37,7 +38,8 @@ _CACHE_TTL = 60.0  # seconds
 _NEIGHBOR_KW_TTL = 300.0  # 5 min — vector NN is heavier, embeddings change rarely
 _NEIGHBOR_KW_MAX = 100
 _dataset_context_cache: dict[str, tuple[float, str]] = {}
-_vocabulary_cache: tuple[float, list[str]] | None = None
+_vocabulary_cache: dict[str, tuple[float, list[str]]] = {}
+_VOCABULARY_CACHE_MAX = 32
 _neighbor_kw_cache: dict[str, tuple[float, list[str]]] = {}
 
 
@@ -57,7 +59,8 @@ async def _build_dataset_context(
 
     # Check TTL cache
     now = time.monotonic()
-    cached = _dataset_context_cache.get(dataset_id)
+    cache_key = tenant_cache_key(dataset_id)
+    cached = _dataset_context_cache.get(cache_key)
     if cached and (now - cached[0]) < _CACHE_TTL:
         return cached[1]
 
@@ -204,7 +207,7 @@ async def _build_dataset_context(
             _dataset_context_cache, key=lambda k: _dataset_context_cache[k][0]
         )
         del _dataset_context_cache[oldest_key]
-    _dataset_context_cache[dataset_id] = (now, result)
+    _dataset_context_cache[cache_key] = (now, result)
     return result
 
 
@@ -214,13 +217,17 @@ async def _get_catalog_vocabulary(
     port: "ProcessingPort",
 ) -> list[str]:
     """Return up to 200 distinct keywords from the catalog (cached 60s)."""
-    global _vocabulary_cache
     now = time.monotonic()
-    if _vocabulary_cache and (now - _vocabulary_cache[0]) < _CACHE_TTL:
-        return _vocabulary_cache[1]
+    cache_key = tenant_cache_key("catalog-vocabulary")
+    cached = _vocabulary_cache.get(cache_key)
+    if cached and (now - cached[0]) < _CACHE_TTL:
+        return cached[1]
 
     vocab = await port.get_catalog_vocabulary(session)
-    _vocabulary_cache = (now, vocab)
+    if len(_vocabulary_cache) >= _VOCABULARY_CACHE_MAX:
+        oldest_key = min(_vocabulary_cache, key=lambda key: _vocabulary_cache[key][0])
+        del _vocabulary_cache[oldest_key]
+    _vocabulary_cache[cache_key] = (now, vocab)
     return vocab
 
 
@@ -247,7 +254,8 @@ async def _get_related_keywords_from_embeddings(
     # Check cache first (keyed on dataset_id; embedding model rebinds are
     # rare and a 5min staleness window is acceptable for context enrichment).
     now = time.monotonic()
-    cached = _neighbor_kw_cache.get(dataset_id)
+    cache_key = tenant_cache_key(dataset_id)
+    cached = _neighbor_kw_cache.get(cache_key)
     if cached and (now - cached[0]) < _NEIGHBOR_KW_TTL:
         return cached[1]
 
@@ -271,7 +279,7 @@ async def _get_related_keywords_from_embeddings(
     if len(_neighbor_kw_cache) >= _NEIGHBOR_KW_MAX:
         oldest_key = min(_neighbor_kw_cache, key=lambda k: _neighbor_kw_cache[k][0])
         del _neighbor_kw_cache[oldest_key]
-    _neighbor_kw_cache[dataset_id] = (now, result)
+    _neighbor_kw_cache[cache_key] = (now, result)
     return result
 
 

@@ -12,11 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.identity import Identity
-from app.modules.auth.dependencies import get_current_active_user, require_permission
+from app.modules.auth.dependencies import (
+    get_current_active_user,
+    require_mode_permission,
+    require_permission,
+)
 from app.core.dependencies import get_db
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.jobs.models import IngestJob
+from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobStatusResponse,
@@ -77,6 +82,18 @@ async def sweep_stale_vrt_assets(
 
     now = datetime.now(timezone.utc)
 
+    generation_scope = []
+    asset_scope = []
+    from app.core.tenancy import is_multi_tenant
+
+    if is_multi_tenant():
+        # Function-local import preserves the platform/catalog module boundary.
+        # The subqueries are RLS-visible and fail closed without a tenant GUC.
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        generation_scope.append(VrtGeneration.vrt_dataset_id.in_(select(Dataset.id)))
+        asset_scope.append(RasterAsset.dataset_id.in_(select(Dataset.id)))
+
     # --- 1. Find stale regenerating RasterAssets ---
     # A VRT asset is stale when:
     #   - status = 'regenerating'
@@ -91,6 +108,7 @@ async def sweep_stale_vrt_assets(
     stale_gen_result = await db.execute(
         update(VrtGeneration)
         .where(
+            *generation_scope,
             VrtGeneration.status.in_(["pending", "running"]),
             func.coalesce(VrtGeneration.heartbeat_at, VrtGeneration.started_at)
             < stale_cutoff,
@@ -111,6 +129,7 @@ async def sweep_stale_vrt_assets(
     stale_asset_result = await db.execute(
         update(RasterAsset)
         .where(
+            *asset_scope,
             RasterAsset.status == "regenerating",
             RasterAsset.current_generation_id.in_(stale_generation_ids),
         )
@@ -272,22 +291,35 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
                 )
             )
             deleted_paths -= set(survivors.scalars())
+        from app.core.tenancy import is_multi_tenant
+
         staging_root = Path(settings.upload_staging_dir).resolve()
         for file_path in deleted_paths:
             try:
-                local = Path(file_path).resolve()
-                if local.exists():
-                    if local.is_relative_to(staging_root):
-                        local.unlink(missing_ok=True)
-                elif file_path.startswith("staging/"):
-                    # codex P1 (r9): only presigned-upload staging keys
-                    # ("staging/{job_id}/…", see ingest service/router) may be
-                    # deleted from object storage — manifest sources store
-                    # arbitrary same-bucket keys (user-managed objects) as
-                    # relative file_path values too.
+                if is_multi_tenant() and file_path.startswith("staging/"):
+                    # A relative staging key is never a local path in hosted
+                    # mode, even if the process cwd happens to contain a
+                    # matching name. Resolve it to this tenant's provider
+                    # namespace before deletion.
                     from app.platform.storage import get_storage
 
-                    await get_storage().delete(file_path)
+                    await get_storage().delete(resolve_current_storage_key(file_path))
+                else:
+                    local = Path(file_path).resolve()
+                    if local.exists():
+                        if local.is_relative_to(staging_root):
+                            local.unlink(missing_ok=True)
+                    elif file_path.startswith("staging/"):
+                        # codex P1 (r9): only presigned-upload staging keys
+                        # ("staging/{job_id}/…", see ingest service/router) may
+                        # be deleted from object storage — manifest sources
+                        # store arbitrary same-bucket keys (user-managed
+                        # objects) as relative file_path values too.
+                        from app.platform.storage import get_storage
+
+                        await get_storage().delete(
+                            resolve_current_storage_key(file_path)
+                        )
             except Exception:  # broad: best-effort staging cleanup
                 log.warning(
                     "Failed to reap staged file for purged jobs",
@@ -300,7 +332,11 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
 
 @router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
 async def cleanup_stale_jobs(
-    user: Identity = Depends(require_permission("manage_users")),
+    user: Identity = Depends(
+        require_mode_permission(
+            single_tenant="manage_users", multi_tenant="manage_tenants"
+        )
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> StaleCleanupResponse:
     """Fail all stale jobs: pending >1h or running >1h.
@@ -420,7 +456,10 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
     if not job.file_path:
         return False, "The source is no longer available. Start the import again."
 
-    if Path(job.file_path).exists():
+    from app.core.tenancy import is_multi_tenant
+
+    candidate = Path(job.file_path)
+    if candidate.exists() and (candidate.is_absolute() or not is_multi_tenant()):
         return True, None
     if job.file_path.startswith("/"):
         return False, "Staging file no longer available. Please re-upload."
@@ -428,7 +467,12 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
     try:
         from app.platform.storage import get_storage
 
-        if await get_storage().exists(job.file_path):
+        physical_file_path = (
+            resolve_current_storage_key(job.file_path)
+            if job.file_path.startswith("staging/")
+            else job.file_path
+        )
+        if await get_storage().exists(physical_file_path):
             return True, None
     except (
         Exception

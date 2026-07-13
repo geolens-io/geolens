@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -204,6 +204,48 @@ async def test_require_permission_delegates_to_permission_extension():
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "Missing permission: upload"
+
+
+@pytest.mark.asyncio
+async def test_me_permissions_delegates_each_capability_to_extension():
+    """Identity-specific overlay grants are reflected in the permission summary."""
+    import app.platform.extensions as ext_mod
+    from app.modules.auth.router import me_permissions
+    from app.modules.auth.service import AuthService
+
+    observed = []
+
+    class IdentityPermissionExtension:
+        async def check_permission(
+            self,
+            db,
+            user,
+            capability,
+            *,
+            user_roles,
+            permission_matrix=None,
+            resource=None,
+        ):
+            observed.append((capability, user.id, user_roles, permission_matrix))
+            return capability == "manage_tenants"
+
+    ext_mod._extensions["permission"] = IdentityPermissionExtension()
+    user = SimpleNamespace(id=uuid4())
+    matrix = {"admin": {"manage_tenants": False}}
+    with (
+        patch.object(AuthService, "get_user_roles", AsyncMock(return_value={"admin"})),
+        patch(
+            "app.modules.auth.permissions.get_effective_permissions",
+            AsyncMock(return_value=matrix),
+        ),
+    ):
+        response = await me_permissions(current_user=user, db=MagicMock())
+
+    assert response.permissions["manage_tenants"] is True
+    assert all(
+        identity == user.id and roles == {"admin"} and seen_matrix is matrix
+        for _, identity, roles, seen_matrix in observed
+    )
 
 
 def test_apply_visibility_filter_delegates_to_permission_extension():

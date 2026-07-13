@@ -82,6 +82,26 @@ def _normalize_request_host(host: str) -> str | None:
     return hostname or None
 
 
+def _validated_tenant_origin(request: Request, host: str) -> str | None:
+    """Build an origin only from the Host value this middleware classified.
+
+    The ASGI scheme is supplied by the trusted server/proxy configuration;
+    forwarded host headers are deliberately not consulted here. The caller
+    invokes this only after the host slug resolves to the request tenant.
+    """
+    try:
+        parsed = urlsplit(f"//{host}", allow_fragments=False)
+        port = parsed.port
+    except ValueError:
+        return None
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    scheme = str(request.scope.get("scheme", "")).lower()
+    if not hostname or scheme not in {"http", "https"}:
+        return None
+    netloc = f"{hostname}:{port}" if port is not None else hostname
+    return f"{scheme}://{netloc}"
+
+
 def _classify_tenant_host(host: str) -> _TenantHost:
     """Classify a Host against explicit service hosts and tenant base suffix.
 
@@ -190,7 +210,7 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
         async with async_session() as session:
             # Bound param (T-1208-01); catalog.tenants has no RLS (registry).
             resolved = await session.scalar(
-                text("SELECT id FROM catalog.tenants WHERE slug = :slug LIMIT 1"),
+                text("SELECT id FROM catalog.tenants WHERE slug = :slug"),
                 {"slug": tenant_signal},
             )
         return str(resolved) if resolved is not None else None
@@ -281,6 +301,16 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         tenant_id = host_tenant_id or jwt_tenant_id
 
         request.state.tenant_id = tenant_id
+        request.state.tenant_public_origin = (
+            _validated_tenant_origin(request, raw_host_values[0])
+            if host_tenant_id is not None
+            else None
+        )
+        if host_tenant_id is not None and request.state.tenant_public_origin is None:
+            return JSONResponse(
+                {"detail": "Tenant host could not form a trusted public origin"},
+                status_code=400,
+            )
 
         if tenant_id is not None:
             logger.debug("Tenant context resolved", tenant_id=tenant_id)

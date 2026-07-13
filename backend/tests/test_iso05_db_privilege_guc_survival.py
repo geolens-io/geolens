@@ -86,7 +86,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-# The 6 RLS-protected tables (same list as rls.py RLS_TABLES).
+# The RLS-protected tables (same list as rls.py RLS_TABLES).
 _RLS_TABLES = [
     "users",
     "records",
@@ -94,6 +94,9 @@ _RLS_TABLES = [
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
 # Roles under test (geolens_readonly may be absent in the test DB — handled via
@@ -266,7 +269,10 @@ class TestIso05RolePrivileges:
                                 'catalog.datasets'::regclass,
                                 'catalog.maps'::regclass,
                                 'catalog.collections'::regclass,
-                                'catalog.embed_tokens'::regclass
+                                'catalog.embed_tokens'::regclass,
+                                'catalog.oauth_accounts'::regclass,
+                                'catalog.audit_logs'::regclass,
+                                'catalog.ingest_jobs'::regclass
                             ])
                             ORDER BY c.relname
                             """
@@ -276,8 +282,9 @@ class TestIso05RolePrivileges:
         finally:
             await engine.dispose()
 
-        assert len(rows) == 6, (
-            f"ISO-05: expected 6 catalog tables in pg_class, got {len(rows)}. "
+        assert len(rows) == len(_RLS_TABLES), (
+            f"ISO-05: expected {len(_RLS_TABLES)} catalog tables in pg_class, "
+            f"got {len(rows)}. "
             "Ensure migration 0006_tenant_rls is applied."
         )
 

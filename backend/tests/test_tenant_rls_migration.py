@@ -3,16 +3,16 @@
 Tests
 -----
 A: upgrade head → downgrade -1 → upgrade head round-trip (all exit 0)
-B: after upgrade, all 6 policies exist in pg_policies with the correct qual +
+B: after upgrade, all boundary policies exist in pg_policies with the correct qual +
    with_check; NEITHER contains IS NULL (no fail-open escape)
 C: after upgrade, relrowsecurity = false AND relforcerowsecurity = false on all
-   6 tables (migration defines policies but does NOT enable RLS)
-D: downgrade drops all 6 policies; re-upgrade re-creates them (reversibility)
+   boundary tables (migration defines policies but does NOT enable RLS)
+D: downgrade drops all policies; re-upgrade re-creates them (reversibility)
 E: alembic check — no drift after upgrade (policies are raw SQL, invisible to
    autogenerate, so check remains clean)
 F: apply_tenancy_rls — single_tenant: relforcerowsecurity stays false (no-op)
 G: apply_tenancy_rls — multi_tenant: relrowsecurity AND relforcerowsecurity
-   become true on all 6 tables; RLS is disabled again in teardown
+   become true on all boundary tables; RLS is disabled again in teardown
 H: apply_tenancy_rls — idempotent: second call issues no error and leaves
    state unchanged (checks pg_class before ALTER)
 
@@ -42,16 +42,19 @@ import sqlalchemy as sa
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
 
-_SIX_TABLES = [
+_RLS_TABLES = [
     "users",
     "records",
     "datasets",
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
-_POLICY_NAMES = [f"tenant_isolation_{t}" for t in _SIX_TABLES]
+_POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
 
 
 def _run_alembic(*args: str) -> subprocess.CompletedProcess:
@@ -146,7 +149,7 @@ async def _fresh_query(query: str, params: dict | None = None):
 
 
 async def _get_rls_state() -> dict[str, dict[str, bool]]:
-    """Return {table: {relrowsecurity: bool, relforcerowsecurity: bool}} for all 6."""
+    """Return RLS flags for every table in the reviewed boundary."""
     rows = await _fresh_query(
         """
         SELECT relname, relrowsecurity, relforcerowsecurity
@@ -158,7 +161,10 @@ async def _get_rls_state() -> dict[str, dict[str, bool]]:
                 'catalog.datasets'::regclass,
                 'catalog.maps'::regclass,
                 'catalog.collections'::regclass,
-                'catalog.embed_tokens'::regclass
+                'catalog.embed_tokens'::regclass,
+                'catalog.oauth_accounts'::regclass,
+                'catalog.audit_logs'::regclass,
+                'catalog.ingest_jobs'::regclass
             ]
         )
         ORDER BY relname
@@ -171,7 +177,7 @@ async def _get_rls_state() -> dict[str, dict[str, bool]]:
 
 
 async def _disable_rls_on_all() -> None:
-    """Disable + un-force RLS on all 6 tables (teardown helper, AUTOCOMMIT)."""
+    """Disable + un-force RLS on the full boundary in AUTOCOMMIT teardown."""
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from app.core.config import settings
@@ -182,7 +188,7 @@ async def _disable_rls_on_all() -> None:
     )
     try:
         async with engine.connect() as conn:
-            for table in _SIX_TABLES:
+            for table in _RLS_TABLES:
                 await conn.execute(
                     sa.text(f"ALTER TABLE catalog.{table} NO FORCE ROW LEVEL SECURITY")
                 )
@@ -259,7 +265,7 @@ class TestPoliciesAfterUpgrade:
     """After upgrade head, the 6 tenant isolation policies have the correct SQL."""
 
     async def test_all_six_policies_exist(self):
-        """pg_policies has all 6 tenant_isolation_<table> rows."""
+        """pg_policies has every tenant_isolation_<table> row."""
         rows = await _fresh_query(
             """
             SELECT policyname, tablename
@@ -273,7 +279,7 @@ class TestPoliciesAfterUpgrade:
         found = {row[0] for row in rows}
         missing = set(_POLICY_NAMES) - found
         assert not missing, f"Policies missing after upgrade: {missing}"
-        assert len(rows) == 6
+        assert len(rows) == len(_RLS_TABLES)
 
     async def test_policies_qual_contains_current_setting(self):
         """Each policy's USING clause (qual) references current_setting(...)."""
@@ -287,7 +293,9 @@ class TestPoliciesAfterUpgrade:
             """,
             {"names": _POLICY_NAMES},
         )
-        assert len(rows) == 6, f"Expected 6 policy rows, got {len(rows)}"
+        assert len(rows) == len(_RLS_TABLES), (
+            f"Expected {len(_RLS_TABLES)} policy rows, got {len(rows)}"
+        )
         for policy_name, qual in rows:
             assert qual is not None, f"Policy {policy_name} has null qual"
             assert "current_setting" in qual, (
@@ -306,7 +314,9 @@ class TestPoliciesAfterUpgrade:
             """,
             {"names": _POLICY_NAMES},
         )
-        assert len(rows) == 6, f"Expected 6 policy rows, got {len(rows)}"
+        assert len(rows) == len(_RLS_TABLES), (
+            f"Expected {len(_RLS_TABLES)} policy rows, got {len(rows)}"
+        )
         for policy_name, with_check in rows:
             assert with_check is not None, f"Policy {policy_name} has null with_check"
             assert "current_setting" in with_check, (
@@ -361,9 +371,11 @@ class TestRlsNotEnabledAfterMigration:
     defines policies only; enablement is runtime via apply_tenancy_rls()."""
 
     async def test_relrowsecurity_false_on_all_tables(self):
-        """relrowsecurity = false on all 6 tables after 0006 upgrade."""
+        """relrowsecurity is false on the full boundary after migration."""
         state = await _get_rls_state()
-        assert len(state) == 6, f"Expected 6 tables in pg_class, got: {list(state)}"
+        assert len(state) == len(_RLS_TABLES), (
+            f"Expected {len(_RLS_TABLES)} tables in pg_class, got: {list(state)}"
+        )
         for table, flags in state.items():
             assert flags["relrowsecurity"] is False, (
                 f"relrowsecurity is True on {table} after migration "
@@ -371,9 +383,11 @@ class TestRlsNotEnabledAfterMigration:
             )
 
     async def test_relforcerowsecurity_false_on_all_tables(self):
-        """relforcerowsecurity = false on all 6 tables after 0006 upgrade."""
+        """relforcerowsecurity is false on the full boundary after migration."""
         state = await _get_rls_state()
-        assert len(state) == 6, f"Expected 6 tables in pg_class, got: {list(state)}"
+        assert len(state) == len(_RLS_TABLES), (
+            f"Expected {len(_RLS_TABLES)} tables in pg_class, got: {list(state)}"
+        )
         for table, flags in state.items():
             assert flags["relforcerowsecurity"] is False, (
                 f"relforcerowsecurity is True on {table} after migration "
@@ -397,7 +411,7 @@ class TestPoliciesRoundTrip:
     """
 
     async def test_policies_absent_after_downgrade(self):
-        """After downgrade to 0005, all 6 policies are gone from pg_policies.
+        """After downgrade to 0005, all policies are gone from pg_policies.
 
         The policies are defined in 0006; downgrading to 0005 (explicitly, so
         the target is head-independent) removes them.
@@ -425,7 +439,7 @@ class TestPoliciesRoundTrip:
         assert r3.returncode == 0, f"re-upgrade failed: {r3.stderr}"
 
     async def test_policies_present_after_reupgrade(self):
-        """After re-upgrade, all 6 policies exist again."""
+        """After re-upgrade, all policies exist again."""
         rows = await _fresh_query(
             """
             SELECT policyname FROM pg_policies
@@ -557,7 +571,7 @@ class TestApplyTenancyRls:
             )
 
     async def test_multi_tenant_enables_force_rls(self, monkeypatch):
-        """In multi_tenant, apply_tenancy_rls() enables + FORCEs RLS on all 6 tables."""
+        """In multi_tenant, apply_tenancy_rls() enables and forces the boundary."""
         monkeypatch.setenv("GEOLENS_TENANCY_MODE", "multi_tenant")
 
         from app.core.db.rls import apply_tenancy_rls
@@ -583,7 +597,9 @@ class TestApplyTenancyRls:
 
         try:
             state = await _get_rls_state()
-            assert len(state) == 6, f"Expected 6 tables, got: {list(state)}"
+            assert len(state) == len(_RLS_TABLES), (
+                f"Expected {len(_RLS_TABLES)} tables, got: {list(state)}"
+            )
             for table, flags in state.items():
                 assert flags["relrowsecurity"] is True, (
                     f"relrowsecurity is False on {table} after multi_tenant apply"
@@ -629,7 +645,7 @@ class TestApplyTenancyRls:
 
         try:
             # Both calls should leave identical state.
-            for table in _SIX_TABLES:
+            for table in _RLS_TABLES:
                 assert state_after_first[table]["relforcerowsecurity"] is True
                 assert state_after_second[table]["relforcerowsecurity"] is True
         finally:

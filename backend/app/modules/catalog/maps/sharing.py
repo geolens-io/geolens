@@ -8,13 +8,21 @@ prevents a maps-sharing/embed-token import cycle.
 from __future__ import annotations
 
 import uuid
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.text import escape_ilike
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.core.public_urls import (
+    get_public_api_url,
+    get_public_app_url,
+    join_public_url,
+)
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 
 class MapEmbedScope(NamedTuple):
@@ -22,6 +30,24 @@ class MapEmbedScope(NamedTuple):
 
     dataset_ids: tuple[uuid.UUID, ...]
     tenant_id: uuid.UUID | None
+
+
+async def get_share_card_image_url(
+    session: AsyncSession,
+    request: "Request",
+    map_obj: Map,
+) -> str:
+    """Resolve a card image against the correct public API or app root."""
+    if map_obj.og_image_uri:
+        api_base = await get_public_api_url(session, request=request)
+        path = f"/maps/{map_obj.id}/og-image/"
+    elif map_obj.thumbnail_uri:
+        api_base = await get_public_api_url(session, request=request)
+        path = f"/maps/{map_obj.id}/thumbnail/"
+    else:
+        app_base = await get_public_app_url(session, request=request)
+        return join_public_url(app_base, "/og-image.png")
+    return join_public_url(api_base, path)
 
 
 async def get_map_embed_scope(

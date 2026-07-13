@@ -49,16 +49,16 @@ class Organization(Base):
 class Tenant(Base):
     """Logical tenant within an organization (subdomain-shaped slug).
 
-    ``slug`` is used later by the TSEAM-04 request-context middleware to
-    resolve the tenant from the subdomain.  The non-unique index is intentional
-    at this phase — per-tenant uniqueness wiring lands in Phase 1208.
+    ``slug`` is the globally unique host-routing key consumed by the TSEAM-04
+    request-context middleware. One configured tenant base domain means one
+    slug must resolve to exactly one RLS tenant UUID.
 
     ``organization_id`` is stored without a FK constraint (dormant link).
     """
 
     __tablename__ = "tenants"
     __table_args__ = (
-        Index("ix_tenants_slug", "slug"),
+        Index("uq_tenants_slug", "slug", unique=True),
         {"schema": "catalog"},
     )
 

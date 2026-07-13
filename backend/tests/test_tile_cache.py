@@ -533,42 +533,55 @@ async def test_tile_role_guard_rejects_live_tenant_schema_owner(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invalidate_table_purges_tenant_prefixed_keys(tile_cache):
-    """fix(#394) VT-08: multi_tenant keys are `tile:{tid}:{table}:...` — the
-    invalidation must purge those alongside the bare single-tenant keys."""
+async def test_invalidate_table_purges_only_active_tenant_keys(tile_cache, monkeypatch):
+    """A tenant mutation must not evict a peer's same-named tile cache."""
+    from app.core.config import settings
+    from app.core.db.tenant_session import current_tenant_var
+
+    tenant_a = "11111111-2222-3333-4444-555555555555"
+    tenant_b = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
     data = gzip.compress(b"tile")
     await tile_cache.set("target", 1, 0, 0, data, ttl=60)
-    await tile_cache.set(
-        "11111111-2222-3333-4444-555555555555:target", 1, 0, 0, data, ttl=60
-    )
+    await tile_cache.set(f"{tenant_a}:target", 1, 0, 0, data, ttl=60)
+    await tile_cache.set(f"{tenant_b}:target", 1, 0, 0, data, ttl=60)
     await tile_cache.set("other", 1, 0, 0, data, ttl=60)
 
-    await tile_cache.invalidate_table("target")
+    token = current_tenant_var.set(tenant_a)
+    try:
+        await tile_cache.invalidate_table("target")
+    finally:
+        current_tenant_var.reset(token)
 
-    assert await tile_cache.get("target", 1, 0, 0) is None
-    assert (
-        await tile_cache.get("11111111-2222-3333-4444-555555555555:target", 1, 0, 0)
-        is None
-    )
+    assert await tile_cache.get(f"{tenant_a}:target", 1, 0, 0) is None
+    assert await tile_cache.get(f"{tenant_b}:target", 1, 0, 0) == data
+    assert await tile_cache.get("target", 1, 0, 0) == data
     assert await tile_cache.get("other", 1, 0, 0) == data
 
 
 @pytest.mark.asyncio
-async def test_in_memory_invalidate_table_purges_tenant_prefixed_keys():
-    """fix(#394) VT-08: same contract for the InMemory fallback provider."""
+async def test_in_memory_invalidate_table_is_tenant_scoped(monkeypatch):
+    """The in-memory fallback applies the same active-tenant boundary."""
+    from app.core.config import settings
+    from app.core.db.tenant_session import current_tenant_var
     from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 
+    tenant_a = "11111111-2222-3333-4444-555555555555"
+    tenant_b = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
     cache = InMemoryTileCacheProvider(max_entries=10)
     await cache.set("target", 1, 0, 0, b"a", ttl=60)
-    await cache.set(
-        "11111111-2222-3333-4444-555555555555:target", 1, 0, 0, b"b", ttl=60
-    )
+    await cache.set(f"{tenant_a}:target", 1, 0, 0, b"b", ttl=60)
+    await cache.set(f"{tenant_b}:target", 1, 0, 0, b"d", ttl=60)
     await cache.set("other", 1, 0, 0, b"c", ttl=60)
 
-    await cache.invalidate_table("target")
+    token = current_tenant_var.set(tenant_a)
+    try:
+        await cache.invalidate_table("target")
+    finally:
+        current_tenant_var.reset(token)
 
-    assert await cache.get("target", 1, 0, 0) is None
-    assert (
-        await cache.get("11111111-2222-3333-4444-555555555555:target", 1, 0, 0) is None
-    )
+    assert await cache.get(f"{tenant_a}:target", 1, 0, 0) is None
+    assert await cache.get(f"{tenant_b}:target", 1, 0, 0) == b"d"
+    assert await cache.get("target", 1, 0, 0) == b"a"
     assert await cache.get("other", 1, 0, 0) == b"c"

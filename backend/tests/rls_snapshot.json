@@ -1,7 +1,16 @@
 {
   "version": 1,
-  "description": "Mode-aware RLS drift snapshot (ISO-03, Phase 1208-03). policies: defined by 0006_tenant_rls. rls_flags: expected per-mode. Update this file when policies are intentionally changed.",
+  "description": "Mode-aware RLS drift snapshot. Policies are defined by the core tenant-boundary migrations; rls_flags are expected per mode. Update this file only when the reviewed boundary intentionally changes.",
   "policies": [
+    {
+      "policyname": "tenant_isolation_audit_logs",
+      "tablename": "audit_logs",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
     {
       "policyname": "tenant_isolation_collections",
       "tablename": "collections",
@@ -30,8 +39,26 @@
       "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
     },
     {
+      "policyname": "tenant_isolation_ingest_jobs",
+      "tablename": "ingest_jobs",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
       "policyname": "tenant_isolation_maps",
       "tablename": "maps",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_oauth_accounts",
+      "tablename": "oauth_accounts",
       "qual_contains": "current_setting",
       "with_check_contains": "current_setting",
       "no_is_null": true,
@@ -59,6 +86,10 @@
   ],
   "rls_flags": {
     "single_tenant": {
+      "audit_logs": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
       "collections": {
         "relrowsecurity": false,
         "relforcerowsecurity": false
@@ -71,7 +102,15 @@
         "relrowsecurity": false,
         "relforcerowsecurity": false
       },
+      "ingest_jobs": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
       "maps": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "oauth_accounts": {
         "relrowsecurity": false,
         "relforcerowsecurity": false
       },
@@ -85,6 +124,10 @@
       }
     },
     "multi_tenant": {
+      "audit_logs": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
       "collections": {
         "relrowsecurity": true,
         "relforcerowsecurity": true
@@ -97,7 +140,15 @@
         "relrowsecurity": true,
         "relforcerowsecurity": true
       },
+      "ingest_jobs": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
       "maps": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "oauth_accounts": {
         "relrowsecurity": true,
         "relforcerowsecurity": true
       },

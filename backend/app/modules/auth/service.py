@@ -101,6 +101,8 @@ class AuthService:
         identity: AuthenticatedIdentity,
         dataset_id: uuid.UUID,
         expire_seconds: int = 120,
+        *,
+        tenant_id: uuid.UUID | None = None,
     ) -> str:
         """Create a download-scoped JWT for a single dataset.
 
@@ -125,6 +127,12 @@ class AuthService:
             "exp": now + timedelta(seconds=ttl),
             "iat": now,
         }
+        if is_multi_tenant():
+            if tenant_id is None:
+                raise ValueError(
+                    "Cannot issue a multi-tenant download token without a tenant id"
+                )
+            payload["tid"] = str(tenant_id)
         return jwt.encode(
             payload,
             settings.jwt_secret_key.get_secret_value(),
@@ -171,7 +179,9 @@ class AuthService:
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
-            select(RefreshToken).where(
+            select(RefreshToken)
+            .join(User, RefreshToken.user_id == User.id)
+            .where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
@@ -203,7 +213,9 @@ class AuthService:
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
-            select(RefreshToken).where(
+            select(RefreshToken)
+            .join(User, RefreshToken.user_id == User.id)
+            .where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
@@ -236,7 +248,8 @@ class AuthService:
 
         await self.db.execute(
             delete(RefreshToken).where(
-                RefreshToken.expires_at < datetime.now(UTC) - timedelta(days=1)
+                RefreshToken.expires_at < datetime.now(UTC) - timedelta(days=1),
+                RefreshToken.user_id.in_(select(User.id)),
             )
         )
 
@@ -266,27 +279,26 @@ class AuthService:
         await self.db.execute(
             update(RefreshToken)
             .where(
-                RefreshToken.user_id == user_id,
+                RefreshToken.user_id.in_(select(User.id).where(User.id == user_id)),
                 RefreshToken.revoked == False,  # noqa: E712
             )
             .values(revoked=True)
         )
 
         # 2. Atomically increment token_version so prior access JWTs are rejected.
-        await self.db.execute(
+        version_result = await self.db.execute(
             update(User)
             .where(User.id == user_id)
             .values(token_version=User.token_version + 1)
+            .returning(User.token_version)
         )
+        new_version = version_result.scalar_one_or_none()
+        if new_version is None:
+            raise ValueError("User not found")
 
         if commit:
             await self.db.commit()
-
-        # 3. Re-select the new version so callers can log or return it.
-        result = await self.db.execute(
-            select(User.token_version).where(User.id == user_id)
-        )
-        return result.scalar_one()
+        return new_version
 
     async def revoke_all_refresh_tokens(self, user_id: uuid.UUID) -> int:
         """Backward-compatible alias for revoke_all_tokens.
@@ -367,6 +379,10 @@ class AuthService:
 # ------------------------------------------------------------------
 
 
+class ApiKeyTargetUserNotFoundError(LookupError):
+    """The target user is absent from the caller's RLS-visible scope."""
+
+
 async def create_api_key_for_user(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -377,9 +393,13 @@ async def create_api_key_for_user(
     The raw key is only available at creation time. Flushes but does
     NOT commit — caller controls the transaction.
     """
+    visible_user_id = await db.scalar(select(User.id).where(User.id == user_id))
+    if visible_user_id is None:
+        raise ApiKeyTargetUserNotFoundError("User not found")
+
     raw_key = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    api_key = ApiKey(user_id=user_id, key_hash=key_hash, name=name)
+    api_key = ApiKey(user_id=visible_user_id, key_hash=key_hash, name=name)
     db.add(api_key)
     await db.flush()
     await db.refresh(api_key)

@@ -24,6 +24,7 @@ from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
 from app.core.db import async_session, engine
+from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
 from app.core.runtime.staging import ensure_staging_ready, sweep_orphaned_exports
@@ -168,6 +169,49 @@ async def seed_bootstrap_identity() -> None:
     await seed_initial_admin()
 
 
+async def sweep_stale_jobs_once() -> tuple[int, int]:
+    """Run one stale-ingest sweep without issuing an unscoped hosted query.
+
+    Single-tenant mode preserves the historical one-session, one-call path.
+    Hosted mode reads the unprotected tenant registry, then gives every tenant
+    a fresh transaction under ``tenant_job_context`` so FORCE RLS scopes all
+    ``ingest_jobs`` reads and writes. Recovery is best-effort per tenant: one
+    broken tenant must not prevent the remaining tenants from being swept.
+    """
+    from app.platform.jobs.router import fail_stale_jobs
+
+    if not is_multi_tenant():
+        async with async_session() as session:
+            return await fail_stale_jobs(session)
+
+    async with async_session() as registry_session:
+        tenant_ids = list(
+            (
+                await registry_session.execute(
+                    text("SELECT id FROM catalog.tenants ORDER BY id")
+                )
+            ).scalars()
+        )
+
+    pending_total = 0
+    running_total = 0
+    for tenant_id in tenant_ids:
+        try:
+            with tenant_job_context(str(tenant_id)):
+                async with async_session() as session:
+                    pending_failed, running_failed = await fail_stale_jobs(session)
+            pending_total += pending_failed
+            running_total += running_failed
+        except Exception as exc:  # broad: fleet sweep continues tenant-by-tenant
+            logger.warning(
+                "Stale jobs sweep failed for tenant",
+                tenant_id=str(tenant_id),
+                error=str(exc),
+                exc_info=True,
+            )
+    return pending_total, running_total
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     for attempt in range(1, 4):
@@ -241,15 +285,11 @@ async def lifespan(app: FastAPI):
         client polls it after the worker dies — the on-poll fail-fast logic
         in get_job_status only catches it when a user revisits the page.
         """
-        from app.core.db import async_session
-        from app.platform.jobs.router import fail_stale_jobs
-
         sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
         while True:
             try:
                 await asyncio.sleep(300)  # 5 minutes
-                async with async_session() as session:
-                    pending_failed, running_failed = await fail_stale_jobs(session)
+                pending_failed, running_failed = await sweep_stale_jobs_once()
                 if pending_failed or running_failed:
                     sweeper_log.info(
                         "Failed stale jobs",

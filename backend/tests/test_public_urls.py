@@ -25,11 +25,17 @@ def _make_request(
     scheme: str = "https",
     netloc: str = "catalog.example.com",
     root_path: str = "",
+    tenant_id: str | None = None,
+    tenant_origin: str | None = None,
 ):
     return SimpleNamespace(
         headers=headers or {},
         url=SimpleNamespace(scheme=scheme, netloc=netloc),
-        scope={"root_path": root_path},
+        scope={"root_path": root_path, "scheme": scheme},
+        state=SimpleNamespace(
+            tenant_id=tenant_id,
+            tenant_public_origin=tenant_origin,
+        ),
     )
 
 
@@ -290,6 +296,53 @@ async def test_get_public_urls_skips_db_when_env_only_enabled(
         "https://env.example.com/api",
     )
     loader.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_hosted_urls_use_middleware_validated_tenant_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = "00000000-0000-0000-0000-0000000000a1"
+    loader = AsyncMock(
+        return_value={
+            public_urls.PUBLIC_APP_URL_KEY: "https://fleet.example.test",
+            public_urls.PUBLIC_API_URL_KEY: "https://api.fleet.example.test",
+        }
+    )
+    monkeypatch.setattr(public_urls.settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
+    request = _make_request(
+        root_path="/api",
+        tenant_id=tenant_id,
+        tenant_origin="https://tenant-a.example.test",
+    )
+
+    app_url, api_url = await public_urls.get_public_urls(
+        AsyncMock(), request=request, for_external_use=True
+    )
+
+    assert app_url == "https://tenant-a.example.test"
+    assert api_url == "https://tenant-a.example.test/api"
+    loader.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_hosted_external_url_refuses_unscoped_or_unvalidated_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(public_urls.settings, "geolens_tenancy_mode", "multi_tenant")
+    request = _make_request(
+        tenant_id="00000000-0000-0000-0000-0000000000a1",
+        tenant_origin=None,
+    )
+
+    with pytest.raises(
+        public_urls.PublicUrlNotConfiguredError,
+        match="middleware-validated tenant host",
+    ):
+        await public_urls.get_public_urls(
+            AsyncMock(), request=request, for_external_use=True
+        )
 
 
 @pytest.mark.anyio

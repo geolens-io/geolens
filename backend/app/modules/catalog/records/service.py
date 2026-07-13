@@ -170,11 +170,15 @@ async def create_contact(
 async def update_contact(
     session: AsyncSession,
     contact_id: uuid.UUID,
+    record_id: uuid.UUID,
     **kwargs,
 ) -> RecordContact:
-    """Update a contact. Only non-None fields are updated."""
+    """Update a contact through its owning record path."""
     result = await session.execute(
-        select(RecordContact).where(RecordContact.id == contact_id)
+        select(RecordContact).where(
+            RecordContact.id == contact_id,
+            RecordContact.record_id == record_id,
+        )
     )
     contact = result.scalar_one_or_none()
     if contact is None:
@@ -188,10 +192,15 @@ async def update_contact(
     return contact
 
 
-async def delete_contact(session: AsyncSession, contact_id: uuid.UUID) -> None:
-    """Delete a contact by ID."""
+async def delete_contact(
+    session: AsyncSession, contact_id: uuid.UUID, record_id: uuid.UUID
+) -> None:
+    """Delete a contact through its owning record path."""
     result = await session.execute(
-        select(RecordContact).where(RecordContact.id == contact_id)
+        select(RecordContact).where(
+            RecordContact.id == contact_id,
+            RecordContact.record_id == record_id,
+        )
     )
     contact = result.scalar_one_or_none()
     if contact is None:
@@ -367,6 +376,7 @@ async def create_distribution(
 async def update_distribution(
     session: AsyncSession,
     distribution_id: uuid.UUID,
+    record_id: uuid.UUID,
     **kwargs,
 ) -> RecordDistribution:
     """Update a distribution. Only non-None fields are updated.
@@ -374,7 +384,10 @@ async def update_distribution(
     Auto-generated distributions cannot be updated (raises ValueError).
     """
     result = await session.execute(
-        select(RecordDistribution).where(RecordDistribution.id == distribution_id)
+        select(RecordDistribution).where(
+            RecordDistribution.id == distribution_id,
+            RecordDistribution.record_id == record_id,
+        )
     )
     dist = result.scalar_one_or_none()
     if dist is None:
@@ -392,14 +405,17 @@ async def update_distribution(
 
 
 async def delete_distribution(
-    session: AsyncSession, distribution_id: uuid.UUID
+    session: AsyncSession, distribution_id: uuid.UUID, record_id: uuid.UUID
 ) -> None:
     """Delete a distribution by ID.
 
     Auto-generated distributions cannot be deleted (raises ValueError).
     """
     result = await session.execute(
-        select(RecordDistribution).where(RecordDistribution.id == distribution_id)
+        select(RecordDistribution).where(
+            RecordDistribution.id == distribution_id,
+            RecordDistribution.record_id == record_id,
+        )
     )
     dist = result.scalar_one_or_none()
     if dist is None:

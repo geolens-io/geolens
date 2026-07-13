@@ -55,9 +55,11 @@ def test_migration_source_pins_revision_and_exact_rls_table_boundary():
 
     assert migration.revision == "0016_tenant_insert_stamping"
     assert migration.down_revision == "0015_add_ingest_job_heartbeat"
-    assert migration._TABLES == RLS_TABLES
+    # 0016 established the original six-table boundary. Later linear
+    # migrations may extend the current runtime boundary and snapshot.
+    assert migration._TABLES == RLS_TABLES[:6]
     assert {item["table"] for item in snapshot["triggers"]} == set(RLS_TABLES)
-    assert len(snapshot["triggers"]) == len(RLS_TABLES) == 6
+    assert len(snapshot["triggers"]) == len(RLS_TABLES)
 
 
 def test_upgrade_sql_is_mode_independent_and_fail_closed():
@@ -82,7 +84,7 @@ def test_upgrade_sql_is_mode_independent_and_fail_closed():
         "CREATE TRIGGER trg_stamp_current_tenant_on_insert "
         f"BEFORE INSERT ON catalog.{table} FOR EACH ROW EXECUTE FUNCTION "
         "catalog.stamp_current_tenant_on_insert()"
-        for table in RLS_TABLES
+        for table in migration._TABLES
     ]
 
     source = _MIGRATION_PATH.read_text()
@@ -99,7 +101,7 @@ def test_downgrade_sql_removes_exact_boundary_in_inverse_order():
     statements = _captured_sql(execute)
     assert statements[:-1] == [
         f"DROP TRIGGER IF EXISTS trg_stamp_current_tenant_on_insert ON catalog.{table}"
-        for table in reversed(RLS_TABLES)
+        for table in reversed(migration._TABLES)
     ]
     assert statements[-1] == (
         "DROP FUNCTION IF EXISTS catalog.stamp_current_tenant_on_insert()"

@@ -53,8 +53,14 @@ def resolve_asset_url(
     # S3 + published data assets: signed URL (always safe — signed by provider)
     is_published = record_status == "published"
     if is_published and storage_backend == "s3" and storage_provider is not None:
+        from app.platform.storage.titiler_url import resolve_current_storage_key
+
         key = _extract_storage_key(href)
-        return storage_provider.generate_presigned_get_url(key, expiration=presign_ttl)
+        physical_key = resolve_current_storage_key(key)
+        presign_options = {"expiration": presign_ttl}
+        return storage_provider.generate_presigned_get_url(
+            physical_key, **presign_options
+        )
 
     # GAP-031: Do NOT emit a bare /assets/{key} proxy URL.  No backend route
     # exists for that path; nginx serves the SPA bundle at /assets/ and would

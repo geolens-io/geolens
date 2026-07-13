@@ -322,6 +322,7 @@ async def _run_rrf_merge(
         await session.execute(
             select(func.count())
             .select_from(RecordEmbedding)
+            .join(Record, RecordEmbedding.record_id == Record.id)
             .where(RecordEmbedding.model_name == model_name)
         )
     ).scalar_one()

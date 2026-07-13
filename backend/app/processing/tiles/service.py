@@ -488,11 +488,11 @@ async def get_tile(
     )
     query = _build_tile_query(table_name, selected_columns, schema=schema)
     # layer_name must match the schema-qualified table so clients can identify it.
-    # builder-audit #338 MVT-01: in single_tenant schema=="data" so this is already
-    # "data.{table}" (matches the client). The multi_tenant client/source-layer
-    # divergence is a deferred cloud-overlay concern — the fix belongs on the
-    # client side (derive source-layer from the schema-qualified name), NOT here,
-    # where the dormant-tenancy isolation guard requires schema qualification.
+    # In single_tenant schema=="data"; in multi_tenant the tile-config contract
+    # exposes the resolved tenant schema as ``mvt_source_layer_prefix``. Frontend
+    # consumers use that prefix for MapLibre's source-layer while keeping the
+    # logical ``data.{table}`` route used to sign tile URLs. The server must retain
+    # physical schema qualification here for dormant-tenancy isolation.
     layer_name = f"{schema}.{table_name}"
 
     if conn is not None:

@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.dependencies import get_db
 from app.core.identity import Identity
-from app.core.public_urls import get_public_api_url
 from app.core.tenancy import is_multi_tenant
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import (
@@ -41,6 +40,7 @@ from app.modules.catalog.maps.schemas import (
     SharedMapResponse,
     VisibilityCheckResponse,
 )
+from app.modules.catalog.maps.sharing import get_share_card_image_url
 from app.modules.catalog.maps.service import (
     _validate_share_token,
     check_map_ownership,
@@ -103,13 +103,7 @@ async def shared_map_card_endpoint(
     if map_obj is None or map_obj.visibility != "public":
         raise HTTPException(status_code=404, detail="Share link not found")
 
-    base = (await get_public_api_url(db, request=request)).rstrip("/")
-    if map_obj.og_image_uri:
-        image_url = f"{base}/api/maps/{map_obj.id}/og-image/"
-    elif map_obj.thumbnail_uri:
-        image_url = f"{base}/api/maps/{map_obj.id}/thumbnail/"
-    else:
-        image_url = f"{base}/og-image.png"
+    image_url = await get_share_card_image_url(db, request, map_obj)
     image_url = html.escape(image_url, quote=True)
     title = html.escape(map_obj.name or "GeoLens Map")
     description = html.escape(map_obj.description or "View this map on GeoLens")

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db.models import AppSetting
+from app.core.tenancy import is_multi_tenant
 
 PUBLIC_APP_URL_KEY = "public_app_url"
 PUBLIC_API_URL_KEY = "public_api_url"
@@ -291,6 +292,32 @@ async def get_public_urls(
 ) -> tuple[str, str]:
     """Resolve (app_url, api_url) tuple. See :func:`resolve_public_api_url`
     for H-27 ``for_external_use`` semantics."""
+    if is_multi_tenant() and request is not None:
+        tenant_id = getattr(request.state, "tenant_id", None)
+        tenant_origin = normalize_public_url(
+            getattr(request.state, "tenant_public_origin", None)
+        )
+        if tenant_id is not None:
+            if tenant_origin is None:
+                raise PublicUrlNotConfiguredError(
+                    "Hosted tenant URLs require a middleware-validated tenant host; "
+                    "the fleet-wide PUBLIC_APP_URL / PUBLIC_API_URL cannot represent "
+                    "a tenant-specific callback or resource link."
+                )
+            root_path = str(request.scope.get("root_path", "")).rstrip("/")
+            if root_path and (
+                not root_path.startswith("/") or "\\" in root_path or "//" in root_path
+            ):
+                raise PublicUrlNotConfiguredError(
+                    "The configured API root_path is not a safe absolute path"
+                )
+            api_url = f"{tenant_origin}{root_path}" if root_path else tenant_origin
+            return tenant_origin, api_url
+        if for_external_use:
+            raise PublicUrlNotConfiguredError(
+                "Hosted external-use URLs require a resolved tenant host."
+            )
+
     overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
 
     app_url = resolve_public_app_url(

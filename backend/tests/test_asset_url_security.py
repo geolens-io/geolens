@@ -18,6 +18,8 @@ Since dataset_assets is never populated (BUG-041), this changes no live output.
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.platform.assets.urls import _extract_storage_key, resolve_asset_url
 
 PUBLIC_API_URL = "http://localhost:8000"
@@ -113,6 +115,48 @@ class TestResolveAssetUrl:
         mock_provider.generate_presigned_get_url.assert_called_once_with(
             "uploads/test.tif", expiration=7200
         )
+
+    def test_hosted_presign_uses_physical_tenant_key(self, monkeypatch):
+        from app.core.db.tenant_session import current_tenant_var
+
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+        provider = MagicMock()
+        provider.generate_presigned_get_url.return_value = "https://signed"
+        token = current_tenant_var.set("tenant-a")
+        try:
+            resolve_asset_url(
+                "rasters/dataset/source.cog.tif",
+                storage_backend="s3",
+                record_status="published",
+                roles=["data"],
+                public_api_url=PUBLIC_API_URL,
+                storage_provider=provider,
+            )
+        finally:
+            current_tenant_var.reset(token)
+
+        provider.generate_presigned_get_url.assert_called_once_with(
+            "tenants/tenant-a/rasters/dataset/source.cog.tif",
+            expiration=3600,
+        )
+
+    def test_hosted_presign_fails_closed_without_tenant(self, monkeypatch):
+        from app.core.db.tenant_session import current_tenant_var
+
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+        token = current_tenant_var.set(None)
+        try:
+            with pytest.raises(RuntimeError, match="requires tenant context"):
+                resolve_asset_url(
+                    "rasters/dataset/source.cog.tif",
+                    storage_backend="s3",
+                    record_status="published",
+                    roles=["data"],
+                    public_api_url=PUBLIC_API_URL,
+                    storage_provider=MagicMock(),
+                )
+        finally:
+            current_tenant_var.reset(token)
 
     def test_no_assets_slash_in_any_result(self):
         """GAP-031: /assets/ prefix must never appear in resolve_asset_url output."""

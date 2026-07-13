@@ -1,4 +1,4 @@
-"""Live contract tests for migration 0018's tenant-scoped table names."""
+"""Live contracts for tenant-scoped dataset table and collection names."""
 
 from __future__ import annotations
 
@@ -96,3 +96,50 @@ async def test_tenant_table_name_partial_unique_indexes(
     with pytest.raises(IntegrityError):
         async with test_db_session.begin_nested():
             await _insert_dataset(test_db_session, record_ids[4], global_name, None)
+
+
+@pytest.mark.anyio
+async def test_collection_name_partial_unique_indexes(test_db_session, clean_tables):
+    """Collection names may repeat across tenants, but not within one scope."""
+    del clean_tables
+
+    index_result = await test_db_session.execute(
+        text(
+            "SELECT indexname, indexdef FROM pg_indexes "
+            "WHERE schemaname = 'catalog' "
+            "AND indexname IN ("
+            "  'uq_collections_name_global', "
+            "  'uq_collections_name_tenant'"
+            ")"
+        )
+    )
+    index_defs = {name: definition for name, definition in index_result.all()}
+    assert set(index_defs) == {
+        "uq_collections_name_global",
+        "uq_collections_name_tenant",
+    }
+
+    async def insert(name: str, tenant_id: uuid.UUID | None) -> None:
+        await test_db_session.execute(
+            text(
+                "INSERT INTO catalog.collections (name, tenant_id) "
+                "VALUES (:name, :tenant_id)"
+            ),
+            {"name": name, "tenant_id": tenant_id},
+        )
+
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    shared_name = f"shared-collection-{uuid.uuid4()}"
+    await insert(shared_name, tenant_a)
+    await insert(shared_name, tenant_b)
+
+    with pytest.raises(IntegrityError):
+        async with test_db_session.begin_nested():
+            await insert(shared_name, tenant_a)
+
+    global_name = f"global-collection-{uuid.uuid4()}"
+    await insert(global_name, None)
+    with pytest.raises(IntegrityError):
+        async with test_db_session.begin_nested():
+            await insert(global_name, None)

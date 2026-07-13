@@ -41,7 +41,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetMeta,
     DatasetResponse,
 )
-from app.platform.cache import get_cache
+from app.platform.cache import get_cache, tenant_cache_key
 from app.platform.cache.provider import get_tile_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
@@ -87,7 +87,9 @@ async def list_all_datasets(
 
     # Cache admin views only (non-admin results vary by user identity)
     is_admin = "admin" in user_roles
-    cache_key = f"catalog:datasets:admin:{skip}:{limit}" if is_admin else None
+    cache_key = (
+        tenant_cache_key(f"catalog:datasets:admin:{skip}:{limit}") if is_admin else None
+    )
 
     if cache_key:
         cache = get_cache()
