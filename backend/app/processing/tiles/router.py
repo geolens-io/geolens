@@ -63,7 +63,7 @@ from app.processing.tiles.signing import (
     round_expiry,
     verify_tile_signature,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, RATE_LIMIT_RESPONSE
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -1781,6 +1781,7 @@ async def _acquire_and_serve_tile(
 @router.get(
     "/clusters/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf",
     response_class=Response,
+    responses={429: RATE_LIMIT_RESPONSE},
 )
 @limiter.exempt
 async def cluster_tile_endpoint(
@@ -1915,7 +1916,11 @@ async def cluster_tile_endpoint(
     )
 
 
-@router.get("/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf", response_class=Response)
+@router.get(
+    "/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf",
+    response_class=Response,
+    responses={429: RATE_LIMIT_RESPONSE},
+)
 @limiter.exempt
 async def tile_endpoint(
     request: Request,

@@ -42,7 +42,7 @@ from app.modules.catalog.datasets.domain.models import (
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.processing.raster.models import DatasetAsset, RasterAsset
-from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, NOT_FOUND_RESPONSE
 from app.standards.ogc.utils import (
     content_language_for_record_languages,
     link_header_value,
@@ -56,6 +56,8 @@ from app.standards.stac.schemas import (
     StacCollectionListResponse,
     StacConformance,
     StacItemCollection,
+    StacItemCollectionResponse,
+    StacItemResponse,
     StacLink,
 )
 from app.standards.stac.serializer import (
@@ -66,6 +68,13 @@ from app.standards.stac.serializer import (
 from app.platform.storage import get_storage
 
 stac_router = APIRouter(prefix="/stac", tags=["STAC"])
+
+
+class GeoJSONResponse(JSONResponse):
+    """JSON response class whose documented media type is GeoJSON."""
+
+    media_type = "application/geo+json"
+
 
 # Record types eligible for STAC
 _STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
@@ -81,10 +90,13 @@ _STAC_UNASSIGNED_COLLECTION_DESCRIPTION = (
 )
 
 
-def _stac_content_language_headers(items: Sequence[dict]) -> dict[str, str]:
+def _stac_content_language_headers(
+    items: Sequence[dict | StacItemResponse],
+) -> dict[str, str]:
     languages: list[str | None] = []
     for item in items:
-        value = item.get("properties", {}).get("language")
+        payload = item.model_dump(mode="json") if isinstance(item, BaseModel) else item
+        value = payload.get("properties", {}).get("language")
         languages.append(value.get("code") if isinstance(value, dict) else None)
     language = content_language_for_record_languages(languages, fallback=None)
     headers = {"Vary": "Accept-Language"}
@@ -633,7 +645,11 @@ async def get_collections(
     )
 
 
-@stac_router.get("/collections/{collection_id}", response_model=StacCollection)
+@stac_router.get(
+    "/collections/{collection_id}",
+    response_model=StacCollection,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def get_collection(
     collection_id: str,
     request: Request,
@@ -767,11 +783,9 @@ async def get_collection(
 
 @stac_router.get(
     "/collections/{collection_id}/items",
-    response_class=JSONResponse,
-    responses={
-        200: {"content": {"application/geo+json": {}}},
-        **ERROR_RESPONSES_PUBLIC,
-    },
+    response_model=StacItemCollectionResponse,
+    response_class=GeoJSONResponse,
+    responses=ERROR_RESPONSES_PUBLIC,
 )
 async def get_collection_items(
     collection_id: str,
@@ -957,25 +971,32 @@ async def _build_item_response(
 
     asset_rows, raster_meta = await asyncio.gather(_assets(), _raster())
 
-    item = await _dataset_to_stac_item(
-        db,
-        dataset,
-        public_api_url,
-        stac_api_url,
-        stac_asset_rows=asset_rows.get(str(dataset.id)),
-        raster_meta=raster_meta.get(str(dataset.id)),
-        collection_id=collection_id,
-        public_app_url=public_app_url,
-        preferred_languages=preferred_languages,
+    item = StacItemResponse.model_validate(
+        await _dataset_to_stac_item(
+            db,
+            dataset,
+            public_api_url,
+            stac_api_url,
+            stac_asset_rows=asset_rows.get(str(dataset.id)),
+            raster_meta=raster_meta.get(str(dataset.id)),
+            collection_id=collection_id,
+            public_app_url=public_app_url,
+            preferred_languages=preferred_languages,
+        )
     )
     return JSONResponse(
-        content=item,
+        content=item.model_dump(mode="json"),
         media_type="application/geo+json",
         headers=_stac_content_language_headers([item]),
     )
 
 
-@stac_router.get("/collections/{collection_id}/items/{item_id}", response_model=None)
+@stac_router.get(
+    "/collections/{collection_id}/items/{item_id}",
+    response_model=StacItemResponse,
+    response_class=GeoJSONResponse,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def get_collection_item(
     collection_id: str,
     item_id: uuid.UUID,
@@ -1016,7 +1037,12 @@ async def get_collection_item(
     )
 
 
-@stac_router.get("/items/{item_id}", response_model=None)
+@stac_router.get(
+    "/items/{item_id}",
+    response_model=StacItemResponse,
+    response_class=GeoJSONResponse,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def get_item(
     item_id: uuid.UUID,
     request: Request,
@@ -1382,11 +1408,9 @@ async def _execute_search(
 
 @stac_router.get(
     "/search",
-    response_class=JSONResponse,
-    responses={
-        200: {"content": {"application/geo+json": {}}},
-        **ERROR_RESPONSES_PUBLIC,
-    },
+    response_model=StacItemCollectionResponse,
+    response_class=GeoJSONResponse,
+    responses=ERROR_RESPONSES_PUBLIC,
 )
 async def search_get(
     request: Request,
@@ -1443,6 +1467,18 @@ async def search_get(
 class StacSearchBody(BaseModel):
     """JSON body for POST /search."""
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "bbox": [-77.2, 38.7, -76.8, 39.1],
+                    "collections": ["geolens-unassigned"],
+                    "limit": 25,
+                }
+            ]
+        }
+    }
+
     bbox: list[float] | None = None
     datetime: str | None = None
     collections: list[str] | None = None
@@ -1484,11 +1520,9 @@ class StacSearchBody(BaseModel):
 
 @stac_router.post(
     "/search",
-    response_class=JSONResponse,
-    responses={
-        200: {"content": {"application/geo+json": {}}},
-        **ERROR_RESPONSES_PUBLIC,
-    },
+    response_model=StacItemCollectionResponse,
+    response_class=GeoJSONResponse,
+    responses=ERROR_RESPONSES_PUBLIC,
 )
 async def search_post(
     body: StacSearchBody,

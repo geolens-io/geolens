@@ -18,14 +18,22 @@ def _get_kwargs(
     dataset_id: UUID,
     *,
     limit: int | Unset = 50,
-    offset: int | Unset = 0,
+    skip: int | Unset = 0,
+    offset: int | None | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     params["limit"] = limit
 
-    params["offset"] = offset
+    params["skip"] = skip
+
+    json_offset: int | None | Unset
+    if isinstance(offset, Unset):
+        json_offset = UNSET
+    else:
+        json_offset = offset
+    params["offset"] = json_offset
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -73,10 +81,20 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
     if response.status_code == 500:
         response_500 = ProblemDetail.from_dict(response.json())
 
         return response_500
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -100,7 +118,8 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 50,
-    offset: int | Unset = 0,
+    skip: int | Unset = 0,
+    offset: int | None | Unset = UNSET,
 ) -> Response[ColumnDdlFeedResponse | ProblemDetail]:
     """Get Column Ddl Feed
 
@@ -122,7 +141,8 @@ def sync_detailed(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
-        offset (int | Unset):  Default: 0.
+        skip (int | Unset): Number of audit entries to skip. Default: 0.
+        offset (int | None | Unset): Deprecated alias for skip; takes precedence when supplied.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -135,6 +155,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         limit=limit,
+        skip=skip,
         offset=offset,
     )
 
@@ -150,7 +171,8 @@ def sync(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 50,
-    offset: int | Unset = 0,
+    skip: int | Unset = 0,
+    offset: int | None | Unset = UNSET,
 ) -> ColumnDdlFeedResponse | ProblemDetail | None:
     """Get Column Ddl Feed
 
@@ -172,7 +194,8 @@ def sync(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
-        offset (int | Unset):  Default: 0.
+        skip (int | Unset): Number of audit entries to skip. Default: 0.
+        offset (int | None | Unset): Deprecated alias for skip; takes precedence when supplied.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -186,6 +209,7 @@ def sync(
         dataset_id=dataset_id,
         client=client,
         limit=limit,
+        skip=skip,
         offset=offset,
     ).parsed
 
@@ -195,7 +219,8 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 50,
-    offset: int | Unset = 0,
+    skip: int | Unset = 0,
+    offset: int | None | Unset = UNSET,
 ) -> Response[ColumnDdlFeedResponse | ProblemDetail]:
     """Get Column Ddl Feed
 
@@ -217,7 +242,8 @@ async def asyncio_detailed(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
-        offset (int | Unset):  Default: 0.
+        skip (int | Unset): Number of audit entries to skip. Default: 0.
+        offset (int | None | Unset): Deprecated alias for skip; takes precedence when supplied.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -230,6 +256,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         limit=limit,
+        skip=skip,
         offset=offset,
     )
 
@@ -243,7 +270,8 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     limit: int | Unset = 50,
-    offset: int | Unset = 0,
+    skip: int | Unset = 0,
+    offset: int | None | Unset = UNSET,
 ) -> ColumnDdlFeedResponse | ProblemDetail | None:
     """Get Column Ddl Feed
 
@@ -265,7 +293,8 @@ async def asyncio(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 50.
-        offset (int | Unset):  Default: 0.
+        skip (int | Unset): Number of audit entries to skip. Default: 0.
+        offset (int | None | Unset): Deprecated alias for skip; takes precedence when supplied.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -280,6 +309,7 @@ async def asyncio(
             dataset_id=dataset_id,
             client=client,
             limit=limit,
+            skip=skip,
             offset=offset,
         )
     ).parsed

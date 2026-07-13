@@ -47,7 +47,11 @@ from app.standards.ogc.utils import (
     link_header_value,
     parse_accept_languages,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.errors import (
+    BAD_REQUEST_RESPONSE,
+    ERROR_RESPONSES_PUBLIC,
+    NOT_FOUND_RESPONSE,
+)
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
@@ -704,7 +708,11 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     include_in_schema=False,
 )
-@search_router.get("/datasets/", response_model=OGCFeatureCollectionResponse)
+@search_router.get(
+    "/datasets/",
+    response_model=OGCFeatureCollectionResponse,
+    responses={400: BAD_REQUEST_RESPONSE},
+)
 @limiter.limit(_semantic_search_rate_limit)
 async def search_datasets_endpoint(
     request: Request,
@@ -785,7 +793,11 @@ async def list_saved_searches_endpoint(
     )
 
 
-@search_router.get("/saved/{search_id}", response_model=SavedSearchResponse)
+@search_router.get(
+    "/saved/{search_id}",
+    response_model=SavedSearchResponse,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def get_saved_search_endpoint(
     search_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -801,7 +813,11 @@ async def get_saved_search_endpoint(
     return SavedSearchResponse.model_validate(saved)
 
 
-@search_router.delete("/saved/{search_id}", status_code=status.HTTP_204_NO_CONTENT)
+@search_router.delete(
+    "/saved/{search_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def delete_saved_search_endpoint(
     search_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),

@@ -63,6 +63,7 @@ from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import (
     ERROR_RESPONSES_PUBLIC,
+    FORBIDDEN_RESPONSE,
     SERVICE_UNAVAILABLE_RESPONSE,
 )
 from app.standards.ogc.utils import normalize_language_tag, parse_accept_languages
@@ -732,7 +733,11 @@ async def _resolve_download_user(
     )
 
 
-@router.get("/{dataset_id}/download/cog", response_class=Response)
+@router.get(
+    "/{dataset_id}/download/cog",
+    response_class=Response,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def download_cog(
     dataset_id: uuid.UUID,
     request: Request,

@@ -2359,6 +2359,11 @@ export type DatasetListResponse = {
 
 /**
  * DatasetMeta
+ *
+ * Partial-update payload for dataset metadata.
+ *
+ * The class name remains ``DatasetMeta`` for generated-SDK compatibility;
+ * new backend call sites use the ``DatasetMetaUpdate`` alias below.
  */
 export type DatasetMeta = {
     /**
@@ -3304,6 +3309,32 @@ export type DuplicateMapResponse = {
 };
 
 /**
+ * EditionInfoResponse
+ *
+ * Response for runtime capability metadata.
+ */
+export type EditionInfoResponse = {
+    /**
+     * Edition
+     *
+     * Runtime capability channel.
+     */
+    edition: string;
+    /**
+     * Features
+     *
+     * List of enabled runtime feature flags.
+     */
+    features: Array<string>;
+    /**
+     * Tenancy Mode
+     *
+     * Deployment tenancy mode.
+     */
+    tenancy_mode?: string;
+};
+
+/**
  * EmbedTokenCreate
  */
 export type EmbedTokenCreate = {
@@ -3485,6 +3516,20 @@ export type EmbeddingStatsResponse = {
      * Total number of records in the catalog.
      */
     total_records: number;
+};
+
+/**
+ * EnterpriseTabsResponse
+ *
+ * Response for restricted Settings tab keys.
+ */
+export type EnterpriseTabsResponse = {
+    /**
+     * Tabs
+     *
+     * Tab keys (e.g. 'branding', 'appearance') restricted by the current runtime. Sorted alphabetically for stable client-side comparison.
+     */
+    tabs: Array<string>;
 };
 
 /**
@@ -6696,7 +6741,9 @@ export type ProblemDetail = {
     /**
      * Detail
      */
-    detail: string;
+    detail: string | {
+        [key: string]: unknown;
+    } | Array<unknown>;
     /**
      * Status
      */
@@ -7375,6 +7422,146 @@ export type ReuploadServicePreviewRequest = {
      * Url
      */
     url: string;
+};
+
+/**
+ * SSEActionsEvent
+ *
+ * Validated map-edit actions produced by streaming chat.
+ */
+export type SseActionsEvent = {
+    /**
+     * Actions
+     */
+    actions: Array<ChatAction>;
+    /**
+     * Type
+     */
+    type: 'actions';
+};
+
+/**
+ * SSEChatDoneEvent
+ *
+ * Terminal payload for a successful streaming chat request.
+ */
+export type SseChatDoneEvent = {
+    /**
+     * Explanation
+     */
+    explanation: string;
+    /**
+     * Type
+     */
+    type: 'done';
+};
+
+/**
+ * SSEErrorEvent
+ *
+ * Error payload carried inside an already-open SSE response.
+ */
+export type SseErrorEvent = {
+    /**
+     * Message
+     */
+    message: string | {
+        [key: string]: unknown;
+    } | Array<unknown>;
+    /**
+     * Status
+     *
+     * HTTP-equivalent status for router-level failures; provider and model errors raised inside the stream may omit it.
+     */
+    status?: number | null;
+    /**
+     * Type
+     */
+    type: 'error';
+};
+
+/**
+ * SSEMapDoneEvent
+ *
+ * Terminal payload for a successful streaming map-generation request.
+ */
+export type SseMapDoneEvent = {
+    /**
+     * Datasets Used
+     */
+    datasets_used: Array<string>;
+    /**
+     * Explanation
+     */
+    explanation: string;
+    /**
+     * Map Id
+     */
+    map_id: string;
+    /**
+     * Map Name
+     */
+    map_name: string;
+    /**
+     * Type
+     */
+    type: 'done';
+};
+
+/**
+ * SSETokenEvent
+ *
+ * Token payload carried by a ``token`` server-sent event.
+ */
+export type SseTokenEvent = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Type
+     */
+    type: 'token';
+};
+
+/**
+ * SSEToolResultEvent
+ *
+ * Progress payload emitted when an AI tool finishes.
+ */
+export type SseToolResultEvent = {
+    /**
+     * Success
+     */
+    success: boolean;
+    /**
+     * Tool
+     */
+    tool: string;
+    /**
+     * Type
+     */
+    type: 'tool_result';
+};
+
+/**
+ * SSEToolStartEvent
+ *
+ * Progress payload emitted when an AI tool starts.
+ */
+export type SseToolStartEvent = {
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Tool
+     */
+    tool: string;
+    /**
+     * Type
+     */
+    type: 'tool_start';
 };
 
 /**
@@ -8078,9 +8265,7 @@ export type StacCollectionListResponse = {
      *
      * List of STAC collections.
      */
-    collections: Array<{
-        [key: string]: unknown;
-    }>;
+    collections: Array<StacCollection>;
     /**
      * Links
      *
@@ -8230,6 +8415,27 @@ export type StacConnectResponse = {
 };
 
 /**
+ * StacContext
+ *
+ * Paging metadata emitted with STAC ItemCollections.
+ */
+export type StacContext = {
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Matched
+     */
+    matched: number;
+    /**
+     * Returned
+     */
+    returned: number;
+    [key: string]: unknown;
+};
+
+/**
  * StacImportItem
  */
 export type StacImportItem = {
@@ -8371,6 +8577,186 @@ export type StacImportResult = {
      * Import result status.
      */
     status: 'created' | 'skipped' | 'error';
+};
+
+/**
+ * StacItemAsset
+ *
+ * A STAC asset attached to an Item.
+ */
+export type StacItemAsset = {
+    /**
+     * Description
+     *
+     * Human-readable asset description.
+     */
+    description?: string | null;
+    /**
+     * Href
+     *
+     * URL of the asset resource.
+     */
+    href: string;
+    /**
+     * Roles
+     *
+     * Semantic roles such as data or visual.
+     */
+    roles?: Array<string> | null;
+    /**
+     * Title
+     *
+     * Human-readable asset title.
+     */
+    title?: string | null;
+    /**
+     * Type
+     *
+     * Asset media type.
+     */
+    type?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * StacItemCollectionResponse
+ *
+ * Typed OpenAPI representation of a STAC ItemCollection.
+ */
+export type StacItemCollectionResponse = {
+    context: StacContext;
+    /**
+     * Features
+     */
+    features: Array<StacItemResponse>;
+    /**
+     * Links
+     */
+    links: Array<StacLink>;
+    /**
+     * Numbermatched
+     */
+    numberMatched: number;
+    /**
+     * Numberreturned
+     */
+    numberReturned: number;
+    /**
+     * Type
+     */
+    type?: 'FeatureCollection';
+    [key: string]: unknown;
+};
+
+/**
+ * StacItemProperties
+ *
+ * Core STAC Item properties plus extension-defined fields.
+ */
+export type StacItemProperties = {
+    /**
+     * Datetime
+     *
+     * Item timestamp, or null when a temporal interval is supplied.
+     */
+    datetime: string | null;
+    /**
+     * Description
+     *
+     * Human-readable item description.
+     */
+    description?: string | null;
+    /**
+     * End Datetime
+     *
+     * End of the item's temporal interval.
+     */
+    end_datetime?: string | null;
+    /**
+     * Start Datetime
+     *
+     * Start of the item's temporal interval.
+     */
+    start_datetime?: string | null;
+    /**
+     * Title
+     *
+     * Human-readable item title.
+     */
+    title?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * StacItemResponse
+ *
+ * A GeoJSON Feature conforming to the STAC Item specification.
+ */
+export type StacItemResponse = {
+    /**
+     * Assets
+     */
+    assets: {
+        [key: string]: StacItemAsset;
+    };
+    /**
+     * Bbox
+     *
+     * Item bounding box with exactly four 2D or six 3D coordinates.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | [
+        number,
+        number,
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Collection
+     *
+     * Identifier of the containing STAC Collection.
+     */
+    collection?: string | null;
+    /**
+     * Geometry
+     *
+     * Item footprint as GeoJSON, or null when unavailable.
+     */
+    geometry: GeoJsonGeometryCollection | GeoJsonGeometry | null;
+    /**
+     * Id
+     *
+     * Stable item identifier.
+     */
+    id: string;
+    /**
+     * Links
+     */
+    links: Array<StacLink>;
+    properties: StacItemProperties;
+    /**
+     * Stac Extensions
+     *
+     * STAC extension schema URIs in use.
+     */
+    stac_extensions?: Array<string>;
+    /**
+     * Stac Version
+     *
+     * STAC specification version.
+     */
+    stac_version: string;
+    /**
+     * Type
+     */
+    type?: 'Feature';
+    [key: string]: unknown;
 };
 
 /**
@@ -9583,9 +9969,17 @@ export type LandingPageGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type LandingPageGetError = LandingPageGetErrors[keyof LandingPageGetErrors];
@@ -9628,9 +10022,17 @@ export type GetAiStatusAdminAiStatusGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetAiStatusAdminAiStatusGetError = GetAiStatusAdminAiStatusGetErrors[keyof GetAiStatusAdminAiStatusGetErrors];
@@ -9673,9 +10075,17 @@ export type UpdateAiStatusAdminAiStatusPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateAiStatusAdminAiStatusPatchError = UpdateAiStatusAdminAiStatusPatchErrors[keyof UpdateAiStatusAdminAiStatusPatchErrors];
@@ -9733,9 +10143,17 @@ export type ListApiKeysAdminApiKeysGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListApiKeysAdminApiKeysGetError = ListApiKeysAdminApiKeysGetErrors[keyof ListApiKeysAdminApiKeysGetErrors];
@@ -9778,9 +10196,17 @@ export type CreateApiKeyAdminApiKeysPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateApiKeyAdminApiKeysPostError = CreateApiKeyAdminApiKeysPostErrors[keyof CreateApiKeyAdminApiKeysPostErrors];
@@ -9828,9 +10254,17 @@ export type RevokeApiKeyAdminApiKeysKeyIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RevokeApiKeyAdminApiKeysKeyIdDeleteError = RevokeApiKeyAdminApiKeysKeyIdDeleteErrors[keyof RevokeApiKeyAdminApiKeysKeyIdDeleteErrors];
@@ -9906,9 +10340,17 @@ export type ListAuditLogsAdminAuditLogsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListAuditLogsAdminAuditLogsGetError = ListAuditLogsAdminAuditLogsGetErrors[keyof ListAuditLogsAdminAuditLogsGetErrors];
@@ -9956,9 +10398,21 @@ export type TriggerBackfillAdminBackfillEmbeddingsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type TriggerBackfillAdminBackfillEmbeddingsPostError = TriggerBackfillAdminBackfillEmbeddingsPostErrors[keyof TriggerBackfillAdminBackfillEmbeddingsPostErrors];
@@ -10026,9 +10480,17 @@ export type ListAllEmbedTokensAdminEmbedTokensGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListAllEmbedTokensAdminEmbedTokensGetError = ListAllEmbedTokensAdminEmbedTokensGetErrors[keyof ListAllEmbedTokensAdminEmbedTokensGetErrors];
@@ -10071,9 +10533,17 @@ export type BulkRevokeAdminEmbedTokensBulkRevokePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type BulkRevokeAdminEmbedTokensBulkRevokePostError = BulkRevokeAdminEmbedTokensBulkRevokePostErrors[keyof BulkRevokeAdminEmbedTokensBulkRevokePostErrors];
@@ -10116,9 +10586,17 @@ export type GetEmbeddingStatsAdminEmbeddingStatsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetEmbeddingStatsAdminEmbeddingStatsGetError = GetEmbeddingStatsAdminEmbeddingStatsGetErrors[keyof GetEmbeddingStatsAdminEmbeddingStatsGetErrors];
@@ -10161,9 +10639,17 @@ export type GetInfrastructureAdminInfrastructureGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetInfrastructureAdminInfrastructureGetError = GetInfrastructureAdminInfrastructureGetErrors[keyof GetInfrastructureAdminInfrastructureGetErrors];
@@ -10227,9 +10713,17 @@ export type ListAdminJobsAdminJobsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListAdminJobsAdminJobsGetError = ListAdminJobsAdminJobsGetErrors[keyof ListAdminJobsAdminJobsGetErrors];
@@ -10289,9 +10783,17 @@ export type ListShareTokensEndpointAdminShareTokensGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListShareTokensEndpointAdminShareTokensGetError = ListShareTokensEndpointAdminShareTokensGetErrors[keyof ListShareTokensEndpointAdminShareTokensGetErrors];
@@ -10339,9 +10841,17 @@ export type AdminRevokeShareTokenAdminShareTokensTokenIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AdminRevokeShareTokenAdminShareTokensTokenIdDeleteError = AdminRevokeShareTokenAdminShareTokensTokenIdDeleteErrors[keyof AdminRevokeShareTokenAdminShareTokensTokenIdDeleteErrors];
@@ -10384,9 +10894,17 @@ export type GetCatalogStatsAdminStatsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCatalogStatsAdminStatsGetError = GetCatalogStatsAdminStatsGetErrors[keyof GetCatalogStatsAdminStatsGetErrors];
@@ -10446,9 +10964,17 @@ export type ListUsersAdminUsersGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListUsersAdminUsersGetError = ListUsersAdminUsersGetErrors[keyof ListUsersAdminUsersGetErrors];
@@ -10487,13 +11013,25 @@ export type CreateUserAdminUsersPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateUserAdminUsersPostError = CreateUserAdminUsersPostErrors[keyof CreateUserAdminUsersPostErrors];
@@ -10536,9 +11074,17 @@ export type ExportUsersCsvAdminUsersExportCsvGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ExportUsersCsvAdminUsersExportCsvGetError = ExportUsersCsvAdminUsersExportCsvGetErrors[keyof ExportUsersCsvAdminUsersExportCsvGetErrors];
@@ -10588,9 +11134,17 @@ export type ListUserNamesAdminUsersNamesGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListUserNamesAdminUsersNamesGetError = ListUserNamesAdminUsersNamesGetErrors[keyof ListUserNamesAdminUsersNamesGetErrors];
@@ -10640,9 +11194,17 @@ export type DeleteUserAdminUsersUserIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteUserAdminUsersUserIdDeleteError = DeleteUserAdminUsersUserIdDeleteErrors[keyof DeleteUserAdminUsersUserIdDeleteErrors];
@@ -10690,9 +11252,17 @@ export type GetUserAdminUsersUserIdGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetUserAdminUsersUserIdGetError = GetUserAdminUsersUserIdGetErrors[keyof GetUserAdminUsersUserIdGetErrors];
@@ -10740,9 +11310,17 @@ export type UpdateUserAdminUsersUserIdPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateUserAdminUsersUserIdPatchError = UpdateUserAdminUsersUserIdPatchErrors[keyof UpdateUserAdminUsersUserIdPatchErrors];
@@ -10790,9 +11368,17 @@ export type ApproveUserAdminUsersUserIdApprovePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ApproveUserAdminUsersUserIdApprovePostError = ApproveUserAdminUsersUserIdApprovePostErrors[keyof ApproveUserAdminUsersUserIdApprovePostErrors];
@@ -10840,9 +11426,17 @@ export type DeactivateUserAdminUsersUserIdDeactivatePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeactivateUserAdminUsersUserIdDeactivatePostError = DeactivateUserAdminUsersUserIdDeactivatePostErrors[keyof DeactivateUserAdminUsersUserIdDeactivatePostErrors];
@@ -10890,9 +11484,17 @@ export type RejectUserAdminUsersUserIdRejectPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RejectUserAdminUsersUserIdRejectPostError = RejectUserAdminUsersUserIdRejectPostErrors[keyof RejectUserAdminUsersUserIdRejectPostErrors];
@@ -10935,9 +11537,17 @@ export type AiAvailabilityEndpointAiAvailabilityGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AiAvailabilityEndpointAiAvailabilityGetError = AiAvailabilityEndpointAiAvailabilityGetErrors[keyof AiAvailabilityEndpointAiAvailabilityGetErrors];
@@ -10980,9 +11590,21 @@ export type ChatEndpointAiChatPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ChatEndpointAiChatPostError = ChatEndpointAiChatPostErrors[keyof ChatEndpointAiChatPostErrors];
@@ -11025,19 +11647,29 @@ export type ChatStreamEndpointAiChatStreamPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ChatStreamEndpointAiChatStreamPostError = ChatStreamEndpointAiChatStreamPostErrors[keyof ChatStreamEndpointAiChatStreamPostErrors];
 
 export type ChatStreamEndpointAiChatStreamPostResponses = {
     /**
-     * Server-Sent Events stream
+     * UTF-8 server-sent event frames. Each data field contains one JSON event payload described by x-geolens-event-schema.
      */
-    200: unknown;
+    200: string;
 };
+
+export type ChatStreamEndpointAiChatStreamPostResponse = ChatStreamEndpointAiChatStreamPostResponses[keyof ChatStreamEndpointAiChatStreamPostResponses];
 
 export type GenerateMapEndpointAiGenerateMapPostData = {
     body: MapGenerateRequest;
@@ -11068,9 +11700,21 @@ export type GenerateMapEndpointAiGenerateMapPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GenerateMapEndpointAiGenerateMapPostError = GenerateMapEndpointAiGenerateMapPostErrors[keyof GenerateMapEndpointAiGenerateMapPostErrors];
@@ -11113,19 +11757,29 @@ export type GenerateMapStreamEndpointAiGenerateMapStreamPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GenerateMapStreamEndpointAiGenerateMapStreamPostError = GenerateMapStreamEndpointAiGenerateMapStreamPostErrors[keyof GenerateMapStreamEndpointAiGenerateMapStreamPostErrors];
 
 export type GenerateMapStreamEndpointAiGenerateMapStreamPostResponses = {
     /**
-     * Server-Sent Events stream
+     * UTF-8 server-sent event frames. Each data field contains one JSON event payload described by x-geolens-event-schema.
      */
-    200: unknown;
+    200: string;
 };
+
+export type GenerateMapStreamEndpointAiGenerateMapStreamPostResponse = GenerateMapStreamEndpointAiGenerateMapStreamPostResponses[keyof GenerateMapStreamEndpointAiGenerateMapStreamPostResponses];
 
 export type GenerateMetadataKeywordsAiMetadataKeywordsPostData = {
     body: MetadataAssistRequest;
@@ -11156,9 +11810,21 @@ export type GenerateMetadataKeywordsAiMetadataKeywordsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GenerateMetadataKeywordsAiMetadataKeywordsPostError = GenerateMetadataKeywordsAiMetadataKeywordsPostErrors[keyof GenerateMetadataKeywordsAiMetadataKeywordsPostErrors];
@@ -11201,9 +11867,21 @@ export type GenerateMetadataLineageAiMetadataLineagePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GenerateMetadataLineageAiMetadataLineagePostError = GenerateMetadataLineageAiMetadataLineagePostErrors[keyof GenerateMetadataLineageAiMetadataLineagePostErrors];
@@ -11246,9 +11924,21 @@ export type GenerateMetadataQualityStatementAiMetadataQualityStatementPostErrors
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GenerateMetadataQualityStatementAiMetadataQualityStatementPostError = GenerateMetadataQualityStatementAiMetadataQualityStatementPostErrors[keyof GenerateMetadataQualityStatementAiMetadataQualityStatementPostErrors];
@@ -11291,9 +11981,21 @@ export type GenerateMetadataSummaryAiMetadataSummaryPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GenerateMetadataSummaryAiMetadataSummaryPostError = GenerateMetadataSummaryAiMetadataSummaryPostErrors[keyof GenerateMetadataSummaryAiMetadataSummaryPostErrors];
@@ -11321,9 +12023,19 @@ export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetData = {
          */
         limit?: number;
         /**
-         * Offset
+         * Skip
+         *
+         * Number of audit entries to skip.
          */
-        offset?: number;
+        skip?: number;
+        /**
+         * Offset
+         *
+         * Deprecated alias for skip; takes precedence when supplied.
+         *
+         * @deprecated
+         */
+        offset?: number | null;
     };
     url: '/audit/datasets/{dataset_id}/column-ddl';
 };
@@ -11350,9 +12062,17 @@ export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetError = GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetErrors[keyof GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetErrors];
@@ -11404,9 +12124,17 @@ export type ListMyApiKeysAuthApiKeysGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListMyApiKeysAuthApiKeysGetError = ListMyApiKeysAuthApiKeysGetErrors[keyof ListMyApiKeysAuthApiKeysGetErrors];
@@ -11449,9 +12177,17 @@ export type CreateMyApiKeyAuthApiKeysPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateMyApiKeyAuthApiKeysPostError = CreateMyApiKeyAuthApiKeysPostErrors[keyof CreateMyApiKeyAuthApiKeysPostErrors];
@@ -11499,9 +12235,17 @@ export type RevokeMyApiKeyAuthApiKeysKeyIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RevokeMyApiKeyAuthApiKeysKeyIdDeleteError = RevokeMyApiKeyAuthApiKeysKeyIdDeleteErrors[keyof RevokeMyApiKeyAuthApiKeysKeyIdDeleteErrors];
@@ -11544,9 +12288,17 @@ export type ChangePasswordAuthChangePasswordPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ChangePasswordAuthChangePasswordPostError = ChangePasswordAuthChangePasswordPostErrors[keyof ChangePasswordAuthChangePasswordPostErrors];
@@ -11589,9 +12341,17 @@ export type ConfigAuthConfigGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ConfigAuthConfigGetError = ConfigAuthConfigGetErrors[keyof ConfigAuthConfigGetErrors];
@@ -11639,9 +12399,17 @@ export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostError = CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostErrors[keyof CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostErrors];
@@ -11684,9 +12452,17 @@ export type LoginAuthLoginPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type LoginAuthLoginPostError = LoginAuthLoginPostErrors[keyof LoginAuthLoginPostErrors];
@@ -11729,9 +12505,17 @@ export type LogoutAuthLogoutPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type LogoutAuthLogoutPostError = LogoutAuthLogoutPostErrors[keyof LogoutAuthLogoutPostErrors];
@@ -11774,9 +12558,17 @@ export type MeAuthMeGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type MeAuthMeGetError = MeAuthMeGetErrors[keyof MeAuthMeGetErrors];
@@ -11819,9 +12611,17 @@ export type MePermissionsAuthMePermissionsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type MePermissionsAuthMePermissionsGetError = MePermissionsAuthMePermissionsGetErrors[keyof MePermissionsAuthMePermissionsGetErrors];
@@ -11864,9 +12664,17 @@ export type MeUsageAuthMeUsageGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type MeUsageAuthMeUsageGetError = MeUsageAuthMeUsageGetErrors[keyof MeUsageAuthMeUsageGetErrors];
@@ -11909,9 +12717,17 @@ export type ListPublicProvidersAuthOauthProvidersGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListPublicProvidersAuthOauthProvidersGetError = ListPublicProvidersAuthOauthProvidersGetErrors[keyof ListPublicProvidersAuthOauthProvidersGetErrors];
@@ -11961,9 +12777,17 @@ export type OauthCallbackAuthOauthProviderSlugCallbackGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type OauthCallbackAuthOauthProviderSlugCallbackGetError = OauthCallbackAuthOauthProviderSlugCallbackGetErrors[keyof OauthCallbackAuthOauthProviderSlugCallbackGetErrors];
@@ -12009,9 +12833,17 @@ export type OauthLoginAuthOauthProviderSlugLoginGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type OauthLoginAuthOauthProviderSlugLoginGetError = OauthLoginAuthOauthProviderSlugLoginGetErrors[keyof OauthLoginAuthOauthProviderSlugLoginGetErrors];
@@ -12045,9 +12877,17 @@ export type RefreshAuthRefreshPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RefreshAuthRefreshPostError = RefreshAuthRefreshPostErrors[keyof RefreshAuthRefreshPostErrors];
@@ -12090,9 +12930,21 @@ export type RegisterAuthRegisterPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RegisterAuthRegisterPostError = RegisterAuthRegisterPostErrors[keyof RegisterAuthRegisterPostErrors];
@@ -12135,9 +12987,17 @@ export type ResendVerificationAuthResendVerificationPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ResendVerificationAuthResendVerificationPostError = ResendVerificationAuthResendVerificationPostErrors[keyof ResendVerificationAuthResendVerificationPostErrors];
@@ -12180,9 +13040,17 @@ export type VerifyEmailAuthVerifyEmailPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type VerifyEmailAuthVerifyEmailPostError = VerifyEmailAuthVerifyEmailPostErrors[keyof VerifyEmailAuthVerifyEmailPostErrors];
@@ -12238,9 +13106,17 @@ export type ListCollectionsEndpointCatalogCollectionsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListCollectionsEndpointCatalogCollectionsGetError = ListCollectionsEndpointCatalogCollectionsGetErrors[keyof ListCollectionsEndpointCatalogCollectionsGetErrors];
@@ -12287,9 +13163,17 @@ export type CreateCollectionEndpointCatalogCollectionsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateCollectionEndpointCatalogCollectionsPostError = CreateCollectionEndpointCatalogCollectionsPostErrors[keyof CreateCollectionEndpointCatalogCollectionsPostErrors];
@@ -12341,9 +13225,17 @@ export type DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteErrors =
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteError = DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteErrors[keyof DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteErrors];
@@ -12395,9 +13287,17 @@ export type GetCollectionEndpointCatalogCollectionsCollectionIdGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionEndpointCatalogCollectionsCollectionIdGetError = GetCollectionEndpointCatalogCollectionsCollectionIdGetErrors[keyof GetCollectionEndpointCatalogCollectionsCollectionIdGetErrors];
@@ -12449,9 +13349,17 @@ export type UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchErrors = 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchError = UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchErrors[keyof UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchErrors];
@@ -12512,9 +13420,17 @@ export type GetCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasetsG
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasetsGetError = GetCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasetsGetErrors[keyof GetCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasetsGetErrors];
@@ -12566,9 +13482,17 @@ export type AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostErrors 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostError = AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostErrors[keyof AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostErrors];
@@ -12624,9 +13548,17 @@ export type RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetId
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDeleteError = RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDeleteErrors[keyof RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDeleteErrors];
@@ -12670,9 +13602,17 @@ export type ListCollectionsCollectionsGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListCollectionsCollectionsGetError = ListCollectionsCollectionsGetErrors[keyof ListCollectionsCollectionsGetErrors];
@@ -12703,9 +13643,17 @@ export type GetCollectionMetadataCollectionsDatasetsGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionMetadataCollectionsDatasetsGetError = GetCollectionMetadataCollectionsDatasetsGetErrors[keyof GetCollectionMetadataCollectionsDatasetsGetErrors];
@@ -12856,9 +13804,17 @@ export type CollectionItemsCollectionsDatasetsItemsGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CollectionItemsCollectionsDatasetsItemsGetError = CollectionItemsCollectionsDatasetsItemsGetErrors[keyof CollectionItemsCollectionsDatasetsItemsGetErrors];
@@ -12894,9 +13850,17 @@ export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetError = GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors[keyof GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors];
@@ -12927,9 +13891,17 @@ export type GetQueryablesCollectionsDatasetsQueryablesGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetQueryablesCollectionsDatasetsQueryablesGetError = GetQueryablesCollectionsDatasetsQueryablesGetErrors[keyof GetQueryablesCollectionsDatasetsQueryablesGetErrors];
@@ -12958,9 +13930,17 @@ export type GetRecordSchemaCollectionsDatasetsSchemaGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetRecordSchemaCollectionsDatasetsSchemaGetError = GetRecordSchemaCollectionsDatasetsSchemaGetErrors[keyof GetRecordSchemaCollectionsDatasetsSchemaGetErrors];
@@ -12989,9 +13969,17 @@ export type GetSortablesCollectionsDatasetsSortablesGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetSortablesCollectionsDatasetsSortablesGetError = GetSortablesCollectionsDatasetsSortablesGetErrors[keyof GetSortablesCollectionsDatasetsSortablesGetErrors];
@@ -13030,9 +14018,17 @@ export type GetDatasetCollectionCollectionsDatasetIdGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetDatasetCollectionCollectionsDatasetIdGetError = GetDatasetCollectionCollectionsDatasetIdGetErrors[keyof GetDatasetCollectionCollectionsDatasetIdGetErrors];
@@ -13107,9 +14103,17 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionItemsCollectionsDatasetIdItemsGetError = GetCollectionItemsCollectionsDatasetIdItemsGetErrors[keyof GetCollectionItemsCollectionsDatasetIdItemsGetErrors];
@@ -13195,9 +14199,17 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetErrors 
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetError = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetErrors[keyof GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetErrors];
@@ -13278,9 +14290,17 @@ export type DryRunConfigurationConfigOpsDryRunPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DryRunConfigurationConfigOpsDryRunPostError = DryRunConfigurationConfigOpsDryRunPostErrors[keyof DryRunConfigurationConfigOpsDryRunPostErrors];
@@ -13323,9 +14343,17 @@ export type ExportConfigurationConfigOpsExportGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ExportConfigurationConfigOpsExportGetError = ExportConfigurationConfigOpsExportGetErrors[keyof ExportConfigurationConfigOpsExportGetErrors];
@@ -13367,13 +14395,25 @@ export type ImportConfigurationConfigOpsImportPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ImportConfigurationConfigOpsImportPostError = ImportConfigurationConfigOpsImportPostErrors[keyof ImportConfigurationConfigOpsImportPostErrors];
@@ -13416,9 +14456,17 @@ export type ValidateConfigurationConfigOpsValidatePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateConfigurationConfigOpsValidatePostError = ValidateConfigurationConfigOpsValidatePostErrors[keyof ValidateConfigurationConfigOpsValidatePostErrors];
@@ -13453,6 +14501,10 @@ export type ConformanceConformanceGetErrors = {
      * Not found
      */
     404: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
     /**
      * Internal server error
      */
@@ -13512,9 +14564,17 @@ export type ListAllDatasetsDatasetsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListAllDatasetsDatasetsGetError = ListAllDatasetsDatasetsGetErrors[keyof ListAllDatasetsDatasetsGetErrors];
@@ -13561,9 +14621,17 @@ export type BulkDeleteDatasetsEndpointDatasetsBulkDeletePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type BulkDeleteDatasetsEndpointDatasetsBulkDeletePostError = BulkDeleteDatasetsEndpointDatasetsBulkDeletePostErrors[keyof BulkDeleteDatasetsEndpointDatasetsBulkDeletePostErrors];
@@ -13610,9 +14678,17 @@ export type CreateEmptyDatasetEndpointDatasetsCreatePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateEmptyDatasetEndpointDatasetsCreatePostError = CreateEmptyDatasetEndpointDatasetsCreatePostErrors[keyof CreateEmptyDatasetEndpointDatasetsCreatePostErrors];
@@ -13656,6 +14732,10 @@ export type GetDcatUs3CatalogDatasetsDcatUs30GetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -13691,9 +14771,17 @@ export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetError = ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors[keyof ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors];
@@ -13735,9 +14823,17 @@ export type GetDcatCatalogDatasetsDcatGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetDcatCatalogDatasetsDcatGetError = GetDcatCatalogDatasetsDcatGetErrors[keyof GetDcatCatalogDatasetsDcatGetErrors];
@@ -13766,9 +14862,17 @@ export type ValidateDcat3CatalogDatasetsDcatValidationGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateDcat3CatalogDatasetsDcatValidationGetError = ValidateDcat3CatalogDatasetsDcatValidationGetErrors[keyof ValidateDcat3CatalogDatasetsDcatValidationGetErrors];
@@ -13810,9 +14914,17 @@ export type GetGeodcatApCatalogDatasetsGeodcatApGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetGeodcatApCatalogDatasetsGeodcatApGetError = GetGeodcatApCatalogDatasetsGeodcatApGetErrors[keyof GetGeodcatApCatalogDatasetsGeodcatApGetErrors];
@@ -13841,9 +14953,17 @@ export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetError = ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors[keyof ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors];
@@ -13893,9 +15013,17 @@ export type DeleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDeleteEr
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDeleteError = DeleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDeleteErrors[keyof DeleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDeleteErrors];
@@ -13947,9 +15075,17 @@ export type DeleteDatasetEndpointDatasetsDatasetIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteDatasetEndpointDatasetsDatasetIdDeleteError = DeleteDatasetEndpointDatasetsDatasetIdDeleteErrors[keyof DeleteDatasetEndpointDatasetsDatasetIdDeleteErrors];
@@ -14001,9 +15137,17 @@ export type GetSingleDatasetDatasetsDatasetIdGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetSingleDatasetDatasetsDatasetIdGetError = GetSingleDatasetDatasetsDatasetIdGetErrors[keyof GetSingleDatasetDatasetsDatasetIdGetErrors];
@@ -14055,9 +15199,17 @@ export type UpdateDatasetMetadataDatasetsDatasetIdPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateDatasetMetadataDatasetsDatasetIdPatchError = UpdateDatasetMetadataDatasetsDatasetIdPatchErrors[keyof UpdateDatasetMetadataDatasetsDatasetIdPatchErrors];
@@ -14114,9 +15266,17 @@ export type ListAttributesEndpointDatasetsDatasetIdAttributesGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListAttributesEndpointDatasetsDatasetIdAttributesGetError = ListAttributesEndpointDatasetsDatasetIdAttributesGetErrors[keyof ListAttributesEndpointDatasetsDatasetIdAttributesGetErrors];
@@ -14172,9 +15332,17 @@ export type GetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdGetErrors 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdGetError = GetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdGetErrors[keyof GetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdGetErrors];
@@ -14230,9 +15398,17 @@ export type UpdateAttributeEndpointDatasetsDatasetIdAttributesAttributeIdPatchEr
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateAttributeEndpointDatasetsDatasetIdAttributesAttributeIdPatchError = UpdateAttributeEndpointDatasetsDatasetIdAttributesAttributeIdPatchErrors[keyof UpdateAttributeEndpointDatasetsDatasetIdAttributesAttributeIdPatchErrors];
@@ -14288,9 +15464,17 @@ export type ResetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdResetPos
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ResetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdResetPostError = ResetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdResetPostErrors[keyof ResetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdResetPostErrors];
@@ -14346,9 +15530,17 @@ export type GetColumnStatsEndpointDatasetsDatasetIdColumnsColumnNameStatsGetErro
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetColumnStatsEndpointDatasetsDatasetIdColumnsColumnNameStatsGetError = GetColumnStatsEndpointDatasetsDatasetIdColumnsColumnNameStatsGetErrors[keyof GetColumnStatsEndpointDatasetsDatasetIdColumnsColumnNameStatsGetErrors];
@@ -14409,9 +15601,17 @@ export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetError = GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetErrors[keyof GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetErrors];
@@ -14446,6 +15646,10 @@ export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors = {
      * Not found
      */
     404: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
     /**
      * Internal server error
      */
@@ -14487,9 +15691,17 @@ export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors = 
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetError = ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors[keyof ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors];
@@ -14523,9 +15735,17 @@ export type GetDcatRecordDatasetsDatasetIdDcatGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetDcatRecordDatasetsDatasetIdDcatGetError = GetDcatRecordDatasetsDatasetIdDcatGetErrors[keyof GetDcatRecordDatasetsDatasetIdDcatGetErrors];
@@ -14559,9 +15779,17 @@ export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetError = ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors[keyof ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors];
@@ -14591,6 +15819,10 @@ export type DownloadCogDatasetsDatasetIdDownloadCogGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -14599,9 +15831,17 @@ export type DownloadCogDatasetsDatasetIdDownloadCogGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DownloadCogDatasetsDatasetIdDownloadCogGetError = DownloadCogDatasetsDatasetIdDownloadCogGetErrors[keyof DownloadCogDatasetsDatasetIdDownloadCogGetErrors];
@@ -14650,9 +15890,37 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetData = {
 
 export type ExportDatasetEndpointDatasetsDatasetIdExportGetErrors = {
     /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ExportDatasetEndpointDatasetsDatasetIdExportGetError = ExportDatasetEndpointDatasetsDatasetIdExportGetErrors[keyof ExportDatasetEndpointDatasetsDatasetIdExportGetErrors];
@@ -14706,9 +15974,17 @@ export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetError = GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors[keyof GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors];
@@ -14777,9 +16053,17 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListFeaturesDatasetsDatasetIdFeaturesGetError = ListFeaturesDatasetsDatasetIdFeaturesGetErrors[keyof ListFeaturesDatasetsDatasetIdFeaturesGetErrors];
@@ -14854,9 +16138,17 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostError = CreateFeatureDatasetsDatasetIdFeaturesPostErrors[keyof CreateFeatureDatasetsDatasetIdFeaturesPostErrors];
@@ -14933,9 +16225,17 @@ export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteError = DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteErrors[keyof DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteErrors];
@@ -14987,9 +16287,17 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetError = GetSingleFeatureDatasetsDatasetIdFeaturesGidGetErrors[keyof GetSingleFeatureDatasetsDatasetIdFeaturesGidGetErrors];
@@ -15066,9 +16374,17 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchError = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchErrors[keyof PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchErrors];
@@ -15145,9 +16461,17 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutError = ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutErrors[keyof ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutErrors];
@@ -15237,9 +16561,17 @@ export type GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelations
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelationshipIdGetError = GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelationshipIdGetErrors[keyof GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelationshipIdGetErrors];
@@ -15275,9 +16607,17 @@ export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetError = GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors[keyof GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors];
@@ -15311,9 +16651,17 @@ export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetError = ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors[keyof ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors];
@@ -15372,9 +16720,17 @@ export type GetDatasetHistoryDatasetsDatasetIdHistoryGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetDatasetHistoryDatasetsDatasetIdHistoryGetError = GetDatasetHistoryDatasetsDatasetIdHistoryGetErrors[keyof GetDatasetHistoryDatasetsDatasetIdHistoryGetErrors];
@@ -15435,9 +16791,17 @@ export type DatasetMapsDatasetsDatasetIdMapsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DatasetMapsDatasetsDatasetIdMapsGetError = DatasetMapsDatasetsDatasetIdMapsGetErrors[keyof DatasetMapsDatasetsDatasetIdMapsGetErrors];
@@ -15496,9 +16860,17 @@ export type GetQuicklookDatasetsDatasetIdQuicklookGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetQuicklookDatasetsDatasetIdQuicklookGetError = GetQuicklookDatasetsDatasetIdQuicklookGetErrors[keyof GetQuicklookDatasetsDatasetIdQuicklookGetErrors];
@@ -15548,9 +16920,17 @@ export type ListRelatedDatasetsDatasetsDatasetIdRelatedGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListRelatedDatasetsDatasetsDatasetIdRelatedGetError = ListRelatedDatasetsDatasetsDatasetIdRelatedGetErrors[keyof ListRelatedDatasetsDatasetsDatasetIdRelatedGetErrors];
@@ -15615,9 +16995,17 @@ export type ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetError = ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors[keyof ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors];
@@ -15669,9 +17057,17 @@ export type CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostErrors = 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostError = CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostErrors[keyof CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostErrors];
@@ -15719,13 +17115,25 @@ export type ReuploadDatasetDatasetsDatasetIdReuploadPostErrors = {
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ReuploadDatasetDatasetsDatasetIdReuploadPostError = ReuploadDatasetDatasetsDatasetIdReuploadPostErrors[keyof ReuploadDatasetDatasetsDatasetIdReuploadPostErrors];
@@ -15773,13 +17181,29 @@ export type RequestPresignedReuploadDatasetsDatasetIdReuploadPresignedPostErrors
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RequestPresignedReuploadDatasetsDatasetIdReuploadPresignedPostError = RequestPresignedReuploadDatasetsDatasetIdReuploadPresignedPostErrors[keyof RequestPresignedReuploadDatasetsDatasetIdReuploadPresignedPostErrors];
@@ -15831,13 +17255,29 @@ export type CompletePresignedReuploadDatasetsDatasetIdReuploadPresignedJobIdComp
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CompletePresignedReuploadDatasetsDatasetIdReuploadPresignedJobIdCompletePostError = CompletePresignedReuploadDatasetsDatasetIdReuploadPresignedJobIdCompletePostErrors[keyof CompletePresignedReuploadDatasetsDatasetIdReuploadPresignedJobIdCompletePostErrors];
@@ -15889,9 +17329,21 @@ export type ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostErr
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostError = ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostErrors[keyof ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostErrors];
@@ -15947,9 +17399,17 @@ export type ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostError = ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostErrors[keyof ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostErrors];
@@ -16008,9 +17468,17 @@ export type ReuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ReuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPostError = ReuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPostErrors[keyof ReuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPostErrors];
@@ -16071,9 +17539,17 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetError = GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors[keyof GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors];
@@ -16125,9 +17601,17 @@ export type UpdatePublicationStatusDatasetsDatasetIdStatusPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdatePublicationStatusDatasetsDatasetIdStatusPatchError = UpdatePublicationStatusDatasetsDatasetIdStatusPatchErrors[keyof UpdatePublicationStatusDatasetsDatasetIdStatusPatchErrors];
@@ -16179,9 +17663,17 @@ export type SetTargetStatusDatasetsDatasetIdTargetStatusPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type SetTargetStatusDatasetsDatasetIdTargetStatusPatchError = SetTargetStatusDatasetsDatasetIdTargetStatusPatchErrors[keyof SetTargetStatusDatasetsDatasetIdTargetStatusPatchErrors];
@@ -16240,9 +17732,17 @@ export type ValidateDatasetDatasetsDatasetIdValidateGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ValidateDatasetDatasetsDatasetIdValidateGetError = ValidateDatasetDatasetsDatasetIdValidateGetErrors[keyof ValidateDatasetDatasetsDatasetIdValidateGetErrors];
@@ -16303,9 +17803,17 @@ export type GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetError = GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetErrors[keyof GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetErrors];
@@ -16357,9 +17865,17 @@ export type ListVrtSourcesDatasetsDatasetIdVrtSourcesGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListVrtSourcesDatasetsDatasetIdVrtSourcesGetError = ListVrtSourcesDatasetsDatasetIdVrtSourcesGetErrors[keyof ListVrtSourcesDatasetsDatasetIdVrtSourcesGetErrors];
@@ -16387,9 +17903,19 @@ export type ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetData = {
          */
         limit?: number;
         /**
-         * Offset
+         * Skip
+         *
+         * Number of generation records to skip.
          */
-        offset?: number;
+        skip?: number;
+        /**
+         * Offset
+         *
+         * Deprecated alias for skip; takes precedence when supplied.
+         *
+         * @deprecated
+         */
+        offset?: number | null;
     };
     url: '/datasets/{dataset_id}/vrt/generations/';
 };
@@ -16420,9 +17946,17 @@ export type ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetError = ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors[keyof ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors];
@@ -16474,9 +18008,17 @@ export type RegenerateVrtEndpointDatasetsDatasetIdVrtRegeneratePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RegenerateVrtEndpointDatasetsDatasetIdVrtRegeneratePostError = RegenerateVrtEndpointDatasetsDatasetIdVrtRegeneratePostErrors[keyof RegenerateVrtEndpointDatasetsDatasetIdVrtRegeneratePostErrors];
@@ -16528,9 +18070,17 @@ export type GetVrtStatusDatasetsDatasetIdVrtStatusGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetVrtStatusDatasetsDatasetIdVrtStatusGetError = GetVrtStatusDatasetsDatasetIdVrtStatusGetErrors[keyof GetVrtStatusDatasetsDatasetIdVrtStatusGetErrors];
@@ -16550,6 +18100,23 @@ export type HealthHealthGetData = {
     query?: never;
     url: '/health';
 };
+
+export type HealthHealthGetErrors = {
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Health probes completed but one or more providers are degraded
+     */
+    503: HealthResponse;
+};
+
+export type HealthHealthGetError = HealthHealthGetErrors[keyof HealthHealthGetErrors];
 
 export type HealthHealthGetResponses = {
     /**
@@ -16598,9 +18165,17 @@ export type CommitFanOutIngestCommitFanOutJobIdPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CommitFanOutIngestCommitFanOutJobIdPostError = CommitFanOutIngestCommitFanOutJobIdPostErrors[keyof CommitFanOutIngestCommitFanOutJobIdPostErrors];
@@ -16652,9 +18227,17 @@ export type CommitImportIngestCommitJobIdPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CommitImportIngestCommitJobIdPostError = CommitImportIngestCommitJobIdPostErrors[keyof CommitImportIngestCommitJobIdPostErrors];
@@ -16708,9 +18291,17 @@ export type DiscoverTablesIngestDiscoverGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DiscoverTablesIngestDiscoverGetError = DiscoverTablesIngestDiscoverGetErrors[keyof DiscoverTablesIngestDiscoverGetErrors];
@@ -16757,9 +18348,17 @@ export type ApplyManifestEndpointIngestManifestApplyPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ApplyManifestEndpointIngestManifestApplyPostError = ApplyManifestEndpointIngestManifestApplyPostErrors[keyof ApplyManifestEndpointIngestManifestApplyPostErrors];
@@ -16818,9 +18417,17 @@ export type PreviewFileIngestPreviewJobIdPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type PreviewFileIngestPreviewJobIdPostError = PreviewFileIngestPreviewJobIdPostErrors[keyof PreviewFileIngestPreviewJobIdPostErrors];
@@ -16869,9 +18476,17 @@ export type RegisterTableIngestRegisterPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RegisterTableIngestRegisterPostError = RegisterTableIngestRegisterPostErrors[keyof RegisterTableIngestRegisterPostErrors];
@@ -16918,9 +18533,17 @@ export type BulkRegisterTablesIngestRegisterBulkPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type BulkRegisterTablesIngestRegisterBulkPostError = BulkRegisterTablesIngestRegisterBulkPostErrors[keyof BulkRegisterTablesIngestRegisterBulkPostErrors];
@@ -16963,13 +18586,25 @@ export type UploadFileIngestUploadPostErrors = {
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UploadFileIngestUploadPostError = UploadFileIngestUploadPostErrors[keyof UploadFileIngestUploadPostErrors];
@@ -17016,9 +18651,17 @@ export type GetUploadConfigIngestUploadConfigGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetUploadConfigIngestUploadConfigGetError = GetUploadConfigIngestUploadConfigGetErrors[keyof GetUploadConfigIngestUploadConfigGetErrors];
@@ -17061,13 +18704,29 @@ export type RequestPresignedUploadIngestUploadPresignedPostErrors = {
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RequestPresignedUploadIngestUploadPresignedPostError = RequestPresignedUploadIngestUploadPresignedPostErrors[keyof RequestPresignedUploadIngestUploadPresignedPostErrors];
@@ -17115,13 +18774,29 @@ export type CompletePresignedUploadIngestUploadPresignedJobIdCompletePostErrors 
      */
     409: ProblemDetail;
     /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CompletePresignedUploadIngestUploadPresignedJobIdCompletePostError = CompletePresignedUploadIngestUploadPresignedJobIdCompletePostErrors[keyof CompletePresignedUploadIngestUploadPresignedJobIdCompletePostErrors];
@@ -17168,9 +18843,17 @@ export type CreateVrtIngestVrtCreatePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateVrtIngestVrtCreatePostError = CreateVrtIngestVrtCreatePostErrors[keyof CreateVrtIngestVrtCreatePostErrors];
@@ -17222,9 +18905,17 @@ export type AddVrtSourceIngestVrtDatasetIdSourcesPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AddVrtSourceIngestVrtDatasetIdSourcesPostError = AddVrtSourceIngestVrtDatasetIdSourcesPostErrors[keyof AddVrtSourceIngestVrtDatasetIdSourcesPostErrors];
@@ -17280,9 +18971,17 @@ export type RemoveVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDeleteErrors 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RemoveVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDeleteError = RemoveVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDeleteErrors[keyof RemoveVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDeleteErrors];
@@ -17330,9 +19029,17 @@ export type GetJobStatusByDatasetJobsByDatasetDatasetIdGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetJobStatusByDatasetJobsByDatasetDatasetIdGetError = GetJobStatusByDatasetJobsByDatasetDatasetIdGetErrors[keyof GetJobStatusByDatasetJobsByDatasetDatasetIdGetErrors];
@@ -17377,9 +19084,17 @@ export type CleanupStaleJobsJobsCleanupStalePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CleanupStaleJobsJobsCleanupStalePostError = CleanupStaleJobsJobsCleanupStalePostErrors[keyof CleanupStaleJobsJobsCleanupStalePostErrors];
@@ -17427,9 +19142,17 @@ export type GetJobStatusJobsJobIdGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetJobStatusJobsJobIdGetError = GetJobStatusJobsJobIdGetErrors[keyof GetJobStatusJobsJobIdGetErrors];
@@ -17473,13 +19196,25 @@ export type RetryJobJobsJobIdRetryPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RetryJobJobsJobIdRetryPostError = RetryJobJobsJobIdRetryPostErrors[keyof RetryJobJobsJobIdRetryPostErrors];
@@ -17502,9 +19237,41 @@ export type CreateLayerEndpointLayersPostData = {
 
 export type CreateLayerEndpointLayersPostErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateLayerEndpointLayersPostError = CreateLayerEndpointLayersPostErrors[keyof CreateLayerEndpointLayersPostErrors];
@@ -17532,9 +19299,41 @@ export type AddColumnEndpointLayersDatasetIdColumnsPostData = {
 
 export type AddColumnEndpointLayersDatasetIdColumnsPostErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AddColumnEndpointLayersDatasetIdColumnsPostError = AddColumnEndpointLayersDatasetIdColumnsPostErrors[keyof AddColumnEndpointLayersDatasetIdColumnsPostErrors];
@@ -17566,9 +19365,41 @@ export type DropColumnEndpointLayersDatasetIdColumnsColumnNameDeleteData = {
 
 export type DropColumnEndpointLayersDatasetIdColumnsColumnNameDeleteErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DropColumnEndpointLayersDatasetIdColumnsColumnNameDeleteError = DropColumnEndpointLayersDatasetIdColumnsColumnNameDeleteErrors[keyof DropColumnEndpointLayersDatasetIdColumnsColumnNameDeleteErrors];
@@ -17600,9 +19431,41 @@ export type RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchData = 
 
 export type RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchError = RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchErrors[keyof RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchErrors];
@@ -17634,9 +19497,41 @@ export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGe
 
 export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetError = ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetErrors[keyof ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetErrors];
@@ -17668,9 +19563,41 @@ export type AlterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatchData
 
 export type AlterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatchErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AlterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatchError = AlterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatchErrors[keyof AlterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatchErrors];
@@ -17742,9 +19669,17 @@ export type ListMapsEndpointMapsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListMapsEndpointMapsGetError = ListMapsEndpointMapsGetErrors[keyof ListMapsEndpointMapsGetErrors];
@@ -17791,9 +19726,17 @@ export type CreateMapEndpointMapsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateMapEndpointMapsPostError = CreateMapEndpointMapsPostErrors[keyof CreateMapEndpointMapsPostErrors];
@@ -17840,9 +19783,17 @@ export type ListMapIconsEndpointMapsIconsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListMapIconsEndpointMapsIconsGetError = ListMapIconsEndpointMapsIconsGetErrors[keyof ListMapIconsEndpointMapsIconsGetErrors];
@@ -17889,9 +19840,17 @@ export type UploadMapIconEndpointMapsIconsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UploadMapIconEndpointMapsIconsPostError = UploadMapIconEndpointMapsIconsPostErrors[keyof UploadMapIconEndpointMapsIconsPostErrors];
@@ -17943,9 +19902,17 @@ export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetError = GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors[keyof GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors];
@@ -17990,9 +19957,17 @@ export type ImportMapStyleEndpointMapsImportPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ImportMapStyleEndpointMapsImportPostError = ImportMapStyleEndpointMapsImportPostErrors[keyof ImportMapStyleEndpointMapsImportPostErrors];
@@ -18048,13 +20023,25 @@ export type GetSharedMapEndpointMapsSharedTokenGetErrors = {
      */
     409: ProblemDetail;
     /**
+     * Gone — the resource existed but is no longer available
+     */
+    410: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetSharedMapEndpointMapsSharedTokenGetError = GetSharedMapEndpointMapsSharedTokenGetErrors[keyof GetSharedMapEndpointMapsSharedTokenGetErrors];
@@ -18101,9 +20088,17 @@ export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetError = GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors[keyof GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors];
@@ -18156,9 +20151,17 @@ export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetError = GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors];
@@ -18208,9 +20211,17 @@ export type DeleteMapEndpointMapsMapIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteMapEndpointMapsMapIdDeleteError = DeleteMapEndpointMapsMapIdDeleteErrors[keyof DeleteMapEndpointMapsMapIdDeleteErrors];
@@ -18262,9 +20273,17 @@ export type GetMapEndpointMapsMapIdGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetMapEndpointMapsMapIdGetError = GetMapEndpointMapsMapIdGetErrors[keyof GetMapEndpointMapsMapIdGetErrors];
@@ -18316,9 +20335,17 @@ export type UpdateMapEndpointMapsMapIdPutErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateMapEndpointMapsMapIdPutError = UpdateMapEndpointMapsMapIdPutErrors[keyof UpdateMapEndpointMapsMapIdPutErrors];
@@ -18370,9 +20397,17 @@ export type GetMapAccessEndpointMapsMapIdAccessGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetMapAccessEndpointMapsMapIdAccessGetError = GetMapAccessEndpointMapsMapIdAccessGetErrors[keyof GetMapAccessEndpointMapsMapIdAccessGetErrors];
@@ -18424,9 +20459,17 @@ export type DuplicateMapEndpointMapsMapIdDuplicatePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DuplicateMapEndpointMapsMapIdDuplicatePostError = DuplicateMapEndpointMapsMapIdDuplicatePostErrors[keyof DuplicateMapEndpointMapsMapIdDuplicatePostErrors];
@@ -18478,9 +20521,17 @@ export type ListEmbedTokensEndpointMapsMapIdEmbedTokensGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListEmbedTokensEndpointMapsMapIdEmbedTokensGetError = ListEmbedTokensEndpointMapsMapIdEmbedTokensGetErrors[keyof ListEmbedTokensEndpointMapsMapIdEmbedTokensGetErrors];
@@ -18532,9 +20583,17 @@ export type CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostError = CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostErrors[keyof CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostErrors];
@@ -18590,9 +20649,17 @@ export type RevokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RevokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDeleteError = RevokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDeleteErrors[keyof RevokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDeleteErrors];
@@ -18648,9 +20715,17 @@ export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchError = UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchErrors[keyof UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchErrors];
@@ -18711,9 +20786,17 @@ export type GetMapHistoryEndpointMapsMapIdHistoryGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetMapHistoryEndpointMapsMapIdHistoryGetError = GetMapHistoryEndpointMapsMapIdHistoryGetErrors[keyof GetMapHistoryEndpointMapsMapIdHistoryGetErrors];
@@ -18765,9 +20848,17 @@ export type PatchMapLayersEndpointMapsMapIdLayersPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type PatchMapLayersEndpointMapsMapIdLayersPatchError = PatchMapLayersEndpointMapsMapIdLayersPatchErrors[keyof PatchMapLayersEndpointMapsMapIdLayersPatchErrors];
@@ -18819,9 +20910,17 @@ export type AddLayerEndpointMapsMapIdLayersPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type AddLayerEndpointMapsMapIdLayersPostError = AddLayerEndpointMapsMapIdLayersPostErrors[keyof AddLayerEndpointMapsMapIdLayersPostErrors];
@@ -18873,9 +20972,17 @@ export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostError = BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostErrors[keyof BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostErrors];
@@ -18931,9 +21038,17 @@ export type RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteError = RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteErrors[keyof RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteErrors];
@@ -18985,9 +21100,17 @@ export type GetOgImageMapsMapIdOgImageGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetOgImageMapsMapIdOgImageGetError = GetOgImageMapsMapIdOgImageGetErrors[keyof GetOgImageMapsMapIdOgImageGetErrors];
@@ -19037,9 +21160,21 @@ export type UploadOgImageMapsMapIdOgImagePutErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UploadOgImageMapsMapIdOgImagePutError = UploadOgImageMapsMapIdOgImagePutErrors[keyof UploadOgImageMapsMapIdOgImagePutErrors];
@@ -19091,9 +21226,17 @@ export type RevokeMapShareEndpointMapsMapIdShareDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RevokeMapShareEndpointMapsMapIdShareDeleteError = RevokeMapShareEndpointMapsMapIdShareDeleteErrors[keyof RevokeMapShareEndpointMapsMapIdShareDeleteErrors];
@@ -19145,9 +21288,17 @@ export type GetMapShareTokenEndpointMapsMapIdShareGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetMapShareTokenEndpointMapsMapIdShareGetError = GetMapShareTokenEndpointMapsMapIdShareGetErrors[keyof GetMapShareTokenEndpointMapsMapIdShareGetErrors];
@@ -19201,9 +21352,17 @@ export type UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateMapShareTokenEndpointMapsMapIdSharePatchError = UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors[keyof UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors];
@@ -19258,9 +21417,17 @@ export type ShareMapEndpointMapsMapIdSharePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ShareMapEndpointMapsMapIdSharePostError = ShareMapEndpointMapsMapIdSharePostErrors[keyof ShareMapEndpointMapsMapIdSharePostErrors];
@@ -19312,9 +21479,17 @@ export type ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ExportMapStyleEndpointMapsMapIdStyleJsonGetError = ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors[keyof ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors];
@@ -19364,9 +21539,17 @@ export type GetThumbnailMapsMapIdThumbnailGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetThumbnailMapsMapIdThumbnailGetError = GetThumbnailMapsMapIdThumbnailGetErrors[keyof GetThumbnailMapsMapIdThumbnailGetErrors];
@@ -19416,9 +21599,21 @@ export type UploadThumbnailMapsMapIdThumbnailPutErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UploadThumbnailMapsMapIdThumbnailPutError = UploadThumbnailMapsMapIdThumbnailPutErrors[keyof UploadThumbnailMapsMapIdThumbnailPutErrors];
@@ -19470,9 +21665,17 @@ export type VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type VisibilityCheckEndpointMapsMapIdVisibilityCheckGetError = VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors[keyof VisibilityCheckEndpointMapsMapIdVisibilityCheckGetErrors];
@@ -19533,9 +21736,17 @@ export type ListContactsEndpointRecordsRecordIdContactsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListContactsEndpointRecordsRecordIdContactsGetError = ListContactsEndpointRecordsRecordIdContactsGetErrors[keyof ListContactsEndpointRecordsRecordIdContactsGetErrors];
@@ -19587,9 +21798,17 @@ export type CreateContactEndpointRecordsRecordIdContactsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateContactEndpointRecordsRecordIdContactsPostError = CreateContactEndpointRecordsRecordIdContactsPostErrors[keyof CreateContactEndpointRecordsRecordIdContactsPostErrors];
@@ -19645,9 +21864,17 @@ export type DeleteContactEndpointRecordsRecordIdContactsContactIdDeleteErrors = 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteContactEndpointRecordsRecordIdContactsContactIdDeleteError = DeleteContactEndpointRecordsRecordIdContactsContactIdDeleteErrors[keyof DeleteContactEndpointRecordsRecordIdContactsContactIdDeleteErrors];
@@ -19703,9 +21930,17 @@ export type UpdateContactEndpointRecordsRecordIdContactsContactIdPatchErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateContactEndpointRecordsRecordIdContactsContactIdPatchError = UpdateContactEndpointRecordsRecordIdContactsContactIdPatchErrors[keyof UpdateContactEndpointRecordsRecordIdContactsContactIdPatchErrors];
@@ -19766,9 +22001,17 @@ export type ListDistributionsEndpointRecordsRecordIdDistributionsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListDistributionsEndpointRecordsRecordIdDistributionsGetError = ListDistributionsEndpointRecordsRecordIdDistributionsGetErrors[keyof ListDistributionsEndpointRecordsRecordIdDistributionsGetErrors];
@@ -19820,9 +22063,17 @@ export type CreateDistributionEndpointRecordsRecordIdDistributionsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateDistributionEndpointRecordsRecordIdDistributionsPostError = CreateDistributionEndpointRecordsRecordIdDistributionsPostErrors[keyof CreateDistributionEndpointRecordsRecordIdDistributionsPostErrors];
@@ -19878,9 +22129,17 @@ export type DeleteDistributionEndpointRecordsRecordIdDistributionsDistributionId
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteDistributionEndpointRecordsRecordIdDistributionsDistributionIdDeleteError = DeleteDistributionEndpointRecordsRecordIdDistributionsDistributionIdDeleteErrors[keyof DeleteDistributionEndpointRecordsRecordIdDistributionsDistributionIdDeleteErrors];
@@ -19936,9 +22195,17 @@ export type UpdateDistributionEndpointRecordsRecordIdDistributionsDistributionId
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateDistributionEndpointRecordsRecordIdDistributionsDistributionIdPatchError = UpdateDistributionEndpointRecordsRecordIdDistributionsDistributionIdPatchErrors[keyof UpdateDistributionEndpointRecordsRecordIdDistributionsDistributionIdPatchErrors];
@@ -19999,9 +22266,17 @@ export type ListKeywordsEndpointRecordsRecordIdKeywordsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListKeywordsEndpointRecordsRecordIdKeywordsGetError = ListKeywordsEndpointRecordsRecordIdKeywordsGetErrors[keyof ListKeywordsEndpointRecordsRecordIdKeywordsGetErrors];
@@ -20053,9 +22328,17 @@ export type CreateKeywordEndpointRecordsRecordIdKeywordsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateKeywordEndpointRecordsRecordIdKeywordsPostError = CreateKeywordEndpointRecordsRecordIdKeywordsPostErrors[keyof CreateKeywordEndpointRecordsRecordIdKeywordsPostErrors];
@@ -20111,9 +22394,17 @@ export type DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteErrors = 
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteError = DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteErrors[keyof DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteErrors];
@@ -20165,9 +22456,17 @@ export type ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListTranslationsEndpointRecordsRecordIdTranslationsGetError = ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors[keyof ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors];
@@ -20225,9 +22524,17 @@ export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteEr
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteError = DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteErrors[keyof DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteErrors];
@@ -20285,9 +22592,17 @@ export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutError
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutError = UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutErrors[keyof UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutErrors];
@@ -20398,9 +22713,25 @@ export type SearchDatasetsEndpointSearchDatasetsGetData = {
 
 export type SearchDatasetsEndpointSearchDatasetsGetErrors = {
     /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type SearchDatasetsEndpointSearchDatasetsGetError = SearchDatasetsEndpointSearchDatasetsGetErrors[keyof SearchDatasetsEndpointSearchDatasetsGetErrors];
@@ -20493,6 +22824,18 @@ export type SearchFacetsEndpointSearchFacetsGetErrors = {
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type SearchFacetsEndpointSearchFacetsGetError = SearchFacetsEndpointSearchFacetsGetErrors[keyof SearchFacetsEndpointSearchFacetsGetErrors];
@@ -20527,6 +22870,18 @@ export type ListSavedSearchesEndpointSearchSavedGetErrors = {
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListSavedSearchesEndpointSearchSavedGetError = ListSavedSearchesEndpointSearchSavedGetErrors[keyof ListSavedSearchesEndpointSearchSavedGetErrors];
@@ -20552,6 +22907,18 @@ export type CreateSavedSearchEndpointSearchSavedPostErrors = {
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateSavedSearchEndpointSearchSavedPostError = CreateSavedSearchEndpointSearchSavedPostErrors[keyof CreateSavedSearchEndpointSearchSavedPostErrors];
@@ -20579,9 +22946,25 @@ export type DeleteSavedSearchEndpointSearchSavedSearchIdDeleteData = {
 
 export type DeleteSavedSearchEndpointSearchSavedSearchIdDeleteErrors = {
     /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteSavedSearchEndpointSearchSavedSearchIdDeleteError = DeleteSavedSearchEndpointSearchSavedSearchIdDeleteErrors[keyof DeleteSavedSearchEndpointSearchSavedSearchIdDeleteErrors];
@@ -20609,9 +22992,25 @@ export type GetSavedSearchEndpointSearchSavedSearchIdGetData = {
 
 export type GetSavedSearchEndpointSearchSavedSearchIdGetErrors = {
     /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetSavedSearchEndpointSearchSavedSearchIdGetError = GetSavedSearchEndpointSearchSavedSearchIdGetErrors[keyof GetSavedSearchEndpointSearchSavedSearchIdGetErrors];
@@ -20658,9 +23057,17 @@ export type PreviewServiceLayerServicesPreviewPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type PreviewServiceLayerServicesPreviewPostError = PreviewServiceLayerServicesPreviewPostErrors[keyof PreviewServiceLayerServicesPreviewPostErrors];
@@ -20707,9 +23114,17 @@ export type ProbeServiceUrlServicesProbePostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ProbeServiceUrlServicesProbePostError = ProbeServiceUrlServicesProbePostErrors[keyof ProbeServiceUrlServicesProbePostErrors];
@@ -20756,9 +23171,21 @@ export type StacCollectionsServicesStacCollectionsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type StacCollectionsServicesStacCollectionsPostError = StacCollectionsServicesStacCollectionsPostErrors[keyof StacCollectionsServicesStacCollectionsPostErrors];
@@ -20805,9 +23232,17 @@ export type StacConnectServicesStacConnectPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type StacConnectServicesStacConnectPostError = StacConnectServicesStacConnectPostErrors[keyof StacConnectServicesStacConnectPostErrors];
@@ -20854,9 +23289,17 @@ export type StacImportServicesStacImportPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type StacImportServicesStacImportPostError = StacImportServicesStacImportPostErrors[keyof StacImportServicesStacImportPostErrors];
@@ -20903,9 +23346,21 @@ export type StacSearchServicesStacSearchPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type StacSearchServicesStacSearchPostError = StacSearchServicesStacSearchPostErrors[keyof StacSearchServicesStacSearchPostErrors];
@@ -20948,9 +23403,17 @@ export type UpdateSettingsSettingsPutErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateSettingsSettingsPutError = UpdateSettingsSettingsPutErrors[keyof UpdateSettingsSettingsPutErrors];
@@ -20993,9 +23456,17 @@ export type GetAllSettingsSettingsAllGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetAllSettingsSettingsAllGetError = GetAllSettingsSettingsAllGetErrors[keyof GetAllSettingsSettingsAllGetErrors];
@@ -21038,9 +23509,17 @@ export type GetApiKeyStatusSettingsApiKeyStatusGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetApiKeyStatusSettingsApiKeyStatusGetError = GetApiKeyStatusSettingsApiKeyStatusGetErrors[keyof GetApiKeyStatusSettingsApiKeyStatusGetErrors];
@@ -21063,29 +23542,17 @@ export type GetBasemapsSettingsBasemapsGetData = {
 
 export type GetBasemapsSettingsBasemapsGetErrors = {
     /**
-     * Bad request — invalid query parameters or payload
+     * Too many requests — retry after the advertised interval
      */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
+    429: ProblemDetail;
     /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetBasemapsSettingsBasemapsGetError = GetBasemapsSettingsBasemapsGetErrors[keyof GetBasemapsSettingsBasemapsGetErrors];
@@ -21110,29 +23577,17 @@ export type GetBrandingSettingsBrandingGetData = {
 
 export type GetBrandingSettingsBrandingGetErrors = {
     /**
-     * Bad request — invalid query parameters or payload
+     * Too many requests — retry after the advertised interval
      */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
+    429: ProblemDetail;
     /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetBrandingSettingsBrandingGetError = GetBrandingSettingsBrandingGetErrors[keyof GetBrandingSettingsBrandingGetErrors];
@@ -21174,6 +23629,10 @@ export type GetConfigModeSettingsConfigModeGetErrors = {
      * Validation error
      */
     422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
     /**
      * Internal server error
      */
@@ -21220,9 +23679,21 @@ export type DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostError = DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostErrors[keyof DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostErrors];
@@ -21236,6 +23707,35 @@ export type DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponses = {
 
 export type DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponse = DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponses[keyof DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponses];
 
+export type EditionInfoSettingsEditionGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/settings/edition/';
+};
+
+export type EditionInfoSettingsEditionGetErrors = {
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type EditionInfoSettingsEditionGetError = EditionInfoSettingsEditionGetErrors[keyof EditionInfoSettingsEditionGetErrors];
+
+export type EditionInfoSettingsEditionGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EditionInfoResponse;
+};
+
+export type EditionInfoSettingsEditionGetResponse = EditionInfoSettingsEditionGetResponses[keyof EditionInfoSettingsEditionGetResponses];
+
 export type GetEnabledPluginsSettingsEnabledPluginsGetData = {
     body?: never;
     path?: never;
@@ -21245,29 +23745,17 @@ export type GetEnabledPluginsSettingsEnabledPluginsGetData = {
 
 export type GetEnabledPluginsSettingsEnabledPluginsGetErrors = {
     /**
-     * Bad request — invalid query parameters or payload
+     * Too many requests — retry after the advertised interval
      */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
+    429: ProblemDetail;
     /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetEnabledPluginsSettingsEnabledPluginsGetError = GetEnabledPluginsSettingsEnabledPluginsGetErrors[keyof GetEnabledPluginsSettingsEnabledPluginsGetErrors];
@@ -21283,14 +23771,14 @@ export type GetEnabledPluginsSettingsEnabledPluginsGetResponses = {
 
 export type GetEnabledPluginsSettingsEnabledPluginsGetResponse = GetEnabledPluginsSettingsEnabledPluginsGetResponses[keyof GetEnabledPluginsSettingsEnabledPluginsGetResponses];
 
-export type GetFeatureFlagsSettingsFeatureFlagsGetData = {
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/settings/feature-flags/';
+    url: '/settings/enterprise-tabs/';
 };
 
-export type GetFeatureFlagsSettingsFeatureFlagsGetErrors = {
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors = {
     /**
      * Bad request — invalid query parameters or payload
      */
@@ -21312,9 +23800,50 @@ export type GetFeatureFlagsSettingsFeatureFlagsGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetError = GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors[keyof GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors];
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EnterpriseTabsResponse;
+};
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponse = GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses[keyof GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses];
+
+export type GetFeatureFlagsSettingsFeatureFlagsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/settings/feature-flags/';
+};
+
+export type GetFeatureFlagsSettingsFeatureFlagsGetErrors = {
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetFeatureFlagsSettingsFeatureFlagsGetError = GetFeatureFlagsSettingsFeatureFlagsGetErrors[keyof GetFeatureFlagsSettingsFeatureFlagsGetErrors];
@@ -21337,29 +23866,17 @@ export type GetMapDefaultsSettingsMapDefaultsGetData = {
 
 export type GetMapDefaultsSettingsMapDefaultsGetErrors = {
     /**
-     * Bad request — invalid query parameters or payload
+     * Too many requests — retry after the advertised interval
      */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
+    429: ProblemDetail;
     /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetMapDefaultsSettingsMapDefaultsGetError = GetMapDefaultsSettingsMapDefaultsGetErrors[keyof GetMapDefaultsSettingsMapDefaultsGetErrors];
@@ -21402,9 +23919,17 @@ export type GetNotificationStatusSettingsNotificationsStatusGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetNotificationStatusSettingsNotificationsStatusGetError = GetNotificationStatusSettingsNotificationsStatusGetErrors[keyof GetNotificationStatusSettingsNotificationsStatusGetErrors];
@@ -21447,9 +23972,17 @@ export type SendTestNotificationSettingsNotificationsTestPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type SendTestNotificationSettingsNotificationsTestPostError = SendTestNotificationSettingsNotificationsTestPostErrors[keyof SendTestNotificationSettingsNotificationsTestPostErrors];
@@ -21492,9 +24025,17 @@ export type ListOauthProvidersSettingsOauthProvidersGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ListOauthProvidersSettingsOauthProvidersGetError = ListOauthProvidersSettingsOauthProvidersGetErrors[keyof ListOauthProvidersSettingsOauthProvidersGetErrors];
@@ -21539,9 +24080,17 @@ export type CreateOauthProviderSettingsOauthProvidersPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type CreateOauthProviderSettingsOauthProvidersPostError = CreateOauthProviderSettingsOauthProvidersPostErrors[keyof CreateOauthProviderSettingsOauthProvidersPostErrors];
@@ -21589,9 +24138,17 @@ export type DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteError = DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteErrors[keyof DeleteOauthProviderSettingsOauthProvidersProviderIdDeleteErrors];
@@ -21639,9 +24196,17 @@ export type UpdateOauthProviderSettingsOauthProvidersProviderIdPutErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type UpdateOauthProviderSettingsOauthProvidersProviderIdPutError = UpdateOauthProviderSettingsOauthProvidersProviderIdPutErrors[keyof UpdateOauthProviderSettingsOauthProvidersProviderIdPutErrors];
@@ -21684,9 +24249,17 @@ export type ResetSettingsSettingsResetPostErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ResetSettingsSettingsResetPostError = ResetSettingsSettingsResetPostErrors[keyof ResetSettingsSettingsResetPostErrors];
@@ -21709,29 +24282,17 @@ export type GetTileConfigSettingsTileConfigGetData = {
 
 export type GetTileConfigSettingsTileConfigGetErrors = {
     /**
-     * Bad request — invalid query parameters or payload
+     * Too many requests — retry after the advertised interval
      */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
+    429: ProblemDetail;
     /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetTileConfigSettingsTileConfigGetError = GetTileConfigSettingsTileConfigGetErrors[keyof GetTileConfigSettingsTileConfigGetErrors];
@@ -21757,6 +24318,18 @@ export type LandingPageStacGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type LandingPageStacGetError = LandingPageStacGetErrors[keyof LandingPageStacGetErrors];
@@ -21782,6 +24355,18 @@ export type GetCollectionsStacCollectionsGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionsStacCollectionsGetError = GetCollectionsStacCollectionsGetErrors[keyof GetCollectionsStacCollectionsGetErrors];
@@ -21812,6 +24397,22 @@ export type GetCollectionStacCollectionsCollectionIdGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionStacCollectionsCollectionIdGetError = GetCollectionStacCollectionsCollectionIdGetErrors[keyof GetCollectionStacCollectionsCollectionIdGetErrors];
@@ -21870,9 +24471,17 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionItemsStacCollectionsCollectionIdItemsGetError = GetCollectionItemsStacCollectionsCollectionIdItemsGetErrors[keyof GetCollectionItemsStacCollectionsCollectionIdItemsGetErrors];
@@ -21881,8 +24490,10 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: StacItemCollectionResponse;
 };
+
+export type GetCollectionItemsStacCollectionsCollectionIdItemsGetResponse = GetCollectionItemsStacCollectionsCollectionIdItemsGetResponses[keyof GetCollectionItemsStacCollectionsCollectionIdItemsGetResponses];
 
 export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetData = {
     body?: never;
@@ -21905,6 +24516,22 @@ export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetError = GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors[keyof GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors];
@@ -21913,8 +24540,10 @@ export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetResponses 
     /**
      * Successful Response
      */
-    200: unknown;
+    200: StacItemResponse;
 };
+
+export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetResponse = GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetResponses[keyof GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetResponses];
 
 export type ConformanceStacConformanceGetData = {
     body?: never;
@@ -21928,6 +24557,14 @@ export type ConformanceStacConformanceGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
 };
 
 export type ConformanceStacConformanceGetError = ConformanceStacConformanceGetErrors[keyof ConformanceStacConformanceGetErrors];
@@ -21958,6 +24595,22 @@ export type GetItemStacItemsItemIdGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetItemStacItemsItemIdGetError = GetItemStacItemsItemIdGetErrors[keyof GetItemStacItemsItemIdGetErrors];
@@ -21966,8 +24619,10 @@ export type GetItemStacItemsItemIdGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: StacItemResponse;
 };
+
+export type GetItemStacItemsItemIdGetResponse = GetItemStacItemsItemIdGetResponses[keyof GetItemStacItemsItemIdGetResponses];
 
 export type SearchGetStacSearchGetData = {
     body?: never;
@@ -22027,9 +24682,17 @@ export type SearchGetStacSearchGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type SearchGetStacSearchGetError = SearchGetStacSearchGetErrors[keyof SearchGetStacSearchGetErrors];
@@ -22038,8 +24701,10 @@ export type SearchGetStacSearchGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: StacItemCollectionResponse;
 };
+
+export type SearchGetStacSearchGetResponse = SearchGetStacSearchGetResponses[keyof SearchGetStacSearchGetResponses];
 
 export type SearchPostStacSearchPostData = {
     body: StacSearchBody;
@@ -22058,9 +24723,17 @@ export type SearchPostStacSearchPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type SearchPostStacSearchPostError = SearchPostStacSearchPostErrors[keyof SearchPostStacSearchPostErrors];
@@ -22069,8 +24742,10 @@ export type SearchPostStacSearchPostResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: StacItemCollectionResponse;
 };
+
+export type SearchPostStacSearchPostResponse = SearchPostStacSearchPostResponses[keyof SearchPostStacSearchPostResponses];
 
 export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetData = {
     body?: never;
@@ -22135,9 +24810,17 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetError = ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors[keyof ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors];
@@ -22178,6 +24861,10 @@ export type RasterAuthCheckTilesRasterAuthCheckGetErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RasterAuthCheckTilesRasterAuthCheckGetError = RasterAuthCheckTilesRasterAuthCheckGetErrors[keyof RasterAuthCheckTilesRasterAuthCheckGetErrors];
@@ -22265,6 +24952,10 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetError = RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors[keyof RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors];
@@ -22305,6 +24996,10 @@ export type GetTileTokenTilesTokenDatasetIdGetErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetTileTokenTilesTokenDatasetIdGetError = GetTileTokenTilesTokenDatasetIdGetErrors[keyof GetTileTokenTilesTokenDatasetIdGetErrors];
@@ -22350,6 +25045,10 @@ export type GetTileTokensBatchTilesTokensPostErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type GetTileTokensBatchTilesTokensPostError = GetTileTokensBatchTilesTokensPostErrors[keyof GetTileTokensBatchTilesTokensPostErrors];
@@ -22418,9 +25117,17 @@ export type TileEndpointTilesTablePathZxyPbfGetErrors = {
      */
     422: ProblemDetail;
     /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
 };
 
 export type TileEndpointTilesTablePathZxyPbfGetError = TileEndpointTilesTablePathZxyPbfGetErrors[keyof TileEndpointTilesTablePathZxyPbfGetErrors];

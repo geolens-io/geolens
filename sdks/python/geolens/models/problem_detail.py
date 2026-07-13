@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
+
+from typing import cast
+
+if TYPE_CHECKING:
+    from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
 
 
 T = TypeVar("T", bound="ProblemDetail")
@@ -16,20 +21,29 @@ T = TypeVar("T", bound="ProblemDetail")
 class ProblemDetail:
     """
     Attributes:
-        detail (str):
+        detail (list[Any] | ProblemDetailDetailType1 | str):
         status (int):
         title (str):
         type_ (str | Unset):  Default: 'about:blank'.
     """
 
-    detail: str
+    detail: list[Any] | ProblemDetailDetailType1 | str
     status: int
     title: str
     type_: str | Unset = "about:blank"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        detail = self.detail
+        from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
+
+        detail: dict[str, Any] | list[Any] | str
+        if isinstance(self.detail, ProblemDetailDetailType1):
+            detail = self.detail.to_dict()
+        elif isinstance(self.detail, list):
+            detail = self.detail
+
+        else:
+            detail = self.detail
 
         status = self.status
 
@@ -53,8 +67,30 @@ class ProblemDetail:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
+
         d = dict(src_dict)
-        detail = d.pop("detail")
+
+        def _parse_detail(data: object) -> list[Any] | ProblemDetailDetailType1 | str:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                detail_type_1 = ProblemDetailDetailType1.from_dict(data)
+
+                return detail_type_1
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                detail_type_2 = cast(list[Any], data)
+
+                return detail_type_2
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[Any] | ProblemDetailDetailType1 | str, data)
+
+        detail = _parse_detail(d.pop("detail"))
 
         status = d.pop("status")
 

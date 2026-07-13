@@ -7,29 +7,57 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-T = TypeVar("T", bound="StacCollectionListResponseCollectionsItem")
+from typing import Literal, cast
+
+
+T = TypeVar("T", bound="SSEChatDoneEvent")
 
 
 @_attrs_define
-class StacCollectionListResponseCollectionsItem:
-    """ """
+class SSEChatDoneEvent:
+    """Terminal payload for a successful streaming chat request.
 
+    Attributes:
+        explanation (str):
+        type_ (Literal['done']):
+    """
+
+    explanation: str
+    type_: Literal["done"]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        explanation = self.explanation
+
+        type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "explanation": explanation,
+                "type": type_,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        stac_collection_list_response_collections_item = cls()
+        explanation = d.pop("explanation")
 
-        stac_collection_list_response_collections_item.additional_properties = d
-        return stac_collection_list_response_collections_item
+        type_ = cast(Literal["done"], d.pop("type"))
+        if type_ != "done":
+            raise ValueError(f"type must match const 'done', got '{type_}'")
+
+        sse_chat_done_event = cls(
+            explanation=explanation,
+            type_=type_,
+        )
+
+        sse_chat_done_event.additional_properties = d
+        return sse_chat_done_event
 
     @property
     def additional_keys(self) -> list[str]:

@@ -104,7 +104,11 @@ from app.modules.embed_tokens.service import (
     revoke_embed_tokens_by_map,
     revoke_embed_tokens_for_dropped_datasets,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    ERROR_RESPONSES_WRITE,
+    GONE_RESPONSE,
+)
 from app.core.public_urls import get_public_api_url
 from app.modules.catalog.maps._router_helpers import (
     _build_frame_ancestors,
@@ -332,7 +336,11 @@ async def shared_map_card_endpoint(
     )
 
 
-@router.get("/shared/{token}", response_model=SharedMapResponse)
+@router.get(
+    "/shared/{token}",
+    response_model=SharedMapResponse,
+    responses={410: GONE_RESPONSE},
+)
 async def get_shared_map_endpoint(
     token: str,
     response: Response,
@@ -1378,7 +1386,11 @@ async def revoke_map_share_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.put("/{map_id}/thumbnail/", status_code=status.HTTP_204_NO_CONTENT)
+@router.put(
+    "/{map_id}/thumbnail/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def upload_thumbnail(
     map_id: uuid.UUID,
     request: ThumbnailUploadRequest,
@@ -1517,7 +1529,11 @@ async def get_thumbnail(
 # ---------------------------------------------------------------------------
 
 
-@router.put("/{map_id}/og-image/", status_code=status.HTTP_204_NO_CONTENT)
+@router.put(
+    "/{map_id}/og-image/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def upload_og_image(
     map_id: uuid.UUID,
     request: OgImageUploadRequest,

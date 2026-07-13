@@ -14,8 +14,11 @@ from app.standards.stac.schemas import (
     StacCatalog,
     StacConformance,
     StacItemCollection,
+    StacItemCollectionResponse,
+    StacItemResponse,
     StacLink,
 )
+from app.standards.stac.router import _item_collection_response
 from app.standards.stac.serializer import STAC_CONFORMANCE
 
 
@@ -151,6 +154,47 @@ class TestStacItemCollection:
         assert ic.type == "FeatureCollection"
         assert ic.numberMatched == 0
         assert len(ic.features) == 0
+
+    def test_serialized_collection_matches_typed_response_contract(self):
+        item = {
+            "type": "Feature",
+            "stac_version": "1.0.0",
+            "id": "item-1",
+            "geometry": None,
+            "bbox": [-180.0, -90.0, 180.0, 90.0],
+            "properties": {"datetime": "2026-01-15T00:00:00Z"},
+            "links": [],
+            "assets": {},
+            "collection": "collection-1",
+        }
+        result = StacItemCollection(
+            features=[item],
+            links=[],
+            numberMatched=1,
+            numberReturned=1,
+            context={"limit": 10, "returned": 1, "matched": 1},
+        )
+
+        response = _item_collection_response(result)
+        parsed = StacItemCollectionResponse.model_validate_json(response.body)
+
+        assert response.media_type == "application/geo+json"
+        assert parsed.features[0].id == "item-1"
+
+    def test_item_bbox_requires_exactly_four_or_six_coordinates(self):
+        item = {
+            "type": "Feature",
+            "stac_version": "1.0.0",
+            "id": "item-1",
+            "geometry": None,
+            "properties": {"datetime": None},
+            "links": [],
+            "assets": {},
+        }
+
+        assert len(StacItemResponse.model_validate({**item, "bbox": [0] * 6}).bbox) == 6
+        with pytest.raises(ValueError):
+            StacItemResponse.model_validate({**item, "bbox": [0] * 5})
 
 
 # ---------------------------------------------------------------------------

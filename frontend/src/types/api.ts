@@ -1,5 +1,6 @@
 import type { Geometry } from 'geojson';
 import type { FilterSpecification, HeatmapLayerSpecification, CircleLayerSpecification } from 'maplibre-gl';
+import type { components } from './api.generated';
 
 /** OGC/PostGIS geometry type values returned by the API. */
 export type GeometryTypeName = string;
@@ -168,6 +169,9 @@ export type RecordType =
 export type DatasetVisibility = 'public' | 'restricted' | 'private';
 export type RecordStatus = 'draft' | 'published';
 export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
+
+/** Response returned by dataset publication-status mutation endpoints. */
+export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse'];
 
 export interface DatasetResponse {
   id: string;

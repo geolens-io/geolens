@@ -96,11 +96,19 @@ from app.core.persistent_config import (
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.processing.raster.validation import validate_sources
 from app.platform.storage import get_storage
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    ERROR_RESPONSES_WRITE,
+    PAYLOAD_TOO_LARGE_RESPONSE,
+)
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/ingest", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE)
+router = APIRouter(
+    prefix="/ingest",
+    tags=["Datasets"],
+    responses=ERROR_RESPONSES_WRITE,
+)
 
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
@@ -193,6 +201,10 @@ async def get_upload_config(
     "/upload/presigned",
     response_model=PresignedUploadResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+        502: BAD_GATEWAY_RESPONSE,
+    },
 )
 async def request_presigned_upload(
     request: PresignedUploadRequest,
@@ -315,7 +327,14 @@ async def request_presigned_upload(
         )
 
 
-@router.post("/upload/presigned/{job_id}/complete", response_model=UploadResponse)
+@router.post(
+    "/upload/presigned/{job_id}/complete",
+    response_model=UploadResponse,
+    responses={
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+        502: BAD_GATEWAY_RESPONSE,
+    },
+)
 async def complete_presigned_upload(
     job_id: uuid.UUID,
     request: PresignedCompleteRequest,
@@ -477,6 +496,7 @@ async def _stamp_raster_metadata(
     "/upload",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
 )
 async def upload_file(
     request: Request,

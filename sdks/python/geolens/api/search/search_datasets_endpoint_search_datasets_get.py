@@ -9,6 +9,7 @@ from ... import errors
 
 from ...models.http_validation_error import HTTPValidationError
 from ...models.ogc_feature_collection_response import OGCFeatureCollectionResponse
+from ...models.problem_detail import ProblemDetail
 from ...models.search_datasets_endpoint_search_datasets_get_spatial_predicate import (
     SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate,
 )
@@ -200,16 +201,36 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OGCFeatureCollectionResponse | None:
+) -> HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail | None:
     if response.status_code == 200:
         response_200 = OGCFeatureCollectionResponse.from_dict(response.json())
 
         return response_200
 
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
+
+        return response_400
+
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
 
         return response_422
+
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -219,7 +240,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OGCFeatureCollectionResponse]:
+) -> Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -254,7 +275,7 @@ def sync_detailed(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Response[HTTPValidationError | OGCFeatureCollectionResponse]:
+) -> Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
@@ -289,7 +310,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OGCFeatureCollectionResponse]
+        Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -350,7 +371,7 @@ def sync(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> HTTPValidationError | OGCFeatureCollectionResponse | None:
+) -> HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail | None:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
@@ -385,7 +406,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OGCFeatureCollectionResponse
+        HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -441,7 +462,7 @@ async def asyncio_detailed(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Response[HTTPValidationError | OGCFeatureCollectionResponse]:
+) -> Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
@@ -476,7 +497,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OGCFeatureCollectionResponse]
+        Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -535,7 +556,7 @@ async def asyncio(
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> HTTPValidationError | OGCFeatureCollectionResponse | None:
+) -> HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail | None:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
@@ -570,7 +591,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OGCFeatureCollectionResponse
+        HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail
     """
 
     return (

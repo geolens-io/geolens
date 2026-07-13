@@ -23,7 +23,7 @@ from app.platform.jobs.schemas import (
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
 
 log = structlog.get_logger()
 
@@ -604,6 +604,7 @@ async def get_job_status_by_dataset(
     "/{job_id}/retry",
     response_model=UploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={409: CONFLICT_RESPONSE},
 )
 async def retry_job(
     job_id: uuid.UUID,

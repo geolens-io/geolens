@@ -365,8 +365,50 @@ async def test_stream_ai_disabled(client: AsyncClient, admin_auth_header: dict):
         )
 
     assert resp.status_code == 200
-    assert "event: error" in resp.text
-    assert "AI features are disabled by administrator" in resp.text
+    events = _parse_sse_events(resp.text)
+    assert events == [
+        {
+            "event": "error",
+            "data": {
+                "type": "error",
+                "message": "AI features are disabled by administrator",
+                "status": 403,
+            },
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_map_stream_preflight_error_includes_status(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Map-generation preflight failures use the same typed error event."""
+    from fastapi import HTTPException
+
+    with patch(
+        "app.processing.ai.router._check_ai_available", new_callable=AsyncMock
+    ) as mock_check:
+        mock_check.side_effect = HTTPException(
+            status_code=503, detail="Selected LLM provider API key not configured"
+        )
+        resp = await client.post(
+            "/ai/generate-map/stream/",
+            json={"prompt": "Build a flood risk map"},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 200
+    events = _parse_sse_events(resp.text)
+    assert events == [
+        {
+            "event": "error",
+            "data": {
+                "type": "error",
+                "message": "Selected LLM provider API key not configured",
+                "status": 503,
+            },
+        }
+    ]
 
 
 @pytest.mark.anyio

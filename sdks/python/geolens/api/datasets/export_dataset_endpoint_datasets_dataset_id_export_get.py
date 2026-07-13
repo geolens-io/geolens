@@ -10,6 +10,7 @@ from ... import errors
 
 from ...models.export_format import ExportFormat
 from ...models.http_validation_error import HTTPValidationError
+from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
 
@@ -67,15 +68,50 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | HTTPValidationError | None:
+) -> Any | HTTPValidationError | ProblemDetail | None:
     if response.status_code == 200:
         response_200 = cast(Any, None)
         return response_200
+
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
+
+        return response_400
+
+    if response.status_code == 403:
+        response_403 = ProblemDetail.from_dict(response.json())
+
+        return response_403
+
+    if response.status_code == 404:
+        response_404 = ProblemDetail.from_dict(response.json())
+
+        return response_404
+
+    if response.status_code == 413:
+        response_413 = ProblemDetail.from_dict(response.json())
+
+        return response_413
 
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
 
         return response_422
+
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -85,7 +121,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -102,7 +138,7 @@ def sync_detailed(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Response[Any | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError | ProblemDetail]:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -123,7 +159,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError]
+        Response[Any | HTTPValidationError | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -149,7 +185,7 @@ def sync(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Any | HTTPValidationError | None:
+) -> Any | HTTPValidationError | ProblemDetail | None:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -170,7 +206,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError
+        Any | HTTPValidationError | ProblemDetail
     """
 
     return sync_detailed(
@@ -191,7 +227,7 @@ async def asyncio_detailed(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Response[Any | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError | ProblemDetail]:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -212,7 +248,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError]
+        Response[Any | HTTPValidationError | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -236,7 +272,7 @@ async def asyncio(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Any | HTTPValidationError | None:
+) -> Any | HTTPValidationError | ProblemDetail | None:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -257,7 +293,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError
+        Any | HTTPValidationError | ProblemDetail
     """
 
     return (

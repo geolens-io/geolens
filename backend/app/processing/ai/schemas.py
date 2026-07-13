@@ -416,6 +416,67 @@ class ChatAction(BaseModel):
     truncated: bool | None = None  # for show_query_result (rows capped for payload)
 
 
+class SSETokenEvent(BaseModel):
+    """Token payload carried by a ``token`` server-sent event."""
+
+    type: Literal["token"]
+    text: str
+
+
+class SSEToolStartEvent(BaseModel):
+    """Progress payload emitted when an AI tool starts."""
+
+    type: Literal["tool_start"]
+    tool: str
+    label: str
+
+
+class SSEToolResultEvent(BaseModel):
+    """Progress payload emitted when an AI tool finishes."""
+
+    type: Literal["tool_result"]
+    tool: str
+    success: bool
+
+
+class SSEActionsEvent(BaseModel):
+    """Validated map-edit actions produced by streaming chat."""
+
+    type: Literal["actions"]
+    actions: list[ChatAction]
+
+
+class SSEChatDoneEvent(BaseModel):
+    """Terminal payload for a successful streaming chat request."""
+
+    type: Literal["done"]
+    explanation: str
+
+
+class SSEMapDoneEvent(BaseModel):
+    """Terminal payload for a successful streaming map-generation request."""
+
+    type: Literal["done"]
+    map_id: str
+    map_name: str
+    explanation: str
+    datasets_used: list[str]
+
+
+class SSEErrorEvent(BaseModel):
+    """Error payload carried inside an already-open SSE response."""
+
+    type: Literal["error"]
+    message: str | dict | list
+    status: int | None = Field(
+        default=None,
+        description=(
+            "HTTP-equivalent status for router-level failures; provider and "
+            "model errors raised inside the stream may omit it."
+        ),
+    )
+
+
 class ChatResponse(BaseModel):
     explanation: str
     actions: list[ChatAction]

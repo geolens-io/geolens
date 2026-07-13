@@ -26,7 +26,7 @@ from app.platform.config_ops.service import (
 )
 from app.core.dependencies import get_db
 from app.processing.export.service import safe_content_disposition
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -65,7 +65,9 @@ async def export_configuration(
     return JSONResponse(content=data, headers=headers)
 
 
-@router.post("/import/", response_model=ImportResult)
+@router.post(
+    "/import/", response_model=ImportResult, responses={409: CONFLICT_RESPONSE}
+)
 async def import_configuration(
     data: ConfigImportRequest,
     request: Request,

@@ -1,12 +1,13 @@
 """RFC 7807 Problem Details error responses for the GeoLens API."""
 
 import json
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.url_redaction import redact_query_credentials
 from app.standards.ogc.utils import standards_api_path
@@ -18,14 +19,83 @@ class ProblemDetail(BaseModel):
     type: str = "about:blank"
     title: str
     status: int
-    detail: str
+    detail: str | dict[str, Any] | list[Any]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "about:blank",
+                    "title": "Not Found",
+                    "status": 404,
+                    "detail": "Dataset not found",
+                }
+            ]
+        }
+    )
 
 
 # Reusable OpenAPI `responses` blocks for 4xx/5xx error documentation.
 # Import these in routers and merge into per-endpoint `responses=` dicts.
 PROBLEM_RESPONSE = {
-    "model": ProblemDetail,
-    "content": {"application/problem+json": {}},
+    "content": {
+        "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+        }
+    },
+}
+
+RATE_LIMIT_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Too many requests — retry after the advertised interval",
+    "headers": {
+        "Retry-After": {
+            "description": "Seconds until the request may be retried",
+            "schema": {"type": "integer", "minimum": 0},
+        }
+    },
+}
+
+INTERNAL_SERVER_ERROR_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Internal server error",
+}
+
+DATABASE_UNAVAILABLE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Service unavailable — the database could not serve the request",
+}
+
+BAD_REQUEST_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Bad request — invalid query parameters or payload",
+}
+
+FORBIDDEN_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Forbidden — caller lacks access to this resource",
+}
+
+NOT_FOUND_RESPONSE = {**PROBLEM_RESPONSE, "description": "Not found"}
+
+CONFLICT_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Conflict — resource state prevents the operation",
+}
+
+GONE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Gone — the resource existed but is no longer available",
+}
+
+PAYLOAD_TOO_LARGE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Payload too large",
+}
+
+BAD_GATEWAY_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Bad gateway — an upstream provider failed",
 }
 
 SERVICE_UNAVAILABLE_RESPONSE = {
@@ -34,31 +104,22 @@ SERVICE_UNAVAILABLE_RESPONSE = {
 }
 
 ERROR_RESPONSES_AUTH = {
-    400: {
-        **PROBLEM_RESPONSE,
-        "description": "Bad request — invalid query parameters or payload",
-    },
+    400: BAD_REQUEST_RESPONSE,
     401: {
         **PROBLEM_RESPONSE,
         "description": "Unauthorized — missing or invalid credentials",
     },
-    403: {
-        **PROBLEM_RESPONSE,
-        "description": "Forbidden — caller lacks access to this resource",
-    },
-    404: {**PROBLEM_RESPONSE, "description": "Not found"},
+    403: FORBIDDEN_RESPONSE,
+    404: NOT_FOUND_RESPONSE,
     422: {**PROBLEM_RESPONSE, "description": "Validation error"},
-    500: {**PROBLEM_RESPONSE, "description": "Internal server error"},
+    500: INTERNAL_SERVER_ERROR_RESPONSE,
 }
 
 ERROR_RESPONSES_PUBLIC = {
-    400: {
-        **PROBLEM_RESPONSE,
-        "description": "Bad request — invalid query parameters or payload",
-    },
-    404: {**PROBLEM_RESPONSE, "description": "Not found"},
+    400: BAD_REQUEST_RESPONSE,
+    404: NOT_FOUND_RESPONSE,
     422: {**PROBLEM_RESPONSE, "description": "Validation error"},
-    500: {**PROBLEM_RESPONSE, "description": "Internal server error"},
+    500: INTERNAL_SERVER_ERROR_RESPONSE,
 }
 
 ERROR_RESPONSES_WRITE = {
@@ -68,21 +129,19 @@ ERROR_RESPONSES_WRITE = {
         "description": "Unauthorized — missing or invalid credentials",
     },
     403: {**PROBLEM_RESPONSE, "description": "Forbidden — caller lacks write access"},
-    404: {**PROBLEM_RESPONSE, "description": "Not found"},
-    409: {
-        **PROBLEM_RESPONSE,
-        "description": "Conflict — resource state prevents the operation",
-    },
+    404: NOT_FOUND_RESPONSE,
+    409: CONFLICT_RESPONSE,
     422: {**PROBLEM_RESPONSE, "description": "Validation error"},
-    500: {**PROBLEM_RESPONSE, "description": "Internal server error"},
+    500: INTERNAL_SERVER_ERROR_RESPONSE,
 }
 
 
 def _serialize_detail(detail: object) -> str:
-    """Serialize HTTPException detail to a string.
+    """Serialize non-JSON HTTPException detail to a safe fallback string.
 
-    Dicts and lists are JSON-encoded so the frontend can reliably parse
-    structured error payloads.  Plain strings pass through unchanged.
+    The exception handler preserves dict/list details directly. Plain strings
+    pass through here unchanged; any other object is JSON-encoded with a
+    string fallback so the response remains serializable.
     """
     if isinstance(detail, str):
         return detail
@@ -96,8 +155,11 @@ def _status_title(status_code: int) -> str:
         403: "Forbidden",
         404: "Not Found",
         409: "Conflict",
+        410: "Gone",
+        413: "Payload Too Large",
         422: "Validation Error",
         429: "Too Many Requests",
+        502: "Bad Gateway",
         500: "Internal Server Error",
         503: "Service Unavailable",
     }
