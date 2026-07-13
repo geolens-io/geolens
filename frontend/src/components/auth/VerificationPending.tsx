@@ -40,7 +40,7 @@ export function VerificationPending({ email }: VerificationPendingProps) {
     <Card className="w-full max-w-sm">
       <CardHeader className="items-center justify-items-center text-center">
         <Mail className="text-primary mb-2 h-10 w-10" />
-        <CardTitle className="text-xl">{t('verificationPending.title')}</CardTitle>
+        <CardTitle level={2} className="text-xl">{t('verificationPending.title')}</CardTitle>
         <CardDescription>
           {t('verificationPending.description')}
         </CardDescription>

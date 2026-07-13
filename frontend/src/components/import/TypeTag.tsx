@@ -43,7 +43,7 @@ export function TypeTag({ kind, size = 'md', className }: TypeTagProps) {
         cfg.fg,
         cfg.bg,
         cfg.border,
-        size === 'sm' ? 'h-6 w-6 text-[8px]' : 'h-8 w-8 text-[8.5px]',
+        size === 'sm' ? 'h-6 w-6 text-2xs' : 'h-8 w-8 text-2xs',
         className,
       )}
     >
@@ -59,7 +59,7 @@ export function FormatPill({ kind, ext }: { kind: DataKind; ext: string }) {
     <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-0 px-2 py-0.5 font-mono text-mini text-muted-foreground">
       <span
         className={cn(
-          'rounded-sm px-1 py-px text-[9px] font-bold uppercase tracking-wider',
+          'rounded-sm px-1 py-px text-2xs font-bold uppercase tracking-wider',
           cfg.fg,
           cfg.bg,
         )}

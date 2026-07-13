@@ -50,7 +50,7 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3.5">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="username" className="text-[12.5px]">
+        <Label htmlFor="username" className="text-xs">
           {t('username')}
         </Label>
         {/* #305: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
@@ -68,7 +68,7 @@ export function LoginForm() {
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="password" className="text-[12.5px]">
+        <Label htmlFor="password" className="text-xs">
           {t('password')}
         </Label>
         <PasswordInput
@@ -96,7 +96,7 @@ export function LoginForm() {
         {loading && <Loader2 className="size-4 animate-spin" />}
         {loading ? t('signingIn') : t('signIn')}
       </Button>
-      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+      <p className="text-xs leading-relaxed text-muted-foreground">
         {t('supportHint')}
       </p>
     </form>

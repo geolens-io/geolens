@@ -95,4 +95,19 @@ describe('LayerLegend keyboard trap regression (GLUX-001)', () => {
     // Toggle button switches its label to "Hide legend" when open.
     expect(screen.getByRole('button', { name: 'Hide legend' })).toBeInTheDocument();
   });
+
+  it('places the legend directly below the viewer page heading', () => {
+    render(
+      <LayerLegend
+        layers={[makeLayer()]}
+        visibleLayers={new Set(['layer-1'])}
+        onToggleVisibility={vi.fn()}
+        isOpen={true}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: 'Layers' })).not.toBeInTheDocument();
+  });
 });

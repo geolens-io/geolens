@@ -26,6 +26,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getRampColors } from '@/lib/color-ramps';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { COLOR_RELIEF_SUFFIX } from './companion-ids';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 // Default elevation range (metres) for the interpolation stops.
 // Assumption A1: 0–4000 m covers the majority of terrain use-cases for a builder tool.
@@ -66,8 +67,8 @@ export function buildElevationExpression(
   // dips into the guard band (unusual, e.g. bathymetry) skips them rather than
   // emit non-ascending stops.
   if (elevMin > LOWEST_LAND_GUARD + 1) {
-    expr.push(NODATA_ELEVATION_FLOOR, 'rgba(0,0,0,0)');
-    expr.push(LOWEST_LAND_GUARD, 'rgba(0,0,0,0)');
+    expr.push(NODATA_ELEVATION_FLOOR, MAP_COLORS.transparent);
+    expr.push(LOWEST_LAND_GUARD, MAP_COLORS.transparent);
     expr.push(LOWEST_LAND_GUARD + 1, colors[0]);
   }
   colors.forEach((color, i) => {

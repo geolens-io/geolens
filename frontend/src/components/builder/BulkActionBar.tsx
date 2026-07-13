@@ -140,7 +140,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         'sticky bottom-0 flex items-center gap-2 px-3',
         'h-12 bg-[var(--surface-2)] border-t border-[var(--border)]',
         'rounded-bl-[var(--radius-md)] rounded-br-[var(--radius-md)]',
-        'transition-all duration-[--motion-fast]',
+        'transition-[transform,opacity] duration-[--motion-fast]',
         mounted ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
         isDeleting ? 'cursor-not-allowed' : '',
       )}

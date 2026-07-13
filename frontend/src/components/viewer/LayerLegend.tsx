@@ -263,9 +263,9 @@ export function LayerLegend({
         className="absolute start-3 top-14 z-10 w-64 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
       >
         <div className="p-3 border-b border-border/50">
-          <h3 className="text-sm font-semibold text-foreground">
+          <h2 className="text-sm font-semibold text-foreground">
             {customTitle ?? t('viewer.legend.title')}
-          </h3>
+          </h2>
           {customTitle && (
             <span data-testid="viewer-legend-title" className="sr-only">{customTitle}</span>
           )}

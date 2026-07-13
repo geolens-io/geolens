@@ -26,11 +26,11 @@ export const PluginPanel = memo(function PluginPanel({ def, children }: PluginPa
   return (
     <div className="rounded-lg border bg-background/95 backdrop-blur-sm shadow-lg min-w-48">
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-foreground/70" />
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="text-xs font-medium flex-1">{t(def.labelKey)}</span>
         <button
           onClick={() => usePluginStore.getState().close(def.id)}
-          className="shrink-0 rounded-sm p-1 hover:bg-accent/50 text-foreground/50 hover:text-foreground transition-colors min-h-6 min-w-6 flex items-center justify-center"
+          className="shrink-0 rounded-sm p-1 hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors min-h-6 min-w-6 flex items-center justify-center"
           aria-label={t('plugins.closePlugin')}
         >
           <X className="h-3 w-3" />

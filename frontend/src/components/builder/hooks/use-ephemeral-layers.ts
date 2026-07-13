@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 const EPHEMERAL_LAYERS = [
   'ephemeral-result-fill',
@@ -53,7 +54,7 @@ export function useEphemeralLayers(
         type: 'fill',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'Polygon'],
-        paint: { 'fill-color': '#f97316', 'fill-opacity': 0.15 },
+        paint: { 'fill-color': MAP_COLORS.ephemeral.color, 'fill-opacity': 0.15 },
       });
 
       // Polygon outline
@@ -62,7 +63,7 @@ export function useEphemeralLayers(
         type: 'line',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'Polygon'],
-        paint: { 'line-color': '#f97316', 'line-width': 2, 'line-dasharray': [3, 2] },
+        paint: { 'line-color': MAP_COLORS.ephemeral.color, 'line-width': 2, 'line-dasharray': [3, 2] },
       });
 
       // Line layer
@@ -71,7 +72,7 @@ export function useEphemeralLayers(
         type: 'line',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'LineString'],
-        paint: { 'line-color': '#f97316', 'line-width': 2.5, 'line-dasharray': [3, 2] },
+        paint: { 'line-color': MAP_COLORS.ephemeral.color, 'line-width': 2.5, 'line-dasharray': [3, 2] },
       });
 
       // Point layer
@@ -82,8 +83,8 @@ export function useEphemeralLayers(
         filter: ['==', '$type', 'Point'],
         paint: {
           'circle-radius': 6,
-          'circle-color': '#f97316',
-          'circle-stroke-color': '#ffffff',
+          'circle-color': MAP_COLORS.ephemeral.color,
+          'circle-stroke-color': MAP_COLORS.ephemeral.outline,
           'circle-stroke-width': 2,
         },
       });

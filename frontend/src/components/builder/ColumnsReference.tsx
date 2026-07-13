@@ -28,7 +28,7 @@ export function ColumnsReference({ columns, defaultOpen = false }: ColumnsRefere
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}
         {t('layerItem.columns')}
-        <span className="text-muted-foreground/60 ms-auto">{columns.length}</span>
+        <span className="text-muted-foreground ms-auto">{columns.length}</span>
       </button>
       {open && (
         <div className="mt-1">
@@ -47,11 +47,11 @@ export function ColumnsReference({ columns, defaultOpen = false }: ColumnsRefere
             {filtered.map((col) => (
               <div key={col.name} className="text-xs text-muted-foreground">
                 {col.name}{' '}
-                <span className="text-muted-foreground/60">({col.type})</span>
+                <span className="text-muted-foreground">({col.type})</span>
               </div>
             ))}
             {filtered.length === 0 && (
-              <div className="text-xs text-muted-foreground/60 italic">
+              <div className="text-xs text-muted-foreground italic">
                 {t('layerItem.noColumnsMatch', { defaultValue: 'No columns match' })}
               </div>
             )}

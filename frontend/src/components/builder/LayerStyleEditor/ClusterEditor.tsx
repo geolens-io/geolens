@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MAP_COLORS } from '@/lib/map-colors';
 import type { BaseStyleEditorProps } from './types';
 
 type ClusterColorStop = { count: number; color: string };
@@ -32,7 +33,7 @@ export function ClusterEditor({
 }: BaseStyleEditorProps) {
   const clusterColor = builderConfig.clusterColor
     ?? (typeof paint['circle-color'] === 'string' ? paint['circle-color'] as string : CIRCLE_DEFAULTS['circle-color']);
-  const clusterTextColor = builderConfig.clusterTextColor ?? '#ffffff';
+  const clusterTextColor = builderConfig.clusterTextColor ?? MAP_COLORS.cluster.text;
 
   const ramp: ClusterColorStop[] = Array.isArray(builderConfig.clusterColorRamp)
     ? builderConfig.clusterColorRamp

@@ -43,7 +43,7 @@ export function ReportProblemHost() {
               className={cn(
                 // bottom-10 (not bottom-4) clears the MapLibre attribution bar
                 // that hugs the bottom-right corner of every map view.
-                'fixed bottom-10 right-4 z-40 inline-flex size-10 items-center justify-center rounded-full border border-destructive/50 bg-background/90 text-destructive shadow-sm backdrop-blur transition-all duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'fixed bottom-10 right-4 z-40 inline-flex size-10 items-center justify-center rounded-full border border-destructive/50 bg-background/90 text-destructive shadow-sm backdrop-blur transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               )}
             >
               <LifeBuoy className="size-5" aria-hidden />

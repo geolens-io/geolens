@@ -9,4 +9,4 @@
  * the visual treatment, so the tier can evolve in one place.
  */
 export const SECTION_EYEBROW =
-  'text-mini font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70';
+  'text-mini font-mono font-semibold uppercase tracking-[0.1em] text-muted-foreground';

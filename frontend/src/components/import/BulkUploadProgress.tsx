@@ -15,7 +15,7 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+      <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
         <span>
           {t('bulk.uploading', { count: entries.length })}
         </span>
@@ -42,7 +42,7 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
           >
             <TypeTag kind={kind} />
             <div>
-              <div className="text-[13.5px] font-medium tracking-tight">
+              <div className="text-sm font-medium tracking-tight">
                 {entry.fileName.replace(/\.[^.]+$/, '')}
                 <span className="font-mono font-normal text-muted-foreground">{ext}</span>
               </div>

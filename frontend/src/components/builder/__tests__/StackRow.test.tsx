@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@/test/test-utils';
 import { StackRow } from '../StackRow';
+import { MAP_COLORS } from '@/lib/map-colors';
 import type { MapLayerResponse } from '@/types/api';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
@@ -413,8 +414,8 @@ describe('DEM type icon', () => {
     const { container } = render(<StackRow {...defaultProps({ layer })} />);
 
     // Real ColorizedGeometryIcon output for a single-color POLYGON: a filled
-    // Pentagon SVG (default color #6366f1) — and no raster glyph chip.
-    expect(container.querySelector('svg[fill="#6366f1"]')).toBeInTheDocument();
+    // Pentagon SVG (the centralized map-icon fallback) — and no raster glyph chip.
+    expect(container.querySelector(`svg[fill="${MAP_COLORS.icon.fallback}"]`)).toBeInTheDocument();
     expect(screen.queryByText('▦')).not.toBeInTheDocument();
   });
 

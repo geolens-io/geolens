@@ -118,16 +118,16 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           {/* Hero */}
           <div className="border-b border-border bg-gradient-to-b from-success/[0.06] to-transparent px-8 py-10 text-center">
-            <div className="mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-full bg-success text-success-foreground shadow-[0_0_0_6px] shadow-success/12">
+            <div className="mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-full bg-success text-success-foreground ring-4 ring-success/15">
               <CheckCircle2 className="size-6" />
             </div>
-            <h2 className="mb-1.5 text-[22px] font-medium tracking-tight">
+            <h2 className="mb-1.5 text-xl font-medium tracking-tight">
               {t('complete.heroTitle', {
                 count: completedEntries.length,
                 defaultValue: `${completedEntries.length} ${completedEntries.length === 1 ? 'dataset' : 'datasets'} added to the catalog`,
               })}
             </h2>
-            <p className="text-[13.5px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('complete.heroDesc', { defaultValue: 'All files ingested, tiled, and indexed. Ready to query, style, and map.' })}
             </p>
           </div>
@@ -159,7 +159,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               >
                 <TypeTag kind={entry.kind === 'vector' ? 'vector' : entry.kind === 'raster' ? 'raster' : 'table'} />
                 <div className="min-w-0">
-                  <p className="truncate text-[13.5px] font-medium tracking-tight">{entry.title}</p>
+                  <p className="truncate text-sm font-medium tracking-tight">{entry.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <Badge variant="secondary" className="text-2xs">{entry.kind}</Badge>
                     <Badge variant="outline" className="text-2xs">{getVisibilityLabel(t, entry.visibility)}</Badge>
@@ -172,7 +172,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
 
           {/* Next actions */}
           <div className="flex flex-wrap items-center gap-2.5 border-t border-border bg-surface-0 px-5 py-4">
-            <span className="text-[13px] font-semibold me-1">{t('complete.next', { defaultValue: 'Next:' })}</span>
+            <span className="text-xs font-semibold me-1">{t('complete.next', { defaultValue: 'Next:' })}</span>
             {completedEntries.length === 1 && completedEntries[0] && (
               <Button asChild size="sm">
                 <Link to={`/datasets/${completedEntries[0].datasetId}`}>
@@ -228,7 +228,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
         <div className="flex items-center gap-3.5 rounded-xl border border-primary/20 bg-primary/[0.07] px-4 py-3">
           <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
           <div className="flex-1">
-            <p className="text-[13px]">
+            <p className="text-xs">
               <span className="font-semibold">{t('bulk.importingFiles', { count: trackable.length, defaultValue: `Importing ${trackable.length} files` })}</span>
             </p>
             <p className="font-mono text-mini text-muted-foreground tracking-wide mt-0.5">

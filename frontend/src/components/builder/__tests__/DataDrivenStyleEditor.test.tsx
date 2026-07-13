@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import { getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
 import { equalIntervalBreaks } from '@/lib/classification';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { DataDrivenStyleEditor } from '../DataDrivenStyleEditor';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
@@ -535,7 +536,7 @@ describe('DataDrivenStyleEditor', () => {
       await user.click(await screen.findByRole('option', { name: 'Categorical' }));
 
       expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
-        'circle-color': '#3b82f6',
+        'circle-color': MAP_COLORS.default.fill,
         'circle-radius': 5,
       }));
       expect(onStyleConfigChange).not.toHaveBeenCalledWith(

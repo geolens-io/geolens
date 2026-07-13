@@ -17,9 +17,10 @@
  * Worker-safety: no file-level vi.mock('@dnd-kit/core', ...).
  */
 
-import { render, cleanup } from '@/test/test-utils';
+import { render, cleanup, screen } from '@/test/test-utils';
 import { useParams } from 'react-router';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
+import mapBuilderPageSrc from '@/pages/MapBuilderPage.tsx?raw';
 
 // ---------------------------------------------------------------------------
 // Module mocks — mirrors MapBuilderPage.header-actions.test.tsx
@@ -274,6 +275,23 @@ describe('Phase 1044-02 — MapBuilderPage drag aria-live region (POL-23)', () =
     expect(region).toBeInTheDocument();
     // Before any drag, dragAnnouncement state is '' — region has no meaningful text
     expect(region?.textContent).toBe('');
+  });
+});
+
+describe('MapBuilderPage complementary landmark names', () => {
+  it('names the persistent layers sidebar', () => {
+    render(<MapBuilderPage />, { route: '/maps/map-test' });
+
+    expect(screen.getByRole('complementary', { name: 'layers.title' })).toBeInTheDocument();
+  });
+
+  it('pins unique labels to both builder asides', () => {
+    expect(mapBuilderPageSrc).toMatch(
+      /data-testid="builder-sidebar"\s+aria-label=\{t\('layers\.title'\)\}/,
+    );
+    expect(mapBuilderPageSrc).toMatch(
+      /data-testid="builder-layer-editor"\s+aria-label=\{t\('layerEditor\.tabsLabel'\)\}/,
+    );
   });
 });
 

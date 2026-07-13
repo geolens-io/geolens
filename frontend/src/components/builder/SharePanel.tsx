@@ -602,7 +602,7 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
               <p className="text-sm text-muted-foreground text-center">
                 {t('share.iframeErrorTitle', { defaultValue: 'Preview unavailable' })}
               </p>
-              <p className="text-xs text-muted-foreground/80 text-center">
+              <p className="text-xs text-muted-foreground text-center">
                 {t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
               </p>
               <button

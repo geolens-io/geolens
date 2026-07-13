@@ -47,7 +47,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
     <aside className="sticky top-28 flex flex-col gap-4">
       {/* Workflow steps */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-3 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <p className="mb-3 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {t('rail.workflow', { defaultValue: 'Workflow' })}
         </p>
         <div className="flex flex-col gap-3.5">
@@ -63,14 +63,14 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
                   className={cn(
                     'flex h-[22px] w-[22px] items-center justify-center rounded-full font-mono text-2xs font-semibold border',
                     isDone && 'bg-success text-success-foreground border-success',
-                    isActive && 'bg-primary text-primary-foreground border-primary shadow-[0_0_0_3px] shadow-primary/15',
+                    isActive && 'bg-primary text-primary-foreground border-primary ring-2 ring-primary/20',
                     !isDone && !isActive && 'bg-surface-2 text-muted-foreground border-border',
                   )}
                 >
                   {isDone ? <Check className="size-3" /> : i + 1}
                 </span>
                 <div>
-                  <h5 className="text-[13px] font-semibold leading-snug">
+                  <h5 className="text-xs font-semibold leading-snug">
                     {step.title}
                     {isDone && <span className="ms-1 text-success">&#10003;</span>}
                   </h5>
@@ -84,10 +84,10 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
 
       {/* What gets imported */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-3 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <p className="mb-3 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {t('rail.whatImported', { defaultValue: 'What gets imported' })}
         </p>
-        <div className="flex flex-col gap-2 text-[12.5px]">
+        <div className="flex flex-col gap-2 text-xs">
           {([
             { kind: 'vector' as DataKind, label: t('rail.vectorLabel', { defaultValue: 'Vector' }), desc: t('rail.vectorDesc', { defaultValue: 'tiled to MVT, spatial index, reprojected to 3857 on read.' }) },
             { kind: 'raster' as DataKind, label: t('rail.rasterLabel', { defaultValue: 'Raster' }), desc: t('rail.rasterDesc', { defaultValue: 'converted to COG, overviews built, bands kept intact.' }) },
@@ -103,10 +103,10 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
 
       {/* Tip */}
       <div className="rounded-lg border border-border bg-surface-0 p-4">
-        <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {t('rail.tip', { defaultValue: 'Tip' })}
         </p>
-        <p className="text-[12.5px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t('rail.tipText', {
             defaultValue: 'Drop multiple files at once to create a batch. Each file becomes its own dataset — you can review and adjust metadata before committing.',
           })}
@@ -124,14 +124,14 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
   return (
     <aside className="sticky top-28 flex flex-col gap-4">
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {isRegister
             ? t('rail.registerHint', { defaultValue: 'Registering existing infrastructure' })
             : isStac
               ? t('rail.stacHint', { defaultValue: 'Importing from STAC' })
               : t('rail.serviceHint', { defaultValue: 'Connecting remote services' })}
         </p>
-        <p className="mb-2.5 text-[12.5px] text-muted-foreground leading-relaxed">
+        <p className="mb-2.5 text-xs text-muted-foreground leading-relaxed">
           {isRegister
             ? t('rail.registerDesc', { defaultValue: 'Register existing PostGIS tables as datasets — GeoLens tiles them on the fly from your database.' })
             : isStac
@@ -148,10 +148,10 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {t('rail.comparedToUpload', { defaultValue: 'Compared to Upload' })}
         </p>
-        <p className="text-[12.5px] text-muted-foreground leading-relaxed">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           {isRegister
             ? t('rail.compareRegister', { defaultValue: 'Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.' })
             : isStac

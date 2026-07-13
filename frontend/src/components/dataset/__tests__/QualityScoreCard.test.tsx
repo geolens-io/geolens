@@ -23,6 +23,8 @@ describe('QualityScoreCard', () => {
   it('renders fresh quality state with timestamp, relative age, and cadence guidance', () => {
     render(<QualityScoreCard qualityScore={baseQualityScore} updateFrequency="annually" />);
 
+    expect(screen.getByRole('heading', { level: 2, name: 'Quality Score' })).toBeInTheDocument();
+    expect(screen.getByText('87').closest('[data-slot="card-action"]')).toBeInTheDocument();
     expect(screen.getByTestId('quality-freshness-time')).toHaveTextContent('Mar 1, 2026');
     expect(screen.getByTestId('quality-freshness-time')).toHaveTextContent('4 days ago');
     expect(screen.getByTestId('quality-freshness-badge')).toHaveTextContent('Fresh');

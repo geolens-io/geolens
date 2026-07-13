@@ -32,9 +32,8 @@ export function CatalogDragGhost({
   return (
     <div
       data-testid="catalog-ghost"
-      className="pointer-events-none flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 cursor-grabbing"
+      className="pointer-events-none flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 cursor-grabbing shadow-md"
       style={{
-        boxShadow: '0 4px 12px oklch(0 0 0 / 15%)',
         maxWidth: 260,
         minHeight: 36,
       }}
