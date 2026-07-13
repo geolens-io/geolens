@@ -153,7 +153,7 @@ async def maintain_ingest_job_heartbeat(
                 return
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception:  # broad: heartbeat lease renewal is best-effort
             # A transient heartbeat write must not mask the ingest result. The
             # next interval gets another chance before the one-hour lease ends.
             logger.warning(
@@ -195,7 +195,7 @@ async def maintain_vrt_generation_heartbeat(
                 return
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception:  # broad: heartbeat lease renewal is best-effort
             structlog.get_logger().warning(
                 "vrt_generation_heartbeat_failed",
                 generation_id=str(generation_id),

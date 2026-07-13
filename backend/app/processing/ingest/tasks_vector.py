@@ -84,7 +84,7 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
                 )
             )
             await session.commit()
-    except Exception:
+    except Exception:  # broad: cleanup must not mask the ingest result
         structlog.get_logger().warning(
             "attempt_staging_cleanup_failed",
             staging_table=staging_table,

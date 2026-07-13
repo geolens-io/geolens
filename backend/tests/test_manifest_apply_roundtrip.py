@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from shutil import copyfile
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
@@ -133,7 +136,19 @@ class TestManifestApplyEndpointRoundTrip:
         admin_auth_header: dict,
         test_db_session,
         clean_tables,
+        monkeypatch,
+        tmp_path,
     ):
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        vector_seed = tmp_path / "tests/fixtures/ingest/basic_attrs.geojson"
+        vector_seed.parent.mkdir(parents=True)
+        copyfile(
+            Path(__file__).parent / "fixtures/ingest/basic_attrs.geojson", vector_seed
+        )
+        raster_seed = tmp_path / "rasters/roundtrip-raster.tif"
+        raster_seed.parent.mkdir(parents=True)
+        raster_seed.write_bytes(b"routing-only-cog")
+
         payload = _manifest_payload(
             _dataset_payload(
                 key="roundtrip-vector-create",
