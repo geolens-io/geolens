@@ -1,11 +1,10 @@
 from typing import Literal, cast
 
-ManifestSourceType = Literal["raster_cog", "vector", "vrt"]
+ManifestSourceType = Literal["raster_cog", "vector"]
 
 MANIFEST_SOURCE_TYPE_VALUES: set[ManifestSourceType] = {
     "raster_cog",
     "vector",
-    "vrt",
 }
 
 

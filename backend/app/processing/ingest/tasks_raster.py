@@ -8,6 +8,14 @@ import structlog
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.jobs.heartbeat import (
+    claim_ingest_job_attempt,
+    maintain_ingest_job_heartbeat,
+    require_ingest_job_update,
+    resolve_ingest_job_attempt,
+    stop_ingest_job_heartbeat,
+    update_ingest_job_for_attempt,
+)
 from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
@@ -34,6 +42,15 @@ def _is_manifest_vrt_job(job: Any) -> bool:
     return metadata.get("manifest_source_type") == "vrt" or source_filename.endswith(
         ".vrt"
     )
+
+
+def _reject_raw_vrt_job(source_filename: str | None) -> None:
+    """Worker-side backstop for jobs created outside current HTTP routes."""
+    if (source_filename or "").lower().endswith(".vrt"):
+        raise ValueError(
+            "Standalone VRT ingest is not supported; managed VRTs must be "
+            "created from catalog-tracked raster sources"
+        )
 
 
 async def _enforce_strict_cog(
@@ -273,7 +290,13 @@ async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> Non
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
 @tenant_task
-async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
+async def ingest_raster(
+    job_id: str,
+    file_path: str,
+    user_id: str,
+    attempt_id: str | None = None,
+    **kwargs,
+) -> None:
     """Background task: validate GeoTIFF, convert to COG, extract metadata, register dataset.
 
     Full pipeline:
@@ -311,6 +334,13 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
     from app.platform.jobs.models import IngestJob
 
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        structlog.get_logger().warning(
+            "Tokenless raster delivery could not adopt pending legacy job",
+            job_id=job_id,
+        )
+        return
     local_cog_path: str | None = None
     tmp_dir: str | None = None
     original_file_path = file_path
@@ -321,6 +351,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
     # never reaps these assets. Track them and clean up on the failure path so a
     # crash mid-ingest doesn't orphan COG/quicklook bytes under rasters/.
     written_storage_keys: list[str] = []
+    heartbeat_task: asyncio.Task[None] | None = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -330,7 +361,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # the job in a fresh session without depending on attached ORM
         # state surviving the asyncio.to_thread calls.
         # ----------------------------------------------------------------- #
-        async with _job_phase_session(job_uuid, phase="phase1") as (session, job):
+        async with _job_phase_session(
+            job_uuid, phase="phase1", attempt_id=attempt_uuid
+        ) as (session, job):
             if job is None:
                 return
 
@@ -340,11 +373,15 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             # poll after pickup. Raster ingests are the prime motivator —
             # 10-min COG conversion + quicklook generation otherwise looks
             # like a dead spinner.
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
             job.current_step = "validating"
             job.progress = 0.0
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             # 2. Resolve file path
             from app.processing.ingest.service import resolve_file_path
@@ -360,9 +397,16 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                     source_filename=job.source_filename,
                 )
             except ValueError as exc:
-                job.status = "failed"
-                job.error_message = str(exc)
-                job.completed_at = datetime.now(timezone.utc)
+                await update_ingest_job_for_attempt(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "failed",
+                        "error_message": str(exc),
+                        "completed_at": datetime.now(timezone.utc),
+                    },
+                )
                 await session.commit()
                 _Path(file_path).unlink(missing_ok=True)
                 final_status = "failed"
@@ -392,6 +436,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             # These plain Python values do not require an attached ORM session.
             um: dict = job.user_metadata or {}
             source_filename: str | None = job.source_filename
+            _reject_raw_vrt_job(source_filename)
             is_manifest_vrt = _is_manifest_vrt_job(job)
 
         # ----------------------------------------------------------------- #
@@ -439,7 +484,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # signal must still advance — keeps the step name consistent.
         # Brief-session pattern via _job_phase_session (REMED-03) — no
         # session held open across the asyncio.to_thread CPU work below.
-        async with _job_phase_session(job_uuid, phase="progress_write_cog_convert") as (
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_cog_convert", attempt_id=attempt_uuid
+        ) as (
             _progress_session,
             _progress_job,
         ):
@@ -489,7 +536,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # multi-second hotspot. Brief-session write before the two
         # generate_quicklook calls so the UI advances. Routed through
         # _job_phase_session per REMED-03.
-        async with _job_phase_session(job_uuid, phase="progress_write_quicklook") as (
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_quicklook", attempt_id=attempt_uuid
+        ) as (
             _progress_session,
             _progress_job,
         ):
@@ -508,7 +557,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # job in a fresh session — its attributes were already snapshotted
         # into ``um`` / ``source_filename`` above.
         # ----------------------------------------------------------------- #
-        async with _job_phase_session(job_uuid, phase="phase2") as (session, job):
+        async with _job_phase_session(
+            job_uuid, phase="phase2", attempt_id=attempt_uuid
+        ) as (session, job):
             if job is None:
                 return
 
@@ -667,11 +718,18 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             # ingests have no rows (the COG and quicklooks ARE the
             # asset). Vector ingests set rows_processed in
             # tasks_common._finalize_ingest from metadata["feature_count"].
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            job.current_step = "complete"
-            job.progress = 1.0
+            await require_ingest_job_update(
+                session,
+                job_uuid,
+                attempt_uuid,
+                values={
+                    "status": "complete",
+                    "dataset_id": dataset.id,
+                    "completed_at": datetime.now(timezone.utc),
+                    "current_step": "complete",
+                    "progress": 1.0,
+                },
+            )
             await session.commit()
             final_status = "complete"
 
@@ -722,7 +780,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
         # REMED-03 / P2-05: route through _job_phase_session.
-        async with _job_phase_session(job_uuid, phase="error_write") as (
+        async with _job_phase_session(
+            job_uuid, phase="error_write", attempt_id=attempt_uuid
+        ) as (
             err_session,
             _err_job,
         ):
@@ -730,7 +790,11 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
             await err_session.execute(
                 sa_update(IngestJob)
-                .where(IngestJob.id == job_uuid)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
+                )
                 .values(
                     status="failed",
                     error_message=str(exc),
@@ -763,6 +827,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         )
         raise
     finally:
+        await stop_ingest_job_heartbeat(heartbeat_task)
         # GAP-017: orphan-asset cleanup. If we wrote COG/quicklook bytes to
         # storage but did NOT reach a successful terminal commit, the dataset
         # row those keys belong to was rolled back — delete_dataset will never

@@ -129,9 +129,8 @@ def _make_mock_session(*result_lists):
 async def test_recover_stale_jobs_marks_running_as_failed():
     """recover_stale_jobs should mark stale running IngestJobs as failed.
 
-    IA-P0-04 option (b): stale criterion is now started_at < now - JOB_TIMEOUT_SECONDS
-    (1 hour). The query is built in worker.py; the mock session returns whatever
-    the test supplies, so this asserts the post-query "mark as failed" behavior.
+    The query is built in worker.py; the mock session returns whatever the test
+    supplies, so this asserts the post-query "mark as failed" behavior.
     """
     from app.platform.jobs.worker import recover_stale_jobs
 
@@ -140,7 +139,7 @@ async def test_recover_stale_jobs_marks_running_as_failed():
     fake_job.status = "running"
     fake_job.error_message = None
     fake_job.completed_at = None
-    fake_job.started_at = None  # IA-P0-04: query uses started_at, not heartbeat
+    fake_job.started_at = None
 
     # Two extra empty results for the GAP-002 VRT stale sweep
     # (stale regenerating RasterAssets, stale VrtGeneration rows).
@@ -179,43 +178,32 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
 
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_rolling_deploy_survives_6min_ingest():
-    """IA-P0-04 regression: a 6-minute ingest survives a rolling worker restart.
-
-    Pre-fix: heartbeat column was declared + queried but NEVER WRITTEN, so
-    every running job looked heartbeat-less and the query collapsed to
-    `created_at < now - 5min`, force-killing any ingest >5 min on restart.
-
-    Post-fix (option b): the query uses `started_at < now - JOB_TIMEOUT_SECONDS`
-    (1 hour). A job started 6 minutes ago does NOT match the stale predicate
-    and survives the rolling restart.
-
-    The test simulates this by capturing the WHERE clause via the mock session's
-    execute spy and confirming the stale_cutoff is ~1 hour in the past, NOT
-    ~5 minutes. The mock returns ZERO stale jobs (the under-1h running job is
-    excluded by the query), so no jobs get marked failed.
-    """
+    """A fresh worker lease keeps an active ingest out of recovery."""
     from datetime import datetime, timedelta, timezone
 
     from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
     from app.platform.jobs.worker import recover_stale_jobs
 
-    assert JOB_TIMEOUT_SECONDS == 3600, "JOB_TIMEOUT_SECONDS must be 1h for option (b)"
+    assert JOB_TIMEOUT_SECONDS == 3600
 
     # Simulate a 6-minute running job — would have been killed pre-fix.
     six_min_old_job = MagicMock()
     six_min_old_job.id = uuid4()
     six_min_old_job.status = "running"
     six_min_old_job.started_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+    six_min_old_job.heartbeat_at = datetime.now(timezone.utc)
     six_min_old_job.error_message = None
     six_min_old_job.completed_at = None
 
-    # The new query is `started_at < now - 1h`. A 6-minute job DOES NOT match,
-    # so the mock returns the empty list — i.e., no jobs were stale.
-    # Two extra empty results for the GAP-002 VRT stale sweep.
+    # The database query excludes the fresh heartbeat, so no job is returned.
     mock_session = _make_mock_session([], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
+
+    stale_query = str(mock_session.execute.await_args_list[1].args[0])
+    assert "heartbeat_at" in stale_query
+    assert "coalesce" in stale_query.lower()
 
     # The 6-minute job must NOT have been touched.
     assert six_min_old_job.status == "running", (
@@ -284,6 +272,7 @@ async def test_main_uses_shutdown_graceful_timeout():
 
     with (
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
         # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
@@ -323,6 +312,7 @@ async def test_main_uses_default_shutdown_timeout():
 
     with (
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
         # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
@@ -355,6 +345,7 @@ async def test_main_passes_install_signal_handlers_true():
 
     with (
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
         # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).

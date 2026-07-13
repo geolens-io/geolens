@@ -1,5 +1,6 @@
 """Procrastinate task definitions for file and service re-upload workflows."""
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,15 @@ from sqlalchemy import select
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.jobs.heartbeat import (
+    attempt_scoped_staging_table,
+    claim_ingest_job_attempt,
+    maintain_ingest_job_heartbeat,
+    require_ingest_job_update,
+    resolve_ingest_job_attempt,
+    stop_ingest_job_heartbeat,
+    update_ingest_job_for_attempt,
+)
 from app.processing.raster.cog import sha256_file
 
 from app.processing.ingest.tasks_common import (
@@ -17,6 +27,7 @@ from app.processing.ingest.tasks_common import (
     _archive_original_file,
     _bind_task_log_context,
     _cleanup_staging_on_failure,
+    _current_tenant_role,
     _current_tenant_schema,
     _run_service_import_with_wfs_fallback,
     _run_staging_pipeline,
@@ -27,10 +38,41 @@ from app.processing.ingest.tasks_common import (
 )
 
 
+async def _drop_attempt_staging_table(staging_table: str) -> None:
+    """Best-effort cleanup limited to one attempt-owned staging table."""
+    if not staging_table:
+        return
+
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable
+    from sqlalchemy import text
+
+    try:
+        async with async_session() as session:
+            await session.execute(
+                text(
+                    f"DROP TABLE IF EXISTS "
+                    f"{_qtable(staging_table, schema=_current_tenant_schema())} CASCADE"
+                )
+            )
+            await session.commit()
+    except Exception:  # broad: cleanup must not mask the ingest result
+        structlog.get_logger().warning(
+            "attempt_staging_cleanup_failed",
+            staging_table=staging_table,
+            exc_info=True,
+        )
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
 @tenant_task
 async def reupload_file(
-    job_id: str, dataset_id: str, file_path: str, user_id: str, **kwargs
+    job_id: str,
+    dataset_id: str,
+    file_path: str,
+    user_id: str,
+    attempt_id: str | None = None,
+    **kwargs,
 ) -> None:
     """Background task: replace dataset data via staging table swap.
 
@@ -45,8 +87,6 @@ async def reupload_file(
     _bind_task_log_context(
         task_name="reupload_file", job_id=job_id, dataset_id=dataset_id
     )
-    import asyncio
-
     from app.core.db import async_session
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import _qtable
@@ -59,10 +99,18 @@ async def reupload_file(
     Dataset = port.get_dataset_orm_class()
 
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        structlog.get_logger().warning(
+            "Tokenless reupload delivery could not adopt pending legacy job",
+            job_id=job_id,
+        )
+        return
     dataset_uuid = uuid.UUID(dataset_id)
     original_file_path = file_path
     final_status: str = "pending"
     staging_tn: str = ""
+    heartbeat_task: asyncio.Task[None] | None = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -72,7 +120,10 @@ async def reupload_file(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             job_result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = job_result.scalar_one_or_none()
             if job is None:
@@ -93,12 +144,15 @@ async def reupload_file(
                 )
                 return
 
-            staging_tn = f"{dataset.table_name[:54]}_staging"
-
             # 1. Update job to running
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
+            staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path
@@ -113,9 +167,16 @@ async def reupload_file(
                     source_filename=job.source_filename,
                 )
             except ValueError as exc:
-                job.status = "failed"
-                job.error_message = str(exc)
-                job.completed_at = datetime.now(timezone.utc)
+                await update_ingest_job_for_attempt(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "failed",
+                        "error_message": str(exc),
+                        "completed_at": datetime.now(timezone.utc),
+                    },
+                )
                 await session.commit()
                 Path(file_path).unlink(missing_ok=True)
                 final_status = "failed"
@@ -132,7 +193,10 @@ async def reupload_file(
             # Drop stale staging table from any prior failed attempt before
             # closing the session — ogr2ogr needs a clean target.
             await session.execute(
-                text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE")
+                text(
+                    f"DROP TABLE IF EXISTS "
+                    f"{_qtable(staging_tn, schema=_current_tenant_schema())} CASCADE"
+                )
             )
             await session.commit()
 
@@ -169,6 +233,7 @@ async def reupload_file(
             source_srid=srid,
             geometry_type=geometry_type,
             layer_name=layer_name,
+            schema=_current_tenant_schema(),
         )
 
         # 7. Compute file hash (moved up — must be outside any session)
@@ -182,7 +247,10 @@ async def reupload_file(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             job_result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = job_result.scalar_one()
 
@@ -244,6 +312,12 @@ async def reupload_file(
             three_d = staging_result.three_d
 
             # 8. Apply shared reupload swap/version invariants
+            await require_ingest_job_update(
+                session,
+                job_uuid,
+                attempt_uuid,
+                values={"heartbeat_at": datetime.now(timezone.utc)},
+            )
             await _apply_reupload_swap(
                 session,
                 dataset=dataset,
@@ -280,8 +354,15 @@ async def reupload_file(
             )
 
             # 10. Update job status to complete
-            job.status = "complete"
-            job.completed_at = datetime.now(timezone.utc)
+            await require_ingest_job_update(
+                session,
+                job_uuid,
+                attempt_uuid,
+                values={
+                    "status": "complete",
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
             await session.commit()
 
         final_status = "complete"
@@ -313,7 +394,10 @@ async def reupload_file(
         # shared cleanup helper.
         async with async_session() as err_session:
             err_job_result = await err_session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             err_job = err_job_result.scalar_one_or_none()
             if err_job is not None:
@@ -323,9 +407,12 @@ async def reupload_file(
                     job=err_job,
                     exc=exc,
                     task_name="reupload_file",
+                    attempt_id=attempt_uuid,
                 )
         raise
     finally:
+        await stop_ingest_job_heartbeat(heartbeat_task)
+        await _drop_attempt_staging_table(staging_tn)
         # Clean up local file on success always; on failure only if it was
         # a resolve_file_path download (source of truth is S3).
         if final_status == "complete":
@@ -342,6 +429,7 @@ async def reupload_service(
     source_url: str,
     source_layer: str,
     user_id: str,
+    attempt_id: str | None = None,
     token: str | None = None,
     **kwargs,
 ) -> None:
@@ -401,8 +489,16 @@ async def reupload_service(
     )
 
     job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        structlog.get_logger().warning(
+            "Tokenless reupload delivery could not adopt pending legacy job",
+            job_id=job_id,
+        )
+        return
     dataset_uuid = uuid.UUID(dataset_id)
     staging_tn: str = ""
+    heartbeat_task: asyncio.Task[None] | None = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -411,7 +507,10 @@ async def reupload_service(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             job_result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = job_result.scalar_one_or_none()
             if job is None:
@@ -432,11 +531,14 @@ async def reupload_service(
                 )
                 return
 
-            staging_tn = f"{dataset.table_name[:54]}_staging"
-
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
+            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+                await session.rollback()
+                return
+            staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
             await session.commit()
+            heartbeat_task = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            )
 
             um = job.user_metadata or {}
             service_type_raw = um.get("service_type", "")
@@ -457,7 +559,10 @@ async def reupload_service(
             # Drop stale staging table from prior failed attempt before
             # closing the session — ogr2ogr_service needs a clean target.
             await session.execute(
-                text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE")
+                text(
+                    f"DROP TABLE IF EXISTS "
+                    f"{_qtable(staging_tn, schema=_current_tenant_schema())} CASCADE"
+                )
             )
             await session.commit()
 
@@ -483,6 +588,7 @@ async def reupload_service(
                 db_conn_str,
                 service_type,
                 token=token,
+                schema=_current_tenant_schema(),
             )
 
         try:
@@ -501,7 +607,10 @@ async def reupload_service(
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             job_result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             job = job_result.scalar_one()
 
@@ -528,8 +637,13 @@ async def reupload_service(
             has_geom = await ensure_geom_column(session, staging_tn, schema=_schema)
             if has_geom:
                 await clip_to_mercator_bounds(session, staging_tn, schema=_schema)
-                await add_4326_column(session, staging_tn, 4326)
-            await grant_reader_access(session, staging_tn)
+                await add_4326_column(session, staging_tn, 4326, schema=_schema)
+            await grant_reader_access(
+                session,
+                staging_tn,
+                schema=_schema,
+                role=_current_tenant_role(),
+            )
 
             metadata = await extract_metadata(session, staging_tn, schema=_schema)
             sample_values = await get_sample_values(
@@ -543,6 +657,12 @@ async def reupload_service(
                 f"{source_url_value}/{layer_id}"
                 if layer_id is not None
                 else source_url_value
+            )
+            await require_ingest_job_update(
+                session,
+                job_uuid,
+                attempt_uuid,
+                values={"heartbeat_at": datetime.now(timezone.utc)},
             )
             await _apply_reupload_swap(
                 session,
@@ -559,8 +679,15 @@ async def reupload_service(
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
 
-            job.status = "complete"
-            job.completed_at = datetime.now(timezone.utc)
+            await require_ingest_job_update(
+                session,
+                job_uuid,
+                attempt_uuid,
+                values={
+                    "status": "complete",
+                    "completed_at": datetime.now(timezone.utc),
+                },
+            )
             await session.commit()
 
         await invalidate_catalog_cache()
@@ -588,7 +715,10 @@ async def reupload_service(
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
             err_job_result = await err_session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
+                select(IngestJob).where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
             )
             err_job = err_job_result.scalar_one_or_none()
             if err_job is not None:
@@ -598,5 +728,9 @@ async def reupload_service(
                     job=err_job,
                     exc=exc,
                     task_name="reupload_service",
+                    attempt_id=attempt_uuid,
                 )
         raise
+    finally:
+        await stop_ingest_job_heartbeat(heartbeat_task)
+        await _drop_attempt_staging_table(staging_tn)

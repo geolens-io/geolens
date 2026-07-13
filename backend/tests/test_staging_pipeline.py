@@ -115,6 +115,7 @@ class TestIngestVectorIntoStaging:
             source_srid=4326,
             geometry_type="Point",
             layer_name="layer1",
+            schema="data",
         )
         assert result.has_geometry is True
 
@@ -388,7 +389,7 @@ class TestIngestVectorIntoStaging:
 
         mock_ensure.assert_awaited_once_with(session, "my_table", schema="data")
         mock_clip.assert_awaited_once_with(session, "my_table", schema="data")
-        mock_4326.assert_awaited_once_with(session, "my_table", 2263)
+        mock_4326.assert_awaited_once_with(session, "my_table", 2263, schema="data")
 
     @pytest.mark.asyncio
     async def test_geometry_postprocessing_skipped_when_has_geometry_false(self):

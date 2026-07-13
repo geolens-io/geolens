@@ -272,6 +272,7 @@ async def vrt_db_state(
 
     return {
         "job_id": str(job.id),
+        "attempt_id": str(job.attempt_id),
         "vrt_dataset_id": str(vrt_dataset.id),
         "vrt_asset_id": vrt_asset.id,
         "source_dataset_ids": [d.id for d in source_datasets],
@@ -307,6 +308,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     # Call the underlying coroutine via Task.func, bypassing the queue.
     await regenerate_vrt.func(
         job_id=vrt_db_state["job_id"],
+        attempt_id=vrt_db_state["attempt_id"],
         vrt_dataset_id=vrt_db_state["vrt_dataset_id"],
     )
 
@@ -340,12 +342,19 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     # --- ASSERTIONS (the 15 anchor mutations) ------------------------------
 
     storage = local_storage  # the LocalStorageProvider from the fixture
-    vrt_key = vrt_db_state["expected_vrt_key"]
+    old_vrt_key = vrt_db_state["expected_vrt_key"]
+    vrt_key = vrt_asset.asset_uri
 
-    # [1] Storage write: the VRT key exists after the task.
+    # [1] Storage write: regeneration publishes an immutable generation key
+    # and reaps the prior live object only after the catalog switch commits.
+    assert vrt_key == (
+        f"rasters/{vrt_db_state['vrt_dataset_id']}/generations/"
+        f"{generation.id}/source.vrt"
+    )
     assert await storage.exists(vrt_key), (
         f"Expected VRT file to exist at {vrt_key} after regenerate_vrt"
     )
+    assert not await storage.exists(old_vrt_key)
 
     # [2] Storage read-back: bytes are non-empty AND rasterio can re-open the
     # VRT from disk and read its metadata.

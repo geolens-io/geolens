@@ -288,6 +288,11 @@ export function JobList() {
                                   </pre>
                                 </div>
                               )}
+                              {job.status === 'failed' && job.retry_reason && (
+                                <p className="mb-2 text-xs text-muted-foreground">
+                                  {job.retry_reason}
+                                </p>
+                              )}
                               {job.user_metadata && (
                                 <div className="mb-2">
                                   <p className="mb-1 text-xs font-medium text-muted-foreground">
@@ -298,7 +303,7 @@ export function JobList() {
                                   </pre>
                                 </div>
                               )}
-                              {job.status === 'failed' && (
+                              {job.status === 'failed' && job.can_retry && (
                                 <Button
                                   variant="outline"
                                   size="sm"

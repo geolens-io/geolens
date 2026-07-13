@@ -167,6 +167,39 @@ class TestDeleteGuard:
 
 
 # ---------------------------------------------------------------------------
+# Tenant context guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_dataset_fails_closed_without_multi_tenant_context(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.catalog.datasets.domain.service import delete_dataset
+
+    dataset_id = uuid.uuid4()
+    mock_dataset = _make_mock_dataset("vector_dataset", "Tenant vector")
+    no_dependants = MagicMock()
+    no_dependants.all.return_value = []
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=no_dependants)
+
+    token = current_tenant_var.set(None)
+    try:
+        monkeypatch.setattr(
+            "app.modules.catalog.datasets.domain.service_lifecycle.is_multi_tenant",
+            lambda: True,
+        )
+        with patch(
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
+        ):
+            with pytest.raises(RuntimeError, match="missing tenant context"):
+                await delete_dataset(mock_session, dataset_id, "Tenant vector")
+    finally:
+        current_tenant_var.reset(token)
+
+
+# ---------------------------------------------------------------------------
 # TestVrtDeletion
 # ---------------------------------------------------------------------------
 
@@ -218,6 +251,42 @@ class TestVrtDeletion:
 
         # Should delete rasters key
         mock_storage.delete.assert_called_once_with(rasters_key)
+
+    @pytest.mark.asyncio
+    async def test_delete_vrt_uses_tenant_physical_storage_prefix(self):
+        """Logical catalog keys resolve to the active tenant namespace on delete."""
+        from app.core.db.tenant_session import current_tenant_var
+        from app.modules.catalog.datasets.domain.service import delete_dataset
+
+        dataset_id = uuid.uuid4()
+        tenant_id = "00000000-0000-0000-0000-000000000001"
+        mock_dataset = _make_mock_dataset("vrt_dataset", "My VRT")
+        mock_dataset.id = dataset_id
+        physical_prefix = f"tenants/{tenant_id}/rasters/{dataset_id}/"
+        physical_key = f"{physical_prefix}source.vrt"
+
+        mock_storage = AsyncMock()
+        mock_storage.list = AsyncMock(return_value=[physical_key])
+        mock_storage.delete = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.delete = AsyncMock()
+
+        token = current_tenant_var.set(tenant_id)
+        try:
+            with patch(
+                "app.modules.catalog.datasets.domain.service.get_dataset",
+                AsyncMock(return_value=mock_dataset),
+            ):
+                with patch(
+                    "app.platform.storage.provider.get_storage",
+                    return_value=mock_storage,
+                ):
+                    await delete_dataset(mock_session, dataset_id, "My VRT")
+        finally:
+            current_tenant_var.reset(token)
+
+        mock_storage.list.assert_awaited_once_with(physical_prefix)
+        mock_storage.delete.assert_awaited_once_with(physical_key)
 
     @pytest.mark.asyncio
     async def test_delete_cog_cleans_both_prefixes(self):

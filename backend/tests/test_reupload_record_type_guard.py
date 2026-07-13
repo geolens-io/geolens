@@ -42,7 +42,7 @@ class TestServiceTypeGuard:
             )
         assert exc.value.status_code == 400
         assert "raster" in exc.value.detail.lower()
-        assert "vector" in exc.value.detail.lower()
+        assert "not supported" in exc.value.detail.lower()
 
     def test_raster_dataset_rejected_for_arcgis(self):
         with pytest.raises(HTTPException) as exc:
@@ -85,8 +85,17 @@ class TestFilePathStillWorks:
             _assert_compatible_record_type(_ds("vector_dataset"), "landcover.tif")
         assert exc.value.status_code == 400
 
-    def test_raster_accepts_tif(self):
-        _assert_compatible_record_type(_ds("raster_dataset"), "landcover.tif")
+    def test_vector_rejects_standalone_vrt(self):
+        with pytest.raises(HTTPException) as exc:
+            _assert_compatible_record_type(_ds("vector_dataset"), "external.vrt")
+        assert exc.value.status_code == 400
+        assert "standalone vrt" in exc.value.detail.lower()
+
+    def test_raster_reupload_is_rejected_even_for_tif(self):
+        with pytest.raises(HTTPException) as exc:
+            _assert_compatible_record_type(_ds("raster_dataset"), "landcover.tif")
+        assert exc.value.status_code == 400
+        assert "not supported" in exc.value.detail.lower()
 
     def test_raster_rejects_geojson(self):
         with pytest.raises(HTTPException) as exc:
@@ -97,3 +106,10 @@ class TestFilePathStillWorks:
         with pytest.raises(HTTPException) as exc:
             _assert_compatible_record_type(_ds("vrt_dataset"), "anything.tif")
         assert exc.value.status_code == 400
+
+
+def test_raster_worker_rejects_standalone_vrt_jobs():
+    from app.processing.ingest.tasks_raster import _reject_raw_vrt_job
+
+    with pytest.raises(ValueError, match="Standalone VRT"):
+        _reject_raw_vrt_job("unsafe.vrt")

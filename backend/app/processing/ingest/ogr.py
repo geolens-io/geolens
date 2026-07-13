@@ -488,6 +488,8 @@ async def run_ogr2ogr(
     source_srid: int | None = None,
     geometry_type: str | None = None,
     layer_name: str | None = None,
+    *,
+    schema: str,
 ) -> None:
     """Run ogr2ogr to load a file into PostGIS.
 
@@ -497,10 +499,16 @@ async def run_ogr2ogr(
         db_conn_str: PG connection string for ogr2ogr.
         source_srid: Optional SRID from ogrinfo. Used for CSV defaults.
         geometry_type: Geometry type from ogrinfo. None for non-spatial files.
+        schema: Target PostgreSQL schema. Required so callers cannot silently
+            fall back to the shared ``data`` schema in multi-tenant mode.
 
     Raises:
         IngestionError: If ogr2ogr exits with non-zero code.
     """
+    from app.processing.ingest.metadata import _validate_table_name
+
+    _validate_table_name(table_name)
+    _validate_table_name(schema)
     source = _resolve_source_path(file_path)
     is_csv = file_path.lower().endswith(".csv")
     is_non_spatial = geometry_type is None
@@ -513,7 +521,7 @@ async def run_ogr2ogr(
         source,
         "-overwrite",
         "-nln",
-        f"data.{table_name}",
+        f"{schema}.{table_name}",
         "-lco",
         "FID=gid",
         # -lco PRECISION=NO:
@@ -601,6 +609,8 @@ async def run_ogr2ogr_service(
     token: str | None = None,
     is_non_spatial: bool = False,
     append: bool = False,
+    *,
+    schema: str,
 ) -> None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
@@ -616,7 +626,13 @@ async def run_ogr2ogr_service(
             no geometry (ArcGIS Table layers, non-spatial WFS, etc.)
         append: When True, append to an existing target layer instead of
             overwriting it. Used by chunked ArcGIS imports after the first page.
+        schema: Target PostgreSQL schema. Required so service imports cannot
+            silently write into the shared ``data`` schema.
     """
+    from app.processing.ingest.metadata import _validate_table_name
+
+    _validate_table_name(table_name)
+    _validate_table_name(schema)
     cmd = [
         "ogr2ogr",
         "-f",
@@ -625,7 +641,7 @@ async def run_ogr2ogr_service(
         gdal_source,
         "-append" if append else "-overwrite",
         "-nln",
-        f"data.{table_name}",
+        f"{schema}.{table_name}",
         "-lco",
         "FID=gid",
         # -lco PRECISION=NO: same tradeoff as run_ogr2ogr — forces all

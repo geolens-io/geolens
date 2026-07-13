@@ -172,6 +172,7 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
     with pytest.raises(IngestionError):
         await tasks_vector.ingest_file.func(
             job_id=str(job_id),
+            attempt_id=str(job.attempt_id),
             file_path=fixture,
             user_id=str(admin_id),
         )
@@ -194,6 +195,73 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
         f"so the UI sees the step transition even when the subprocess fails."
     )
     assert failed.progress == 0.1
+
+
+@pytest.mark.anyio
+async def test_vector_worker_geometry_override_uses_helper_contract(
+    test_db_session, monkeypatch
+):
+    """X/Y imports must call the geometry helper with supported arguments."""
+    from unittest.mock import patch
+
+    from app.processing.ingest import tasks_vector
+
+    class GeometryOverrideReached(Exception):
+        pass
+
+    admin_id = await _get_admin_id(test_db_session)
+    fixture = str(Path(__file__).parent / "fixtures" / "ingest" / "mixed_types.csv")
+    job = IngestJob(
+        source_filename="mixed_types.csv",
+        file_path=fixture,
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": "Geometry Override Contract",
+            "visibility": "private",
+            "x_column": "longitude",
+            "y_column": "latitude",
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+
+    async def _fake_run_ogrinfo(*_args, **_kwargs):
+        return {"srid": None, "geometry_type": None, "columns": []}
+
+    async def _fake_run_ogr2ogr(*_args, **_kwargs):
+        return None
+
+    async def _no_reserved_renames(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogrinfo", _fake_run_ogrinfo)
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogr2ogr", _fake_run_ogr2ogr)
+    monkeypatch.setattr("app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:")
+    monkeypatch.setattr(
+        "app.processing.ingest.metadata.rename_reserved_columns",
+        _no_reserved_renames,
+    )
+
+    with patch.object(
+        tasks_vector,
+        "_detect_and_override_geometry",
+        autospec=True,
+        side_effect=GeometryOverrideReached,
+    ) as geometry_override:
+        with pytest.raises(GeometryOverrideReached):
+            await tasks_vector.ingest_file.func(
+                job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
+                file_path=fixture,
+                user_id=str(admin_id),
+            )
+
+    call_kwargs = geometry_override.await_args.kwargs
+    assert set(call_kwargs) == {"table_name", "user_metadata", "effective_srid"}
+    assert call_kwargs["user_metadata"] == job.user_metadata
+    assert call_kwargs["effective_srid"] == 4326
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +353,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     worker_task = asyncio.create_task(
         tasks_vector.ingest_service.func(
             job_id=str(job_id),
+            attempt_id=str(job.attempt_id),
             source_url="https://example.test/arcgis/rest/services/Address/FeatureServer",
             source_layer="0",
             user_id=str(admin_id),
@@ -355,6 +424,10 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
     await test_db_session.flush()
     await test_db_session.commit()
     job_id = job.id
+    assert job.attempt_id is not None
+    staging_table = tasks_vector.attempt_scoped_staging_table(
+        table_name, job.attempt_id
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -454,6 +527,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
+        attempt_id=str(job.attempt_id),
         source_url="https://example.test/arcgis/rest/services/Big/FeatureServer",
         source_layer="0",
         user_id=str(admin_id),
@@ -465,7 +539,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": False,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -474,7 +548,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -483,7 +557,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -492,7 +566,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -501,7 +575,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "limit": 1000,
             "order_by": "FID ASC",
             "append": True,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         },
@@ -543,6 +617,10 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
     await test_db_session.flush()
     await test_db_session.commit()
     job_id = job.id
+    assert job.attempt_id is not None
+    staging_table = tasks_vector.attempt_scoped_staging_table(
+        table_name, job.attempt_id
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -570,6 +648,13 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         **kwargs,
     ) -> None:
         query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{target_table}"')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{target_table}" (gid serial PRIMARY KEY)')
+        )
+        await test_db_session.commit()
         calls.append(
             {
                 "has_limit": "resultRecordCount" in query,
@@ -624,6 +709,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
+        attempt_id=str(job.attempt_id),
         source_url="https://example.test/arcgis/rest/services/Legacy/FeatureServer",
         source_layer="0",
         user_id=str(admin_id),
@@ -634,7 +720,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
             "has_limit": False,
             "has_offset": False,
             "append": False,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         }
@@ -670,6 +756,10 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
     await test_db_session.flush()
     await test_db_session.commit()
     job_id = job.id
+    assert job.attempt_id is not None
+    staging_table = tasks_vector.attempt_scoped_staging_table(
+        table_name, job.attempt_id
+    )
 
     calls: list[dict[str, object]] = []
 
@@ -697,6 +787,13 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
         **kwargs,
     ) -> None:
         query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{target_table}"')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{target_table}" (gid serial PRIMARY KEY)')
+        )
+        await test_db_session.commit()
         calls.append(
             {
                 "has_limit": "resultRecordCount" in query,
@@ -752,6 +849,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
 
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
+        attempt_id=str(job.attempt_id),
         source_url="https://example.test/arcgis/rest/services/Unordered/FeatureServer",
         source_layer="0",
         user_id=str(admin_id),
@@ -763,7 +861,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
             "has_offset": False,
             "has_order": False,
             "append": False,
-            "target_table": table_name,
+            "target_table": staging_table,
             "layer_name": "",
             "service_type": "arcgis_featureserver",
         }

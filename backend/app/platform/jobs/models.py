@@ -57,6 +57,15 @@ class IngestJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Identifies the single queue delivery that currently owns this job. A
+    # retry rotates the token, fencing a worker whose lease expired but later
+    # resumed from renewing or finalizing the newer attempt.
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        nullable=True, default=uuid.uuid4, server_default=func.gen_random_uuid()
+    )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -72,9 +81,6 @@ class IngestJob(Base):
     progress: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rows_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # IA-P0-04 (Phase 1067 option b): last_heartbeat_at column dropped.
-    # Stale recovery uses started_at < JOB_TIMEOUT_SECONDS instead — see
-    # platform/jobs/worker.py:recover_stale_jobs.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
     )

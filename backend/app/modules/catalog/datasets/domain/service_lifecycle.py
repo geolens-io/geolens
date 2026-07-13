@@ -14,6 +14,10 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
+from app.core.db.tenant_session import current_tenant_var
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.tenancy import is_multi_tenant
+from app.platform.storage.titiler_url import resolve_storage_key
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -102,8 +106,14 @@ async def delete_dataset(
         # If any storage delete fails the exception propagates and the
         # caller's transaction rolls back, leaving the DB record intact.
         storage = get_storage()
+        tenant_id = current_tenant_var.get()
+        if is_multi_tenant() and tenant_id is None:
+            raise RuntimeError(
+                "Dataset deletion is missing tenant context in multi-tenant mode"
+            )
         for prefix in prefixes:
-            keys = await storage.list(prefix)
+            physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
+            keys = await storage.list(physical_prefix)
             if keys:
                 await asyncio.gather(*(storage.delete(key) for key in keys))
     else:
@@ -113,12 +123,22 @@ async def delete_dataset(
         # table, orphaning both objects forever (no reaper).
         from app.platform.storage.provider import get_storage
 
+        tenant_id = current_tenant_var.get()
+        if is_multi_tenant() and tenant_id is None:
+            raise RuntimeError(
+                "Dataset deletion is missing tenant context in multi-tenant mode"
+            )
+        data_schema = tenant_data_schema(tenant_id)
         await session.execute(
-            text(f"DROP TABLE IF EXISTS {_safe_table_ref(table_name)}")
+            text(
+                f"DROP TABLE IF EXISTS "
+                f"{_safe_table_ref(table_name, schema=data_schema)}"
+            )
         )
         storage = get_storage()
         for prefix in (f"originals/{dataset_id}/", f"vectors/{dataset_id}/"):
-            keys = await storage.list(prefix)
+            physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
+            keys = await storage.list(physical_prefix)
             if keys:
                 await asyncio.gather(*(storage.delete(key) for key in keys))
 

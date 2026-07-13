@@ -19,6 +19,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.async_io import (
+    await_draining,
+    run_in_thread_draining,
+    run_in_thread_draining_capture_cancel,
+)
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_dataset_write_access
 from app.core.config import settings
@@ -65,9 +70,59 @@ UploadResponse = _catalog_port.upload_response_model()
 # Extension sets used for cross-record-type validation.
 # Do NOT depend on the runtime allowed_extensions config (which merges all types).
 _RASTER_EXTENSIONS: frozenset[str] = frozenset({".tif", ".tiff"})
-_VECTOR_EXTENSIONS: frozenset[str] = frozenset(
-    {".zip", ".gpkg", ".geojson", ".json", ".csv", ".xlsx", ".xls"}
-)
+
+
+async def _get_bound_reupload_job_or_404(
+    db: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> IngestJob:
+    """Return a reupload job only when all immutable bindings match.
+
+    Ordinary ingest jobs deliberately start without a dataset binding. They
+    must never be accepted as reupload jobs, even when the caller can edit the
+    target dataset. Returning 404 for every mismatch avoids disclosing whether
+    a supplied job UUID belongs to another user or workflow.
+    """
+    result = await db.execute(
+        select(IngestJob).where(
+            IngestJob.id == job_id,
+            IngestJob.dataset_id == dataset_id,
+            IngestJob.created_by == user_id,
+        )
+    )
+    job = result.scalar_one_or_none()
+    metadata = job.user_metadata if job is not None else None
+    if (
+        job is None
+        or not metadata
+        or metadata.get("reupload") is not True
+        or metadata.get("dataset_id") != str(dataset_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reupload job not found",
+        )
+    return job
+
+
+async def _cleanup_uncommitted_reupload_source(
+    saved_path: Path | str, *, job_id: uuid.UUID
+) -> None:
+    """Best-effort cleanup while the request still exclusively owns a source."""
+    if isinstance(saved_path, Path):
+        saved_path.unlink(missing_ok=True)
+        return
+    try:
+        await get_storage().delete(saved_path)
+    except BaseException:
+        logger.warning(
+            "reupload_source_cleanup_failed",
+            job_id=str(job_id),
+            storage_key=saved_path,
+        )
 
 
 def _assert_compatible_record_type(
@@ -83,20 +138,24 @@ def _assert_compatible_record_type(
     pipeline work, so the user sees the precise cross-record-type message rather
     than a deep-pipeline 500.
 
-    File paths (`reupload_dataset`, `request_presigned_reupload`) pass a filename
-    and the helper checks the file extension. Service paths
-    (`reupload_service_preview`) pass `service_type` instead — all supported
-    service types (WFS, ArcGIS FeatureServer, OGC API – Features) are vector, so
-    any non-vector record type is rejected.
-
-    IA-P1-02 (Phase 1065 plan 03): service-URL guard added — VRT rejection +
-    raster-vs-vector-service mismatch surfaced early.
+    Raster and VRT reupload are rejected at this shared boundary because the
+    worker implements only vector/table replacement. File paths additionally
+    reject raster inputs for vector and table datasets.
 
     Audit action `reupload.commit` is shipped — see test_provenance_attribution.py.
     Do not rename to `dataset.reupload`.
     """
     record_type: str = dataset.record.record_type
     ext: str = Path(filename or "").suffix.lower()
+
+    if ext == ".vrt":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Standalone VRT files cannot be reuploaded. "
+                "Manage VRT membership through the VRT sources API instead."
+            ),
+        )
 
     if record_type == "vrt_dataset":
         raise HTTPException(
@@ -107,6 +166,15 @@ def _assert_compatible_record_type(
             ),
         )
 
+    if record_type == "raster_dataset":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Raster dataset reupload is not supported. "
+                "Import a replacement raster dataset instead."
+            ),
+        )
+
     if record_type in ("vector_dataset", "table") and ext in _RASTER_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -114,27 +182,6 @@ def _assert_compatible_record_type(
                 f"This dataset is a {record_type.replace('_', ' ')}; "
                 f"{ext} files are not supported for reupload. "
                 "Cross-record-type swaps are not allowed."
-            ),
-        )
-
-    if record_type == "raster_dataset" and ext in _VECTOR_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "This dataset is a raster dataset; "
-                "only .tif/.tiff files are supported for reupload."
-            ),
-        )
-
-    if service_type is not None and record_type == "raster_dataset":
-        # All supported service types (WFS*, ArcGIS*, OGC API*) are vector sources.
-        # Pinned by tasks_common._classify_service_type which only accepts these prefixes.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "This dataset is a raster dataset; "
-                "vector services (WFS, ArcGIS FeatureServer, OGC API – Features) "
-                "are not supported for reupload."
             ),
         )
 
@@ -179,41 +226,45 @@ async def reupload_dataset(
     job.dataset_id = dataset_id
     job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
 
-    saved_path = await get_catalog_port().save_upload_file(file, str(job.id))
+    max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
+    max_size_bytes = max_size_mb * 1024 * 1024
+    saved_path = await get_catalog_port().save_upload_file(
+        file,
+        str(job.id),
+        max_size_bytes=max_size_bytes,
+    )
     validation_path = str(saved_path)
     downloaded_validation_path: Path | None = None
-
-    if not isinstance(saved_path, Path):
-        validation_path = await get_catalog_port().resolve_file_path(
-            saved_path, str(job.id)
-        )
-        downloaded_validation_path = Path(validation_path)
-
-    # Inline content validation for immediate feedback
     try:
-        get_catalog_port().validate_file_content(validation_path, file.filename)
-    except ValueError as exc:
-        if isinstance(saved_path, Path):
-            saved_path.unlink(missing_ok=True)
-        else:
-            storage = get_storage()
-            await storage.delete(saved_path)
-        if downloaded_validation_path is not None:
-            downloaded_validation_path.unlink(missing_ok=True)
-        # Mark the job as failed so it doesn't linger as a dangling pending row
-        job.status = "failed"
-        job.error_message = str(exc)
+        if not isinstance(saved_path, Path):
+            validation_path = await get_catalog_port().resolve_file_path(
+                saved_path, str(job.id)
+            )
+            downloaded_validation_path = Path(validation_path)
+
+        # Inline content validation for immediate feedback.
+        try:
+            get_catalog_port().validate_file_content(validation_path, file.filename)
+        except ValueError as exc:
+            # Preserve the existing failed-job audit trail for a user content
+            # error; provider/transport failures below roll the uncommitted job
+            # back with the request transaction.
+            job.status = "failed"
+            job.error_message = str(exc)
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+        job.file_path = str(saved_path)
         await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        )
+    except BaseException:
+        await _cleanup_uncommitted_reupload_source(saved_path, job_id=job.id)
+        raise
     finally:
         if downloaded_validation_path is not None:
             downloaded_validation_path.unlink(missing_ok=True)
-
-    job.file_path = str(saved_path)
-    await db.commit()
 
     return ReuploadResponse(
         job_id=job.id,
@@ -352,24 +403,14 @@ async def reupload_preview(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    _assert_compatible_record_type(dataset, None)
 
-    result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
-    job = result.scalar_one_or_none()
-    if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
-
-    # Validate job belongs to this dataset
-    job_dataset_id = job.dataset_id or (
-        job.user_metadata.get("dataset_id") if job.user_metadata else None
+    job = await _get_bound_reupload_job_or_404(
+        db,
+        job_id=job_id,
+        dataset_id=dataset_id,
+        user_id=user.id,
     )
-    if job_dataset_id is not None and str(job_dataset_id) != str(dataset_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Job does not belong to this dataset",
-        )
 
     if job.status != "pending":
         raise HTTPException(
@@ -379,8 +420,10 @@ async def reupload_preview(
 
     # Resolve S3 key to local file for ogrinfo
     file_path = job.file_path
+    downloaded_preview_path: Path | None = None
     if file_path and not Path(file_path).exists():
         file_path = await get_catalog_port().resolve_file_path(file_path, str(job.id))
+        downloaded_preview_path = Path(file_path)
 
     # GPKG-01 Phase 1058: thread layer_name from request body to ogrinfo helper
     layer_name = request.layer_name if request else None
@@ -388,9 +431,13 @@ async def reupload_preview(
     # Validate layer_name against the file's actual layers (T-1058A-03).
     # We run ogrinfo without layer_name first to get the full layer list,
     # then validate — or use the targeted call if no validation needed.
-    info = await get_catalog_port().run_ogrinfo_preview(
-        file_path, layer_name=layer_name
-    )
+    try:
+        info = await get_catalog_port().run_ogrinfo_preview(
+            file_path, layer_name=layer_name
+        )
+    finally:
+        if downloaded_preview_path is not None:
+            downloaded_preview_path.unlink(missing_ok=True)
 
     # GPKG-01 Phase 1058: validate user-supplied layer_name appears in the file.
     # WR-02 fix: also check against info["layer_name"] for single-layer files where
@@ -475,24 +522,14 @@ async def reupload_commit(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    _assert_compatible_record_type(dataset, None)
 
-    result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
-    job = result.scalar_one_or_none()
-    if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found",
-        )
-
-    # Validate job belongs to this dataset
-    job_dataset_id = job.dataset_id or (
-        job.user_metadata.get("dataset_id") if job.user_metadata else None
+    job = await _get_bound_reupload_job_or_404(
+        db,
+        job_id=job_id,
+        dataset_id=dataset_id,
+        user_id=user.id,
     )
-    if job_dataset_id is not None and str(job_dataset_id) != str(dataset_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Job does not belong to this dataset",
-        )
 
     if job.status != "pending":
         raise HTTPException(
@@ -503,10 +540,16 @@ async def reupload_commit(
     # Merge commit request params into user_metadata, preserving existing keys.
     # Keep token + layer_name request-only from user_metadata (layer_name goes
     # into the dedicated source_layer column — see D-03 below).
-    existing_meta = job.user_metadata or {}
+    existing_meta = dict(job.user_metadata or {})
     existing_meta.update(
         request.model_dump(exclude_none=True, exclude={"token", "layer_name"})
     )
+    existing_meta["reupload"] = True
+    existing_meta["dataset_id"] = str(dataset_id)
+    if job.source_url and request.token:
+        # Keep credentials request-only while recording that an automatic
+        # retry cannot safely reproduce this authenticated request.
+        existing_meta["service_auth_required"] = True
     job.user_metadata = existing_meta
 
     # GPKG-01 Phase 1058 (D-03): persist the user-chosen layer to the dedicated
@@ -533,6 +576,7 @@ async def reupload_commit(
             await defer_async_with_tenant(
                 get_catalog_port().reupload_service_task(),
                 job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
                 dataset_id=str(dataset_id),
                 source_url=source_url,
                 source_layer=job.source_layer or "",
@@ -570,6 +614,7 @@ async def reupload_commit(
                 await defer_async_with_tenant(
                     get_catalog_port().reupload_file_task().configure(queue="priority"),
                     job_id=str(job.id),
+                    attempt_id=str(job.attempt_id),
                     dataset_id=str(dataset_id),
                     file_path=file_path,
                     user_id=str(user.id),
@@ -582,6 +627,7 @@ async def reupload_commit(
                 await defer_async_with_tenant(
                     get_catalog_port().reupload_file_task(),
                     job_id=str(job.id),
+                    attempt_id=str(job.attempt_id),
                     dataset_id=str(dataset_id),
                     file_path=file_path,
                     user_id=str(user.id),
@@ -667,25 +713,40 @@ async def request_presigned_reupload(
     part_size = get_catalog_port().ingest_part_size()
 
     if request.file_size > threshold:
-        upload_id = await asyncio.to_thread(
-            storage.initiate_multipart_upload,
-            s3_key,
-            request.content_type,
-        )
-        num_parts = math.ceil(request.file_size / part_size)
-        urls = list(
-            await asyncio.gather(
-                *[
-                    asyncio.to_thread(
-                        storage.generate_presigned_part_url,
-                        s3_key,
-                        upload_id,
-                        part_num,
-                    )
-                    for part_num in range(1, num_parts + 1)
-                ]
+        upload_id: str | None = None
+        try:
+            upload_id, initiation_cancel = await run_in_thread_draining_capture_cancel(
+                storage.initiate_multipart_upload,
+                s3_key,
+                request.content_type,
             )
-        )
+            if initiation_cancel is not None:
+                raise initiation_cancel
+            num_parts = math.ceil(request.file_size / part_size)
+            urls = [
+                await run_in_thread_draining(
+                    storage.generate_presigned_part_url,
+                    s3_key,
+                    upload_id,
+                    part_num,
+                )
+                for part_num in range(1, num_parts + 1)
+            ]
+        except BaseException as exc:
+            if upload_id is not None:
+                await get_catalog_port().abort_presigned_multipart_upload(
+                    storage,
+                    key=s3_key,
+                    upload_id=upload_id,
+                    job_id=job.id,
+                )
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            logger.exception("presigned_reupload_multipart_failed", s3_key=s3_key)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Storage service unavailable",
+            ) from exc
         job.user_metadata = {
             "presigned": True,
             "s3_key": s3_key,
@@ -695,7 +756,16 @@ async def request_presigned_reupload(
             "dataset_id": str(dataset_id),
             "expected_size": request.file_size,
         }
-        await db.commit()
+        try:
+            await db.commit()
+        except BaseException:
+            await get_catalog_port().abort_presigned_multipart_upload(
+                storage,
+                key=s3_key,
+                upload_id=upload_id,
+                job_id=job.id,
+            )
+            raise
         return PresignedUploadResponse(
             job_id=job.id,
             urls=urls,
@@ -704,7 +774,7 @@ async def request_presigned_reupload(
             part_size=part_size,
         )
     else:
-        url = await asyncio.to_thread(
+        url = await run_in_thread_draining(
             storage.generate_presigned_put_url,
             s3_key,
             request.content_type,
@@ -745,8 +815,14 @@ async def complete_presigned_reupload(
             detail="Dataset not found",
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    _assert_compatible_record_type(dataset, None)
 
-    job = await get_catalog_port().get_ingest_job_or_404(db, job_id, user)
+    job = await _get_bound_reupload_job_or_404(
+        db,
+        job_id=job_id,
+        dataset_id=dataset_id,
+        user_id=user.id,
+    )
     um = job.user_metadata or {}
 
     if not um.get("presigned"):
@@ -771,12 +847,15 @@ async def complete_presigned_reupload(
                 detail="Multipart upload completion requires at least one uploaded part",
             )
         try:
-            await asyncio.to_thread(
+            _, completion_cancel = await run_in_thread_draining_capture_cancel(
                 storage.complete_multipart_upload,
                 s3_key,
                 um["upload_id"],
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
+            if completion_cancel is not None:
+                await await_draining(storage.delete(s3_key))
+                raise completion_cancel
         except Exception as exc:  # broad: storage providers raise varied SDK errors
             await get_catalog_port().abort_presigned_multipart_upload(
                 storage,

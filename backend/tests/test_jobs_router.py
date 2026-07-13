@@ -27,7 +27,9 @@ async def _create_job(
     source_url: str | None = None,
     error_message: str | None = None,
     started_at: datetime | None = None,
+    heartbeat_at: datetime | None = None,
     completed_at: datetime | None = None,
+    user_metadata: dict | None = None,
 ) -> IngestJob:
     """Insert an IngestJob directly for testing."""
     job = IngestJob(
@@ -38,7 +40,9 @@ async def _create_job(
         source_url=source_url,
         error_message=error_message,
         started_at=started_at,
+        heartbeat_at=heartbeat_at,
         completed_at=completed_at,
+        user_metadata=user_metadata,
     )
     session.add(job)
     await session.commit()
@@ -136,7 +140,41 @@ class TestGetJobStatus:
         resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
-        assert "Timed out" in resp.json()["error_message"]
+        assert "heartbeat expired" in resp.json()["error_message"]
+
+    async def test_get_job_keeps_old_job_running_with_fresh_heartbeat(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A long-running job remains active while its worker renews its lease."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            heartbeat_at=datetime.now(timezone.utc) - timedelta(seconds=5),
+        )
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+
+    async def test_worker_can_renew_running_job_lease(self, test_db_session):
+        from app.platform.jobs.heartbeat import renew_ingest_job_heartbeat
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        )
+
+        assert await renew_ingest_job_heartbeat(job.id, job.attempt_id) is True
+        await test_db_session.refresh(job)
+        assert job.heartbeat_at is not None
+        assert job.heartbeat_at > datetime.now(timezone.utc) - timedelta(minutes=1)
 
     async def test_get_job_auto_fails_stale_pending(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -411,6 +449,8 @@ def test_job_status_response_rejects_out_of_range_progress():
         "dataset_id": None,
         "source_filename": "x.geojson",
         "error_message": None,
+        "can_retry": False,
+        "retry_reason": None,
         "started_at": None,
         "completed_at": None,
         "created_at": datetime.now(timezone.utc),
@@ -658,6 +698,101 @@ class TestRetryJob:
         resp = await client.post(f"/jobs/{job.id}/retry", headers=admin_auth_header)
         assert resp.status_code == 400
         assert "Staging file" in resp.json()["detail"]
+
+    async def test_retry_failed_s3_job_uses_storage_provider(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """A retained object-store key is replayable even though it is not local."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="failed",
+            file_path=f"staging/{uuid.uuid4()}/roads.geojson",
+            error_message="Transient worker failure",
+        )
+        storage = MagicMock()
+        storage.exists = AsyncMock(return_value=True)
+        queued = AsyncMock()
+        monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
+        monkeypatch.setattr("app.platform.jobs.router.queue_ingest_job", queued)
+
+        resp = await client.post(f"/jobs/{job.id}/retry", headers=admin_auth_header)
+
+        assert resp.status_code == 202, resp.text
+        storage.exists.assert_awaited_once_with(job.file_path)
+        queued.assert_awaited_once()
+
+    async def test_authenticated_service_job_requires_fresh_credentials(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """Request-only service tokens are never silently replaced by anonymous retry."""
+        from unittest.mock import AsyncMock
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="failed",
+            source_url="https://example.com/FeatureServer/0",
+            error_message="Authentication failed",
+            user_metadata={"service_auth_required": True},
+        )
+        queued = AsyncMock()
+        monkeypatch.setattr("app.platform.jobs.router.queue_ingest_job", queued)
+
+        status_resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        retry_resp = await client.post(
+            f"/jobs/{job.id}/retry", headers=admin_auth_header
+        )
+
+        assert status_resp.status_code == 200
+        assert status_resp.json()["can_retry"] is False
+        assert "fresh credentials" in status_resp.json()["retry_reason"]
+        assert retry_resp.status_code == 409
+        assert "fresh credentials" in retry_resp.json()["detail"]
+        queued.assert_not_awaited()
+
+    async def test_failed_reupload_is_not_requeued_as_ordinary_ingest(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        from unittest.mock import AsyncMock
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="failed",
+            file_path="/tmp/replacement.geojson",
+            user_metadata={"reupload": True, "dataset_id": str(uuid.uuid4())},
+        )
+        queued = AsyncMock()
+        monkeypatch.setattr("app.platform.jobs.router.queue_ingest_job", queued)
+
+        status_resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        retry_resp = await client.post(
+            f"/jobs/{job.id}/retry", headers=admin_auth_header
+        )
+
+        assert status_resp.status_code == 200
+        assert status_resp.json()["can_retry"] is False
+        assert "Start the reupload again" in status_resp.json()["retry_reason"]
+        assert retry_resp.status_code == 400
+        queued.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

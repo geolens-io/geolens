@@ -4991,6 +4991,11 @@ export interface components {
         /** AdminJobResponse */
         AdminJobResponse: {
             /**
+             * Can Retry
+             * @description Whether the failed job can be retried with its retained source.
+             */
+            can_retry: boolean;
+            /**
              * Completed At
              * @description Timestamp when the job finished (success or failure).
              */
@@ -5022,6 +5027,11 @@ export interface components {
              * @description Unique ingestion job identifier.
              */
             id: string;
+            /**
+             * Retry Reason
+             * @description Why the job cannot be retried, when retry is unavailable.
+             */
+            retry_reason: string | null;
             /**
              * Source Filename
              * @description Original filename of the uploaded file, if applicable.
@@ -7726,6 +7736,8 @@ export interface components {
              * @default false
              */
             archive_failed: boolean;
+            /** Can Retry */
+            can_retry: boolean;
             /** Completed At */
             completed_at: string | null;
             /**
@@ -7746,6 +7758,8 @@ export interface components {
             id: string;
             /** Progress */
             progress?: number | null;
+            /** Retry Reason */
+            retry_reason: string | null;
             /** Rows Processed */
             rows_processed?: number | null;
             /** Source Filename */
@@ -8032,9 +8046,10 @@ export interface components {
             title?: string | null;
             /**
              * Type
+             * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.
              * @enum {string}
              */
-            type: "vector" | "raster_cog" | "vrt";
+            type: "vector" | "raster_cog";
             /**
              * Uri
              * @description Relative path (no `..` traversal), HTTP(S) URL, or storage URI.

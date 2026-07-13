@@ -247,7 +247,12 @@ async def get_quicklook(
 
     storage = get_storage()
     try:
-        data = await storage.get(uri)
+        from app.core.db.tenant_session import current_tenant_var
+        from app.platform.storage.titiler_url import resolve_storage_key
+
+        data = await storage.get(
+            resolve_storage_key(uri, tenant_id=current_tenant_var.get())
+        )
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

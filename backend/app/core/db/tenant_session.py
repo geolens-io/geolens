@@ -190,7 +190,15 @@ def tenant_task(fn: _TaskFn) -> _TaskFn:
 
     @functools.wraps(fn)
     async def _wrapper(*args: Any, **kwargs: Any) -> Any:
-        with tenant_job_context(kwargs.pop("tenant_id", None)):
+        from app.core.tenancy import is_multi_tenant
+
+        tenant_id = kwargs.pop("tenant_id", None)
+        if is_multi_tenant() and tenant_id is None:
+            raise RuntimeError(
+                f"Worker task {fn.__name__} is missing tenant context in "
+                "multi-tenant mode"
+            )
+        with tenant_job_context(tenant_id):
             return await fn(*args, **kwargs)
 
     return _wrapper  # type: ignore[return-value]
@@ -212,6 +220,12 @@ async def defer_async_with_tenant(task: Any, /, **kwargs: Any) -> Any:
     ``defer_async``.
     """
     tid = current_tenant_var.get()
+    from app.core.tenancy import is_multi_tenant
+
+    if is_multi_tenant() and tid is None and kwargs.get("tenant_id") is None:
+        raise RuntimeError(
+            "Cannot enqueue a worker task without tenant context in multi-tenant mode"
+        )
     if tid is not None:
         kwargs.setdefault("tenant_id", tid)
     return await task.defer_async(**kwargs)

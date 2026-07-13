@@ -71,7 +71,7 @@ class TestManifestApplySchemas:
         assert request.datasets[0].sources[0].type == "raster_cog"
         assert request.datasets[0].publication.intent == "published"
 
-    def test_accepts_vrt_fixture_shaped_payload(self):
+    def test_rejects_standalone_vrt_at_schema_validation(self):
         payload = valid_manifest_payload()
         dataset = payload["datasets"][0]
         dataset["key"] = "flood-depth-mosaic"
@@ -79,10 +79,28 @@ class TestManifestApplySchemas:
         dataset["sources"][0]["uri"] = "./rasters/flood-depth-mosaic.vrt"
         dataset["publication"]["intent"] = "internal"
 
-        request = ManifestApplyRequest.model_validate(payload)
+        with pytest.raises(ValidationError) as exc:
+            ManifestApplyRequest.model_validate(payload)
 
-        assert request.datasets[0].sources[0].type == "vrt"
-        assert request.datasets[0].publication.intent == "internal"
+        assert "sources.0.type" in str(exc.value)
+        assert "vrt" in str(exc.value)
+
+    @pytest.mark.parametrize(
+        ("source_type", "uri", "expected"),
+        [
+            ("vector", "./rasters/tile.tif", "requires one of"),
+            ("raster_cog", "./data/roads.geojson", "requires one of"),
+            ("raster_cog", "./rasters/mosaic.vrt", "Standalone VRT"),
+        ],
+    )
+    def test_rejects_source_type_extension_mismatch(
+        self, source_type: str, uri: str, expected: str
+    ):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0].update({"type": source_type, "uri": uri})
+
+        with pytest.raises(ValidationError, match=expected):
+            ManifestApplyRequest.model_validate(payload)
 
     def test_rejects_bad_version(self):
         payload = valid_manifest_payload()
@@ -103,6 +121,22 @@ class TestManifestApplySchemas:
         assert "duplicate dataset key" in str(exc.value)
         assert "roads" in str(exc.value)
 
+    def test_rejects_multiple_sources_until_manifest_supports_them(self):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"].append(
+            {
+                "type": "vector",
+                "uri": "https://example.test/secondary.geojson",
+                "format": "geojson",
+            }
+        )
+
+        with pytest.raises(ValidationError) as exc:
+            ManifestApplyRequest.model_validate(payload)
+
+        assert "sources" in str(exc.value)
+        assert "at most 1 item" in str(exc.value)
+
     def test_rejects_unsupported_source_type(self):
         payload = valid_manifest_payload()
         payload["datasets"][0]["sources"][0]["type"] = "wms"
@@ -112,7 +146,23 @@ class TestManifestApplySchemas:
 
         assert "vector" in str(exc.value)
         assert "raster_cog" in str(exc.value)
-        assert "vrt" in str(exc.value)
+
+    def test_rejects_unbounded_dataset_batch(self):
+        payload = valid_manifest_payload()
+        template = payload["datasets"][0]
+        payload["datasets"] = [
+            {
+                **template,
+                "key": f"roads-{index}",
+            }
+            for index in range(101)
+        ]
+
+        with pytest.raises(ValidationError) as exc:
+            ManifestApplyRequest.model_validate(payload)
+
+        assert "datasets" in str(exc.value)
+        assert "at most 100 items" in str(exc.value)
 
     def test_rejects_unsupported_publication_intent(self):
         payload = valid_manifest_payload()
@@ -189,10 +239,11 @@ class TestManifestApplyEndpoint:
             ],
         }
         mock_apply.assert_awaited_once()
-        _, request, user = mock_apply.await_args.args
+        _, request, user, http_request = mock_apply.await_args.args
         assert isinstance(request, ManifestApplyRequest)
         assert request.datasets[0].key == "roads"
         assert user.username.startswith("editor_")
+        assert http_request.url.path == "/ingest/manifest/apply"
         mock_create_job.assert_not_awaited()
         mock_save_upload.assert_not_awaited()
         mock_preview.assert_not_awaited()

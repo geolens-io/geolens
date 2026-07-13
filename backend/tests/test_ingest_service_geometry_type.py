@@ -100,6 +100,7 @@ class TestRunOgr2ogrServiceArgv:
             db_conn_str=_DUMMY_CONN,
             service_type="wfs",
             is_non_spatial=False,
+            schema="data",
         )
         assert len(captured_argv) == 1
         argv = captured_argv[0]
@@ -120,6 +121,7 @@ class TestRunOgr2ogrServiceArgv:
             db_conn_str=_DUMMY_CONN,
             service_type="wfs",
             is_non_spatial=False,
+            schema="data",
         )
         argv = captured_argv[0]
         # Verify the flag pair is present in adjacent positions
@@ -145,6 +147,7 @@ class TestRunOgr2ogrServiceArgv:
             db_conn_str=_DUMMY_CONN,
             service_type="wfs",
             is_non_spatial=False,
+            schema="data",
         )
         argv = captured_argv[0]
         assert "GEOMETRY_NAME=_geolens_geom" in argv, (
@@ -166,6 +169,7 @@ class TestRunOgr2ogrServiceArgv:
             db_conn_str=_DUMMY_CONN,
             service_type="wfs",
             is_non_spatial=False,
+            schema="data",
         )
         argv = captured_argv[0]
         assert "-t_srs" in argv, "Expected -t_srs flag in argv"
@@ -186,6 +190,7 @@ class TestRunOgr2ogrServiceArgv:
             db_conn_str=_DUMMY_CONN,
             service_type="wfs",
             is_non_spatial=False,
+            schema="data",
         )
         argv = captured_argv[0]
         assert "OGR_WFS_PAGE_SIZE" in argv, (
@@ -204,6 +209,7 @@ class TestRunOgr2ogrServiceArgv:
             db_conn_str=_DUMMY_CONN,
             service_type="arcgis_featureserver",
             is_non_spatial=True,
+            schema="data",
         )
         argv = captured_argv[0]
         # None of the spatial-branch tokens should be present

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from shutil import copyfile
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
@@ -17,7 +20,6 @@ from app.processing.ingest.manifest_sources import (
     manifest_job_metadata,
 )
 from app.processing.ingest.tasks_raster import create_raster_dataset
-from app.processing.ingest.tasks_vrt import create_vrt_dataset
 from tests.factories import create_dataset
 
 
@@ -33,7 +35,6 @@ def _dataset_payload(
     source_format = {
         "vector": "geojson",
         "raster_cog": "cog",
-        "vrt": "vrt",
     }[source_type]
     return {
         "key": key,
@@ -129,13 +130,25 @@ async def _assert_search_discovers_dataset(
 
 
 class TestManifestApplyEndpointRoundTrip:
-    async def test_endpoint_routes_vector_raster_and_vrt_entries_to_existing_queue(
+    async def test_endpoint_routes_vector_and_raster(
         self,
         client: AsyncClient,
-        editor_auth_header: dict,
+        admin_auth_header: dict,
         test_db_session,
         clean_tables,
+        monkeypatch,
+        tmp_path,
     ):
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        vector_seed = tmp_path / "tests/fixtures/ingest/basic_attrs.geojson"
+        vector_seed.parent.mkdir(parents=True)
+        copyfile(
+            Path(__file__).parent / "fixtures/ingest/basic_attrs.geojson", vector_seed
+        )
+        raster_seed = tmp_path / "rasters/roundtrip-raster.tif"
+        raster_seed.parent.mkdir(parents=True)
+        raster_seed.write_bytes(b"routing-only-cog")
+
         payload = _manifest_payload(
             _dataset_payload(
                 key="roundtrip-vector-create",
@@ -152,12 +165,89 @@ class TestManifestApplyEndpointRoundTrip:
                 intent="published",
                 crs="EPSG:3857",
             ),
+        )
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+            patch(
+                "app.processing.ingest.manifest_service._manifest_source_size_bytes",
+                new=AsyncMock(return_value=1024),
+            ),
+        ):
+            response = await client.post(
+                "/ingest/manifest/apply",
+                json=payload,
+                headers=admin_auth_header,
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert body["dry_run"] is False
+        actions = _actions_by_key(body)
+        assert {key: value["action"] for key, value in actions.items()} == {
+            "roundtrip-vector-create": "create",
+            "roundtrip-raster-create": "create",
+        }
+        assert queue.await_count == 2
+
+        jobs = (
+            (
+                await test_db_session.execute(
+                    select(IngestJob).where(
+                        IngestJob.id.in_(
+                            [
+                                uuid.UUID(entry["job_id"])
+                                for entry in actions.values()
+                                if entry["job_id"] is not None
+                            ]
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        jobs_by_key = {job.user_metadata["manifest_key"]: job for job in jobs}
+
+        vector_job = jobs_by_key["roundtrip-vector-create"]
+        raster_job = jobs_by_key["roundtrip-raster-create"]
+
+        assert vector_job.user_metadata["manifest_source_type"] == "vector"
+        assert vector_job.user_metadata["visibility"] == "private"
+        assert vector_job.user_metadata["record_status"] == "ready"
+        assert "file_type" not in vector_job.user_metadata
+
+        assert raster_job.user_metadata["manifest_source_type"] == "raster_cog"
+        assert raster_job.user_metadata["file_type"] == "raster"
+        assert raster_job.user_metadata["visibility"] == "public"
+        assert raster_job.user_metadata["record_status"] == "published"
+        assert raster_job.user_metadata["srid_override"] == 3857
+
+    async def test_editor_cannot_read_raw_local_or_same_bucket_seed_sources(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        clean_tables,
+        monkeypatch,
+    ):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(settings, "s3_bucket", "geolens-seed-bucket")
+        payload = _manifest_payload(
             _dataset_payload(
-                key="roundtrip-vrt-create",
-                title="Roundtrip VRT Create",
-                source_type="vrt",
-                uri="rasters/roundtrip-mosaic.vrt",
-                intent="internal",
+                key="editor-local-seed",
+                title="Editor local seed",
+                uri="operator/roads.geojson",
+            ),
+            _dataset_payload(
+                key="editor-storage-seed",
+                title="Editor storage seed",
+                uri="s3://geolens-seed-bucket/operator/roads.geojson",
             ),
         )
 
@@ -173,51 +263,20 @@ class TestManifestApplyEndpointRoundTrip:
 
         assert response.status_code == 200
         body = response.json()
-        assert body["accepted"] is True
-        assert body["dry_run"] is False
-        actions = _actions_by_key(body)
-        assert {key: value["action"] for key, value in actions.items()} == {
-            "roundtrip-vector-create": "create",
-            "roundtrip-raster-create": "create",
-            "roundtrip-vrt-create": "create",
-        }
-        assert queue.await_count == 3
-
-        jobs = (
-            (
-                await test_db_session.execute(
-                    select(IngestJob).where(
-                        IngestJob.id.in_(
-                            [uuid.UUID(entry["job_id"]) for entry in actions.values()]
-                        )
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        assert body["accepted"] is False
+        assert {item["action"] for item in body["results"]} == {"error"}
+        messages = [item["message"] for item in body["results"]]
+        assert (
+            messages
+            == [
+                "Local staging and same-bucket manifest sources are admin-only "
+                "operator seed inputs because they have no ownership metadata. "
+                "Use an HTTPS source or upload the file through the standard "
+                "upload workflow."
+            ]
+            * 2
         )
-        jobs_by_key = {job.user_metadata["manifest_key"]: job for job in jobs}
-
-        vector_job = jobs_by_key["roundtrip-vector-create"]
-        raster_job = jobs_by_key["roundtrip-raster-create"]
-        vrt_job = jobs_by_key["roundtrip-vrt-create"]
-
-        assert vector_job.user_metadata["manifest_source_type"] == "vector"
-        assert vector_job.user_metadata["visibility"] == "private"
-        assert vector_job.user_metadata["record_status"] == "ready"
-        assert "file_type" not in vector_job.user_metadata
-
-        assert raster_job.user_metadata["manifest_source_type"] == "raster_cog"
-        assert raster_job.user_metadata["file_type"] == "raster"
-        assert raster_job.user_metadata["visibility"] == "public"
-        assert raster_job.user_metadata["record_status"] == "published"
-        assert raster_job.user_metadata["srid_override"] == 3857
-
-        assert vrt_job.user_metadata["manifest_source_type"] == "vrt"
-        assert vrt_job.user_metadata["file_type"] == "raster"
-        assert vrt_job.file_path == "rasters/roundtrip-mosaic.vrt"
-        assert vrt_job.user_metadata["visibility"] == "internal"
-        assert vrt_job.user_metadata["record_status"] == "internal"
+        queue.assert_not_awaited()
 
     async def test_endpoint_dry_run_does_not_write_or_defer(
         self,
@@ -331,10 +390,14 @@ class TestManifestApplyEndpointRoundTrip:
         dataset, and dry_run must not leak that dataset's UUID (a pre-write oracle)."""
         owner = await _admin_user(test_db_session)
         original_payload = _dataset_payload(
-            key="cross-user-update", title="Owner Original"
+            key="cross-user-update",
+            title="Owner Original",
+            uri="https://data.example.test/cross-user-original.geojson",
         )
         changed_payload = _dataset_payload(
-            key="cross-user-update", title="Attacker Changed"
+            key="cross-user-update",
+            title="Attacker Changed",
+            uri="https://data.example.test/cross-user-changed.geojson",
         )
         original_request = ManifestApplyRequest.model_validate(
             _manifest_payload(original_payload)
@@ -342,21 +405,31 @@ class TestManifestApplyEndpointRoundTrip:
         victim_dataset = await create_dataset(
             test_db_session, created_by=owner.id, name="Owner Original"
         )
-        await _create_completed_manifest_job(
-            test_db_session,
-            user=owner,
-            dataset=victim_dataset,
-            manifest_dataset=original_request.datasets[0],
-        )
+        with patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ):
+            await _create_completed_manifest_job(
+                test_db_session,
+                user=owner,
+                dataset=victim_dataset,
+                manifest_dataset=original_request.datasets[0],
+            )
         before_title = (
             await test_db_session.get(Record, victim_dataset.record_id)
         ).title
 
         for dry_run in (True, False):
-            with patch(
-                "app.processing.ingest.manifest_service.queue_ingest_job",
-                new=AsyncMock(),
-            ) as queue:
+            with (
+                patch(
+                    "app.processing.ingest.manifest_service.queue_ingest_job",
+                    new=AsyncMock(),
+                ) as queue,
+                patch(
+                    "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                    new=AsyncMock(),
+                ),
+            ):
                 response = await client.post(
                     "/ingest/manifest/apply",
                     json=_manifest_payload(changed_payload, dry_run=dry_run),
@@ -392,26 +465,38 @@ class TestManifestApplyEndpointRoundTrip:
         me = await client.get("/auth/me/", headers=editor_auth_header)
         assert me.status_code == 200
         owner = await test_db_session.get(User, uuid.UUID(me.json()["id"]))
-        original = _dataset_payload(key="owner-update", title="Owner Original")
-        changed = _dataset_payload(key="owner-update", title="Owner Changed")
+        original = _dataset_payload(
+            key="owner-update",
+            title="Owner Original",
+            uri="https://data.example.test/owner-original.geojson",
+        )
+        changed = _dataset_payload(
+            key="owner-update",
+            title="Owner Changed",
+            uri="https://data.example.test/owner-changed.geojson",
+        )
         original_request = ManifestApplyRequest.model_validate(
             _manifest_payload(original)
         )
         dataset = await create_dataset(
             test_db_session, created_by=owner.id, name="Owner Original"
         )
-        await _create_completed_manifest_job(
-            test_db_session,
-            user=owner,
-            dataset=dataset,
-            manifest_dataset=original_request.datasets[0],
-        )
+        with patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ):
+            await _create_completed_manifest_job(
+                test_db_session,
+                user=owner,
+                dataset=dataset,
+                manifest_dataset=original_request.datasets[0],
+            )
 
-        response = await client.post(
-            "/ingest/manifest/apply",
-            json=_manifest_payload(changed, dry_run=True),
-            headers=editor_auth_header,
-        )
+            response = await client.post(
+                "/ingest/manifest/apply",
+                json=_manifest_payload(changed, dry_run=True),
+                headers=editor_auth_header,
+            )
         assert response.status_code == 200
         entry = _actions_by_key(response.json())["owner-update"]
         assert entry["action"] == "update", entry
@@ -420,11 +505,15 @@ class TestManifestApplyEndpointRoundTrip:
         # fix(#430 codex r15): the OWNER's same-fingerprint submit still
         # returns the skip entry WITH ids (the new skip gates only bite
         # non-owners).
-        skip_response = await client.post(
-            "/ingest/manifest/apply",
-            json=_manifest_payload(original, dry_run=True),
-            headers=editor_auth_header,
-        )
+        with patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ):
+            skip_response = await client.post(
+                "/ingest/manifest/apply",
+                json=_manifest_payload(original, dry_run=True),
+                headers=editor_auth_header,
+            )
         assert skip_response.status_code == 200
         skip_entry = _actions_by_key(skip_response.json())["owner-update"]
         assert skip_entry["action"] == "skip", skip_entry
@@ -446,7 +535,9 @@ class TestManifestApplyEndpointRoundTrip:
 
         # -- skip_complete: victim has a COMPLETED job for this key --
         complete_payload = _dataset_payload(
-            key="cross-user-skip-complete", title="Victim Complete"
+            key="cross-user-skip-complete",
+            title="Victim Complete",
+            uri="https://data.example.test/victim-complete.geojson",
         )
         complete_request = ManifestApplyRequest.model_validate(
             _manifest_payload(complete_payload)
@@ -454,22 +545,32 @@ class TestManifestApplyEndpointRoundTrip:
         victim_dataset = await create_dataset(
             test_db_session, created_by=owner.id, name="Victim Complete"
         )
-        await _create_completed_manifest_job(
-            test_db_session,
-            user=owner,
-            dataset=victim_dataset,
-            manifest_dataset=complete_request.datasets[0],
-        )
+        with patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ):
+            await _create_completed_manifest_job(
+                test_db_session,
+                user=owner,
+                dataset=victim_dataset,
+                manifest_dataset=complete_request.datasets[0],
+            )
 
         # -- skip_in_flight: victim has a PENDING job for this key --
         inflight_payload = _dataset_payload(
-            key="cross-user-skip-inflight", title="Victim Inflight"
+            key="cross-user-skip-inflight",
+            title="Victim Inflight",
+            uri="https://data.example.test/victim-inflight.geojson",
         )
         inflight_request = ManifestApplyRequest.model_validate(
             _manifest_payload(inflight_payload)
         )
         inflight_ds = inflight_request.datasets[0]
-        prepared = await classify_manifest_source(inflight_ds.sources[0])
+        with patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ):
+            prepared = await classify_manifest_source(inflight_ds.sources[0])
         test_db_session.add(
             IngestJob(
                 dataset_id=None,
@@ -487,13 +588,17 @@ class TestManifestApplyEndpointRoundTrip:
         await test_db_session.commit()
 
         for dry_run in (True, False):
-            response = await client.post(
-                "/ingest/manifest/apply",
-                json=_manifest_payload(
-                    complete_payload, inflight_payload, dry_run=dry_run
-                ),
-                headers=editor_auth_header,
-            )
+            with patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(),
+            ):
+                response = await client.post(
+                    "/ingest/manifest/apply",
+                    json=_manifest_payload(
+                        complete_payload, inflight_payload, dry_run=dry_run
+                    ),
+                    headers=editor_auth_header,
+                )
             assert response.status_code == 200
             actions = _actions_by_key(response.json())
             for key in ("cross-user-skip-complete", "cross-user-skip-inflight"):
@@ -522,20 +627,11 @@ class TestManifestCompletedDatasetRoundTrip:
             source_type="raster_cog",
             uri="rasters/roundtrip-search-raster.tif",
         )
-        vrt_payload = _dataset_payload(
-            key="roundtrip-search-vrt",
-            title="Roundtrip Search VRT",
-            source_type="vrt",
-            uri="rasters/roundtrip-search-vrt.vrt",
-        )
         vector_request = ManifestApplyRequest.model_validate(
             _manifest_payload(vector_payload)
         )
         raster_request = ManifestApplyRequest.model_validate(
             _manifest_payload(raster_payload)
-        )
-        vrt_request = ManifestApplyRequest.model_validate(
-            _manifest_payload(vrt_payload)
         )
 
         vector_dataset = await create_dataset(
@@ -566,31 +662,8 @@ class TestManifestCompletedDatasetRoundTrip:
             visibility="public",
             record_status="published",
         )
-        _vrt_record, vrt_dataset, _vrt_asset = await create_vrt_dataset(
-            test_db_session,
-            meta={
-                "driver": "VRT",
-                "epsg": 4326,
-                "band_count": 2,
-                "dtype": "uint16",
-                "width": 128,
-                "height": 128,
-            },
-            asset_sha256="3" * 64,
-            vrt_size=4096,
-            source_filename="roundtrip-search-vrt.vrt",
-            created_by=user.id,
-            title="Roundtrip Search VRT",
-            summary="Roundtrip VRT summary",
-            visibility="public",
-            record_status="published",
-            vrt_type="mosaic",
-            resolution_strategy="finest",
-            source_dataset_ids=[],
-        )
         await test_db_session.commit()
         await test_db_session.refresh(raster_dataset)
-        await test_db_session.refresh(vrt_dataset)
 
         await _create_completed_manifest_job(
             test_db_session,
@@ -603,12 +676,6 @@ class TestManifestCompletedDatasetRoundTrip:
             user=user,
             dataset=raster_dataset,
             manifest_dataset=raster_request.datasets[0],
-        )
-        await _create_completed_manifest_job(
-            test_db_session,
-            user=user,
-            dataset=vrt_dataset,
-            manifest_dataset=vrt_request.datasets[0],
         )
 
         await _assert_search_discovers_dataset(
@@ -625,18 +692,9 @@ class TestManifestCompletedDatasetRoundTrip:
             query="Roundtrip Search Raster",
             record_type="raster_dataset",
         )
-        await _assert_search_discovers_dataset(
-            client,
-            admin_auth_header,
-            dataset=vrt_dataset,
-            query="Roundtrip Search VRT",
-            record_type="vrt_dataset",
-        )
-
         for dataset, expected_kind in (
             (vector_dataset, "vector"),
             (raster_dataset, "raster"),
-            (vrt_dataset, "raster"),
         ):
             token_response = await client.get(
                 f"/tiles/token/{dataset.id}/",

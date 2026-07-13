@@ -14,7 +14,7 @@ from pathlib import Path
 
 import structlog
 import uvicorn
-from sqlalchemy import select, text
+from sqlalchemy import func, text, update
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
@@ -43,16 +43,15 @@ RECOVERY_LOCK_KEY = 224_001
 
 
 async def recover_stale_jobs() -> None:
-    """Mark stale jobs as failed using an advisory lock + started_at threshold.
+    """Mark stale jobs as failed using an advisory lock + heartbeat lease.
 
-    IA-P0-04 (Phase 1067, option b): heartbeat column dropped. Stale detection
-    relies on ``started_at < now - JOB_TIMEOUT_SECONDS`` (1 hour), matching
-    the steady-state ``fail_stale_jobs`` sweep that runs every 5 minutes from
-    the lifespan task ``_stale_jobs_sweeper``.
+    Running workers renew ``heartbeat_at``. Recovery falls back to
+    ``started_at`` for pre-migration rows and only fails jobs whose most recent
+    liveness signal is older than ``JOB_TIMEOUT_SECONDS``.
 
     This handles two cases:
-    1. Worker was killed while processing a job (status='running' AND
-       started_at older than 1 hour) — newly-started workers reclaim them
+    1. Worker was killed while processing a job (status='running' AND its
+       heartbeat lease is older than 1 hour) — newly-started workers reclaim them
        on startup via this advisory-locked recovery path.
     2. Job was created but never queued — e.g., the HTTP request that
        would have called defer_async() got a 502 (status='pending' with
@@ -62,12 +61,9 @@ async def recover_stale_jobs() -> None:
     concurrently on startup (e.g., rolling restart). A worker that fails to
     acquire the lock skips recovery — another worker already holds it.
 
-    **Rolling-deploy behavior:** Running jobs that started less than 1 hour
-    ago are NOT marked stale, so a 6-minute ingest survives a rolling worker
-    restart. The previous heartbeat-based logic was effectively broken
-    (the column was declared but never written, so every job looked
-    heartbeat-less + 5min-old after deploy and got force-killed); option (b)
-    restores actively-running ingests by leaning on the existing 1h timeout.
+    **Rolling-deploy behavior:** A worker that is still renewing its lease is
+    not marked stale regardless of total runtime. Pre-migration jobs retain the
+    one-hour ``started_at`` fallback.
 
     Each recovered job is logged individually with its job_id.
     """
@@ -91,18 +87,32 @@ async def recover_stale_jobs() -> None:
             log.info("Stale job recovery skipped — another worker holds the lock")
             return
 
-        # Recover running jobs whose started_at is older than 1 hour.
+        # Recover running jobs whose most recent liveness signal is older than
+        # one hour. Pre-migration jobs fall back to started_at.
         # Mirrors fail_stale_jobs (router.py:39) which the lifespan
         # sweeper runs every 5 minutes for the same purpose. The advisory
         # lock ensures startup recovery and the sweeper don't collide.
         stale_result = await session.execute(
-            select(IngestJob).where(
+            update(IngestJob)
+            .where(
                 IngestJob.status == "running",
-                IngestJob.started_at < stale_cutoff,
+                func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+                < stale_cutoff,
             )
+            .values(
+                status="failed",
+                error_message=(
+                    f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
+                ),
+                completed_at=now,
+            )
+            .returning(IngestJob)
         )
         stale_jobs = list(stale_result.scalars())
         for job in stale_jobs:
+            # SQLAlchemy RETURNING refreshes these values in production; the
+            # explicit assignments also keep lightweight session doubles
+            # representative of the atomic database transition.
             job.status = "failed"
             job.error_message = (
                 f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
@@ -111,15 +121,21 @@ async def recover_stale_jobs() -> None:
             log.warning(
                 "Recovered stale running job",
                 job_id=str(job.id),
-                started_at=str(job.started_at),
             )
 
         # Recover orphaned pending jobs (never queued)
         orphaned_result = await session.execute(
-            select(IngestJob).where(
+            update(IngestJob)
+            .where(
                 IngestJob.status == "pending",
                 IngestJob.created_at < pending_cutoff,
             )
+            .values(
+                status="failed",
+                error_message="Stale: job was pending for over 1 hour (never queued)",
+                completed_at=now,
+            )
+            .returning(IngestJob)
         )
         orphaned_jobs = list(orphaned_result.scalars())
         for job in orphaned_jobs:

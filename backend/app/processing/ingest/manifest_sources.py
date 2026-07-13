@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.processing.ingest.manifest_schemas import (
+    MANIFEST_SOURCE_EXTENSIONS,
     ManifestDataset,
     ManifestPublication,
     ManifestSource,
@@ -113,13 +114,24 @@ async def classify_manifest_source(
     source: ManifestSource,
 ) -> ManifestPreparedSource:
     """Validate and classify the first source for existing ingest task routing."""
-    if source.type not in {"vector", "raster_cog", "vrt"}:
+    if source.type not in {"vector", "raster_cog"}:
         raise ManifestSourceError(f"Unsupported manifest source type: {source.type}")
 
     filename = derive_source_filename(source)
     extension = derive_source_extension(source)
+    allowed_extensions = MANIFEST_SOURCE_EXTENSIONS[source.type]
+    if extension == ".vrt":
+        raise ManifestSourceError(
+            "Standalone VRT manifest sources are not supported; create a "
+            "managed VRT from catalog-tracked raster datasets"
+        )
+    if extension not in allowed_extensions:
+        expected = ", ".join(sorted(allowed_extensions))
+        raise ManifestSourceError(
+            f"Manifest source type {source.type!r} requires one of: {expected}"
+        )
     parsed = urlparse(source.uri)
-    file_type = "raster" if source.type in {"raster_cog", "vrt"} else None
+    file_type = "raster" if source.type == "raster_cog" else None
 
     if parsed.scheme in {"http", "https"}:
         from app.modules.catalog.sources import security as source_security
@@ -162,7 +174,14 @@ async def classify_manifest_source(
     # resolved path escapes that directory. This catches symlink chases,
     # encoding tricks, and any future regex weakening.
     staging_root = Path(settings.upload_staging_dir).resolve()
-    candidate = (staging_root / source.uri).resolve()
+    relative_source = Path(source.uri)
+    # Manifest v1 examples historically spell operator seed paths as
+    # ``staging/foo.geojson``. The configured root is itself the staging
+    # directory, so treat one matching leading directory component as an
+    # explicit root marker instead of resolving it as ``staging/staging``.
+    if relative_source.parts and relative_source.parts[0] == staging_root.name:
+        relative_source = Path(*relative_source.parts[1:])
+    candidate = (staging_root / relative_source).resolve()
     try:
         candidate.relative_to(staging_root)
     except ValueError as exc:
@@ -178,7 +197,10 @@ async def classify_manifest_source(
         source_uri=source.uri,
         source_filename=filename,
         extension=extension,
-        file_path=source.uri,
+        # Persist the exact canonical path that passed the containment check.
+        # Queueing the caller-provided relative spelling would make workers
+        # resolve it against their process cwd instead of the staging root.
+        file_path=str(candidate),
         source_url=None,
         source_layer=source.layer,
         file_type=file_type,
@@ -195,6 +217,8 @@ def manifest_job_metadata(
     visibility, record_status = publication_to_catalog_fields(dataset.publication)
     metadata = dataset.metadata
     srid_override = parse_manifest_crs(metadata.crs if metadata else None)
+    from app.core.url_redaction import redact_url_credentials
+
     job_metadata: dict[str, object] = {
         "title": prepared.source.title or dataset.title,
         "summary": prepared.source.description or dataset.description,
@@ -203,7 +227,7 @@ def manifest_job_metadata(
         "manifest_key": dataset.key,
         "manifest_fingerprint": fingerprint,
         "manifest_source_type": prepared.source.type,
-        "manifest_source_uri": prepared.source_uri,
+        "manifest_source_uri": redact_url_credentials(prepared.source_uri),
         "manifest_publication_intent": dataset.publication.intent,
         "manifest_tags": list(metadata.tags or []) if metadata else [],
     }

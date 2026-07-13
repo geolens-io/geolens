@@ -76,6 +76,7 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
         output_path: str,
         driver: str,
         *,
+        schema: str,
         target_srs: str | None = None,
         bbox: list[float] | None = None,
         where: str | None = None,
@@ -92,6 +93,7 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
         table_name="roads_2024",
         dataset_name="Roads 2024",
         format_key="gpkg",
+        schema="data",
         column_info=[{"name": "name", "type": "text"}],
     )
 

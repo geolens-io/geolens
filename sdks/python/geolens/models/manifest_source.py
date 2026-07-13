@@ -19,7 +19,8 @@ T = TypeVar("T", bound="ManifestSource")
 class ManifestSource:
     """
     Attributes:
-        type_ (ManifestSourceType):
+        type_ (ManifestSourceType): Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls;
+            raster_cog sources require tif or tiff.
         uri (str): Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
         description (None | str | Unset):
         format_ (None | str | Unset):

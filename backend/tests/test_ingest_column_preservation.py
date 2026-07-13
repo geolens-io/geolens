@@ -71,6 +71,7 @@ async def _load_fixture(
         build_pg_conn_str(),
         source_srid=info.get("srid"),
         geometry_type=geometry_type,
+        schema="data",
     )
     filtered = await get_column_info(test_db_session, table)
     raw = await test_db_session.execute(

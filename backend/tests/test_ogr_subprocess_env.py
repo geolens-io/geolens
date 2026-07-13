@@ -55,6 +55,7 @@ async def test_token_not_in_subprocess_env_via_header_file():
             db_conn_str="PG:dummy",
             service_type="wfs",
             token="example-jwt-token-base64url",
+            schema="data",
         )
 
     # 1) The deprecated GDAL_HTTP_HEADERS var MUST NOT be present.
@@ -112,6 +113,7 @@ async def test_no_token_no_header_file_created():
             db_conn_str="PG:dummy",
             service_type="wfs",
             token=None,
+            schema="data",
         )
 
     # No header file, no header env var.
@@ -155,6 +157,7 @@ async def test_header_file_is_0600():
             db_conn_str="PG:dummy",
             service_type="wfs",
             token="example-token",
+            schema="data",
         )
 
     assert captured_mode == 0o600, f"Header file must be 0600, got 0o{captured_mode:o}"
@@ -195,6 +198,7 @@ async def test_header_file_unlinked_even_on_subprocess_error():
                 db_conn_str="PG:dummy",
                 service_type="wfs",
                 token="example-token",
+                schema="data",
             )
 
     assert captured_path is not None

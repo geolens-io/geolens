@@ -65,6 +65,11 @@ class JobStatusResponse(BaseModel):
     dataset_id: uuid.UUID | None
     source_filename: str | None
     error_message: str | None
+    # These are computed for every response by ``_job_to_status_response``.
+    # Keep them required in OpenAPI so generated clients match the runtime
+    # contract and the hand-maintained frontend boundary type.
+    can_retry: bool
+    retry_reason: str | None
     warning_message: str | None = None
     # S3/TYPE-2: structured warnings surfaced from IngestJob.user_metadata so
     # the frontend can render a banner on the upload success screen / dataset

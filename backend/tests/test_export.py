@@ -96,6 +96,7 @@ def mock_export_service(monkeypatch):
         dataset_name,
         format_key,
         *,
+        schema,
         target_srs=None,
         bbox=None,
         where=None,

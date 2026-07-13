@@ -29,6 +29,8 @@ INVALID_FIXTURE_ERRORS = {
     "bad-version.yaml": {("$.manifest_version", "const")},
     "empty-datasets.yaml": {("$.datasets", "minItems")},
     "missing-dataset-key.yaml": {("$.datasets[0].key", "required")},
+    "multiple-sources.yaml": {("$.datasets[0].sources", "maxItems")},
+    "unsupported-vrt.yaml": {("$.datasets[0].sources[0].type", "enum")},
 }
 
 
@@ -69,7 +71,6 @@ def test_valid_manifest_fixtures_pass() -> None:
         "raster-cog-storage.yaml",
         "vector-relative.yaml",
         "vector-url.yaml",
-        "vrt-relative.yaml",
     }
     for path in valid_fixtures:
         assert validate_manifest(load_manifest(path)) == [], path.name
@@ -122,6 +123,32 @@ def test_manifest_v1_version_compatibility_is_locked() -> None:
 
     assert ("$.manifest_version", "const") in _error_pairs(future_version)
     assert ("$.manifest_version", "type") in _error_pairs(numeric_version)
+
+
+def test_manifest_v1_dataset_batch_is_bounded() -> None:
+    document = _minimal_manifest()
+    document["datasets"] *= 101
+
+    assert ("$.datasets", "maxItems") in _error_pairs(document)
+
+
+@pytest.mark.parametrize(
+    ("source_type", "uri"),
+    [
+        ("vector", "./rasters/tile.tif"),
+        ("raster_cog", "./data/roads.geojson"),
+        ("raster_cog", "./rasters/mosaic.vrt"),
+    ],
+)
+def test_manifest_source_type_requires_matching_extension(
+    source_type: str, uri: str
+) -> None:
+    document = _minimal_manifest()
+    document["datasets"][0]["sources"][0].update(
+        {"type": source_type, "uri": uri}
+    )
+
+    assert ("$.datasets[0].sources[0].uri", "pattern") in _error_pairs(document)
 
 
 def test_unknown_top_level_fields_are_rejected() -> None:

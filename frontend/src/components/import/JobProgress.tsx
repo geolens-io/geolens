@@ -231,20 +231,25 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             {job.error_message && (
               <p className="text-sm text-destructive">{job.error_message}</p>
             )}
+            {job.retry_reason && (
+              <p className="text-sm text-muted-foreground">{job.retry_reason}</p>
+            )}
             <div className="flex items-center gap-2">
-              <Button
-                onClick={handleRetry}
-                disabled={retryMutation.isPending}
-              >
-                {retryMutation.isPending ? (
-                  <span className="flex items-center gap-2">
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                    {t('jobProgress.retrying')}
-                  </span>
-                ) : (
-                  t('jobProgress.retry')
-                )}
-              </Button>
+              {job.can_retry !== false && (
+                <Button
+                  onClick={handleRetry}
+                  disabled={retryMutation.isPending}
+                >
+                  {retryMutation.isPending ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                      {t('jobProgress.retrying')}
+                    </span>
+                  ) : (
+                    t('jobProgress.retry')
+                  )}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={onReset}

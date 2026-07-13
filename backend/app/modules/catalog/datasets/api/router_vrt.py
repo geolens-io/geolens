@@ -32,9 +32,11 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import get_dataset
-from app.core.db.tenant_session import defer_async_with_tenant
+from app.core.db.tenant_session import current_tenant_var, defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.platform.extensions import get_catalog_port, get_permission_extension
+from app.modules.catalog.sources.security import make_safe_client
+from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -69,6 +71,26 @@ async def _load_source_datasets(
         .where(Dataset.id.in_(dataset_ids))
     )
     return {dataset.id: dataset for dataset in result.scalars().unique().all()}
+
+
+async def _remote_asset_exists(asset_uri: str) -> bool:
+    """Probe a remote raster without downloading its body.
+
+    Remote STAC assets are deliberately not passed to the configured object
+    storage provider. The safe client pins validated public IPs and revalidates
+    redirects, while the range request and context-manager close bound the
+    amount of response data consumed by this health endpoint.
+    """
+    try:
+        async with make_safe_client(timeout=10.0) as client:
+            async with client.stream(
+                "GET", asset_uri, headers={"Range": "bytes=0-0"}
+            ) as response:
+                return response.status_code < 400
+    except (
+        Exception
+    ):  # broad: provider/network/SSRF failures all map to an inaccessible health state
+        return False
 
 
 @router.get("/{dataset_id}/vrt-sources/", response_model=VrtSourceListResponse)
@@ -225,7 +247,8 @@ async def get_vrt_status(
                 vsl.source_dataset_id,
                 r.title,
                 d.id AS ds_id,
-                ra.asset_uri
+                ra.asset_uri,
+                ra.storage_backend
             FROM catalog.vrt_source_links vsl
             LEFT JOIN catalog.datasets d ON d.id = vsl.source_dataset_id
             LEFT JOIN catalog.records r ON r.id = d.record_id
@@ -268,10 +291,20 @@ async def get_vrt_status(
             continue
         sources_to_check.append(row)
 
-    # Parallel storage.exists() checks for non-missing sources
+    # Parallel backend-aware checks for non-missing sources. Remote STAC
+    # assets are HTTP(S) URLs and cannot be meaningfully checked by local/S3
+    # storage providers.
     if sources_to_check:
+        tenant_id = current_tenant_var.get()
         exists_results = await asyncio.gather(
-            *(storage.exists(row.asset_uri) for row in sources_to_check)
+            *(
+                _remote_asset_exists(row.asset_uri)
+                if row.storage_backend == "remote"
+                else storage.exists(
+                    resolve_storage_key(row.asset_uri, tenant_id=tenant_id)
+                )
+                for row in sources_to_check
+            )
         )
         for row, file_exists in zip(sources_to_check, exists_results):
             source_health_list.append(
@@ -440,7 +473,9 @@ async def regenerate_vrt_endpoint(
         await defer_async_with_tenant(
             get_catalog_port().regenerate_vrt_task(),
             job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),
+            generation_id=str(generation.id),
             triggered_by=str(user.id),
         )
 

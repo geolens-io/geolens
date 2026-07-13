@@ -27,12 +27,14 @@ T = TypeVar("T", bound="AdminJobResponse")
 class AdminJobResponse:
     """
     Attributes:
+        can_retry (bool): Whether the failed job can be retried with its retained source.
         completed_at (datetime.datetime | None): Timestamp when the job finished (success or failure).
         created_at (datetime.datetime): Timestamp when the job was queued.
         created_by (None | UUID): ID of the user who initiated the job.
         dataset_id (None | UUID): ID of the dataset created by this job, if completed successfully.
         error_message (None | str): Error details if the job failed.
         id (UUID): Unique ingestion job identifier.
+        retry_reason (None | str): Why the job cannot be retried, when retry is unavailable.
         source_filename (None | str): Original filename of the uploaded file, if applicable.
         started_at (datetime.datetime | None): Timestamp when the worker began processing the job.
         status (AdminJobResponseStatus): Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
@@ -42,12 +44,14 @@ class AdminJobResponse:
         username (None | str): Username of the user who initiated the job.
     """
 
+    can_retry: bool
     completed_at: datetime.datetime | None
     created_at: datetime.datetime
     created_by: None | UUID
     dataset_id: None | UUID
     error_message: None | str
     id: UUID
+    retry_reason: None | str
     source_filename: None | str
     started_at: datetime.datetime | None
     status: AdminJobResponseStatus
@@ -59,6 +63,8 @@ class AdminJobResponse:
         from ..models.admin_job_response_user_metadata_type_0 import (
             AdminJobResponseUserMetadataType0,
         )
+
+        can_retry = self.can_retry
 
         completed_at: None | str
         if isinstance(self.completed_at, datetime.datetime):
@@ -85,6 +91,9 @@ class AdminJobResponse:
 
         id = str(self.id)
 
+        retry_reason: None | str
+        retry_reason = self.retry_reason
+
         source_filename: None | str
         source_filename = self.source_filename
 
@@ -109,12 +118,14 @@ class AdminJobResponse:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "can_retry": can_retry,
                 "completed_at": completed_at,
                 "created_at": created_at,
                 "created_by": created_by,
                 "dataset_id": dataset_id,
                 "error_message": error_message,
                 "id": id,
+                "retry_reason": retry_reason,
                 "source_filename": source_filename,
                 "started_at": started_at,
                 "status": status,
@@ -132,6 +143,7 @@ class AdminJobResponse:
         )
 
         d = dict(src_dict)
+        can_retry = d.pop("can_retry")
 
         def _parse_completed_at(data: object) -> datetime.datetime | None:
             if data is None:
@@ -189,6 +201,13 @@ class AdminJobResponse:
 
         id = UUID(d.pop("id"))
 
+        def _parse_retry_reason(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        retry_reason = _parse_retry_reason(d.pop("retry_reason"))
+
         def _parse_source_filename(data: object) -> None | str:
             if data is None:
                 return data
@@ -238,12 +257,14 @@ class AdminJobResponse:
         username = _parse_username(d.pop("username"))
 
         admin_job_response = cls(
+            can_retry=can_retry,
             completed_at=completed_at,
             created_at=created_at,
             created_by=created_by,
             dataset_id=dataset_id,
             error_message=error_message,
             id=id,
+            retry_reason=retry_reason,
             source_filename=source_filename,
             started_at=started_at,
             status=status,

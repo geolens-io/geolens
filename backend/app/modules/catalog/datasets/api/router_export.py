@@ -56,9 +56,11 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
+from app.core.db.tenant_session import current_tenant_var
 from app.core.public_urls import get_public_api_url
 from app.platform.extensions import get_catalog_port
 from app.platform.storage import get_storage
+from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import (
     ERROR_RESPONSES_PUBLIC,
     SERVICE_UNAVAILABLE_RESPONSE,
@@ -854,10 +856,12 @@ async def download_cog(
 
         return RedirectResponse(url=raster_asset.asset_uri, status_code=302)
 
+    physical_asset_key = resolve_storage_key(
+        raster_asset.asset_uri, tenant_id=current_tenant_var.get()
+    )
+
     if raster_asset.storage_backend == "s3":
-        url = storage.generate_presigned_get_url(
-            raster_asset.asset_uri, expiration=3600
-        )
+        url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
         return RedirectResponse(url=url, status_code=302)
 
     # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
@@ -870,7 +874,7 @@ async def download_cog(
     # generator would produce a 500 (or a broken Transfer-Encoding chunk)
     # rather than a clean 404.
     try:
-        if not await storage.exists(raster_asset.asset_uri):
+        if not await storage.exists(physical_asset_key):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="COG file not found",
@@ -885,7 +889,7 @@ async def download_cog(
         )
 
     return StreamingResponse(
-        storage.get_stream(raster_asset.asset_uri),
+        storage.get_stream(physical_asset_key),
         media_type="image/tiff",
         headers={
             "Content-Disposition": get_catalog_port().safe_content_disposition(filename)

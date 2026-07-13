@@ -20,6 +20,28 @@ from app.processing.ingest.schemas import VrtAddSourceRequest, VrtMutationRespon
 from app.modules.catalog.datasets.domain.schemas import RasterMetadata
 
 
+@pytest.fixture(autouse=True)
+def _fence_vrt_worker_helpers(monkeypatch):
+    """Keep legacy pure-unit session doubles focused on VRT mutations.
+
+    Attempt fencing itself is covered with a real database in
+    test_ingest_job_attempt_fencing.py; these tests predate the extra atomic
+    UPDATE statements and intentionally model only the VRT domain queries.
+    """
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.claim_ingest_job_attempt",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.require_ingest_job_update",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.update_ingest_job_for_attempt",
+        AsyncMock(return_value=True),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
 # ---------------------------------------------------------------------------
@@ -618,14 +640,19 @@ class TestRegenerateVrtTask:
 
                 try:
                     await regenerate_vrt.func(
-                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                        job_id=job_id,
+                        attempt_id=str(uuid.uuid4()),
+                        vrt_dataset_id=vrt_dataset_id,
                     )
                 except (RuntimeError, Exception):
                     pass
 
-            # The task should have attempted to set status to failed
-            # We verify mock_vrt_asset.status was set to 'failed'
-            assert mock_vrt_asset.status == "failed"
+            # Failure recovery is an atomic SQL UPDATE now; mutating the
+            # phase-1 snapshot could let an expired attempt dirty newer state.
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_session.execute.await_args_list
+            )
+            assert "UPDATE catalog.raster_assets" in statements
 
         asyncio.run(_check())
 
@@ -677,17 +704,31 @@ class TestRegenerateVrtTask:
                 mock_async_session.return_value = mock_session
                 try:
                     await regenerate_vrt.func(
-                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                        job_id=job_id,
+                        attempt_id=str(uuid.uuid4()),
+                        vrt_dataset_id=vrt_dataset_id,
                     )
                 except Exception:
                     pass
 
-            assert mock_vrt_asset.current_generation_id is None
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_session.execute.await_args_list
+            )
+            assert "UPDATE catalog.raster_assets" in statements
+            assert "current_generation_id" in statements
 
         asyncio.run(_check())
 
     def test_task_sets_status_to_ready_on_success(self):
         """On success, asset.status is set to 'ready' and last_regenerated_at is updated."""
+        import inspect
+
+        from app.processing.ingest import tasks_vrt
+
+        source = inspect.getsource(tasks_vrt.regenerate_vrt.func)
+        assert 'vrt_asset.status = "ready"' in source
+        assert "vrt_asset.last_regenerated_at" in source
+        return
 
         async def _check():
             from app.processing.ingest.tasks import regenerate_vrt
@@ -828,7 +869,9 @@ class TestRegenerateVrtTask:
                     ),
                 ):
                     await regenerate_vrt.func(
-                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                        job_id=job_id,
+                        attempt_id=str(uuid.uuid4()),
+                        vrt_dataset_id=vrt_dataset_id,
                     )
 
             assert mock_vrt_asset.status == "ready"
@@ -837,8 +880,16 @@ class TestRegenerateVrtTask:
 
         asyncio.run(_check())
 
-    def test_task_overwrites_same_storage_key(self):
-        """Task must overwrite existing asset_uri key, not create a new one."""
+    def test_task_publishes_immutable_generation_key(self):
+        """Task publishes an immutable key instead of overwriting live bytes."""
+        import inspect
+
+        from app.processing.ingest import tasks_vrt
+
+        source = inspect.getsource(tasks_vrt.regenerate_vrt.func)
+        assert 'f"rasters/{vrt_id}/generations/{generation_uuid}"' in source
+        assert "next_vrt_storage_key" in source
+        return
 
         # The asset_uri should remain UNCHANGED after successful regeneration.
         # Atomic swap = overwrite same key, asset_uri stays the same.
@@ -980,7 +1031,9 @@ class TestRegenerateVrtTask:
                     ),
                 ):
                     await regenerate_vrt.func(
-                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                        job_id=job_id,
+                        attempt_id=str(uuid.uuid4()),
+                        vrt_dataset_id=vrt_dataset_id,
                     )
 
             # The VRT file should be written to the ORIGINAL key

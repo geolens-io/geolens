@@ -95,7 +95,13 @@ class CatalogPort(Protocol):
         user_id: uuid.UUID,
     ) -> Any: ...
 
-    async def save_upload_file(self, file: Any, job_id: str) -> Path | str: ...
+    async def save_upload_file(
+        self,
+        file: Any,
+        job_id: str,
+        *,
+        max_size_bytes: int | None = None,
+    ) -> Path | str: ...
 
     async def resolve_file_path(self, file_path: str, job_id: str) -> str: ...
 

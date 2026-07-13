@@ -265,6 +265,12 @@ export type AdminJobListResponse = {
  */
 export type AdminJobResponse = {
     /**
+     * Can Retry
+     *
+     * Whether the failed job can be retried with its retained source.
+     */
+    can_retry: boolean;
+    /**
      * Completed At
      *
      * Timestamp when the job finished (success or failure).
@@ -300,6 +306,12 @@ export type AdminJobResponse = {
      * Unique ingestion job identifier.
      */
     id: string;
+    /**
+     * Retry Reason
+     *
+     * Why the job cannot be retried, when retry is unavailable.
+     */
+    retry_reason: string | null;
     /**
      * Source Filename
      *
@@ -4020,6 +4032,10 @@ export type JobStatusResponse = {
      */
     archive_failed?: boolean;
     /**
+     * Can Retry
+     */
+    can_retry: boolean;
+    /**
      * Completed At
      */
     completed_at: string | null;
@@ -4047,6 +4063,10 @@ export type JobStatusResponse = {
      * Progress
      */
     progress?: number | null;
+    /**
+     * Retry Reason
+     */
+    retry_reason: string | null;
     /**
      * Rows Processed
      */
@@ -4408,7 +4428,9 @@ export type ManifestDataset = {
     /**
      * Sources
      */
-    sources: Array<ManifestSource>;
+    sources: [
+        ManifestSource
+    ];
     /**
      * Title
      */
@@ -4482,8 +4504,10 @@ export type ManifestSource = {
     title?: string | null;
     /**
      * Type
+     *
+     * Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.
      */
-    type: 'vector' | 'raster_cog' | 'vrt';
+    type: 'vector' | 'raster_cog';
     /**
      * Uri
      *

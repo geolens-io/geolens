@@ -734,10 +734,12 @@ class DefaultCatalogPort:
 
         return await create_ingest_job(session, filename, file_path, user_id)
 
-    async def save_upload_file(self, file, job_id):  # type: ignore[no-untyped-def]
+    async def save_upload_file(  # type: ignore[no-untyped-def]
+        self, file, job_id, *, max_size_bytes=None
+    ):
         from app.processing.ingest.service import save_upload_file
 
-        return await save_upload_file(file, job_id)
+        return await save_upload_file(file, job_id, max_size_bytes=max_size_bytes)
 
     async def resolve_file_path(self, file_path, job_id):  # type: ignore[no-untyped-def]
         from app.processing.ingest.service import resolve_file_path

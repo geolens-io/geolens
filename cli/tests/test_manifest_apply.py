@@ -331,10 +331,10 @@ def test_find_local_source_uris_mixed_manifest() -> None:
             {"sources": [{"type": "vector", "uri": "./local.geojson"}]},
             {"sources": [{"type": "vector", "uri": "https://x/remote.gpkg"}]},
             {"sources": [{"type": "raster_cog", "uri": "s3://bucket/key.tif"}]},
-            {"sources": [{"type": "vrt", "uri": "data/nested/file.vrt"}]},
+            {"sources": [{"type": "raster_cog", "uri": "data/nested/file.tif"}]},
         ]
     }
-    assert find_local_source_uris(document) == ["./local.geojson", "data/nested/file.vrt"]
+    assert find_local_source_uris(document) == ["./local.geojson", "data/nested/file.tif"]
 
 
 def test_apply_local_source_warns_but_posts(

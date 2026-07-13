@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
@@ -85,6 +86,8 @@ async def construct_point_geometry(
     x_column: str,
     y_column: str,
     srid: int = 4326,
+    *,
+    schema: str = "data",
 ) -> int:
     """Add geometry column from x/y coordinate columns.
 
@@ -94,9 +97,47 @@ async def construct_point_geometry(
     if not _TABLE_NAME_RE.match(x_column) or not _TABLE_NAME_RE.match(y_column):
         raise ValueError("Invalid column name")
 
-    tref = _qtable(table_name)
+    tref = _qtable(table_name, schema=schema)
     x_col = _sql_quote_ident(x_column)
     y_col = _sql_quote_ident(y_column)
+    finite_floor = "-1.7976931348623157e308"
+    finite_ceiling = "1.7976931348623157e308"
+    unparseable = await session.execute(
+        text(
+            f"SELECT COUNT(*) FROM {tref} "
+            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL "
+            f"AND (NOT pg_input_is_valid({x_col}::text, 'double precision') "
+            f"OR NOT pg_input_is_valid({y_col}::text, 'double precision'))"
+        )
+    )
+    unparseable_count = int(unparseable.scalar_one())
+    if unparseable_count:
+        raise ValueError(
+            f"{unparseable_count} row(s) contain X/Y values that are not numbers"
+        )
+    if srid == 4326:
+        valid_coordinates = (
+            f"{x_col}::double precision BETWEEN -180 AND 180 AND "
+            f"{y_col}::double precision BETWEEN -90 AND 90"
+        )
+    else:
+        valid_coordinates = (
+            f"{x_col}::double precision BETWEEN {finite_floor} AND {finite_ceiling} "
+            f"AND {y_col}::double precision BETWEEN {finite_floor} AND {finite_ceiling}"
+        )
+    invalid = await session.execute(
+        text(
+            f"SELECT COUNT(*) FROM {tref} "
+            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL "
+            f"AND NOT ({valid_coordinates})"
+        )
+    )
+    invalid_count = int(invalid.scalar_one())
+    if invalid_count:
+        coordinate_system = "EPSG:4326 ranges" if srid == 4326 else "finite values"
+        raise ValueError(
+            f"{invalid_count} row(s) contain X/Y coordinates outside {coordinate_system}"
+        )
     await session.execute(
         text(f"ALTER TABLE {tref} ADD COLUMN geom geometry(Point, {srid})")
     )
@@ -105,7 +146,8 @@ async def construct_point_geometry(
             f"UPDATE {tref} SET geom = ST_SetSRID("
             f"  ST_MakePoint({x_col}::double precision, {y_col}::double precision), "
             f"  {srid}) "
-            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL"
+            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL "
+            f"AND {valid_coordinates}"
         )
     )
     await session.execute(
@@ -121,6 +163,8 @@ async def construct_wkt_geometry(
     table_name: str,
     wkt_column: str,
     srid: int = 4326,
+    *,
+    schema: str = "data",
 ) -> int:
     """Add geometry column from a WKT text column.
 
@@ -130,26 +174,60 @@ async def construct_wkt_geometry(
     if not _TABLE_NAME_RE.match(wkt_column):
         raise ValueError("Invalid column name")
 
-    tref = _qtable(table_name)
+    tref = _qtable(table_name, schema=schema)
     wkt_col = _sql_quote_ident(wkt_column)
-
-    # Detect geometry type from sample row
-    sample = await session.execute(
-        text(
-            f"SELECT GeometryType(ST_GeomFromText({wkt_col}, {srid})) "
-            f"FROM {tref} WHERE {wkt_col} IS NOT NULL LIMIT 1"
+    parsed_geom = f"ST_GeomFromText({wkt_col}, {srid})"
+    invalid_conditions = [
+        f"lower({wkt_col}) ~ '(nan|inf)'",
+        f"NOT ST_IsValid({parsed_geom})",
+    ]
+    if srid == 4326:
+        invalid_conditions.extend(
+            [
+                f"ST_XMin(Box3D({parsed_geom})) < -180",
+                f"ST_XMax(Box3D({parsed_geom})) > 180",
+                f"ST_YMin(Box3D({parsed_geom})) < -90",
+                f"ST_YMax(Box3D({parsed_geom})) > 90",
+            ]
         )
-    )
-    geom_type = sample.scalar_one_or_none() or "GEOMETRY"
+    try:
+        # PostGIS raises on syntactically malformed WKT. A SAVEPOINT keeps that
+        # expected validation failure from aborting the caller's ingest
+        # transaction, allowing it to report a stable ValueError and clean up.
+        async with session.begin_nested():
+            invalid = await session.execute(
+                text(
+                    f"SELECT COUNT(*) FROM {tref} WHERE {wkt_col} IS NOT NULL "
+                    f"AND ({' OR '.join(invalid_conditions)})"
+                )
+            )
+            invalid_count = int(invalid.scalar_one())
+            if invalid_count:
+                coordinate_system = (
+                    "EPSG:4326 ranges" if srid == 4326 else "finite values"
+                )
+                raise ValueError(
+                    f"{invalid_count} row(s) contain invalid WKT geometry or "
+                    f"coordinates outside {coordinate_system}"
+                )
+
+            # Detect geometry type from sample row while malformed input is
+            # still isolated by the validation savepoint.
+            sample = await session.execute(
+                text(
+                    f"SELECT GeometryType({parsed_geom}) "
+                    f"FROM {tref} WHERE {wkt_col} IS NOT NULL LIMIT 1"
+                )
+            )
+            geom_type = sample.scalar_one_or_none() or "GEOMETRY"
+    except DBAPIError as exc:
+        raise ValueError("WKT column contains malformed geometry text") from exc
 
     await session.execute(
         text(f"ALTER TABLE {tref} ADD COLUMN geom geometry({geom_type}, {srid})")
     )
     result = await session.execute(
-        text(
-            f"UPDATE {tref} SET geom = ST_GeomFromText({wkt_col}, {srid}) "
-            f"WHERE {wkt_col} IS NOT NULL"
-        )
+        text(f"UPDATE {tref} SET geom = {parsed_geom} WHERE {wkt_col} IS NOT NULL")
     )
     await session.execute(
         text(f"CREATE INDEX idx_{table_name}_geom ON {tref} USING GIST (geom)")
@@ -219,7 +297,9 @@ def _normalize_geometry_type(value: str | None) -> str | None:
     return _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE.get(upper, upper)
 
 
-async def get_geometry_type(session: AsyncSession, table_name: str) -> str | None:
+async def get_geometry_type(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> str | None:
     """Get the geometry type of the first feature in the table.
 
     Returns the type in uppercase for consistent casing across all sources.
@@ -228,19 +308,28 @@ async def get_geometry_type(session: AsyncSession, table_name: str) -> str | Non
     ``chk_datasets_geometry_type``.
     """
     result = await session.execute(
-        text(f"SELECT GeometryType(geom) FROM {_qtable(table_name)} LIMIT 1")
+        text(
+            f"SELECT GeometryType(geom) FROM "
+            f"{_qtable(table_name, schema=schema)} LIMIT 1"
+        )
     )
     value = result.scalar_one_or_none()
     return _normalize_geometry_type(value)
 
 
-async def get_feature_count(session: AsyncSession, table_name: str) -> int:
+async def get_feature_count(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> int:
     """Count the number of features (rows) in the table."""
-    result = await session.execute(text(f"SELECT COUNT(*) FROM {_qtable(table_name)}"))
+    result = await session.execute(
+        text(f"SELECT COUNT(*) FROM {_qtable(table_name, schema=schema)}")
+    )
     return result.scalar_one()
 
 
-async def get_extent(session: AsyncSession, table_name: str) -> str | None:
+async def get_extent(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> str | None:
     """Get the 4326 bbox extent as POLYGON WKT (or None for empty tables).
 
     fix(#430 BA-18): records.spatial_extent is a POLYGON column. ST_Extent of a single
@@ -258,13 +347,16 @@ async def get_extent(session: AsyncSession, table_name: str) -> str | None:
             f"    THEN ST_AsText(ST_SetSRID(ext::geometry, 4326)) "
             f"  ELSE ST_AsText(ST_Expand(ST_SetSRID(ext::geometry, 4326), 1e-9)) "
             f"END "
-            f"FROM (SELECT ST_Extent(geom_4326) AS ext FROM {_qtable(table_name)}) s"
+            f"FROM (SELECT ST_Extent(geom_4326) AS ext FROM "
+            f"{_qtable(table_name, schema=schema)}) s"
         )
     )
     return result.scalar_one_or_none()
 
 
-async def detect_3d_metadata(session: AsyncSession, table_name: str) -> dict:
+async def detect_3d_metadata(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> dict:
     """Detect 3D geometry properties from a PostGIS table.
 
     Uses ``ST_NDims`` to determine whether any geometry is 3D and
@@ -277,7 +369,7 @@ async def detect_3d_metadata(session: AsyncSession, table_name: str) -> dict:
     _NO_3D = {"is_3d": None, "n_dims": None, "z_min": None, "z_max": None}
 
     # Check if table has geometry first
-    has_geom = await _table_has_geometry(session, table_name)
+    has_geom = await _table_has_geometry(session, table_name, schema=schema)
     if not has_geom:
         return _NO_3D
 
@@ -291,7 +383,7 @@ async def detect_3d_metadata(session: AsyncSession, table_name: str) -> dict:
                 f"    WHEN MAX(ST_NDims(geom)) > 2 THEN ST_3DExtent(geom)::text "
                 f"    ELSE NULL "
                 f"  END AS extent_3d "
-                f"FROM {_qtable(table_name)} "
+                f"FROM {_qtable(table_name, schema=schema)} "
                 f"WHERE geom IS NOT NULL"
             )
         )
@@ -516,7 +608,9 @@ async def get_sample_values(
         f"WITH sampled AS ("
         f"  SELECT {select_cols} FROM {tbl}"
         f"  TABLESAMPLE BERNOULLI ("
-        f"    CASE WHEN (SELECT reltuples FROM pg_class WHERE relname = :t) > 500"
+        f"    CASE WHEN (SELECT c.reltuples FROM pg_class c "
+        f"      JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"      WHERE c.relname = :t AND n.nspname = :schema) > 500"
         f"         THEN 10 ELSE 100 END"
         f"  ) LIMIT :sample_size"
         f") "
@@ -524,7 +618,7 @@ async def get_sample_values(
     )
 
     rows = await session.execute(
-        text(query).bindparams(sample_size=sample_size, t=table_name)
+        text(query).bindparams(sample_size=sample_size, t=table_name, schema=schema)
     )
 
     result: dict[str, list[str]] = {}
@@ -576,6 +670,8 @@ async def _score_geometry_validity(
     table_name: str,
     has_geometry: bool,
     max_rows: int,
+    *,
+    schema: str = "data",
 ) -> float:
     """Percentage of valid geometries (0-100). Degrades to 100 on error."""
     if not has_geometry:
@@ -585,7 +681,8 @@ async def _score_geometry_validity(
             result = await session.execute(
                 text(
                     f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
-                    f"FROM (SELECT geom FROM {_qtable(table_name)} LIMIT :max_rows) sub"
+                    f"FROM (SELECT geom FROM "
+                    f"{_qtable(table_name, schema=schema)} LIMIT :max_rows) sub"
                 ).bindparams(max_rows=max_rows)
             )
             val = result.scalar_one_or_none()
@@ -602,6 +699,8 @@ async def _score_attribute_completeness(
     session: AsyncSession,
     table_name: str,
     column_info: list[dict],
+    *,
+    schema: str = "data",
 ) -> float:
     """Average non-null percentage across non-geometry columns (0-100)."""
     non_geom_cols = [
@@ -619,7 +718,7 @@ async def _score_attribute_completeness(
     try:
         async with session.begin_nested():
             result = await session.execute(
-                text(f"SELECT {col_exprs} FROM {_qtable(table_name)}")
+                text(f"SELECT {col_exprs} FROM {_qtable(table_name, schema=schema)}")
             )
             row = result.one_or_none()
             if row is not None:
@@ -637,6 +736,8 @@ async def compute_quality_score(
     column_info: list[dict],
     dataset: "Dataset",
     max_validity_rows: int = 10000,
+    *,
+    schema: str = "data",
 ) -> dict:
     """Compute a weighted quality score for a dataset.
 
@@ -659,11 +760,13 @@ async def compute_quality_score(
         table_name,
         has_geometry,
         max_validity_rows,
+        schema=schema,
     )
     attribute_score = await _score_attribute_completeness(
         session,
         table_name,
         column_info,
+        schema=schema,
     )
 
     # For table records, geometry_validity and crs_defined are not applicable.
@@ -739,7 +842,7 @@ async def extract_metadata(
     has_geometry = await _table_has_geometry(session, table_name, schema=schema)
 
     if not has_geometry:
-        feature_count = await get_feature_count(session, table_name)
+        feature_count = await get_feature_count(session, table_name, schema=schema)
         return {
             "srid": None,
             "geometry_type": None,
@@ -817,9 +920,9 @@ async def extract_metadata(
             exc_info=True,
         )
         srid = await get_table_srid(session, table_name, schema=schema)
-        geometry_type = await get_geometry_type(session, table_name)
-        extent_wkt = await get_extent(session, table_name)
-        feature_count = await get_feature_count(session, table_name)
+        geometry_type = await get_geometry_type(session, table_name, schema=schema)
+        extent_wkt = await get_extent(session, table_name, schema=schema)
+        feature_count = await get_feature_count(session, table_name, schema=schema)
         return {
             "srid": srid,
             "geometry_type": geometry_type,
@@ -1110,7 +1213,11 @@ async def clip_to_mercator_bounds(
 
 
 async def add_4326_column(
-    session: AsyncSession, table_name: str, source_srid: int
+    session: AsyncSession,
+    table_name: str,
+    source_srid: int,
+    *,
+    schema: str = "data",
 ) -> None:
     """Add a geom_4326 column with WGS84 geometry and spatial index.
 
@@ -1123,7 +1230,7 @@ async def add_4326_column(
     doesn't fail with `Geometry has Z dimension but column does not`. Z is
     still preserved in the original `geom` column.
     """
-    tref = _qtable(table_name)
+    tref = _qtable(table_name, schema=schema)
 
     await session.execute(
         text(
@@ -1141,7 +1248,7 @@ async def add_4326_column(
             text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_Transform(geom, 4326))")
         )
 
-    await ensure_geom_4326_gist_index(session, table_name)
+    await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 
     # DBM-05 (Phase 271): the previously-created `idx_<table>_gid` btree
     # was redundant with the PK btree on `gid SERIAL PRIMARY KEY`. Removed
