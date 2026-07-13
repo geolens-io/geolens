@@ -78,7 +78,7 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
             <ChevronRight
               className={cn(
                 'h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]',
-                resetOpen && 'rotate-90',
+                resetOpen ? 'rotate-90' : 'rtl-mirror',
               )}
               aria-hidden="true"
             />
@@ -86,7 +86,7 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
               {t('style.raster.reset')}
             </span>
             {!resetOpen && (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 {t('style.raster.resetTitle')}
               </span>
             )}

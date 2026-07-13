@@ -165,7 +165,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               isExpanded && 'rotate-90',
             )}
           >
-            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            <ChevronRight className={cn('h-4 w-4', !isExpanded && 'rtl-mirror')} aria-hidden="true" />
           </button>
         )}
 

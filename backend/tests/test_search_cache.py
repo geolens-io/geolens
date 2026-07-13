@@ -405,3 +405,22 @@ async def test_build_cache_key_includes_public_app_url():
 
     assert key_app_a != key_app_b  # different app origin -> different key
     assert key_app_a == key_app_a2  # deterministic for the same inputs
+
+
+@pytest.mark.anyio
+async def test_build_cache_key_isolates_preferred_languages():
+    from app.modules.catalog.search.service import SearchFilters
+
+    base = dict(
+        endpoint="search",
+        filters=SearchFilters(q="rivers"),
+        user_roles=set(),
+        public_api_url="https://api.example.com",
+    )
+
+    key_fr = search_cache.build_cache_key(**base, preferred_languages=("fr",))
+    key_de = search_cache.build_cache_key(**base, preferred_languages=("de",))
+    key_fr_again = search_cache.build_cache_key(**base, preferred_languages=("fr",))
+
+    assert key_fr != key_de
+    assert key_fr == key_fr_again

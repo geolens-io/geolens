@@ -153,6 +153,10 @@ jobs:
         with:
           python-version: "3.13"
 
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: 22
+
       - name: Install pre-commit
         run: python -m pip install pre-commit
 
@@ -163,6 +167,11 @@ jobs:
         env:
           SKIP: ruff-check,ruff-format,gitleaks
         run: pre-commit run --all-files --show-diff-on-failure
+
+      # fix(#474): this scans backend detail= assignments as well as the
+      # frontend classifier, so it must run for backend-only PRs too.
+      - name: Localized API error boundary
+        run: node frontend/scripts/check-api-error-boundary.mjs
 
       - name: Install gitleaks
         run: |
@@ -1019,6 +1028,9 @@ jobs:
 
       - name: Locale parity
         run: npm run test:i18n
+
+      - name: Hardcoded toast strings
+        run: npm run check:i18n:toast-strings
 
       - name: Changed namespaces exist in all languages
         run: npm run check:i18n:changed

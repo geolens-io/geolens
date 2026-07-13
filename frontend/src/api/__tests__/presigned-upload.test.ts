@@ -53,7 +53,7 @@ describe('uploadChunks', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const promise = uploadChunks(urls, file, 100, undefined, { maxRetries: 2 });
-    const assertion = expect(promise).rejects.toThrow(/part 1 upload failed/);
+    const assertion = expect(promise).rejects.toThrow(/Upload part 1 failed/);
     await vi.runAllTimersAsync();
     await assertion;
     // 1 initial + 2 retries on part 1.

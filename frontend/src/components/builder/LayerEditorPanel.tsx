@@ -175,7 +175,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
 
-  const renderAsOptions = useMemo(() => getRenderAsOptions(layer), [layer]);
+  const renderAsOptions = useMemo(() => getRenderAsOptions(layer, t), [layer, t]);
   const currentRenderAs = useMemo(() => getCurrentRenderAs(layer), [layer]);
 
   const layerName = layer.display_name ?? layer.dataset_name;

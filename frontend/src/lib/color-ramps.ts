@@ -13,47 +13,47 @@ import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 //   Qualitative: Set1, Set3, Accent, Pastel1, Pastel2 — NOT safe.
 
 export const SEQUENTIAL_RAMPS = [
-  { name: 'YlOrRd', label: 'Yellow-Orange-Red', cvdSafe: true },
-  { name: 'YlGnBu', label: 'Yellow-Green-Blue', cvdSafe: true },
-  { name: 'Viridis', label: 'Viridis', cvdSafe: true },
-  { name: 'Inferno', label: 'Inferno', cvdSafe: true },
-  { name: 'Plasma', label: 'Plasma', cvdSafe: true },
-  { name: 'Blues', label: 'Blues', cvdSafe: true },
-  { name: 'Greens', label: 'Greens', cvdSafe: true },
-  { name: 'Oranges', label: 'Oranges', cvdSafe: true },
-  { name: 'Reds', label: 'Reds', cvdSafe: true },
-  { name: 'Purples', label: 'Purples', cvdSafe: true },
-  { name: 'BuGn', label: 'Blue-Green', cvdSafe: true },
-  { name: 'BuPu', label: 'Blue-Purple', cvdSafe: true },
-  { name: 'OrRd', label: 'Orange-Red', cvdSafe: true },
-  { name: 'YlGn', label: 'Yellow-Green', cvdSafe: true },
+  { name: 'YlOrRd', labelKey: 'dataDriven.colorRamps.yellowOrangeRed', cvdSafe: true },
+  { name: 'YlGnBu', labelKey: 'dataDriven.colorRamps.yellowGreenBlue', cvdSafe: true },
+  { name: 'Viridis', labelKey: 'dataDriven.colorRamps.viridis', cvdSafe: true },
+  { name: 'Inferno', labelKey: 'dataDriven.colorRamps.inferno', cvdSafe: true },
+  { name: 'Plasma', labelKey: 'dataDriven.colorRamps.plasma', cvdSafe: true },
+  { name: 'Blues', labelKey: 'dataDriven.colorRamps.blues', cvdSafe: true },
+  { name: 'Greens', labelKey: 'dataDriven.colorRamps.greens', cvdSafe: true },
+  { name: 'Oranges', labelKey: 'dataDriven.colorRamps.oranges', cvdSafe: true },
+  { name: 'Reds', labelKey: 'dataDriven.colorRamps.reds', cvdSafe: true },
+  { name: 'Purples', labelKey: 'dataDriven.colorRamps.purples', cvdSafe: true },
+  { name: 'BuGn', labelKey: 'dataDriven.colorRamps.blueGreen', cvdSafe: true },
+  { name: 'BuPu', labelKey: 'dataDriven.colorRamps.bluePurple', cvdSafe: true },
+  { name: 'OrRd', labelKey: 'dataDriven.colorRamps.orangeRed', cvdSafe: true },
+  { name: 'YlGn', labelKey: 'dataDriven.colorRamps.yellowGreen', cvdSafe: true },
 ] as const;
 
 export const DIVERGING_RAMPS = [
-  { name: 'RdYlBu', label: 'Red-Yellow-Blue', cvdSafe: true },
+  { name: 'RdYlBu', labelKey: 'dataDriven.colorRamps.redYellowBlue', cvdSafe: true },
   // RdYlGn uses red-green contrast — NOT colorblind-safe per ColorBrewer.
-  { name: 'RdYlGn', label: 'Red-Yellow-Green', cvdSafe: false },
-  { name: 'RdBu', label: 'Red-Blue', cvdSafe: true },
-  { name: 'BrBG', label: 'Brown-BlueGreen', cvdSafe: true },
-  { name: 'PiYG', label: 'Pink-YellowGreen', cvdSafe: true },
-  { name: 'PRGn', label: 'Purple-Green', cvdSafe: true },
+  { name: 'RdYlGn', labelKey: 'dataDriven.colorRamps.redYellowGreen', cvdSafe: false },
+  { name: 'RdBu', labelKey: 'dataDriven.colorRamps.redBlue', cvdSafe: true },
+  { name: 'BrBG', labelKey: 'dataDriven.colorRamps.brownBlueGreen', cvdSafe: true },
+  { name: 'PiYG', labelKey: 'dataDriven.colorRamps.pinkYellowGreen', cvdSafe: true },
+  { name: 'PRGn', labelKey: 'dataDriven.colorRamps.purpleGreen', cvdSafe: true },
   // Spectral is a rainbow-like multi-hue — NOT colorblind-safe per ColorBrewer.
-  { name: 'Spectral', label: 'Spectral', cvdSafe: false },
+  { name: 'Spectral', labelKey: 'dataDriven.colorRamps.spectral', cvdSafe: false },
 ] as const;
 
 export const QUALITATIVE_RAMPS = [
   // Set1 and Set3 use problematic red-green pairings — NOT colorblind-safe.
-  { name: 'Set1', label: 'Set 1', cvdSafe: false },
+  { name: 'Set1', labelKey: 'dataDriven.colorRamps.set1', cvdSafe: false },
   // Set2 and Dark2 are listed as colorblind-safe at small N per ColorBrewer.
-  { name: 'Set2', label: 'Set 2', cvdSafe: true },
-  { name: 'Set3', label: 'Set 3', cvdSafe: false },
+  { name: 'Set2', labelKey: 'dataDriven.colorRamps.set2', cvdSafe: true },
+  { name: 'Set3', labelKey: 'dataDriven.colorRamps.set3', cvdSafe: false },
   // Paired is listed as colorblind-safe per ColorBrewer.
-  { name: 'Paired', label: 'Paired', cvdSafe: true },
-  { name: 'Dark2', label: 'Dark 2', cvdSafe: true },
+  { name: 'Paired', labelKey: 'dataDriven.colorRamps.paired', cvdSafe: true },
+  { name: 'Dark2', labelKey: 'dataDriven.colorRamps.dark2', cvdSafe: true },
   // Accent, Pastel1, Pastel2 include red-green pairs — NOT colorblind-safe.
-  { name: 'Accent', label: 'Accent', cvdSafe: false },
-  { name: 'Pastel1', label: 'Pastel 1', cvdSafe: false },
-  { name: 'Pastel2', label: 'Pastel 2', cvdSafe: false },
+  { name: 'Accent', labelKey: 'dataDriven.colorRamps.accent', cvdSafe: false },
+  { name: 'Pastel1', labelKey: 'dataDriven.colorRamps.pastel1', cvdSafe: false },
+  { name: 'Pastel2', labelKey: 'dataDriven.colorRamps.pastel2', cvdSafe: false },
 ] as const;
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ def build_cache_key(
     public_api_url: str | None = None,
     public_app_url: str | None = None,
     semantic_enabled: bool | None = None,
+    preferred_languages: tuple[str, ...] = (),
 ) -> str:
     """Build a deterministic cache key for the given request shape.
 
@@ -68,6 +69,7 @@ def build_cache_key(
         "roles": sorted(user_roles),
         "public_api_url": public_api_url or "",
         "public_app_url": public_app_url or "",
+        "preferred_languages": preferred_languages,
     }
     if semantic_enabled is not None:
         payload["semantic_enabled"] = bool(semantic_enabled)

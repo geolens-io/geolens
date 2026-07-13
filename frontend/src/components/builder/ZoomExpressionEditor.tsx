@@ -173,7 +173,14 @@ export function ZoomExpressionEditor({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{label}</span>
-        <div className="flex flex-1 rounded-md border bg-muted/30 p-0.5" role="group" aria-label={`${label} mode`}>
+        <div
+          className="flex flex-1 rounded-md border bg-muted/30 p-0.5"
+          role="group"
+          aria-label={t('style.zoomExpression.modeLabel', {
+            label,
+            defaultValue: '{{label}} mode',
+          })}
+        >
           <button
             type="button"
             aria-pressed={mode === 'fixed'}
@@ -234,7 +241,10 @@ export function ZoomExpressionEditor({
             <div className="grid grid-cols-[1fr_5rem] items-center gap-2">
               <span className="text-xs text-muted-foreground">{t('style.zoomExpression.baseValue')}</span>
               <Input
-                aria-label={`${label} ${t('style.zoomExpression.baseValue')}`}
+                aria-label={t('style.zoomExpression.baseValueLabel', {
+                  label,
+                  defaultValue: '{{label}} base value',
+                })}
                 className="h-7 px-2 text-xs"
                 type="number"
                 min={min}
@@ -250,7 +260,11 @@ export function ZoomExpressionEditor({
             {draft.stops.map((stop, index) => (
               <div key={index} className="grid grid-cols-[1fr_1fr_1.5rem] items-center gap-1.5">
                 <Input
-                  aria-label={`${label} ${t('style.zoomExpression.stopZoom', { index: index + 1 })}`}
+                  aria-label={t('style.zoomExpression.stopZoomLabel', {
+                    label,
+                    index: index + 1,
+                    defaultValue: '{{label}} stop {{index}} zoom',
+                  })}
                   className="h-7 px-2 text-xs"
                   type="number"
                   min={0}
@@ -260,7 +274,11 @@ export function ZoomExpressionEditor({
                   onChange={(event) => updateStop(index, { zoom: event.currentTarget.valueAsNumber })}
                 />
                 <Input
-                  aria-label={`${label} ${t('style.zoomExpression.stopValue', { index: index + 1 })}`}
+                  aria-label={t('style.zoomExpression.stopValueLabel', {
+                    label,
+                    index: index + 1,
+                    defaultValue: '{{label}} stop {{index}} value',
+                  })}
                   className="h-7 px-2 text-xs"
                   type="number"
                   min={min}
@@ -273,7 +291,10 @@ export function ZoomExpressionEditor({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label={`${t('style.zoomExpression.removeStop')} ${index + 1}`}
+                  aria-label={t('style.zoomExpression.removeStopLabel', {
+                    index: index + 1,
+                    defaultValue: 'Remove stop {{index}}',
+                  })}
                   disabled={!canRemoveStop}
                   onClick={() => removeStop(index)}
                 >

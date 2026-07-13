@@ -11,6 +11,7 @@
   "noticedNone": "Es wurde nichts automatisch erkannt — Ihre Beschreibung ist am wichtigsten.",
   "technicalDetails": "Technische Details ({{count}})",
   "technicalEmpty": "Es wurde noch nichts erfasst.",
+  "technicalSuppressed": "(unterdrückt)",
   "technicalCopy": "Technische Details kopieren",
   "technicalCopied": "Technische Details in die Zwischenablage kopiert",
   "technicalClear": "Leeren",

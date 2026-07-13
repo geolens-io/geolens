@@ -55,7 +55,9 @@ vi.mock('@/api/datasets', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { defaultValue?: string } & Record<string, unknown>) =>
-      opts?.defaultValue ?? key,
+      (opts?.defaultValue ?? key).replace(/{{(\w+)}}/g, (_match, name: string) =>
+        String(opts?.[name] ?? `{{${name}}}`),
+      ),
     i18n: { language: 'en' },
   }),
 }));

@@ -307,14 +307,17 @@ class DefaultProcessingPort:
 
     async def get_record(self, session, record_id):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
 
         from app.modules.catalog.datasets.domain.models import Record
 
         stmt = (
             select(Record)
             .where(Record.id == record_id)
-            .options(joinedload(Record.keywords))
+            .options(
+                joinedload(Record.keywords),
+                selectinload(Record.translations),
+            )
         )
         result = await session.execute(stmt)
         return result.unique().scalar_one_or_none()
@@ -405,7 +408,7 @@ class DefaultProcessingPort:
 
     async def get_records_without_embeddings(self, session, *, force=False):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
 
         from app.modules.catalog.datasets.domain.models import Record
         from app.processing.embeddings.models import RecordEmbedding
@@ -413,7 +416,10 @@ class DefaultProcessingPort:
         stmt = (
             select(Record)
             .outerjoin(RecordEmbedding, Record.id == RecordEmbedding.record_id)
-            .options(joinedload(Record.keywords))
+            .options(
+                joinedload(Record.keywords),
+                selectinload(Record.translations),
+            )
             .order_by(Record.created_at)
         )
         if not force:

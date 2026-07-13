@@ -1,4 +1,4 @@
-"""Integration tests for record sub-resource CRUD: contacts, keywords, distributions.
+"""Integration tests for normalized record sub-resource CRUD.
 
 Tests exercise the /records/{id}/contacts/, /records/{id}/keywords/, and
 /records/{id}/distributions/ endpoints. Uses the same test infrastructure as
@@ -9,6 +9,7 @@ Requirements:
   - Alembic migrations must be applied (87-01 related tables migration)
 """
 
+import asyncio
 import uuid
 
 from httpx import AsyncClient
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
+    Record,
     RecordContact,
     RecordDistribution,
     RecordKeyword,
@@ -54,6 +56,115 @@ async def _create_dataset_with_distributions(
     await session.commit()
     await session.refresh(dataset)
     return dataset
+
+
+# ---------------------------------------------------------------------------
+# Localized title/summary variants
+# ---------------------------------------------------------------------------
+
+
+class TestTranslations:
+    async def test_translation_upsert_list_and_delete(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        base = f"/records/{ds.record_id}/translations"
+
+        put = await client.put(
+            f"{base}/pt_br/",
+            json={"title": "  Rios brasileiros  ", "summary": "Águas interiores"},
+            headers=admin_auth_header,
+        )
+        assert put.status_code == 200, put.text
+        assert put.json() == {
+            "record_id": str(ds.record_id),
+            "language": "pt-BR",
+            "title": "Rios brasileiros",
+            "summary": "Águas interiores",
+        }
+
+        listing = await client.get(f"{base}/", headers=admin_auth_header)
+        assert listing.status_code == 200
+        assert listing.json()["total"] == 1
+        assert listing.json()["translations"][0]["language"] == "pt-BR"
+
+        deleted = await client.delete(f"{base}/pt-BR/", headers=admin_auth_header)
+        assert deleted.status_code == 204
+        missing = await client.delete(f"{base}/pt-BR/", headers=admin_auth_header)
+        assert missing.status_code == 404
+
+    async def test_translation_canonicalization_primary_rejection_and_audit_stamp(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        record = await test_db_session.get(Record, ds.record_id)
+        assert record is not None
+        original_updated_at = record.updated_at
+        base = f"/records/{ds.record_id}/translations"
+
+        duplicate = await client.put(
+            f"{base}/EN/",
+            json={"title": "Dead primary duplicate"},
+            headers=admin_auth_header,
+        )
+        assert duplicate.status_code == 409
+
+        created = await client.put(
+            f"{base}/ZH_hANT/",
+            json={"title": "繁體中文"},
+            headers=admin_auth_header,
+        )
+        assert created.status_code == 200
+        assert created.json()["language"] == "zh-Hant"
+
+        collision = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"language": "ZH_hANT"},
+            headers=admin_auth_header,
+        )
+        assert collision.status_code == 422
+
+        await test_db_session.refresh(record)
+        assert record.updated_at >= original_updated_at
+        assert record.updated_by == admin_id
+
+    async def test_concurrent_translation_puts_are_idempotent(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        url = f"/records/{ds.record_id}/translations/fr/"
+
+        first, second = await asyncio.gather(
+            client.put(
+                url,
+                json={"title": "Rivières", "summary": "Premier résumé"},
+                headers=admin_auth_header,
+            ),
+            client.put(
+                url,
+                json={"title": "Cours d'eau", "summary": "Second résumé"},
+                headers=admin_auth_header,
+            ),
+        )
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        listing = await client.get(
+            f"/records/{ds.record_id}/translations/", headers=admin_auth_header
+        )
+        assert listing.json()["total"] == 1
 
 
 # ---------------------------------------------------------------------------

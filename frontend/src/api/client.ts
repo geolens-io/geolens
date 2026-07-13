@@ -1,5 +1,5 @@
 import { API_BASE } from '@/lib/constants';
-import { translateError, summarizeErrorDetail } from '@/lib/error-map';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken } from './auth';
 import i18n from '@/i18n/i18n';
@@ -198,25 +198,24 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
-    let detail: string = response.statusText;
     let detailRaw: unknown = undefined;
 
-    // Only the parse is fallible. Keeping `summarizeErrorDetail` outside the
-    // try means a bug in it surfaces as a crash rather than silently degrading
-    // every error message to the bare status text.
     let body: { detail?: unknown } | undefined;
     try {
       body = await response.json();
     } catch {
-      // body not JSON, use statusText
+      // Non-JSON failures use the localized status category below.
     }
 
     if (body?.detail !== undefined) {
       detailRaw = body.detail;
-      detail = summarizeErrorDetail(body.detail, response.statusText);
     }
 
-    throw new ApiError(translateError(detail), response.status, detailRaw);
+    throw new ApiError(
+      translateApiErrorDetail(detailRaw, response.status),
+      response.status,
+      detailRaw,
+    );
   }
 
   if (response.status === 204) {
@@ -237,7 +236,7 @@ export async function apiFetchBlob(
   });
 
   if (!response.ok) {
-    throw new ApiError(response.statusText, response.status);
+    throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
   }
 
   return response.blob();

@@ -6,15 +6,6 @@ vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
 }));
 
-vi.mock('@/lib/error-map', async () => {
-  // fix(#438): partial mock — `summarizeErrorDetail` is real, so UX-03's
-  // collapse behavior is exercised here rather than stubbed away. A previous
-  // hand-written mock omitted it, which made apiFetch silently fall back to
-  // `statusText` for every error.
-  const actual = await vi.importActual<typeof import('@/lib/error-map')>('@/lib/error-map');
-  return { ...actual, translateError: (msg: string) => msg };
-});
-
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
@@ -118,7 +109,7 @@ describe('apiFetch', () => {
     expect(result).toBeUndefined();
   });
 
-  it('throws ApiError with detail from JSON error body', async () => {
+  it('classifies an unmapped JSON detail instead of displaying backend prose', async () => {
     mockFetch.mockResolvedValueOnce(errorResponse(400, 'Name is required'));
 
     try {
@@ -126,14 +117,14 @@ describe('apiFetch', () => {
       expect.fail('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
-      expect((e as ApiError).message).toBe('Name is required');
+      expect((e as ApiError).message).toBe(
+        'The request could not be completed. Check your input.',
+      );
       expect((e as ApiError).status).toBe(400);
     }
   });
 
-  // fix(#438): UX-03 — an unintercepted 422 used to surface the raw Pydantic
-  // array as JSON text in the toast body.
-  it('collapses a FastAPI 422 detail array to its first message', async () => {
+  it('localizes a FastAPI 422 detail array without exposing raw JSON', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 422,
@@ -151,7 +142,7 @@ describe('apiFetch', () => {
       await apiFetch('/test/');
       expect.fail('should have thrown');
     } catch (e) {
-      expect((e as ApiError).message).toBe('Field required');
+      expect((e as ApiError).message).toBe('name is required.');
       expect((e as ApiError).message).not.toContain('{');
       // the raw payload is still available to callers that want it
       expect((e as ApiError).body).toEqual([
@@ -160,7 +151,7 @@ describe('apiFetch', () => {
     }
   });
 
-  it('throws ApiError with statusText when body is not JSON', async () => {
+  it('uses a localized status category when the body is not JSON', async () => {
     mockFetch.mockResolvedValueOnce(errorResponse(500));
 
     try {
@@ -168,6 +159,9 @@ describe('apiFetch', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(500);
+      expect((e as ApiError).message).toBe(
+        'The service is temporarily unavailable. Try again later.',
+      );
     }
   });
 

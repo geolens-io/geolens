@@ -2,6 +2,7 @@ import { Slider } from '@/components/ui/slider';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import { getNumberPaint } from './paint-accessors';
 import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
+import { formatNumber } from '@/lib/format';
 
 /**
  * builder-audit #338 DUP-04: the single brightness/contrast/saturation/hue appearance
@@ -27,7 +28,7 @@ function formatRasterValue(value: number, format: RasterValueFormat): string {
       return `${Math.round(value * 100)}%`;
     case 'decimal2':
     default:
-      return value.toFixed(2);
+      return formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 }
 

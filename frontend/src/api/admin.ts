@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { apiFetch, authenticatedRawFetch } from './client';
 import type {
   AIStatusResponse,
@@ -216,7 +217,12 @@ export async function exportAuditLogs(
   // after a long idle transparently refreshes the JWT instead of 401-ing.
   const response = await authenticatedRawFetch(url);
   if (!response.ok) {
-    throw new Error(`Export failed: ${response.statusText}`);
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = body.detail;
+    } catch { /* not JSON */ }
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
   return response.blob();
 }
@@ -230,7 +236,12 @@ export async function exportAuditLogs(
 export async function exportUsersCsv(): Promise<Blob> {
   const response = await authenticatedRawFetch(`${API_BASE}/admin/users/export.csv`);
   if (!response.ok) {
-    throw new Error(`Export failed: ${response.statusText}`);
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = body.detail;
+    } catch { /* not JSON */ }
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
   return response.blob();
 }

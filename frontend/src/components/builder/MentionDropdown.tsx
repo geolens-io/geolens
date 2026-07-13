@@ -22,7 +22,7 @@ export function MentionDropdown({ id, items, selectedIndex, onSelect, type, labe
   return (
     <div
       id={id}
-      className="absolute bottom-full left-0 w-full mb-1 max-h-48 overflow-y-auto rounded-lg border bg-popover shadow-md text-sm z-50"
+      className="absolute bottom-full start-0 w-full mb-1 max-h-48 overflow-y-auto rounded-lg border bg-popover shadow-md text-sm z-50"
       role="listbox"
       aria-label={label}
     >

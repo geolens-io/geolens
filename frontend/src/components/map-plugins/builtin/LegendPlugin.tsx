@@ -327,7 +327,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
           <span className="font-medium text-foreground truncate">
             {legendEntryName(layer)}
           </span>
-          <span className="text-muted-foreground italic ml-1">
+          <span className="text-muted-foreground italic ms-1">
             {t('plugins.legend.unavailable', { defaultValue: '(legend unavailable)' })}
           </span>
         </div>
@@ -349,6 +349,7 @@ function GraduatedLegendSwitch({
   style: SwatchStyle;
   geometryType?: string | null;
 }) {
+  const { t } = useTranslation('common');
   const breaks = styleConfig.breaks ?? [];
   const labelConfig = styleConfig as LegendLabelStyleConfig;
   const metricLabel = labelConfig.sizeLabel ?? displayColumn(styleConfig.column);
@@ -363,7 +364,7 @@ function GraduatedLegendSwitch({
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">
-          Size: {metricLabel}
+          {t('common:viewer.legend.sizeLabel', { label: metricLabel })}
         </div>
         <GraduatedRadiusLegend
           sizes={styleConfig.sizes}
@@ -374,7 +375,9 @@ function GraduatedLegendSwitch({
         {parsedCircleColor && colorColumn && colorColumn !== styleConfig.column && (
           <>
             <div className="pt-1 text-mini font-medium text-muted-foreground">
-              Color: {labelConfig.colorLabel ?? displayColumn(colorColumn)}
+              {t('common:viewer.legend.colorLabel', {
+                label: labelConfig.colorLabel ?? displayColumn(colorColumn),
+              })}
             </div>
             <GraduatedColorLegend
               colors={parsedCircleColor.colors}
@@ -394,7 +397,7 @@ function GraduatedLegendSwitch({
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">
-          Width: {metricLabel}
+          {t('common:viewer.legend.widthLabel', { label: metricLabel })}
         </div>
         <GraduatedWidthLegend
           sizes={styleConfig.sizes}

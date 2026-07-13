@@ -1,5 +1,6 @@
 import { API_BASE } from '@/lib/constants';
-import { summarizeErrorDetail } from '@/lib/error-map';
+import { translateApiErrorDetail } from '@/lib/error-map';
+import i18n from '@/i18n/i18n';
 import { apiFetch, authenticatedRawFetch } from './client';
 import { uploadChunks } from './_presignedUpload';
 import type {
@@ -72,16 +73,14 @@ async function authenticatedDownload(url: string, filename: string): Promise<voi
   const response = await authenticatedRawFetch(url);
 
   if (!response.ok) {
-    let detail = response.statusText;
+    let detail: unknown;
     try {
       const body = await response.json();
-      if (body.detail) {
-        detail = summarizeErrorDetail(body.detail, detail);
-      }
+      detail = body.detail;
     } catch {
-      // body not JSON
+      // Non-JSON failures use the localized status category below.
     }
-    throw new Error(detail);
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
 
   const blob = await response.blob();
@@ -373,7 +372,11 @@ export async function reuploadPresigned(
 
   if (urls.length === 1 && !upload_id) {
     const resp = await fetch(urls[0], { method: 'PUT', body: file });
-    if (!resp.ok) throw new Error(`S3 upload failed: ${resp.status} ${resp.statusText}`);
+    if (!resp.ok) {
+      throw new Error(
+        i18n.t('common:errors.storageUploadFailed', { status: resp.status }),
+      );
+    }
     return completePresignedReupload(datasetId, job_id);
   }
 

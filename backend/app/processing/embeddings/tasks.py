@@ -1,7 +1,7 @@
 """Procrastinate task for async embedding generation."""
 
 import structlog
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.db.tenant_session import tenant_task
 from app.processing.ingest.tasks import task_app
@@ -34,7 +34,10 @@ async def embed_record(record_id: str) -> None:
     async with async_session() as session:
         result = await session.execute(
             select(Record)
-            .options(joinedload(Record.keywords))
+            .options(
+                joinedload(Record.keywords),
+                selectinload(Record.translations),
+            )
             .where(Record.id == uuid.UUID(record_id))
         )
         record = result.unique().scalar_one_or_none()
@@ -84,6 +87,17 @@ async def embed_record(record_id: str) -> None:
             keywords=keyword_list,
             lineage=record.lineage_summary,
             raster_summary=raster_summary,
+            localized_texts=[
+                "\n".join(
+                    part
+                    for part in (
+                        f"{translation.language}: {translation.title}",
+                        translation.summary,
+                    )
+                    if part
+                )
+                for translation in record.translations
+            ],
         )
 
         await session.commit()

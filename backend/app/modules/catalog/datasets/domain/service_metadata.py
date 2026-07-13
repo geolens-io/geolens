@@ -18,6 +18,7 @@ from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
+    RecordTranslation,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
 from app.platform.extensions import get_catalog_port, get_workflow_extension
@@ -268,6 +269,19 @@ async def update_user_metadata(
         raise ValueError(f"Dataset {dataset_id} not found.")
 
     record = dataset.record
+
+    if "language" in meta.model_fields_set:
+        effective_language = meta.language or "en"
+        collision = await session.scalar(
+            select(RecordTranslation.id).where(
+                RecordTranslation.record_id == record.id,
+                func.lower(RecordTranslation.language) == effective_language.casefold(),
+            )
+        )
+        if collision is not None:
+            raise ValueError(
+                "Primary language duplicates an existing record translation"
+            )
 
     mutated_flags = [
         _apply_simple_field_assignments(record, dataset, meta),

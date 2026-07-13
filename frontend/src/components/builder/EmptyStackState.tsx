@@ -20,15 +20,11 @@ export const eyebrowClassName = 'block text-2xs font-semibold tracking-wide text
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return String(n);
-}
-
-function recordTypeLabel(recordType: SuggestedDataset['record_type']): string {
-  if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') return 'Raster';
-  return 'Vector';
+function formatCompactNumber(n: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    notation: 'compact',
+    maximumFractionDigits: n >= 1_000_000 ? 1 : 0,
+  }).format(n);
 }
 
 function isRasterType(recordType: SuggestedDataset['record_type']): boolean {
@@ -50,6 +46,7 @@ interface SuggestCardProps {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAdd }: SuggestCardProps) {
+  const { t, i18n } = useTranslation('builder');
   const idIsRealUuid = UUID_RE.test(suggestion.id);
   const { isError } = useQuery({
     queryKey: queryKeys.datasets.detail(suggestion.id),
@@ -70,8 +67,12 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
   const isAdded = addedIds.has(suggestion.id);
 
   const metaParts = [
-    recordTypeLabel(suggestion.record_type),
-    suggestion.feature_count != null ? formatNumber(suggestion.feature_count) : null,
+    isRasterType(suggestion.record_type)
+      ? t('search.raster', { defaultValue: 'Raster' })
+      : t('search.vector', { defaultValue: 'Vector' }),
+    suggestion.feature_count != null
+      ? formatCompactNumber(suggestion.feature_count, i18n.resolvedLanguage ?? i18n.language)
+      : null,
     suggestion.crs,
   ].filter(Boolean);
   const metaString = metaParts.join(' · ');
@@ -92,9 +93,12 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
         {/* Type icon */}
         <button
           type="button"
-          aria-label={`Open ${suggestion.name} in Add Data modal`}
+          aria-label={t('unifiedStack.openSuggestion', {
+            name: suggestion.name,
+            defaultValue: 'Open {{name}} in Add Data modal',
+          })}
           onClick={() => onOpenAddData(suggestion.name)}
-          className="flex items-center justify-center h-[32px] w-[32px] rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex items-center justify-center h-[32px] w-[32px] rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={{
             backgroundColor: isRaster ? 'var(--type-raster-bg)' : 'var(--type-vector-bg)',
             color: isRaster ? 'var(--type-raster)' : 'var(--type-vector)',
@@ -110,9 +114,12 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
         {/* Name + meta — card body click area */}
         <button
           type="button"
-          aria-label={`Open ${suggestion.name} in Add Data modal`}
+          aria-label={t('unifiedStack.openSuggestion', {
+            name: suggestion.name,
+            defaultValue: 'Open {{name}} in Add Data modal',
+          })}
           onClick={() => onOpenAddData(suggestion.name)}
-          className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          className="min-w-0 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
         >
           <span className="block text-sm truncate">{suggestion.name}</span>
           {metaString && (
@@ -123,7 +130,10 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
         {/* Add button */}
         <button
           type="button"
-          aria-label={`Add ${suggestion.name} to map`}
+          aria-label={t('unifiedStack.addSuggestion', {
+            name: suggestion.name,
+            defaultValue: 'Add {{name}} to map',
+          })}
           aria-busy={isAdding}
           onClick={(e) => {
             e.stopPropagation();

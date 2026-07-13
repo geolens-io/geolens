@@ -45,6 +45,7 @@ from app.standards.ogc.utils import (
     build_url,
     content_language_for_record_languages,
     normalize_language_tag,
+    parse_accept_languages,
 )
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from geoalchemy2.shape import to_shape
@@ -162,7 +163,10 @@ def _serialized_feature_language(feature: object) -> str | None:
 
 
 def _content_language_headers(language: str | None) -> dict[str, str]:
-    return {"Content-Language": language} if language else {}
+    headers = {"Vary": "Accept-Language"}
+    if language:
+        headers["Content-Language"] = language
+    return headers
 
 
 def _feature_collection_content_language(
@@ -394,6 +398,7 @@ async def _handle_search(
     # fix(#315 follow-up): raster/VRT raster_tiles assets are served at the
     # public APP origin (/raster-tiles/...), not the /api origin.
     public_app_url = await get_public_app_url(db, request=request)
+    preferred_languages = parse_accept_languages(request)
 
     filters = params.to_filters()
 
@@ -415,6 +420,7 @@ async def _handle_search(
             # must be in the key (multi-origin deploys sharing one API host).
             public_app_url=public_app_url,
             semantic_enabled=semantic_enabled_for_key,
+            preferred_languages=tuple(preferred_languages),
         )
         cached = await search_cache.get_cached(cache_key)
         if cached is not None:
@@ -426,6 +432,7 @@ async def _handle_search(
             user,
             user_roles,
             filters,
+            preferred_languages=preferred_languages,
         )
     except DataError:
         raise HTTPException(
@@ -447,6 +454,7 @@ async def _handle_search(
             raster_meta=raster_meta.get(str(d.id)),
             spatial_extent_geojson=extent_geojson_map.get(str(d.id)),
             public_app_url=public_app_url,
+            preferred_languages=preferred_languages,
         )
         for d in datasets
     ]
@@ -691,6 +699,7 @@ async def search_facets_endpoint(
 @limiter.limit(_semantic_search_rate_limit)
 async def search_datasets_endpoint(
     request: Request,
+    response: Response,
     params: SearchQueryParams = Depends(),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -710,7 +719,12 @@ async def search_datasets_endpoint(
                 detail=f"Unsupported filter-lang: {raw_filter_lang}. Use cql2-text or cql2-json.",
             )
         params = params.model_copy(update={"cql2_filter_lang": raw_filter_lang})
-    return await _handle_search(db, user, request, params)
+    result = await _handle_search(db, user, request, params)
+    for name, value in _content_language_headers(
+        _feature_collection_content_language(result)
+    ).items():
+        response.headers[name] = value
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1291,6 +1305,7 @@ async def _lookup_by_external_id(
                 _sl_ext(Record.keywords),
                 _sl_ext(Record.contacts),
                 _sl_ext(Record.distributions),
+                _sl_ext(Record.translations),
             ),
         )
         .where(Dataset.id == record_uuid)
@@ -1308,7 +1323,10 @@ async def _lookup_by_external_id(
     # fix(#315 follow-up): raster_tiles asset href uses the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
     content = dataset_to_ogc_record(
-        dataset, public_api_url, public_app_url=public_app_url
+        dataset,
+        public_api_url,
+        public_app_url=public_app_url,
+        preferred_languages=parse_accept_languages(request),
     )
     return JSONResponse(
         content=content,
@@ -1435,6 +1453,7 @@ async def get_collection_item(
                 _sl2(Record.keywords),
                 _sl2(Record.contacts),
                 _sl2(Record.distributions),
+                _sl2(Record.translations),
             ),
         )
         .where(Dataset.id == record_id)
@@ -1487,6 +1506,7 @@ async def get_collection_item(
         stac_asset_rows=stac_asset_rows or None,
         raster_meta=item_raster_meta,
         public_app_url=public_app_url,
+        preferred_languages=parse_accept_languages(request),
     )
     return JSONResponse(
         content=content,

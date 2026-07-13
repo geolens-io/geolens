@@ -23,7 +23,7 @@ function deriveExtrusionRange(samples: unknown[] | undefined): { min: string; ma
   if (numeric.length === 0) return null;
   const min = Math.min(...numeric);
   const max = Math.max(...numeric);
-  const fmt = (n: number) => (Number.isInteger(n) ? formatNumber(n) : n.toFixed(1));
+  const fmt = (n: number) => formatNumber(n, { maximumFractionDigits: 1 });
   return { min: fmt(min), max: fmt(max), count: numeric.length };
 }
 

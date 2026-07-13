@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { truncateGraphemes } from '@/lib/text';
 import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
 import { getLayerType, filterPaintForLayerType, clampPaintBounds } from '@/components/builder/layer-adapters/shared';
@@ -434,7 +435,7 @@ export function ChatPanel({
         fullText = translator('chat.staging.chipRemove', { name });
       }
     }
-    const text = fullText.length > 60 ? fullText.slice(0, 60) + '…' : fullText;
+    const text = truncateGraphemes(fullText, 60, '…');
     return { text, fullText };
   }
 

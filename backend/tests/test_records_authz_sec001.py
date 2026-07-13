@@ -25,7 +25,7 @@ from tests.factories import create_dataset
 
 from .conftest import _create_test_user
 
-_SUBRESOURCES = ["contacts", "keywords", "distributions"]
+_SUBRESOURCES = ["contacts", "keywords", "distributions", "translations"]
 _LEAK_EMAIL = "jane.private@internal.example"
 
 

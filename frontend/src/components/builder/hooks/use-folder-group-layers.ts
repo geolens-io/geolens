@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import { applyLayerVisibilityToMap } from '@/components/builder/hooks/use-layer-map-sync';
@@ -26,6 +27,7 @@ export function useFolderGroupLayers({
   setHasUnsavedChanges,
   mapInstanceRef,
 }: UseFolderGroupLayersParams) {
+  const { t } = useTranslation('builder');
   const handleCreateGroupWithLayer = useCallback((layerId: string) => {
     // Generate id OUTSIDE the updater so both setters share the same value.
     // Phase 1051 WR-01: crypto.randomUUID is collision-safe across bulk +
@@ -41,7 +43,7 @@ export function useFolderGroupLayers({
       const existingGroupCount = prev.filter((l) =>
         (l as GroupedLayer).layer_type === 'group:folder',
       ).length;
-      const groupName = `Group ${existingGroupCount + 1}`;
+      const groupName = t('folderGroup.defaultName', { n: existingGroupCount + 1 });
 
       const groupRow: GroupedLayer = {
         ...(prev[idx] as GroupedLayer),
@@ -64,7 +66,7 @@ export function useFolderGroupLayers({
     // groupId is now in scope — auto-expand so the child layer is visible immediately.
     setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
     setHasUnsavedChanges(true);
-  }, [setLocalLayers, setGroupMeta, setHasUnsavedChanges]);
+  }, [setLocalLayers, setGroupMeta, setHasUnsavedChanges, t]);
 
   const handleRenameGroup = useCallback((groupId: string, name: string) => {
     const trimmed = name.trim();

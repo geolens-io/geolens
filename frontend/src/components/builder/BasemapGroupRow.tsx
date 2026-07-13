@@ -115,7 +115,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         )}
         aria-label={t('basemapGroup.toggleExpand', { defaultValue: 'Toggle basemap group' })}
       >
-        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        <ChevronRight className={cn('h-4 w-4', !isExpanded && 'rtl-mirror')} aria-hidden="true" />
       </button>
 
       {/* Cell 2: Grip — UX-03 (Phase 1051 Plan 06): basemap group IS user-draggable

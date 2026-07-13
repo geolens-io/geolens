@@ -234,6 +234,8 @@
     "bandStack": "Empilement de bandes VRT",
     "sourceCount_one": "{{count}} source",
     "sourceCount_other": "{{count}} sources",
+    "bandCount_one": "{{count}} bande",
+    "bandCount_other": "{{count}} bandes",
     "sourceTablePos": "#",
     "sourceTableTitle": "Jeu de données",
     "sourceTableCrs": "SCR",
@@ -635,6 +637,8 @@
     "featureCount": "{{count}} éléments",
     "featureCount_one": "{{count}} élément",
     "featureCount_other": "{{count}} éléments",
+    "bandCount_one": "{{count}} bande",
+    "bandCount_other": "{{count}} bandes",
     "similarDatasets": "Jeux de données similaires",
     "similarityMatch": "{{percent}}% de correspondance"
   },

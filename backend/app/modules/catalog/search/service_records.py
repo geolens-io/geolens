@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,6 +13,7 @@ import structlog
 
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.records.localization import select_localized_record_text
 from app.modules.catalog.datasets.domain.utils import extract_bbox
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.standards.ogc.utils import build_url
@@ -217,6 +219,7 @@ def dataset_to_ogc_record(
     raster_meta: dict | None = None,
     spatial_extent_geojson: str | None = None,
     public_app_url: str | None = None,
+    preferred_languages: Sequence[str] | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict.
 
@@ -225,6 +228,7 @@ def dataset_to_ogc_record(
     docstring); all other assets/links remain on ``public_api_url``.
     """
     record = dataset.record
+    localized = select_localized_record_text(record, preferred_languages)
     updated_user = getattr(record, "_provenance_updated_user", None)
     last_edited = derive_last_edited(
         created_at=record.created_at,
@@ -307,8 +311,8 @@ def dataset_to_ogc_record(
         "geometry": geometry,
         "properties": {
             "type": "dataset",
-            "title": record.title,
-            "description": record.summary,
+            "title": localized.title,
+            "description": localized.summary,
             "keywords": [kw.keyword for kw in record.keywords]
             if record.keywords
             else None,
@@ -355,7 +359,7 @@ def dataset_to_ogc_record(
                 if getattr(record, "record_type", None) == "table"
                 else list(_FORMAT_MEDIA.values())
             ),
-            "language": record.language or "en",
+            "language": localized.language,
             "themes": _build_themes(record.theme_category, record.keywords),
             "rights": record.license,
             "contacts": [

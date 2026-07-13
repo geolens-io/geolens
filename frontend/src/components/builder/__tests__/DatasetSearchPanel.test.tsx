@@ -30,8 +30,15 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) =>
-      options?.defaultValue ?? key,
+    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) => {
+      if (options?.defaultValue === undefined) return key;
+      return Object.entries(options).reduce(
+        (result, [name, value]) => name === 'defaultValue'
+          ? result
+          : result.replace(`{{${name}}}`, String(value)),
+        options.defaultValue,
+      );
+    },
     i18n: { language: 'en' },
   }),
 }));

@@ -430,7 +430,7 @@ describe('buildMapStack', () => {
 
     expect(group(groups, 'basemap')?.entries[0]).toMatchObject({
       badges: expect.arrayContaining([
-        expect.objectContaining({ label: 'muted' }),
+        expect.objectContaining({ label: 'Muted' }),
       ]),
       metadata: {
         basemap: {

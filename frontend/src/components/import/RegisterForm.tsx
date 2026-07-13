@@ -178,7 +178,7 @@ export function RegisterForm() {
   return (
     <div className="grid min-h-[420px] overflow-hidden rounded-xl border border-border bg-card md:grid-cols-[280px_1fr]">
       {/* Left sidebar */}
-      <aside className="border-r border-border bg-surface-0 py-3">
+      <aside className="border-e border-border bg-surface-0 py-3">
         <div className="px-3 pb-2.5">
           <div className="relative">
             <Search className="absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -193,7 +193,7 @@ export function RegisterForm() {
 
         <div className="px-3.5 py-1.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
           <Database className="size-2.5" />
-          public · {filtered.length} tables
+          {t('register.tableCount', { schema: 'public', count: filtered.length })}
         </div>
 
         <div className="max-h-80 overflow-y-auto">

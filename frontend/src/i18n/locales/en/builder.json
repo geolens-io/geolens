@@ -30,39 +30,52 @@
     },
     "groups": {
       "surface": {
-        "title": "Surface"
+        "title": "Surface",
+        "description": "Scene foundation, terrain, and elevation sources."
       },
       "relief": {
-        "title": "Relief"
+        "title": "Relief",
+        "description": "DEM-derived visual overlays such as hillshade and color relief."
       },
       "basemap": {
-        "title": "Basemap"
+        "title": "Basemap",
+        "description": "Base map preset and future sublayer appearance controls."
       },
       "data": {
-        "title": "Data"
+        "title": "Data",
+        "description": "User-added thematic layers."
       },
       "labels": {
-        "title": "Labels"
+        "title": "Labels",
+        "description": "Basemap and data label layers drawn above data geometry."
       },
       "interactions": {
-        "title": "Interactions"
+        "title": "Interactions",
+        "description": "Popup and plugin affordances surfaced with the map."
       }
     },
     "entries": {
       "baseBackground": "Base background",
+      "untitledLayer": "Untitled layer",
       "terrainSource": "Terrain source",
       "terrainMissing": "Terrain source missing",
       "basemapPreset": "Preset",
-      "basemapLabels": "Place labels",
+      "basemapLabels": "Basemap labels",
       "dataLabels": "{{name}} labels",
       "layerPopup": "{{name}} popup",
       "mapPlugins": "Map plugins"
     },
     "subtitles": {
-      "surfaceBackground": "Foundation",
-      "basemapLabelsVisible": "Above data geometry",
+      "surfaceBackground": "Draws below terrain, basemap, relief, and data.",
+      "elevationSource": "Elevation source",
+      "elevationSourceExaggeration": "Elevation source, {{exaggeration}}x exaggeration",
+      "savedSourceUnavailable": "Saved source {{id}} is unavailable",
+      "noDemSource": "No DEM source selected",
+      "subtleLabels": "Subtle labels",
+      "column": "Column: {{column}}",
+      "basemapLabelsVisible": "Draw above data geometry and below data labels.",
       "hiddenByMap": "Hidden by map setting",
-      "featureClick": "Feature click"
+      "featureClick": "Feature click interaction"
     },
     "badges": {
       "background": "Background",
@@ -71,9 +84,12 @@
       "missingSource": "Missing source",
       "hillshade": "Hillshade",
       "heatmap": "Heatmap",
-      "symbol": "Symbol",
+      "symbol": "Symbols",
       "arrow": "Arrow",
       "cluster": "Cluster",
+      "serverCluster": "Server cluster",
+      "boundedCluster": "Bounded cluster",
+      "pointFallback": "Point fallback",
       "dem": "DEM",
       "hidden": "Hidden",
       "legendHidden": "Legend hidden",
@@ -90,12 +106,48 @@
       "unsupported": "Unsupported",
       "needsAttention": "Needs attention",
       "copy": "Copy {{index}} of {{count}}",
-      "plugins": "{{count}} plugin"
+      "plugins_one": "{{count}} plugin",
+      "plugins_other": "{{count}} plugins",
+      "landWaterTone": {
+        "muted": "Muted",
+        "contrast": "High contrast",
+        "monochrome": "Monochrome"
+      }
+    },
+    "order": {
+      "surfaceFoundation": "Surface foundation",
+      "reliefTerrain": "Relief terrain",
+      "basemapFoundation": "Basemap foundation",
+      "basemapLabels": "Labels: basemap labels",
+      "data": "Data {{position}} of {{total}}",
+      "dataTop": "Data {{position}} of {{total}} (top)",
+      "dataBottom": "Data {{position}} of {{total}} (bottom)",
+      "relief": "Relief {{position}} of {{total}}",
+      "reliefTop": "Relief {{position}} of {{total}} (top)",
+      "reliefBottom": "Relief {{position}} of {{total}} (bottom)",
+      "dataLabels": "Data labels {{position}} of {{total}}",
+      "dataLabelsTop": "Data labels {{position}} of {{total}} (top)",
+      "popup": "Popup {{position}} of {{total}}",
+      "plugins": "Plugins"
     },
     "actions": {
       "openInspector": "Open inspector",
       "toggleBasemapLabels": "Toggle basemap labels"
     }
+  },
+  "renderAs": {
+    "point": "Point",
+    "symbol": "Symbols",
+    "heatmap": "Heatmap",
+    "cluster": "Cluster",
+    "line": "Line",
+    "arrow": "Arrow",
+    "fill": "Fill",
+    "stroke": "Stroke",
+    "fillStroke": "Fill + Stroke",
+    "extrusion3d": "3D extrusion",
+    "image": "Image",
+    "hillshade": "Hillshade"
   },
   "inspector": {
     "title": "Layer Inspector",
@@ -182,7 +234,12 @@
       "addStop": "Add stop",
       "removeStop": "Remove stop",
       "unsupported": "This property uses an unsupported expression. Use Advanced JSON to edit it.",
-      "kindLabel": "Expression type"
+      "kindLabel": "Expression type",
+      "modeLabel": "{{label}} mode",
+      "baseValueLabel": "{{label}} Base value",
+      "stopZoomLabel": "{{label}} Stop {{index}} zoom",
+      "stopValueLabel": "{{label}} Stop {{index}} value",
+      "removeStopLabel": "Remove stop {{index}}"
     },
     "styledBy": "Styled by: {{column}}",
     "radiusByColumn": "Radius by: {{column}}",
@@ -464,7 +521,38 @@
     "colors": "Colors",
     "customColors": "Custom colors",
     "reverseRamp": "Reverse",
-    "cvdSafeOnly": "CVD-safe only"
+    "cvdSafeOnly": "CVD-safe only",
+    "colorRamps": {
+      "yellowOrangeRed": "Yellow-Orange-Red",
+      "yellowGreenBlue": "Yellow-Green-Blue",
+      "viridis": "Viridis",
+      "inferno": "Inferno",
+      "plasma": "Plasma",
+      "blues": "Blues",
+      "greens": "Greens",
+      "oranges": "Oranges",
+      "reds": "Reds",
+      "purples": "Purples",
+      "blueGreen": "Blue-Green",
+      "bluePurple": "Blue-Purple",
+      "orangeRed": "Orange-Red",
+      "yellowGreen": "Yellow-Green",
+      "redYellowBlue": "Red-Yellow-Blue",
+      "redYellowGreen": "Red-Yellow-Green",
+      "redBlue": "Red-Blue",
+      "brownBlueGreen": "Brown-Blue-Green",
+      "pinkYellowGreen": "Pink-Yellow-Green",
+      "purpleGreen": "Purple-Green",
+      "spectral": "Spectral",
+      "set1": "Set 1",
+      "set2": "Set 2",
+      "set3": "Set 3",
+      "paired": "Paired",
+      "dark2": "Dark 2",
+      "accent": "Accent",
+      "pastel1": "Pastel 1",
+      "pastel2": "Pastel 2"
+    }
   },
   "search": {
     "title": "Add Dataset",
@@ -494,6 +582,8 @@
     "allTypes": "All",
     "vector": "Vector",
     "raster": "Raster",
+    "collapseResult": "Collapse {{name}}",
+    "expandResult": "Expand {{name}}",
     "metadata": {
       "type": "Type",
       "source": "Source",
@@ -572,7 +662,7 @@
     "iframeErrorTitle": "Preview unavailable",
     "iframeErrorBody": "Check that the embed token is valid and the share link is active. Reload to retry.",
     "iframeReload": "Reload",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "iframeSandboxNote": "The embed preview runs in a restricted sandbox that permits scripts only.",
     "embedTokenMissing": "This map contains non-public layers. Viewers may not be able to see all layers without an embed token.",
     "embedTokenNotAvailable": "The embed token was created in a previous session. Regenerate to get the embed code.",
     "embedTokenRegenerated": "Embed token regenerated",
@@ -1037,7 +1127,10 @@
     "emptySearchInput": "Search datasets to add",
     "suggestedListLabel": "Suggested datasets",
     "browseAllLabel": "Browse all datasets in the Add Data modal",
-    "basemapSublayers": "Basemap sublayers"
+    "basemapSublayers": "Basemap sublayers",
+    "openSuggestion": "Open {{name}} in the Add Data dialog",
+    "addSuggestion": "Add {{name}} to the map",
+    "toggleSublayerVisibility": "Toggle visibility for {{name}}"
   },
   "rail": {
     "aiDisabled": "AI disabled by admin",
@@ -1134,7 +1227,8 @@
     "hillshadeToggle": "Hillshade shading",
     "overlayOffHint": "Relief shading is off — this DEM draws no 2D overlay.",
     "terrainSectionLabel": "3D TERRAIN",
-    "useAsTerrain": "Use as 3D terrain"
+    "useAsTerrain": "Use as 3D terrain",
+    "sliderValueLabel": "{{label}} value"
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",

@@ -821,7 +821,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # +try/except (ProgrammingError->503) around get_related_records table
         # queries (raster/missing-table guard). Cap 595 -> 620 (~3 LOC headroom).
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
+        # fix(#474): reject primary-language updates that collide with a
+        # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 480,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -902,7 +904,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 #     must update the overlay in lockstep.
 _ROUTER_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router.py": 1884,
-    "backend/app/modules/catalog/search/router.py": 1671,
+    # fix(#474): thread negotiated languages through catalog search, cache keys,
+    # and OGC record serialization. This is the reviewed i18n carve-out; the
+    # ratchet remains exact so subsequent growth still fails.
+    "backend/app/modules/catalog/search/router.py": 1691,
     "backend/app/processing/tiles/router.py": 2077,
 }
 

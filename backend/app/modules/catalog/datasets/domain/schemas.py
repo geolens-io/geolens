@@ -10,6 +10,23 @@ from app.core.text import normalize_nfc as _nfc
 
 
 _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_LANGUAGE_TAG_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
+
+
+def _normalize_language_tag(value: str) -> str:
+    tag = value.strip().replace("_", "-")
+    if not _LANGUAGE_TAG_RE.fullmatch(tag):
+        raise ValueError("language must be a BCP 47 tag such as en, fr, or pt-BR")
+    parts = tag.split("-")
+    canonical = [parts[0].lower()]
+    for part in parts[1:]:
+        if len(part) == 4 and part.isalpha():
+            canonical.append(part.title())
+        elif (len(part) == 2 and part.isalpha()) or (len(part) == 3 and part.isdigit()):
+            canonical.append(part.upper())
+        else:
+            canonical.append(part.lower())
+    return "-".join(canonical)
 
 
 SEMANTIC_ROLES = Literal[
@@ -407,8 +424,8 @@ class DatasetMeta(BaseModel):
     )
     language: str | None = Field(
         default=None,
-        max_length=10,
-        description="ISO 639-1 language code, e.g. en, fr",
+        max_length=35,
+        description="BCP 47 primary language tag, e.g. en, fr, or pt-BR",
     )
     is_dem: bool | None = Field(
         default=None,
@@ -422,6 +439,11 @@ class DatasetMeta(BaseModel):
             "[] emits geometry-only tiles, list emits those properties at any zoom."
         ),
     )
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, value: str | None) -> str | None:
+        return _normalize_language_tag(value) if value is not None else None
 
     @field_validator("tile_columns")
     @classmethod

@@ -30,26 +30,33 @@
     },
     "groups": {
       "surface": {
-        "title": "Surface"
+        "title": "Surface",
+        "description": "Fondation de la scène, terrain et sources d’altitude."
       },
       "relief": {
-        "title": "Relief"
+        "title": "Relief",
+        "description": "Superpositions visuelles dérivées de MNT, telles que l’ombrage et le relief coloré."
       },
       "basemap": {
-        "title": "Fond de carte"
+        "title": "Fond de carte",
+        "description": "Préréglage du fond de carte et contrôles d’apparence des sous-couches."
       },
       "data": {
-        "title": "Données"
+        "title": "Données",
+        "description": "Couches thématiques ajoutées par l’utilisateur."
       },
       "labels": {
-        "title": "Étiquettes"
+        "title": "Étiquettes",
+        "description": "Couches d’étiquettes du fond de carte et des données dessinées au-dessus de la géométrie."
       },
       "interactions": {
-        "title": "Interactions"
+        "title": "Interactions",
+        "description": "Contrôles des fenêtres contextuelles et des plugins affichés avec la carte."
       }
     },
     "entries": {
       "baseBackground": "Arrière-plan de base",
+      "untitledLayer": "Couche sans titre",
       "terrainSource": "Source de terrain",
       "terrainMissing": "Source de terrain manquante",
       "basemapPreset": "Préréglage",
@@ -60,6 +67,12 @@
     },
     "subtitles": {
       "surfaceBackground": "Base",
+      "elevationSource": "Source d’altitude",
+      "elevationSourceExaggeration": "Source d’altitude, exagération {{exaggeration}}x",
+      "savedSourceUnavailable": "La source enregistrée {{id}} n’est pas disponible",
+      "noDemSource": "Aucune source MNT sélectionnée",
+      "subtleLabels": "Étiquettes discrètes",
+      "column": "Colonne : {{column}}",
       "basemapLabelsVisible": "Au-dessus de la géométrie",
       "hiddenByMap": "Masqué par le paramètre de carte",
       "featureClick": "Clic sur entité"
@@ -71,9 +84,12 @@
       "missingSource": "Source manquante",
       "hillshade": "Ombrage",
       "heatmap": "Carte de chaleur",
-      "symbol": "Symbole",
+      "symbol": "Symboles",
       "arrow": "Flèche",
       "cluster": "Agrégat",
+      "serverCluster": "Agrégation serveur",
+      "boundedCluster": "Agrégation limitée",
+      "pointFallback": "Repli en points",
       "dem": "MNE",
       "hidden": "Masqué",
       "legendHidden": "Légende masquée",
@@ -90,12 +106,48 @@
       "unsupported": "Non compatible",
       "needsAttention": "Demande attention",
       "copy": "Copie {{index}} sur {{count}}",
-      "plugins": "{{count}} plugin"
+      "plugins_one": "{{count}} plugin",
+      "plugins_other": "{{count}} plugins",
+      "landWaterTone": {
+        "muted": "Atténué",
+        "contrast": "Contraste élevé",
+        "monochrome": "Monochrome"
+      }
+    },
+    "order": {
+      "surfaceFoundation": "Fondation de la surface",
+      "reliefTerrain": "Terrain du relief",
+      "basemapFoundation": "Fondation du fond de carte",
+      "basemapLabels": "Étiquettes : fond de carte",
+      "data": "Données {{position}} sur {{total}}",
+      "dataTop": "Données {{position}} sur {{total}} (en haut)",
+      "dataBottom": "Données {{position}} sur {{total}} (en bas)",
+      "relief": "Relief {{position}} sur {{total}}",
+      "reliefTop": "Relief {{position}} sur {{total}} (en haut)",
+      "reliefBottom": "Relief {{position}} sur {{total}} (en bas)",
+      "dataLabels": "Étiquettes de données {{position}} sur {{total}}",
+      "dataLabelsTop": "Étiquettes de données {{position}} sur {{total}} (en haut)",
+      "popup": "Fenêtre contextuelle {{position}} sur {{total}}",
+      "plugins": "Plugins"
     },
     "actions": {
       "openInspector": "Ouvrir l'inspecteur",
       "toggleBasemapLabels": "Basculer les étiquettes du fond"
     }
+  },
+  "renderAs": {
+    "point": "Point",
+    "symbol": "Symboles",
+    "heatmap": "Carte de chaleur",
+    "cluster": "Agrégation",
+    "line": "Ligne",
+    "arrow": "Flèche",
+    "fill": "Remplissage",
+    "stroke": "Contour",
+    "fillStroke": "Remplissage + contour",
+    "extrusion3d": "Extrusion 3D",
+    "image": "Image",
+    "hillshade": "Ombrage"
   },
   "inspector": {
     "title": "Inspecteur de couche",
@@ -182,7 +234,12 @@
       "addStop": "Ajouter un arrêt",
       "removeStop": "Supprimer l'arrêt",
       "unsupported": "Cette propriété utilise une expression non prise en charge. Utilisez le JSON avancé pour la modifier.",
-      "kindLabel": "Type d'expression"
+      "kindLabel": "Type d'expression",
+      "modeLabel": "Mode de {{label}}",
+      "baseValueLabel": "Valeur de base de {{label}}",
+      "stopZoomLabel": "Zoom de l’arrêt {{index}} de {{label}}",
+      "stopValueLabel": "Valeur de l’arrêt {{index}} de {{label}}",
+      "removeStopLabel": "Supprimer l’arrêt {{index}}"
     },
     "styledBy": "Stylisé par : {{column}}",
     "radiusByColumn": "Rayon par : {{column}}",
@@ -464,7 +521,38 @@
     "colors": "Couleurs",
     "customColors": "Couleurs personnalisées",
     "reverseRamp": "Inverser",
-    "cvdSafeOnly": "Palettes accessibles (CVD) uniquement"
+    "cvdSafeOnly": "Palettes accessibles (CVD) uniquement",
+    "colorRamps": {
+      "yellowOrangeRed": "Jaune-orange-rouge",
+      "yellowGreenBlue": "Jaune-vert-bleu",
+      "viridis": "Viridis",
+      "inferno": "Inferno",
+      "plasma": "Plasma",
+      "blues": "Bleus",
+      "greens": "Verts",
+      "oranges": "Oranges",
+      "reds": "Rouges",
+      "purples": "Violets",
+      "blueGreen": "Bleu-vert",
+      "bluePurple": "Bleu-violet",
+      "orangeRed": "Orange-rouge",
+      "yellowGreen": "Jaune-vert",
+      "redYellowBlue": "Rouge-jaune-bleu",
+      "redYellowGreen": "Rouge-jaune-vert",
+      "redBlue": "Rouge-bleu",
+      "brownBlueGreen": "Brun-bleu-vert",
+      "pinkYellowGreen": "Rose-jaune-vert",
+      "purpleGreen": "Violet-vert",
+      "spectral": "Spectral",
+      "set1": "Jeu 1",
+      "set2": "Jeu 2",
+      "set3": "Jeu 3",
+      "paired": "Apparié",
+      "dark2": "Sombre 2",
+      "accent": "Accent",
+      "pastel1": "Pastel 1",
+      "pastel2": "Pastel 2"
+    }
   },
   "search": {
     "title": "Ajouter un jeu de données",
@@ -494,6 +582,8 @@
     "allTypes": "Tous",
     "vector": "Vecteur",
     "raster": "Raster",
+    "collapseResult": "Réduire {{name}}",
+    "expandResult": "Développer {{name}}",
     "metadata": {
       "type": "Type",
       "source": "Source",
@@ -572,7 +662,7 @@
     "iframeErrorTitle": "Aperçu indisponible",
     "iframeErrorBody": "Vérifiez que le jeton d'intégration est valide et que le lien de partage est actif. Rechargez pour réessayer.",
     "iframeReload": "Recharger",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "iframeSandboxNote": "L’aperçu intégré s’exécute dans un environnement restreint qui autorise uniquement les scripts.",
     "embedTokenMissing": "Cette carte contient des calques non publics. Les visiteurs pourraient ne pas voir tous les calques sans jeton d'intégration.",
     "embedTokenNotAvailable": "Le jeton d'intégration a été créé lors d'une session précédente. Régénérez-le pour obtenir le code d'intégration.",
     "embedTokenRegenerated": "Jeton d'intégration régénéré",
@@ -1033,7 +1123,10 @@
     "emptySearchInput": "Rechercher des jeux de données à ajouter",
     "suggestedListLabel": "Jeux de données suggérés",
     "browseAllLabel": "Parcourir tous les jeux de données dans la fenêtre Ajouter des données",
-    "basemapSublayers": "Sous-couches du fond de carte"
+    "basemapSublayers": "Sous-couches du fond de carte",
+    "openSuggestion": "Ouvrir {{name}} dans la boîte de dialogue Ajouter des données",
+    "addSuggestion": "Ajouter {{name}} à la carte",
+    "toggleSublayerVisibility": "Afficher ou masquer {{name}}"
   },
   "rail": {
     "aiDisabled": "IA désactivée par l'administrateur",
@@ -1130,7 +1223,8 @@
     "hillshadeToggle": "Ombrage du relief",
     "overlayOffHint": "L'ombrage du relief est désactivé — ce MNT ne dessine aucune superposition 2D.",
     "terrainSectionLabel": "TERRAIN 3D",
-    "useAsTerrain": "Utiliser comme terrain 3D"
+    "useAsTerrain": "Utiliser comme terrain 3D",
+    "sliderValueLabel": "Valeur de {{label}}"
   },
   "folderGroup": {
     "defaultName": "Groupe {{n}}",

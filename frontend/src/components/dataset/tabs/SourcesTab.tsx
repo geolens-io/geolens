@@ -8,7 +8,7 @@ import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVr
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
-import { formatDateTimeSmart } from '@/lib/format';
+import { formatDateTimeSmart, formatNumber } from '@/lib/format';
 import i18n from '@/i18n/i18n';
 import { Badge } from '@/components/ui/badge';
 import { vrtGenerationColors, healthDotColors } from '@/lib/status-colors';
@@ -272,10 +272,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                             <div className="text-xs text-muted-foreground flex gap-3 mt-0.5">
                               {result.properties.crs && <span>{result.properties.crs}</span>}
                               {result.properties.band_count != null && (
-                                <span>
-                                  {result.properties.band_count} band
-                                  {result.properties.band_count !== 1 ? 's' : ''}
-                                </span>
+                                <span>{t('vrt.bandCount', { count: result.properties.band_count })}</span>
                               )}
                             </div>
                           </button>
@@ -384,7 +381,9 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                     <TableCell>
                       {s.resolution_x != null && s.resolution_y != null ? (
                         <span className="text-sm font-mono">
-                          {s.resolution_x.toFixed(4)} × {s.resolution_y.toFixed(4)}
+                          {formatNumber(s.resolution_x, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                          {' × '}
+                          {formatNumber(s.resolution_y, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                         </span>
                       ) : (
                         <span className="text-muted-foreground text-xs">—</span>

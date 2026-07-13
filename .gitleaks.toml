@@ -72,6 +72,7 @@ regexes = [
   '''docs_url=None''',                                             # generic-api-key FP: backend/app/api/main.py
   '''from_attributes=True''',                                     # generic-api-key FP: embed_tokens/admin_router.py
   '''relativeToVRT''',                                             # generic-api-key FP: GDAL VRT XML relativeToVRT attribute (vrt_rewrite.py docs)
+  '''renderAs\.extrusion3d''',                                    # generic-api-key FP: frontend i18n labelKey value
   # Azurite (Azure Blob Storage emulator) well-known PUBLIC default AccountKey.
   # This key is part of the Azure Storage Emulator specification, published
   # verbatim in Microsoft's official documentation, and is safe to commit.

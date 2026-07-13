@@ -11,6 +11,7 @@
   "noticedNone": "Nothing was detected automatically — your description is what matters most.",
   "technicalDetails": "Technical details ({{count}})",
   "technicalEmpty": "Nothing has been captured yet.",
+  "technicalSuppressed": "(suppressed)",
   "technicalCopy": "Copy technical details",
   "technicalCopied": "Technical details copied to clipboard",
   "technicalClear": "Clear",

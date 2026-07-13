@@ -2,6 +2,7 @@ import type { MapLayerResponse, MapLayerType, StyleConfig } from '@/types/api';
 import { canUseClusterSource } from './cluster-source';
 import { classifyGeometry } from './layer-adapters/shared';
 import { MAP_COLORS } from '@/lib/map-colors';
+import i18n from '@/i18n/i18n';
 // builder-audit #338 ADAPT-05/06 / DRY-04/06: pull the per-render-mode default paint and
 // the arrow/extrusion magic constants from the single builder-defaults source of truth
 // instead of re-declaring divergent copies here.
@@ -58,6 +59,15 @@ export interface RendererCapability {
   requiresClusterSource?: boolean;
 }
 
+interface RendererCapabilityDefinition extends Omit<RendererCapability, 'label'> {
+  labelKey: string;
+}
+
+type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+
+const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
+  i18n.t(key, { ns: 'builder', ...options }) as string;
+
 export type RenderAsAdapterType = 'circle' | 'symbol' | 'heatmap' | 'line' | 'fill' | 'raster' | 'hillshade';
 
 export interface RenderAsPatch {
@@ -97,19 +107,19 @@ export const UNSUPPORTED_V1002_RENDERERS = [
   'blend-mode',
 ] as const;
 
-export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
-  { id: 'point', label: 'Point', source: 'vector-point' },
-  { id: 'symbol', label: 'Symbols', source: 'vector-point' },
-  { id: 'heatmap', label: 'Heatmap', source: 'vector-point' },
-  { id: 'cluster', label: 'Cluster', source: 'vector-point', requiresClusterSource: true },
-  { id: 'line', label: 'Line', source: 'vector-line' },
-  { id: 'arrow', label: 'Arrow', source: 'vector-line' },
-  { id: 'fill', label: 'Fill', source: 'vector-polygon' },
-  { id: 'stroke', label: 'Stroke', source: 'vector-polygon' },
-  { id: 'fill-stroke', label: 'Fill + Stroke', source: 'vector-polygon' },
-  { id: 'extrusion-3d', label: '3D extrusion', source: 'vector-polygon' },
-  { id: 'image', label: 'Image', source: 'raster' },
-  { id: 'hillshade', label: 'Hillshade', source: 'raster-dem' },
+export const RENDERER_CAPABILITIES: readonly RendererCapabilityDefinition[] = [
+  { id: 'point', labelKey: 'renderAs.point', source: 'vector-point' },
+  { id: 'symbol', labelKey: 'renderAs.symbol', source: 'vector-point' },
+  { id: 'heatmap', labelKey: 'renderAs.heatmap', source: 'vector-point' },
+  { id: 'cluster', labelKey: 'renderAs.cluster', source: 'vector-point', requiresClusterSource: true },
+  { id: 'line', labelKey: 'renderAs.line', source: 'vector-line' },
+  { id: 'arrow', labelKey: 'renderAs.arrow', source: 'vector-line' },
+  { id: 'fill', labelKey: 'renderAs.fill', source: 'vector-polygon' },
+  { id: 'stroke', labelKey: 'renderAs.stroke', source: 'vector-polygon' },
+  { id: 'fill-stroke', labelKey: 'renderAs.fillStroke', source: 'vector-polygon' },
+  { id: 'extrusion-3d', labelKey: 'renderAs.extrusion3d', source: 'vector-polygon' },
+  { id: 'image', labelKey: 'renderAs.image', source: 'raster' },
+  { id: 'hillshade', labelKey: 'renderAs.hillshade', source: 'raster-dem' },
 ];
 
 function isRasterLayer(layer: RenderAsLayer) {
@@ -223,26 +233,40 @@ export function getRenderAsSource(layer: RenderAsLayer): RenderAsSource {
   return 'unsupported';
 }
 
-export function getRenderAsOptions(layer: RenderAsLayer): RenderAsOption[] {
-  return getRendererCapabilities(layer).map((capabilityEntry) => ({
+export function getRenderAsOptions(
+  layer: RenderAsLayer,
+  t: BuilderTranslator = defaultBuilderTranslator,
+): RenderAsOption[] {
+  return getRendererCapabilities(layer, t).map((capabilityEntry) => ({
     id: capabilityEntry.id,
     label: capabilityEntry.label,
     source: capabilityEntry.source,
   }));
 }
 
-export function getRendererCapabilities(layer: RenderAsLayer): RendererCapability[] {
+export function getRendererCapabilities(
+  layer: RenderAsLayer,
+  t: BuilderTranslator = defaultBuilderTranslator,
+): RendererCapability[] {
   const source = getRenderAsSource(layer);
   if (source === 'unsupported') return [];
-  return RENDERER_CAPABILITIES.filter((entry) => {
-    if (entry.source !== source) return false;
-    if (entry.requiresClusterSource) return canUseClusterSource(layer);
-    return true;
-  });
+  return RENDERER_CAPABILITIES
+    .filter((entry) => {
+      if (entry.source !== source) return false;
+      if (entry.requiresClusterSource) return canUseClusterSource(layer);
+      return true;
+    })
+    .map(({ labelKey, ...entry }) => ({ ...entry, label: t(labelKey) }));
 }
 
-export function getRendererCapability(id: RenderAsId, layer?: RenderAsLayer): RendererCapability | null {
-  const entries = layer ? getRendererCapabilities(layer) : RENDERER_CAPABILITIES;
+export function getRendererCapability(
+  id: RenderAsId,
+  layer?: RenderAsLayer,
+  t: BuilderTranslator = defaultBuilderTranslator,
+): RendererCapability | null {
+  const entries = layer
+    ? getRendererCapabilities(layer, t)
+    : RENDERER_CAPABILITIES.map(({ labelKey, ...entry }) => ({ ...entry, label: t(labelKey) }));
   return entries.find((entry) => entry.id === id) ?? null;
 }
 

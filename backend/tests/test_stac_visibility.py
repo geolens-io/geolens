@@ -15,7 +15,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import (
+    Dataset,
+    Record,
+    RecordTranslation,
+)
 
 from .conftest import _create_test_user
 from tests.factories import get_user_id
@@ -101,6 +105,43 @@ async def test_stac_item_no_auth_public_returns_200(
     assert str(pub.id) in (body.get("id", ""), str(body.get("id", "")))
 
 
+@pytest.mark.anyio
+async def test_stac_item_negotiates_stored_translation(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+):
+    """STAC item text and Content-Language use the selected stored translation."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    pub = await _create_raster_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="STAC English Item",
+        visibility="public",
+    )
+    test_db_session.add(
+        RecordTranslation(
+            record_id=pub.record_id,
+            language="es",
+            title="Elemento STAC en español",
+            summary="Descripción localizada para el elemento STAC.",
+        )
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/stac/items/{pub.id}",
+        headers={"Accept-Language": "es-MX, en;q=0.5"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-language"] == "es"
+    assert "Accept-Language" in resp.headers["vary"]
+    properties = resp.json()["properties"]
+    assert properties["title"] == "Elemento STAC en español"
+    assert properties["description"] == "Descripción localizada para el elemento STAC."
+    assert properties["language"] == {"code": "es"}
+
+
 # ---------------------------------------------------------------------------
 # Anonymous access — /stac/search
 # ---------------------------------------------------------------------------
@@ -132,6 +173,41 @@ async def test_stac_search_no_auth_excludes_private(
     feature_ids = [f["id"] for f in body.get("features", [])]
     assert str(priv.id) not in feature_ids
     assert str(pub.id) in feature_ids
+
+
+@pytest.mark.anyio
+async def test_stac_search_negotiates_stored_translation(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    pub = await _create_raster_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Searchable STAC item",
+        visibility="public",
+    )
+    test_db_session.add(
+        RecordTranslation(
+            record_id=pub.record_id,
+            language="de",
+            title="Durchsuchbares STAC-Element",
+            summary="Lokalisierte Suche.",
+        )
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/stac/search?ids={pub.id}&limit=10",
+        headers={"Accept-Language": "de-AT"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-language"] == "de"
+    assert "Accept-Language" in resp.headers["vary"]
+    assert resp.json()["features"][0]["properties"]["title"] == (
+        "Durchsuchbares STAC-Element"
+    )
 
 
 # ---------------------------------------------------------------------------

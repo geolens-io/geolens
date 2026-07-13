@@ -222,10 +222,15 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
         <button
           type="button"
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={expanded ? `Collapse ${props.title}` : `Expand ${props.title}`}
+          aria-label={expanded
+            ? t('search.collapseResult', { name: props.title, defaultValue: 'Collapse {{name}}' })
+            : t('search.expandResult', { name: props.title, defaultValue: 'Expand {{name}}' })}
           onClick={() => setExpandedRowId(expanded ? null : rowId)}
         >
-          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform duration-[--motion-fast]', expanded && 'rotate-90')} />
+          <ChevronRight className={cn(
+            'h-3.5 w-3.5 transition-transform duration-[--motion-fast]',
+            expanded ? 'rotate-90' : 'rtl-mirror',
+          )} />
         </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{props.title}</p>
@@ -392,13 +397,13 @@ export function DatasetSearchPanel({
     <div className="min-h-0 min-w-0 overflow-hidden">
       <div className="min-w-0 space-y-2 px-1">
         <div className="relative min-w-0">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Search className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             ref={inputRef}
             placeholder={t('search.placeholder', { defaultValue: 'Search datasets' })}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="h-9 pl-8 text-sm"
+            className="h-9 ps-8 text-sm"
             aria-label={t('search.placeholder', { defaultValue: 'Search datasets' })}
           />
         </div>

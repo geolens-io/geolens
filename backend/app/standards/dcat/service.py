@@ -7,8 +7,11 @@ W3C DCAT 3 Recommendation: https://www.w3.org/TR/vocab-dcat-3/
 from __future__ import annotations
 
 import structlog
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+from app.modules.catalog.records.localization import select_localized_record_text
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -212,10 +215,19 @@ _LANG_URIS: dict[str, str] = {
 }
 
 
-def _lang_to_uri(code: str | None) -> dict:
-    """Map an ISO 639-1 code to an EU vocabulary language URI object."""
-    iso3 = _LANG_URIS.get(code or "en", "ENG")
-    return {"@id": f"{_LANG_URI_BASE}{iso3}"}
+def _lang_to_uri(code: str | None) -> dict | None:
+    """Map a BCP 47 tag to an EU vocabulary language URI when known.
+
+    The EU table uses ISO 639-3 identifiers, while catalog metadata may store
+    regional BCP 47 tags such as ``pt-BR``. Resolve those through their base
+    language and preserve valid three-letter codes. Unknown/private-use tags
+    are omitted instead of being mislabeled as English.
+    """
+    base = (code or "en").split("-", 1)[0].lower()
+    iso3 = _LANG_URIS.get(base)
+    if iso3 is None and base.upper() in _LANG_URIS.values():
+        iso3 = base.upper()
+    return {"@id": f"{_LANG_URI_BASE}{iso3}"} if iso3 is not None else None
 
 
 DCAT_CONTEXT = {
@@ -235,6 +247,7 @@ def record_to_dcat(
     base_url: str,
     *,
     include_context: bool = True,
+    preferred_languages: Sequence[str] | None = None,
 ) -> dict:
     """Serialize a Dataset (with loaded record relationships) to DCAT 3 JSON-LD.
 
@@ -253,18 +266,31 @@ def record_to_dcat(
     if include_context:
         result["@context"] = DCAT_CONTEXT
 
-    lang = getattr(record, "language", None) or "en"
+    localized = select_localized_record_text(record, preferred_languages)
+    lang = localized.language
+    source_lang = select_localized_record_text(record).language
 
     result["@type"] = "dcat:Dataset"
     result["@id"] = f"{base_url}/datasets/{dataset.id}"
     result["dcterms:identifier"] = str(dataset.id)
-    result["dcterms:title"] = {"@value": record.title, "@language": lang}
+    result["dcterms:title"] = {"@value": localized.title, "@language": lang}
 
     # Per-record language
     result["dcterms:language"] = _lang_to_uri(lang)
 
-    if record.summary is not None:
-        result["dcterms:description"] = {"@value": record.summary, "@language": lang}
+    if localized.summary is not None:
+        result["dcterms:description"] = {
+            "@value": localized.summary,
+            "@language": lang,
+        }
+    elif record.summary is not None:
+        # A title-only translation is still useful. DCAT requires a
+        # description, so retain the primary summary with its own provenance
+        # instead of dropping the whole record from catalog feeds.
+        result["dcterms:description"] = {
+            "@value": record.summary,
+            "@language": source_lang,
+        }
 
     if record.created_at is not None:
         result["dcterms:issued"] = record.created_at.isoformat()
@@ -285,7 +311,7 @@ def record_to_dcat(
     if record.lineage_summary is not None:
         result["dcterms:provenance"] = {
             "@value": record.lineage_summary,
-            "@language": lang,
+            "@language": source_lang,
         }
 
     if record.update_frequency is not None:
@@ -297,7 +323,10 @@ def record_to_dcat(
     if dataset.quality_statement is not None:
         result["dqv:hasQualityAnnotation"] = {
             "@type": "dqv:QualityAnnotation",
-            "oa:bodyValue": {"@value": dataset.quality_statement, "@language": lang},
+            "oa:bodyValue": {
+                "@value": dataset.quality_statement,
+                "@language": source_lang,
+            },
         }
 
     if record.contacts:
@@ -343,7 +372,7 @@ def record_to_dcat(
         result["dcat:theme"] = [
             {
                 "@type": "skos:Concept",
-                "skos:prefLabel": {"@value": theme, "@language": lang},
+                "skos:prefLabel": {"@value": theme, "@language": source_lang},
             }
             for theme in record.theme_category
         ]
@@ -383,7 +412,12 @@ def _distribution_to_dcat(dist: RecordDistribution, base_url: str) -> dict:
     return {k: v for k, v in result.items() if v is not None}
 
 
-def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
+def catalog_to_dcat(
+    datasets: list[Dataset],
+    base_url: str,
+    *,
+    preferred_languages: Sequence[str] | None = None,
+) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
     Filter-the-feed conformance posture: only records that pass DCAT 3
@@ -404,7 +438,12 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
 
     entries: list[dict] = []
     for ds in datasets:
-        entry = record_to_dcat(ds, base_url, include_context=False)
+        entry = record_to_dcat(
+            ds,
+            base_url,
+            include_context=False,
+            preferred_languages=preferred_languages,
+        )
         if validate_dcat3(entry, "Dataset")["valid"]:
             entries.append(entry)
 

@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
+import { formatNumber } from '@/lib/format';
 
 // Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip REMAINS REMOVED.
 // Disposition unchanged per Phase 1059 CONTEXT.md D-18 — do not resurrect.
@@ -88,6 +89,14 @@ export function BasemapSublayerEditorScene({
   }, [sublayerId]);
 
   const safeOpacity = typeof opacity === 'number' && Number.isFinite(opacity) ? opacity : 1;
+  const formattedStrokeWidth = `${formatNumber(strokeWidth ?? 0, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}px`;
+  const formattedCasingWidth = `${formatNumber(casingWidth ?? 0, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}px`;
 
   // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers in
   // applyOverrideToLayer (stroke_color/width require layerType==='line';
@@ -120,7 +129,7 @@ export function BasemapSublayerEditorScene({
               </Label>
               <Slider
                 aria-label={t('basemapSublayer.strokeWidthLabel', { defaultValue: 'Stroke width' })}
-                aria-valuetext={`${(strokeWidth ?? 0).toFixed(1)}px`}
+                aria-valuetext={formattedStrokeWidth}
                 value={[strokeWidth ?? 0]}
                 min={0}
                 max={20}
@@ -128,7 +137,7 @@ export function BasemapSublayerEditorScene({
                 onValueChange={([v]) => onStrokeWidthChange?.(v ?? 0)}
               />
               <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {(strokeWidth ?? 0).toFixed(1)}px
+                {formattedStrokeWidth}
               </span>
             </div>
           </div>
@@ -155,7 +164,7 @@ export function BasemapSublayerEditorScene({
               </Label>
               <Slider
                 aria-label={t('basemapSublayer.casingWidthLabel', { defaultValue: 'Casing width' })}
-                aria-valuetext={`${(casingWidth ?? 0).toFixed(1)}px`}
+                aria-valuetext={formattedCasingWidth}
                 value={[casingWidth ?? 0]}
                 min={0}
                 max={20}
@@ -163,7 +172,7 @@ export function BasemapSublayerEditorScene({
                 onValueChange={([v]) => onCasingWidthChange?.(v ?? 0)}
               />
               <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {(casingWidth ?? 0).toFixed(1)}px
+                {formattedCasingWidth}
               </span>
             </div>
           </div>
@@ -265,14 +274,17 @@ export function BasemapSublayerEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', resetOpen && 'rotate-90')}
+              className={cn(
+                'h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]',
+                resetOpen ? 'rotate-90' : 'rtl-mirror',
+              )}
               aria-hidden="true"
             />
             <span className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t('basemapSublayer.resetLabel', { defaultValue: 'RESET' })}
             </span>
             {!resetOpen && (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 {t('basemapSublayer.resetHint', { defaultValue: 'Reset to preset default' })}
               </span>
             )}

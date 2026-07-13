@@ -23,6 +23,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
     RecordContact,
     RecordKeyword,
+    RecordTranslation,
 )
 
 from tests.factories import get_user_id
@@ -934,6 +935,151 @@ async def test_ogc_single_record_content_language_uses_record_language(
     assert resp.status_code == 200
     assert resp.headers["content-language"] == "es"
     assert resp.json()["properties"]["language"] == "es"
+
+
+@pytest.mark.anyio
+async def test_ogc_single_record_negotiates_stored_translation(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"English Rivers {uuid.uuid4().hex}",
+        description="English summary",
+        language="en",
+    )
+    test_db_session.add(
+        RecordTranslation(
+            record_id=ds.record_id,
+            language="fr",
+            title="Rivières françaises",
+            summary="Résumé français",
+        )
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/collections/datasets/items/{ds.id}",
+        headers={"Accept-Language": "fr-CA, en;q=0.5"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-language"] == "fr"
+    assert "Accept-Language" in resp.headers["vary"]
+    properties = resp.json()["properties"]
+    assert properties["title"] == "Rivières françaises"
+    assert properties["description"] == "Résumé français"
+    assert properties["language"] == "fr"
+
+
+@pytest.mark.anyio
+async def test_search_finds_and_sorts_negotiated_translations(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    token = f"traduit{uuid.uuid4().hex}"
+    primary_alpha = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Zulu primary",
+        description="Primary description",
+    )
+    primary_zulu = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Alpha primary",
+        description="Primary description",
+    )
+    test_db_session.add_all(
+        [
+            RecordTranslation(
+                record_id=primary_alpha.record_id,
+                language="fr",
+                title=f"Alpha {token}",
+                summary=f"Catalogue {token}",
+            ),
+            RecordTranslation(
+                record_id=primary_zulu.record_id,
+                language="fr",
+                title=f"Zulu {token}",
+                summary=f"Catalogue {token}",
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": token, "sort_by": "name", "limit": 10},
+        headers={"Accept-Language": "fr-CA"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    features = resp.json()["features"]
+    assert [feature["id"] for feature in features] == [
+        str(primary_alpha.id),
+        str(primary_zulu.id),
+    ]
+    assert [feature["properties"]["title"] for feature in features] == [
+        f"Alpha {token}",
+        f"Zulu {token}",
+    ]
+
+
+@pytest.mark.anyio
+async def test_negotiated_sort_preserves_primary_same_base_precedence(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    token = f"francophone{uuid.uuid4().hex}"
+    alpha = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Alpha primaire {token}",
+        description=token,
+        language="fr-FR",
+    )
+    zulu = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Zulu primaire {token}",
+        description=token,
+        language="fr-FR",
+    )
+    test_db_session.add_all(
+        [
+            RecordTranslation(
+                record_id=alpha.record_id,
+                language="fr-CA",
+                title=f"Zulu canadien {token}",
+                summary=token,
+            ),
+            RecordTranslation(
+                record_id=zulu.record_id,
+                language="fr-CA",
+                title=f"Alpha canadien {token}",
+                summary=token,
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": token, "sort_by": "name", "limit": 10},
+        headers={"Accept-Language": "fr"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    titles = [feature["properties"]["title"] for feature in resp.json()["features"]]
+    assert titles == [f"Alpha primaire {token}", f"Zulu primaire {token}"]
 
 
 @pytest.mark.anyio

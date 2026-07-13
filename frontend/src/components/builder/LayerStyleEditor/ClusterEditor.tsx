@@ -124,7 +124,7 @@ export function ClusterEditor({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 ml-auto"
+                  className="h-7 w-7 ms-auto"
                   onClick={() => removeStop(index)}
                   aria-label={t('style.cluster.removeStop')}
                 >
@@ -140,7 +140,7 @@ export function ClusterEditor({
             className="w-full"
             onClick={addStop}
           >
-            <Plus className="mr-1 h-4 w-4" />
+            <Plus className="me-1 h-4 w-4" />
             {t('style.cluster.addStop')}
           </Button>
         </div>

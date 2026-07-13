@@ -1,3 +1,5 @@
+import i18n from '@/i18n/i18n';
+
 /**
  * Shared chunked-PUT helper for presigned S3 multipart uploads.
  *
@@ -25,6 +27,8 @@ export interface UploadChunksOptions {
 }
 
 const DEFAULT_MAX_RETRIES = 3;
+
+class UploadHttpError extends Error {}
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -95,16 +99,26 @@ export async function uploadChunks(
           break;
         }
         if (!isRetriableStatus(resp.status) || attempt >= maxRetries) {
-          throw new Error(`S3 part ${i + 1} upload failed: ${resp.status}`);
+          throw new UploadHttpError(
+            i18n.t('common:errors.storageUploadPartFailed', {
+              part: i + 1,
+              status: resp.status,
+            }),
+          );
         }
       } catch (err) {
         // A caller-initiated abort is terminal, not a retriable failure.
         if (err instanceof DOMException && err.name === 'AbortError') throw err;
         // A non-retriable HTTP status threw above; re-throw once retries are out.
-        if (err instanceof Error && err.message.startsWith('S3 part')) throw err;
+        if (err instanceof UploadHttpError) throw err;
         // Otherwise it is a network-layer error (TypeError) — retriable.
         if (attempt >= maxRetries) {
-          throw new Error(`S3 part ${i + 1} upload failed after ${maxRetries + 1} attempts`);
+          throw new Error(
+            i18n.t('common:errors.storageUploadPartRetriesFailed', {
+              part: i + 1,
+              attempts: maxRetries + 1,
+            }),
+          );
         }
       }
       attempt += 1;

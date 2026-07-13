@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 
 interface RampEntry {
   readonly name: string;
-  readonly label: string;
+  readonly labelKey: string;
   readonly cvdSafe: boolean;
 }
 
@@ -83,12 +83,13 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count,
         {ramps.map((ramp) => {
           const colors = getRampColors(ramp.name, count ?? 7, reversed);
           const isSelected = ramp.name === rampName;
+          const label = t(ramp.labelKey) as string;
           return (
             <button
               key={ramp.name}
               type="button"
               onClick={() => onChange(ramp.name)}
-              aria-label={ramp.label}
+              aria-label={label}
               className={cn(
                 'flex cursor-pointer items-center gap-2 w-full px-1.5 py-1 rounded-sm text-start transition-colors',
                 isSelected
@@ -106,7 +107,7 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count,
                 ))}
               </div>
               <span className="text-2xs text-muted-foreground w-24 truncate shrink-0">
-                {ramp.label}
+                {label}
               </span>
             </button>
           );

@@ -30,26 +30,33 @@
     },
     "groups": {
       "surface": {
-        "title": "Superficie"
+        "title": "Superficie",
+        "description": "Base de la escena, terreno y fuentes de elevación."
       },
       "relief": {
-        "title": "Relieve"
+        "title": "Relieve",
+        "description": "Superposiciones visuales derivadas de MDE, como sombreado y relieve de color."
       },
       "basemap": {
-        "title": "Mapa base"
+        "title": "Mapa base",
+        "description": "Preajuste del mapa base y controles de apariencia de subcapas."
       },
       "data": {
-        "title": "Datos"
+        "title": "Datos",
+        "description": "Capas temáticas añadidas por el usuario."
       },
       "labels": {
-        "title": "Etiquetas"
+        "title": "Etiquetas",
+        "description": "Capas de etiquetas del mapa base y de datos dibujadas sobre la geometría."
       },
       "interactions": {
-        "title": "Interacciones"
+        "title": "Interacciones",
+        "description": "Controles de ventanas emergentes y plugins mostrados con el mapa."
       }
     },
     "entries": {
       "baseBackground": "Fondo base",
+      "untitledLayer": "Capa sin título",
       "terrainSource": "Fuente de terreno",
       "terrainMissing": "Falta la fuente de terreno",
       "basemapPreset": "Preajuste",
@@ -60,6 +67,12 @@
     },
     "subtitles": {
       "surfaceBackground": "Base",
+      "elevationSource": "Fuente de elevación",
+      "elevationSourceExaggeration": "Fuente de elevación, exageración de {{exaggeration}}x",
+      "savedSourceUnavailable": "La fuente guardada {{id}} no está disponible",
+      "noDemSource": "No se ha seleccionado una fuente MDE",
+      "subtleLabels": "Etiquetas sutiles",
+      "column": "Columna: {{column}}",
       "basemapLabelsVisible": "Sobre la geometría de datos",
       "hiddenByMap": "Oculto por la configuración del mapa",
       "featureClick": "Clic en entidad"
@@ -71,9 +84,12 @@
       "missingSource": "Fuente faltante",
       "hillshade": "Sombreado",
       "heatmap": "Mapa de calor",
-      "symbol": "Símbolo",
+      "symbol": "Símbolos",
       "arrow": "Flecha",
       "cluster": "Agrupación",
+      "serverCluster": "Agrupación del servidor",
+      "boundedCluster": "Agrupación acotada",
+      "pointFallback": "Alternativa de puntos",
       "dem": "DEM",
       "hidden": "Oculto",
       "legendHidden": "Leyenda oculta",
@@ -90,12 +106,48 @@
       "unsupported": "No compatible",
       "needsAttention": "Requiere atención",
       "copy": "Copia {{index}} de {{count}}",
-      "plugins": "{{count}} plugin"
+      "plugins_one": "{{count}} plugin",
+      "plugins_other": "{{count}} plugins",
+      "landWaterTone": {
+        "muted": "Atenuado",
+        "contrast": "Alto contraste",
+        "monochrome": "Monocromo"
+      }
+    },
+    "order": {
+      "surfaceFoundation": "Base de la superficie",
+      "reliefTerrain": "Terreno de relieve",
+      "basemapFoundation": "Base del mapa base",
+      "basemapLabels": "Etiquetas: mapa base",
+      "data": "Datos {{position}} de {{total}}",
+      "dataTop": "Datos {{position}} de {{total}} (arriba)",
+      "dataBottom": "Datos {{position}} de {{total}} (abajo)",
+      "relief": "Relieve {{position}} de {{total}}",
+      "reliefTop": "Relieve {{position}} de {{total}} (arriba)",
+      "reliefBottom": "Relieve {{position}} de {{total}} (abajo)",
+      "dataLabels": "Etiquetas de datos {{position}} de {{total}}",
+      "dataLabelsTop": "Etiquetas de datos {{position}} de {{total}} (arriba)",
+      "popup": "Ventana emergente {{position}} de {{total}}",
+      "plugins": "Plugins"
     },
     "actions": {
       "openInspector": "Abrir inspector",
       "toggleBasemapLabels": "Alternar etiquetas del mapa base"
     }
+  },
+  "renderAs": {
+    "point": "Punto",
+    "symbol": "Símbolos",
+    "heatmap": "Mapa de calor",
+    "cluster": "Agrupación",
+    "line": "Línea",
+    "arrow": "Flecha",
+    "fill": "Relleno",
+    "stroke": "Trazo",
+    "fillStroke": "Relleno + trazo",
+    "extrusion3d": "Extrusión 3D",
+    "image": "Imagen",
+    "hillshade": "Sombreado"
   },
   "inspector": {
     "title": "Inspector de capa",
@@ -182,7 +234,12 @@
       "addStop": "Agregar parada",
       "removeStop": "Eliminar parada",
       "unsupported": "Esta propiedad usa una expresión no compatible. Use JSON avanzado para editarla.",
-      "kindLabel": "Tipo de expresión"
+      "kindLabel": "Tipo de expresión",
+      "modeLabel": "Modo de {{label}}",
+      "baseValueLabel": "Valor base de {{label}}",
+      "stopZoomLabel": "Zoom de la parada {{index}} de {{label}}",
+      "stopValueLabel": "Valor de la parada {{index}} de {{label}}",
+      "removeStopLabel": "Eliminar parada {{index}}"
     },
     "styledBy": "Estilizado por: {{column}}",
     "radiusByColumn": "Radio por: {{column}}",
@@ -464,7 +521,38 @@
     "colors": "Colores",
     "customColors": "Colores personalizados",
     "reverseRamp": "Invertir",
-    "cvdSafeOnly": "Solo paletas accesibles (CVD)"
+    "cvdSafeOnly": "Solo paletas accesibles (CVD)",
+    "colorRamps": {
+      "yellowOrangeRed": "Amarillo-naranja-rojo",
+      "yellowGreenBlue": "Amarillo-verde-azul",
+      "viridis": "Viridis",
+      "inferno": "Inferno",
+      "plasma": "Plasma",
+      "blues": "Azules",
+      "greens": "Verdes",
+      "oranges": "Naranjas",
+      "reds": "Rojos",
+      "purples": "Morados",
+      "blueGreen": "Azul-verde",
+      "bluePurple": "Azul-morado",
+      "orangeRed": "Naranja-rojo",
+      "yellowGreen": "Amarillo-verde",
+      "redYellowBlue": "Rojo-amarillo-azul",
+      "redYellowGreen": "Rojo-amarillo-verde",
+      "redBlue": "Rojo-azul",
+      "brownBlueGreen": "Marrón-azul-verde",
+      "pinkYellowGreen": "Rosa-amarillo-verde",
+      "purpleGreen": "Morado-verde",
+      "spectral": "Espectral",
+      "set1": "Conjunto 1",
+      "set2": "Conjunto 2",
+      "set3": "Conjunto 3",
+      "paired": "Emparejado",
+      "dark2": "Oscuro 2",
+      "accent": "Acento",
+      "pastel1": "Pastel 1",
+      "pastel2": "Pastel 2"
+    }
   },
   "search": {
     "title": "Agregar conjunto de datos",
@@ -494,6 +582,8 @@
     "allTypes": "Todos",
     "vector": "Vector",
     "raster": "Ráster",
+    "collapseResult": "Contraer {{name}}",
+    "expandResult": "Expandir {{name}}",
     "metadata": {
       "type": "Tipo",
       "source": "Fuente",
@@ -572,7 +662,7 @@
     "iframeErrorTitle": "Vista previa no disponible",
     "iframeErrorBody": "Verifique que el token de incrustación sea válido y que el enlace compartido esté activo. Recargue para reintentar.",
     "iframeReload": "Recargar",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "iframeSandboxNote": "La vista previa insertada se ejecuta en un entorno restringido que solo permite scripts.",
     "embedTokenMissing": "Este mapa contiene capas no públicas. Los visitantes puede que no vean todas las capas sin un token de inserción.",
     "embedTokenNotAvailable": "El token de inserción se creó en una sesión anterior. Regénéralo para obtener el código de inserción.",
     "embedTokenRegenerated": "Token de inserción regenerado",
@@ -1033,7 +1123,10 @@
     "emptySearchInput": "Buscar conjuntos de datos para agregar",
     "suggestedListLabel": "Conjuntos de datos sugeridos",
     "browseAllLabel": "Explorar todos los conjuntos de datos en el cuadro Agregar datos",
-    "basemapSublayers": "Subcapas del mapa base"
+    "basemapSublayers": "Subcapas del mapa base",
+    "openSuggestion": "Abrir {{name}} en el diálogo Añadir datos",
+    "addSuggestion": "Añadir {{name}} al mapa",
+    "toggleSublayerVisibility": "Alternar la visibilidad de {{name}}"
   },
   "rail": {
     "aiDisabled": "IA desactivada por el administrador",
@@ -1130,7 +1223,8 @@
     "hillshadeToggle": "Sombreado de laderas",
     "overlayOffHint": "El sombreado del relieve está desactivado — este MDE no dibuja ninguna superposición 2D.",
     "terrainSectionLabel": "TERRENO 3D",
-    "useAsTerrain": "Usar como terreno 3D"
+    "useAsTerrain": "Usar como terreno 3D",
+    "sliderValueLabel": "Valor de {{label}}"
   },
   "folderGroup": {
     "defaultName": "Grupo {{n}}",

@@ -228,6 +228,7 @@ def build_content_text(
     keywords: list[str] | None,
     lineage: str | None,
     raster_summary: str | None = None,
+    localized_texts: list[str] | None = None,
 ) -> str:
     """Concatenate non-None metadata fields into a single text for embedding."""
     parts: list[str] = []
@@ -241,6 +242,8 @@ def build_content_text(
         parts.append(lineage)
     if raster_summary:
         parts.append(raster_summary)
+    if localized_texts:
+        parts.extend(localized_texts)
     return "\n".join(parts)
 
 
@@ -258,6 +261,7 @@ async def generate_and_store_embedding(
     keywords: list[str] | None,
     lineage: str | None,
     raster_summary: str | None = None,
+    localized_texts: list[str] | None = None,
 ) -> bool:
     """Orchestrate embedding generation and storage.
 
@@ -279,6 +283,7 @@ async def generate_and_store_embedding(
         keywords=keywords,
         lineage=lineage,
         raster_summary=raster_summary,
+        localized_texts=localized_texts,
     )
     if not content_text:
         logger.debug("Empty content, skipping embedding", record_id=str(record_id))

@@ -171,6 +171,7 @@ const SublayerRow = memo(function SublayerRow({
   onSelectLayer,
   onToggleSublayerVisibility,
 }: SublayerRowProps) {
+  const { t } = useTranslation('builder');
   // Basemap sublayers CANNOT be dragged out of the group — useSortable disabled
   const { setNodeRef } = useSortable({ id: sublayer.id, disabled: true });
 
@@ -210,7 +211,10 @@ const SublayerRow = memo(function SublayerRow({
       {/* Cell 3: Eye visibility toggle (SP-10: aria-pressed reflects state) */}
       <button
         type="button"
-        aria-label={`Toggle visibility for ${sublayer.name}`}
+        aria-label={t('unifiedStack.toggleSublayerVisibility', {
+          name: sublayer.name,
+          defaultValue: 'Toggle visibility for {{name}}',
+        })}
         aria-pressed={sublayer.visible}
         className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => {
@@ -443,8 +447,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // the derived-stack occurrence numbering.
   const disambiguationLabels = useMemo(() => {
     const ordered = [...layers].sort((a, b) => a.sort_order - b.sort_order);
-    return computeDisambiguationLabels(ordered);
-  }, [layers]);
+    return computeDisambiguationLabels(ordered, t);
+  }, [layers, t]);
 
   // fix(#430 V-17): per-layer audience-visibility mismatch — a private/unpublished
   // dataset added to a public/shared map is silently filtered out for
@@ -563,7 +567,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           <div
             id={`basemap-group-children-${basemapGroup.id}`}
             data-testid={`basemap-group-children-${basemapGroup.id}`}
-            style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
+            className="ms-7 border-s border-dashed border-[var(--border)] ps-3"
             role="list"
             aria-label={t('unifiedStack.basemapSublayers')}
           >
@@ -645,7 +649,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       {!isEmpty && (
         <div className="shrink-0 px-3 pb-2 relative" data-testid="layer-search-container">
           <Search
-            className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
+            className="absolute start-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
             aria-hidden="true"
           />
           <input
@@ -657,7 +661,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             onChange={(e) => setLayerSearch(e.target.value)}
             className={cn(
               'w-full h-7 rounded-sm border border-[var(--border)] bg-[var(--surface-1,var(--background))]',
-              'pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground',
+              'ps-7 pe-2 text-xs text-foreground placeholder:text-muted-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             )}
           />
@@ -751,7 +755,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                         <div
                           id={`folder-group-children-${layer.id}`}
                           data-testid={`folder-group-children-${layer.id}`}
-                          style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
+                          className="ms-7 border-s border-dashed border-[var(--border)] ps-3"
                           role="list"
                         >
                           {children.map((child) => {

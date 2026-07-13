@@ -2374,7 +2374,7 @@ export type DatasetMeta = {
     /**
      * Language
      *
-     * ISO 639-1 language code, e.g. en, fr
+     * BCP 47 primary language tag, e.g. en, fr, or pt-BR
      */
     language?: string | null;
     /**
@@ -8860,6 +8860,56 @@ export type TokenResponse = {
      * Token Type
      */
     token_type?: string;
+};
+
+/**
+ * TranslationListResponse
+ */
+export type TranslationListResponse = {
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Translations
+     */
+    translations: Array<TranslationResponse>;
+};
+
+/**
+ * TranslationResponse
+ */
+export type TranslationResponse = {
+    /**
+     * Language
+     */
+    language: string;
+    /**
+     * Record Id
+     */
+    record_id: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * TranslationUpsert
+ */
+export type TranslationUpsert = {
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Title
+     */
+    title: string;
 };
 
 /**
@@ -19996,6 +20046,180 @@ export type DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteResponses
 };
 
 export type DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteResponse = DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteResponses[keyof DeleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDeleteResponses];
+
+export type ListTranslationsEndpointRecordsRecordIdTranslationsGetData = {
+    body?: never;
+    path: {
+        /**
+         * Record Id
+         */
+        record_id: string;
+    };
+    query?: never;
+    url: '/records/{record_id}/translations/';
+};
+
+export type ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ListTranslationsEndpointRecordsRecordIdTranslationsGetError = ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors[keyof ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors];
+
+export type ListTranslationsEndpointRecordsRecordIdTranslationsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TranslationListResponse;
+};
+
+export type ListTranslationsEndpointRecordsRecordIdTranslationsGetResponse = ListTranslationsEndpointRecordsRecordIdTranslationsGetResponses[keyof ListTranslationsEndpointRecordsRecordIdTranslationsGetResponses];
+
+export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Record Id
+         */
+        record_id: string;
+        /**
+         * Language
+         *
+         * BCP 47 language tag, for example fr or pt-BR
+         */
+        language: string;
+    };
+    query?: never;
+    url: '/records/{record_id}/translations/{language}/';
+};
+
+export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteError = DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteErrors[keyof DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteErrors];
+
+export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteResponse = DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteResponses[keyof DeleteTranslationEndpointRecordsRecordIdTranslationsLanguageDeleteResponses];
+
+export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutData = {
+    body: TranslationUpsert;
+    path: {
+        /**
+         * Record Id
+         */
+        record_id: string;
+        /**
+         * Language
+         *
+         * BCP 47 language tag, for example fr or pt-BR
+         */
+        language: string;
+    };
+    query?: never;
+    url: '/records/{record_id}/translations/{language}/';
+};
+
+export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutError = UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutErrors[keyof UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutErrors];
+
+export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponses = {
+    /**
+     * Successful Response
+     */
+    200: TranslationResponse;
+};
+
+export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponse = UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponses[keyof UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponses];
 
 export type SearchDatasetsEndpointSearchDatasetsGetData = {
     /**

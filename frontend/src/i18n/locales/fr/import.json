@@ -49,7 +49,10 @@
       "nodata_inconsistent": "Valeur NoData non concordante",
       "grid_misaligned": "Les dimensions de la grille ne correspondent pas"
     },
-    "searchError": "Impossible de charger les résultats"
+    "searchError": "Impossible de charger les résultats",
+    "bandCount_one": "{{count}} bande",
+    "bandCount_other": "{{count}} bandes",
+    "resolutionValue": "Résolution : {{value}}"
   },
   "upload": {
     "startOver": "Recommencer",
@@ -185,7 +188,8 @@
     "probe": "Vérifier →",
     "supported": "Supporté :",
     "unknownDataset": "Jeu de données inconnu",
-    "alreadyRegistered": "Déjà enregistré : \"{{title}}\""
+    "alreadyRegistered": "Déjà enregistré : \"{{title}}\"",
+    "viewExisting": "Voir l'existant"
   },
   "register": {
     "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
@@ -220,6 +224,8 @@
     "searchPlaceholder": "Rechercher des tables…",
     "selectHint": "Sélectionnez une table dans la liste pour voir son schéma et l'enregistrer.",
     "detailDesc": "Enregistrer comme jeu de données GeoLens — tuilé à la volée, aucune copie.",
+    "tableCount_one": "{{schema}} · {{count}} table",
+    "tableCount_other": "{{schema}} · {{count}} tables",
     "stats": {
       "rows": "Lignes",
       "geometry": "Géométrie",
@@ -327,6 +333,16 @@
     "copyXyzUrl": "Copier l'URL tuile XYZ",
     "cogDownloadFailed": "Impossible de démarrer le téléchargement COG — réessayez",
     "rowsSuffix": "lignes",
+    "connect": "Connecter",
+    "status": {
+      "pending": "En attente",
+      "running": "En cours",
+      "complete": "Terminée",
+      "failed": "Échec",
+      "cancelled": "Annulée",
+      "fannedOut": "Répartie",
+      "unknown": "Inconnue ({{status}})"
+    },
     "step": {
       "validating": "Validation",
       "ogr2ogr": "Chargement des entités",

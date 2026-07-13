@@ -49,7 +49,10 @@
       "nodata_inconsistent": "Valor NoData no coincide",
       "grid_misaligned": "Las dimensiones de la cuadrícula no coinciden"
     },
-    "searchError": "No se pudieron cargar los resultados"
+    "searchError": "No se pudieron cargar los resultados",
+    "bandCount_one": "{{count}} banda",
+    "bandCount_other": "{{count}} bandas",
+    "resolutionValue": "Resolución: {{value}}"
   },
   "upload": {
     "startOver": "Empezar de nuevo",
@@ -185,7 +188,8 @@
     "probe": "Comprobar →",
     "supported": "Compatible:",
     "unknownDataset": "Conjunto de datos desconocido",
-    "alreadyRegistered": "Ya registrado: \"{{title}}\""
+    "alreadyRegistered": "Ya registrado: \"{{title}}\"",
+    "viewExisting": "Ver existente"
   },
   "register": {
     "helpText": "Catalogue tablas PostGIS existentes de su base de datos como conjuntos de datos en GeoLens. Use esta opción cuando tenga datos geográficos ya en la base de datos que no fueron importados a través de GeoLens. Las tablas seleccionadas se añadirán al catálogo con detección automática de metadatos.",
@@ -220,6 +224,8 @@
     "searchPlaceholder": "Buscar tablas…",
     "selectHint": "Selecciona una tabla de la lista para ver su esquema y registrarla.",
     "detailDesc": "Registrar como conjunto de datos de GeoLens — teselado al vuelo, sin copia.",
+    "tableCount_one": "{{schema}} · {{count}} tabla",
+    "tableCount_other": "{{schema}} · {{count}} tablas",
     "stats": {
       "rows": "Filas",
       "geometry": "Geometría",
@@ -327,6 +333,16 @@
     "copyXyzUrl": "Copiar URL de tesela XYZ",
     "cogDownloadFailed": "No se pudo iniciar la descarga de COG — inténtelo de nuevo",
     "rowsSuffix": "filas",
+    "connect": "Conectar",
+    "status": {
+      "pending": "Pendiente",
+      "running": "En curso",
+      "complete": "Completado",
+      "failed": "Fallido",
+      "cancelled": "Cancelado",
+      "fannedOut": "Distribuido",
+      "unknown": "Desconocido ({{status}})"
+    },
     "step": {
       "validating": "Validando",
       "ogr2ogr": "Cargando entidades",

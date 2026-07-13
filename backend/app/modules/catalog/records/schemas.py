@@ -1,11 +1,61 @@
-"""Pydantic schemas for record sub-resources: contacts, keywords, distributions."""
+"""Pydantic schemas for record sub-resources."""
 
+import re
 import uuid
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator
 
 from app.core.text import normalize_nfc as _nfc
+
+
+_LANGUAGE_TAG_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
+
+
+def normalize_language_tag(value: str) -> str:
+    """Validate and canonicalize a compact BCP 47 language tag."""
+    tag = value.strip().replace("_", "-")
+    if not _LANGUAGE_TAG_RE.fullmatch(tag):
+        raise ValueError("language must be a BCP 47 tag such as en, fr, or pt-BR")
+    parts = tag.split("-")
+    canonical = [parts[0].lower()]
+    for part in parts[1:]:
+        if len(part) == 4 and part.isalpha():
+            canonical.append(part.title())
+        elif (len(part) == 2 and part.isalpha()) or (len(part) == 3 and part.isdigit()):
+            canonical.append(part.upper())
+        else:
+            canonical.append(part.lower())
+    return "-".join(canonical)
+
+
+# --- Localized record text ---
+
+
+class TranslationUpsert(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    summary: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("title", "summary", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+        return _nfc(v)
+
+
+class TranslationResponse(BaseModel):
+    record_id: uuid.UUID
+    language: str
+    title: str
+    summary: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TranslationListResponse(BaseModel):
+    translations: list[TranslationResponse]
+    total: int
 
 
 # --- Contacts ---

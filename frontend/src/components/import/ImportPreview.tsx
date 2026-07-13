@@ -54,7 +54,9 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
           </div>
           <div>
             <span className="text-muted-foreground">{t('preview.resolution')}</span>{' '}
-            {preview.res_x.toFixed(6)} x {preview.res_y.toFixed(6)}
+            {formatNumber(preview.res_x, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}
+            {' × '}
+            {formatNumber(preview.res_y, { minimumFractionDigits: 6, maximumFractionDigits: 6 })}
           </div>
           <div>
             <span className="text-muted-foreground">{t('preview.cog')}</span>{' '}

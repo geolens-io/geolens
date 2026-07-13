@@ -26,7 +26,7 @@ class DatasetMeta:
         data_vintage_end (datetime.date | None | Unset): End of temporal coverage
         data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
         is_dem (bool | None | Unset): Flag raster as a Digital Elevation Model for terrain rendering
-        language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
+        language (None | str | Unset): BCP 47 primary language tag, e.g. en, fr, or pt-BR
         license_ (None | str | Unset):
         lineage_summary (None | str | Unset): Free-text provenance / lineage statement
         owner_org (None | str | Unset): Owning organization name

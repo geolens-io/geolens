@@ -177,7 +177,7 @@ export function BuilderRail({
               {btn.id === 'notes' && notes.trim().length > 0 && (
                 <span
                   aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
-                  className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary"
+                  className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
                 />
               )}
             </button>

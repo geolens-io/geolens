@@ -365,6 +365,7 @@ async def _run_rrf_merge(
                 selectinload(Dataset.record).selectinload(Record.keywords),
                 selectinload(Dataset.record).selectinload(Record.contacts),
                 selectinload(Dataset.record).selectinload(Record.distributions),
+                selectinload(Dataset.record).selectinload(Record.translations),
             )
             .where(Record.id.in_([uuid_mod.UUID(rid) for rid in page_ids]))
         )

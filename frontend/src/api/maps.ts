@@ -26,6 +26,8 @@ import type {
   MapAccessResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
+import { translateApiErrorDetail } from '@/lib/error-map';
+import i18n from '@/i18n/i18n';
 import { normalizeLayerStyleState } from '@/lib/normalize-style-config';
 import { normalizeSavedMap } from '@/lib/normalize-saved-map';
 
@@ -339,15 +341,17 @@ export async function* streamGenerateMap(
   );
 
   if (!response.ok) {
-    let detail = response.statusText;
+    let detail: unknown;
     try {
       const body = await response.json();
-      if (body.detail) detail = body.detail;
+      detail = body.detail;
     } catch { /* not JSON */ }
-    throw new Error(detail);
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
 
-  if (!response.body) throw new Error('No response body');
+  if (!response.body) {
+    throw new Error(i18n.t('common:errors.emptyResponse'));
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -503,11 +507,21 @@ export async function* streamChatMessage(
   });
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new ApiError(body || `Stream request failed: ${response.status}`, response.status);
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = body.detail;
+    } catch { /* not JSON */ }
+    throw new ApiError(
+      translateApiErrorDetail(detail, response.status),
+      response.status,
+      detail,
+    );
   }
 
-  if (!response.body) throw new Error('No response body');
+  if (!response.body) {
+    throw new Error(i18n.t('common:errors.emptyResponse'));
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

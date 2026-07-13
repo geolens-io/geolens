@@ -11,6 +11,7 @@
   "noticedNone": "No se detectó nada automáticamente: lo que más importa es tu descripción.",
   "technicalDetails": "Detalles técnicos ({{count}})",
   "technicalEmpty": "Todavía no se ha capturado nada.",
+  "technicalSuppressed": "(suprimido)",
   "technicalCopy": "Copiar detalles técnicos",
   "technicalCopied": "Detalles técnicos copiados al portapapeles",
   "technicalClear": "Borrar",
