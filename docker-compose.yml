@@ -294,6 +294,7 @@ services:
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
       PYTHONPATH: /app
+      GEOLENS_API_RUN_MIGRATIONS: "${GEOLENS_API_RUN_MIGRATIONS:-true}"
       UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
