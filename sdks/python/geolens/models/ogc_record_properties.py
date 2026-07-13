@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from ..models.ogc_record_properties_constraints_type_0 import (
         OGCRecordPropertiesConstraintsType0,
     )
-    from ..models.ogc_record_properties_contacts_type_0_item import (
-        OGCRecordPropertiesContactsType0Item,
+    from ..models.ogc_record_properties_contacts_item import (
+        OGCRecordPropertiesContactsItem,
     )
     from ..models.ogc_record_properties_distributions_type_0_item import (
         OGCRecordPropertiesDistributionsType0Item,
@@ -25,10 +25,8 @@ if TYPE_CHECKING:
     from ..models.ogc_record_properties_quality_detail_type_0 import (
         OGCRecordPropertiesQualityDetailType0,
     )
-    from ..models.ogc_record_properties_themes_type_0_item import (
-        OGCRecordPropertiesThemesType0Item,
-    )
-    from ..models.ogc_record_properties_time_type_0 import OGCRecordPropertiesTimeType0
+    from ..models.ogc_record_properties_themes_item import OGCRecordPropertiesThemesItem
+    from ..models.ogc_record_properties_time import OGCRecordPropertiesTime
 
 
 T = TypeVar("T", bound="OGCRecordProperties")
@@ -39,24 +37,27 @@ class OGCRecordProperties:
     """Properties block of an OGC API Records Feature.
 
     Attributes:
+        contacts (list[OGCRecordPropertiesContactsItem]):
+        description (str):
+        keywords (list[str]):
+        license_ (str):
+        themes (list[OGCRecordPropertiesThemesItem]):
+        time (OGCRecordPropertiesTime):
         title (str):
         band_count (int | None | Unset):
         column_count (int | None | Unset): Number of columns in the dataset (populated from column_info length).
         constraints (None | OGCRecordPropertiesConstraintsType0 | Unset):
-        contacts (list[OGCRecordPropertiesContactsType0Item] | None | Unset):
         created (datetime.datetime | None | Unset):
         crs (None | str | Unset):
         dataset_count (int | None | Unset):
-        description (None | str | Unset):
         distributions (list[OGCRecordPropertiesDistributionsType0Item] | None | Unset):
+        external_ids (list[str] | Unset): Identifiers assigned by the described resource's source system.
         feature_count (int | None | Unset):
         formats (list[str] | None | Unset):
         geometry_type (None | str | Unset):
         gsd (float | None | Unset):
         has_quicklook (bool | Unset):  Default: False.
-        keywords (list[str] | None | Unset):
         language (None | str | Unset):
-        license_ (None | str | Unset):
         lineage (None | str | Unset):
         never_edited (bool | Unset):  Default: False.
         quality_detail (None | OGCRecordPropertiesQualityDetailType0 | Unset):
@@ -70,8 +71,6 @@ class OGCRecordProperties:
         source_format (None | str | Unset): Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac',
             'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
         source_organization (None | str | Unset):
-        themes (list[OGCRecordPropertiesThemesType0Item] | None | Unset):
-        time (None | OGCRecordPropertiesTimeType0 | Unset):
         type_ (str | Unset):  Default: 'dataset'.
         update_frequency (None | str | Unset):
         updated (datetime.datetime | None | Unset):
@@ -79,26 +78,29 @@ class OGCRecordProperties:
         vrt_type (None | str | Unset):
     """
 
+    contacts: list[OGCRecordPropertiesContactsItem]
+    description: str
+    keywords: list[str]
+    license_: str
+    themes: list[OGCRecordPropertiesThemesItem]
+    time: OGCRecordPropertiesTime
     title: str
     band_count: int | None | Unset = UNSET
     column_count: int | None | Unset = UNSET
     constraints: None | OGCRecordPropertiesConstraintsType0 | Unset = UNSET
-    contacts: list[OGCRecordPropertiesContactsType0Item] | None | Unset = UNSET
     created: datetime.datetime | None | Unset = UNSET
     crs: None | str | Unset = UNSET
     dataset_count: int | None | Unset = UNSET
-    description: None | str | Unset = UNSET
     distributions: list[OGCRecordPropertiesDistributionsType0Item] | None | Unset = (
         UNSET
     )
+    external_ids: list[str] | Unset = UNSET
     feature_count: int | None | Unset = UNSET
     formats: list[str] | None | Unset = UNSET
     geometry_type: None | str | Unset = UNSET
     gsd: float | None | Unset = UNSET
     has_quicklook: bool | Unset = False
-    keywords: list[str] | None | Unset = UNSET
     language: None | str | Unset = UNSET
-    license_: None | str | Unset = UNSET
     lineage: None | str | Unset = UNSET
     never_edited: bool | Unset = False
     quality_detail: None | OGCRecordPropertiesQualityDetailType0 | Unset = UNSET
@@ -110,8 +112,6 @@ class OGCRecordProperties:
     source_count: int | None | Unset = UNSET
     source_format: None | str | Unset = UNSET
     source_organization: None | str | Unset = UNSET
-    themes: list[OGCRecordPropertiesThemesType0Item] | None | Unset = UNSET
-    time: None | OGCRecordPropertiesTimeType0 | Unset = UNSET
     type_: str | Unset = "dataset"
     update_frequency: None | str | Unset = UNSET
     updated: datetime.datetime | None | Unset = UNSET
@@ -126,9 +126,24 @@ class OGCRecordProperties:
         from ..models.ogc_record_properties_quality_detail_type_0 import (
             OGCRecordPropertiesQualityDetailType0,
         )
-        from ..models.ogc_record_properties_time_type_0 import (
-            OGCRecordPropertiesTimeType0,
-        )
+
+        contacts = []
+        for contacts_item_data in self.contacts:
+            contacts_item = contacts_item_data.to_dict()
+            contacts.append(contacts_item)
+
+        description = self.description
+
+        keywords = self.keywords
+
+        license_ = self.license_
+
+        themes = []
+        for themes_item_data in self.themes:
+            themes_item = themes_item_data.to_dict()
+            themes.append(themes_item)
+
+        time = self.time.to_dict()
 
         title = self.title
 
@@ -152,18 +167,6 @@ class OGCRecordProperties:
         else:
             constraints = self.constraints
 
-        contacts: list[dict[str, Any]] | None | Unset
-        if isinstance(self.contacts, Unset):
-            contacts = UNSET
-        elif isinstance(self.contacts, list):
-            contacts = []
-            for contacts_type_0_item_data in self.contacts:
-                contacts_type_0_item = contacts_type_0_item_data.to_dict()
-                contacts.append(contacts_type_0_item)
-
-        else:
-            contacts = self.contacts
-
         created: None | str | Unset
         if isinstance(self.created, Unset):
             created = UNSET
@@ -184,12 +187,6 @@ class OGCRecordProperties:
         else:
             dataset_count = self.dataset_count
 
-        description: None | str | Unset
-        if isinstance(self.description, Unset):
-            description = UNSET
-        else:
-            description = self.description
-
         distributions: list[dict[str, Any]] | None | Unset
         if isinstance(self.distributions, Unset):
             distributions = UNSET
@@ -201,6 +198,10 @@ class OGCRecordProperties:
 
         else:
             distributions = self.distributions
+
+        external_ids: list[str] | Unset = UNSET
+        if not isinstance(self.external_ids, Unset):
+            external_ids = self.external_ids
 
         feature_count: int | None | Unset
         if isinstance(self.feature_count, Unset):
@@ -231,26 +232,11 @@ class OGCRecordProperties:
 
         has_quicklook = self.has_quicklook
 
-        keywords: list[str] | None | Unset
-        if isinstance(self.keywords, Unset):
-            keywords = UNSET
-        elif isinstance(self.keywords, list):
-            keywords = self.keywords
-
-        else:
-            keywords = self.keywords
-
         language: None | str | Unset
         if isinstance(self.language, Unset):
             language = UNSET
         else:
             language = self.language
-
-        license_: None | str | Unset
-        if isinstance(self.license_, Unset):
-            license_ = UNSET
-        else:
-            license_ = self.license_
 
         lineage: None | str | Unset
         if isinstance(self.lineage, Unset):
@@ -312,26 +298,6 @@ class OGCRecordProperties:
         else:
             source_organization = self.source_organization
 
-        themes: list[dict[str, Any]] | None | Unset
-        if isinstance(self.themes, Unset):
-            themes = UNSET
-        elif isinstance(self.themes, list):
-            themes = []
-            for themes_type_0_item_data in self.themes:
-                themes_type_0_item = themes_type_0_item_data.to_dict()
-                themes.append(themes_type_0_item)
-
-        else:
-            themes = self.themes
-
-        time: dict[str, Any] | None | Unset
-        if isinstance(self.time, Unset):
-            time = UNSET
-        elif isinstance(self.time, OGCRecordPropertiesTimeType0):
-            time = self.time.to_dict()
-        else:
-            time = self.time
-
         type_ = self.type_
 
         update_frequency: None | str | Unset
@@ -364,6 +330,12 @@ class OGCRecordProperties:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "contacts": contacts,
+                "description": description,
+                "keywords": keywords,
+                "license": license_,
+                "themes": themes,
+                "time": time,
                 "title": title,
             }
         )
@@ -373,18 +345,16 @@ class OGCRecordProperties:
             field_dict["column_count"] = column_count
         if constraints is not UNSET:
             field_dict["constraints"] = constraints
-        if contacts is not UNSET:
-            field_dict["contacts"] = contacts
         if created is not UNSET:
             field_dict["created"] = created
         if crs is not UNSET:
             field_dict["crs"] = crs
         if dataset_count is not UNSET:
             field_dict["dataset_count"] = dataset_count
-        if description is not UNSET:
-            field_dict["description"] = description
         if distributions is not UNSET:
             field_dict["distributions"] = distributions
+        if external_ids is not UNSET:
+            field_dict["externalIds"] = external_ids
         if feature_count is not UNSET:
             field_dict["feature_count"] = feature_count
         if formats is not UNSET:
@@ -395,12 +365,8 @@ class OGCRecordProperties:
             field_dict["gsd"] = gsd
         if has_quicklook is not UNSET:
             field_dict["has_quicklook"] = has_quicklook
-        if keywords is not UNSET:
-            field_dict["keywords"] = keywords
         if language is not UNSET:
             field_dict["language"] = language
-        if license_ is not UNSET:
-            field_dict["license"] = license_
         if lineage is not UNSET:
             field_dict["lineage"] = lineage
         if never_edited is not UNSET:
@@ -423,10 +389,6 @@ class OGCRecordProperties:
             field_dict["source_format"] = source_format
         if source_organization is not UNSET:
             field_dict["source_organization"] = source_organization
-        if themes is not UNSET:
-            field_dict["themes"] = themes
-        if time is not UNSET:
-            field_dict["time"] = time
         if type_ is not UNSET:
             field_dict["type"] = type_
         if update_frequency is not UNSET:
@@ -445,8 +407,8 @@ class OGCRecordProperties:
         from ..models.ogc_record_properties_constraints_type_0 import (
             OGCRecordPropertiesConstraintsType0,
         )
-        from ..models.ogc_record_properties_contacts_type_0_item import (
-            OGCRecordPropertiesContactsType0Item,
+        from ..models.ogc_record_properties_contacts_item import (
+            OGCRecordPropertiesContactsItem,
         )
         from ..models.ogc_record_properties_distributions_type_0_item import (
             OGCRecordPropertiesDistributionsType0Item,
@@ -454,14 +416,36 @@ class OGCRecordProperties:
         from ..models.ogc_record_properties_quality_detail_type_0 import (
             OGCRecordPropertiesQualityDetailType0,
         )
-        from ..models.ogc_record_properties_themes_type_0_item import (
-            OGCRecordPropertiesThemesType0Item,
+        from ..models.ogc_record_properties_themes_item import (
+            OGCRecordPropertiesThemesItem,
         )
-        from ..models.ogc_record_properties_time_type_0 import (
-            OGCRecordPropertiesTimeType0,
-        )
+        from ..models.ogc_record_properties_time import OGCRecordPropertiesTime
 
         d = dict(src_dict)
+        contacts = []
+        _contacts = d.pop("contacts")
+        for contacts_item_data in _contacts:
+            contacts_item = OGCRecordPropertiesContactsItem.from_dict(
+                contacts_item_data
+            )
+
+            contacts.append(contacts_item)
+
+        description = d.pop("description")
+
+        keywords = cast(list[str], d.pop("keywords"))
+
+        license_ = d.pop("license")
+
+        themes = []
+        _themes = d.pop("themes")
+        for themes_item_data in _themes:
+            themes_item = OGCRecordPropertiesThemesItem.from_dict(themes_item_data)
+
+            themes.append(themes_item)
+
+        time = OGCRecordPropertiesTime.from_dict(d.pop("time"))
+
         title = d.pop("title")
 
         def _parse_band_count(data: object) -> int | None | Unset:
@@ -501,34 +485,6 @@ class OGCRecordProperties:
 
         constraints = _parse_constraints(d.pop("constraints", UNSET))
 
-        def _parse_contacts(
-            data: object,
-        ) -> list[OGCRecordPropertiesContactsType0Item] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                contacts_type_0 = []
-                _contacts_type_0 = data
-                for contacts_type_0_item_data in _contacts_type_0:
-                    contacts_type_0_item = (
-                        OGCRecordPropertiesContactsType0Item.from_dict(
-                            contacts_type_0_item_data
-                        )
-                    )
-
-                    contacts_type_0.append(contacts_type_0_item)
-
-                return contacts_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[OGCRecordPropertiesContactsType0Item] | None | Unset, data)
-
-        contacts = _parse_contacts(d.pop("contacts", UNSET))
-
         def _parse_created(data: object) -> datetime.datetime | None | Unset:
             if data is None:
                 return data
@@ -564,15 +520,6 @@ class OGCRecordProperties:
 
         dataset_count = _parse_dataset_count(d.pop("dataset_count", UNSET))
 
-        def _parse_description(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        description = _parse_description(d.pop("description", UNSET))
-
         def _parse_distributions(
             data: object,
         ) -> list[OGCRecordPropertiesDistributionsType0Item] | None | Unset:
@@ -602,6 +549,8 @@ class OGCRecordProperties:
             )
 
         distributions = _parse_distributions(d.pop("distributions", UNSET))
+
+        external_ids = cast(list[str], d.pop("externalIds", UNSET))
 
         def _parse_feature_count(data: object) -> int | None | Unset:
             if data is None:
@@ -649,23 +598,6 @@ class OGCRecordProperties:
 
         has_quicklook = d.pop("has_quicklook", UNSET)
 
-        def _parse_keywords(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                keywords_type_0 = cast(list[str], data)
-
-                return keywords_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[str] | None | Unset, data)
-
-        keywords = _parse_keywords(d.pop("keywords", UNSET))
-
         def _parse_language(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -674,15 +606,6 @@ class OGCRecordProperties:
             return cast(None | str | Unset, data)
 
         language = _parse_language(d.pop("language", UNSET))
-
-        def _parse_license_(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        license_ = _parse_license_(d.pop("license", UNSET))
 
         def _parse_lineage(data: object) -> None | str | Unset:
             if data is None:
@@ -783,49 +706,6 @@ class OGCRecordProperties:
             d.pop("source_organization", UNSET)
         )
 
-        def _parse_themes(
-            data: object,
-        ) -> list[OGCRecordPropertiesThemesType0Item] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                themes_type_0 = []
-                _themes_type_0 = data
-                for themes_type_0_item_data in _themes_type_0:
-                    themes_type_0_item = OGCRecordPropertiesThemesType0Item.from_dict(
-                        themes_type_0_item_data
-                    )
-
-                    themes_type_0.append(themes_type_0_item)
-
-                return themes_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[OGCRecordPropertiesThemesType0Item] | None | Unset, data)
-
-        themes = _parse_themes(d.pop("themes", UNSET))
-
-        def _parse_time(data: object) -> None | OGCRecordPropertiesTimeType0 | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                time_type_0 = OGCRecordPropertiesTimeType0.from_dict(data)
-
-                return time_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | OGCRecordPropertiesTimeType0 | Unset, data)
-
-        time = _parse_time(d.pop("time", UNSET))
-
         type_ = d.pop("type", UNSET)
 
         def _parse_update_frequency(data: object) -> None | str | Unset:
@@ -875,24 +755,27 @@ class OGCRecordProperties:
         vrt_type = _parse_vrt_type(d.pop("vrt_type", UNSET))
 
         ogc_record_properties = cls(
+            contacts=contacts,
+            description=description,
+            keywords=keywords,
+            license_=license_,
+            themes=themes,
+            time=time,
             title=title,
             band_count=band_count,
             column_count=column_count,
             constraints=constraints,
-            contacts=contacts,
             created=created,
             crs=crs,
             dataset_count=dataset_count,
-            description=description,
             distributions=distributions,
+            external_ids=external_ids,
             feature_count=feature_count,
             formats=formats,
             geometry_type=geometry_type,
             gsd=gsd,
             has_quicklook=has_quicklook,
-            keywords=keywords,
             language=language,
-            license_=license_,
             lineage=lineage,
             never_edited=never_edited,
             quality_detail=quality_detail,
@@ -904,8 +787,6 @@ class OGCRecordProperties:
             source_count=source_count,
             source_format=source_format,
             source_organization=source_organization,
-            themes=themes,
-            time=time,
             type_=type_,
             update_frequency=update_frequency,
             updated=updated,

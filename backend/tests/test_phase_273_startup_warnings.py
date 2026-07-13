@@ -32,9 +32,9 @@ def test_cors_warning_fires_in_production_with_empty_cors():
         "cors_allowed_origins_unset",
         message=(
             "CORS_ALLOWED_ORIGINS is empty in production. "
-            "All origins will pass the request-origin check; this is "
-            "likely a misconfiguration. Set "
-            "CORS_ALLOWED_ORIGINS=<comma-separated origins> to restrict."
+            "Anonymous standards reads allow any browser origin, but "
+            "credentialed application CORS is disabled. Set "
+            "CORS_ALLOWED_ORIGINS=<comma-separated origins> to enable it."
         ),
     )
 

@@ -27,6 +27,14 @@ from app.modules.catalog.datasets.domain.models import (
 from tests.factories import get_user_id
 
 
+@pytest.fixture(autouse=True)
+def _configured_dcat_contact(monkeypatch):
+    """Model the required deployment mailbox unless a test removes it."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "dcat_contact_email", "catalog@example.gov")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -136,13 +144,26 @@ async def test_single_record_dcat_has_context(
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
-    resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat/",
+        headers={**admin_auth_header, "Accept-Language": "fr"},
+    )
     assert resp.status_code == 200
+    assert resp.headers["content-language"] == "en"
     data = resp.json()
     assert "@context" in data
     ctx = data["@context"]
     for prefix in ["dcat", "dcterms", "foaf", "skos", "vcard", "xsd"]:
         assert prefix in ctx, f"Missing namespace prefix: {prefix}"
+
+
+@pytest.mark.anyio
+async def test_dcat_invalid_limit_uses_standards_problem_detail(client: AsyncClient):
+    response = await client.get("/datasets/dcat/", params={"limit": 0})
+
+    assert response.status_code == 400
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["status"] == 400
 
 
 @pytest.mark.anyio
@@ -160,6 +181,31 @@ async def test_single_record_dcat_has_type_and_id(
     data = resp.json()
     assert data["@type"] == "dcat:Dataset"
     assert str(ds.id) in data["@id"]
+
+
+@pytest.mark.anyio
+async def test_record_language_headers_match_each_serialized_profile(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dcat_dataset(test_db_session, created_by=admin_id)
+    ds.record.language = "pt-BR"
+    await test_db_session.commit()
+
+    dcat = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
+    assert dcat.status_code == 200
+    assert dcat.json()["dcterms:title"]["@language"] == "pt-BR"
+    assert dcat.json()["dcterms:language"]["@id"].endswith("/POR")
+    assert dcat.headers["content-language"] == "pt-BR"
+
+    dcat_us = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/", headers=admin_auth_header
+    )
+    assert dcat_us.status_code == 200
+    assert dcat_us.json()["language"] == "pt"
+    assert dcat_us.headers["content-language"] == "pt"
 
 
 @pytest.mark.anyio
@@ -629,6 +675,8 @@ async def test_single_record_dcat_us3_validation_report_passes(
         "valid": True,
         "error_count": 0,
         "errors": [],
+        "uses_metadata_fallback": False,
+        "metadata_fallback_fields": [],
     }
 
 
@@ -637,8 +685,12 @@ async def test_single_record_dcat_us3_validation_reports_metadata_gaps(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    monkeypatch,
 ):
-    """Validation reports missing mandatory metadata instead of hiding gaps."""
+    """Missing record and configured contacts are explicit, never filtered."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "dcat_contact_email", None)
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(
@@ -664,6 +716,77 @@ async def test_single_record_dcat_us3_validation_reports_metadata_gaps(
         and "contactPoint" in error["message"]
         for error in report["errors"]
     )
+
+    export = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/",
+        headers=admin_auth_header,
+    )
+    assert export.status_code == 503
+    assert "application/problem+json" in export.headers["content-type"]
+    assert "DCAT_CONTACT_EMAIL" in export.json()["detail"]
+
+    catalog = await client.get(
+        "/datasets/dcat-us/3.0/",
+        headers=admin_auth_header,
+    )
+    assert catalog.status_code == 503
+    assert "application/problem+json" in catalog.headers["content-type"]
+
+    catalog_validation = await client.get(
+        "/datasets/dcat-us/3.0/validation/",
+        headers=admin_auth_header,
+    )
+    catalog_report = catalog_validation.json()
+    assert catalog_report["valid"] is False
+    assert catalog_report["source_dataset_count"] >= 1
+    assert (
+        catalog_report["serialized_dataset_count"]
+        == catalog_report["source_dataset_count"]
+    )
+    assert catalog_report["excluded_dataset_count"] == 0
+
+
+@pytest.mark.anyio
+async def test_dcat_us3_configured_catalog_contact_is_conformant_fallback(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """A monitored organization mailbox fills contactPoint without fake PII."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "dcat_contact_email", "metadata@example.gov")
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dcat_dataset(
+        test_db_session,
+        created_by=admin_id,
+        with_contact=False,
+    )
+    ds.record.source_organization = "USGS"
+    await test_db_session.commit()
+
+    export = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/",
+        headers=admin_auth_header,
+    )
+    assert export.status_code == 200, export.text
+    assert export.headers["x-geolens-metadata-fallback-fields"] == "contactPoint"
+    contact = export.json()["contactPoint"][0]
+    assert export.json()["publisher"]["name"] == "USGS"
+    assert contact == {
+        "@type": "Kind",
+        "fn": "Catalog metadata contact",
+        "hasEmail": "mailto:metadata@example.gov",
+    }
+
+    validation = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/validation/",
+        headers=admin_auth_header,
+    )
+    report = validation.json()
+    assert report["valid"] is True, report
+    assert report["metadata_fallback_fields"] == ["contactPoint"]
 
 
 @pytest.mark.anyio

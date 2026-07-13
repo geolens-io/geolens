@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from ..models.ogc_record_response_geometry_type_0 import (
         OGCRecordResponseGeometryType0,
     )
-    from ..models.ogc_record_response_time_type_0 import OGCRecordResponseTimeType0
+    from ..models.ogc_record_response_time import OGCRecordResponseTime
 
 
 T = TypeVar("T", bound="OGCRecordResponse")
@@ -31,22 +31,22 @@ class OGCRecordResponse:
         id (str):
         links (list[OGCRecordLink]):
         properties (OGCRecordProperties): Properties block of an OGC API Records Feature.
+        time (OGCRecordResponseTime):
         assets (None | OGCRecordResponseAssetsType0 | Unset):
         bbox (list[float] | None | Unset):
         conforms_to (list[str] | None | Unset):
         geometry (None | OGCRecordResponseGeometryType0 | Unset):
-        time (None | OGCRecordResponseTimeType0 | Unset):
         type_ (str | Unset):  Default: 'Feature'.
     """
 
     id: str
     links: list[OGCRecordLink]
     properties: OGCRecordProperties
+    time: OGCRecordResponseTime
     assets: None | OGCRecordResponseAssetsType0 | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
     conforms_to: list[str] | None | Unset = UNSET
     geometry: None | OGCRecordResponseGeometryType0 | Unset = UNSET
-    time: None | OGCRecordResponseTimeType0 | Unset = UNSET
     type_: str | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -57,7 +57,6 @@ class OGCRecordResponse:
         from ..models.ogc_record_response_geometry_type_0 import (
             OGCRecordResponseGeometryType0,
         )
-        from ..models.ogc_record_response_time_type_0 import OGCRecordResponseTimeType0
 
         id = self.id
 
@@ -67,6 +66,8 @@ class OGCRecordResponse:
             links.append(links_item)
 
         properties = self.properties.to_dict()
+
+        time = self.time.to_dict()
 
         assets: dict[str, Any] | None | Unset
         if isinstance(self.assets, Unset):
@@ -102,14 +103,6 @@ class OGCRecordResponse:
         else:
             geometry = self.geometry
 
-        time: dict[str, Any] | None | Unset
-        if isinstance(self.time, Unset):
-            time = UNSET
-        elif isinstance(self.time, OGCRecordResponseTimeType0):
-            time = self.time.to_dict()
-        else:
-            time = self.time
-
         type_ = self.type_
 
         field_dict: dict[str, Any] = {}
@@ -119,6 +112,7 @@ class OGCRecordResponse:
                 "id": id,
                 "links": links,
                 "properties": properties,
+                "time": time,
             }
         )
         if assets is not UNSET:
@@ -129,8 +123,6 @@ class OGCRecordResponse:
             field_dict["conformsTo"] = conforms_to
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
-        if time is not UNSET:
-            field_dict["time"] = time
         if type_ is not UNSET:
             field_dict["type"] = type_
 
@@ -146,7 +138,7 @@ class OGCRecordResponse:
         from ..models.ogc_record_response_geometry_type_0 import (
             OGCRecordResponseGeometryType0,
         )
-        from ..models.ogc_record_response_time_type_0 import OGCRecordResponseTimeType0
+        from ..models.ogc_record_response_time import OGCRecordResponseTime
 
         d = dict(src_dict)
         id = d.pop("id")
@@ -159,6 +151,8 @@ class OGCRecordResponse:
             links.append(links_item)
 
         properties = OGCRecordProperties.from_dict(d.pop("properties"))
+
+        time = OGCRecordResponseTime.from_dict(d.pop("time"))
 
         def _parse_assets(data: object) -> None | OGCRecordResponseAssetsType0 | Unset:
             if data is None:
@@ -230,34 +224,17 @@ class OGCRecordResponse:
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
-        def _parse_time(data: object) -> None | OGCRecordResponseTimeType0 | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                time_type_0 = OGCRecordResponseTimeType0.from_dict(data)
-
-                return time_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(None | OGCRecordResponseTimeType0 | Unset, data)
-
-        time = _parse_time(d.pop("time", UNSET))
-
         type_ = d.pop("type", UNSET)
 
         ogc_record_response = cls(
             id=id,
             links=links,
             properties=properties,
+            time=time,
             assets=assets,
             bbox=bbox,
             conforms_to=conforms_to,
             geometry=geometry,
-            time=time,
             type_=type_,
         )
 

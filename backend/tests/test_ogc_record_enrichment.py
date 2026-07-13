@@ -379,7 +379,7 @@ async def test_existing_record_fields_preserved(client: AsyncClient, test_db_ses
     props = data["properties"]
     assert props["title"] == "Regression Test"
     assert props["description"] == "Test dataset: Regression Test"
-    assert props["keywords"] is None  # no record_keywords inserted
+    assert props["keywords"] == []  # required array; no record_keywords inserted
     assert props["type"] == "dataset"
     assert "created" in props
     assert "updated" in props

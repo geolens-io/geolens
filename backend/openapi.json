@@ -10616,19 +10616,12 @@
             "title": "Constraints"
           },
           "contacts": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contacts"
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Contacts",
+            "type": "array"
           },
           "created": {
             "anyOf": [
@@ -10665,15 +10658,8 @@
             "title": "Dataset Count"
           },
           "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
+            "title": "Description",
+            "type": "string"
           },
           "distributions": {
             "anyOf": [
@@ -10689,6 +10675,14 @@
               }
             ],
             "title": "Distributions"
+          },
+          "externalIds": {
+            "description": "Identifiers assigned by the described resource's source system.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Externalids",
+            "type": "array"
           },
           "feature_count": {
             "anyOf": [
@@ -10743,18 +10737,11 @@
             "type": "boolean"
           },
           "keywords": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Keywords"
+            "items": {
+              "type": "string"
+            },
+            "title": "Keywords",
+            "type": "array"
           },
           "language": {
             "anyOf": [
@@ -10768,15 +10755,8 @@
             "title": "Language"
           },
           "license": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "License"
+            "title": "License",
+            "type": "string"
           },
           "lineage": {
             "anyOf": [
@@ -10891,31 +10871,17 @@
             "title": "Source Organization"
           },
           "themes": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Themes"
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Themes",
+            "type": "array"
           },
           "time": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time"
+            "additionalProperties": true,
+            "title": "Time",
+            "type": "object"
           },
           "title": {
             "title": "Title",
@@ -10973,7 +10939,13 @@
           }
         },
         "required": [
-          "title"
+          "title",
+          "description",
+          "keywords",
+          "license",
+          "themes",
+          "contacts",
+          "time"
         ],
         "title": "OGCRecordProperties",
         "type": "object"
@@ -11050,16 +11022,9 @@
             "$ref": "#/components/schemas/OGCRecordProperties"
           },
           "time": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time"
+            "additionalProperties": true,
+            "title": "Time",
+            "type": "object"
           },
           "type": {
             "default": "Feature",
@@ -11069,6 +11034,7 @@
         },
         "required": [
           "id",
+          "time",
           "properties",
           "links"
         ],
@@ -16119,17 +16085,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -22874,15 +22829,38 @@
             },
             "description": "Successful Response"
           },
-          "422": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
-              }
+              },
+              "application/problem+json": {}
             },
-            "description": "Validation Error"
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -22910,6 +22888,39 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -22929,22 +22940,52 @@
         "operationId": "collection_items_collections_datasets_items_get",
         "parameters": [
           {
-            "description": "OGC record type filter",
+            "description": "Public OGC resource types as repeated or comma-separated values (for example, type=dataset,collection)",
+            "explode": false,
             "in": "query",
             "name": "type",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "OGC record type filter",
-              "title": "Type"
-            }
+              "description": "Public OGC resource types as repeated or comma-separated values (for example, type=dataset,collection)",
+              "items": {
+                "type": "string"
+              },
+              "title": "Type",
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Record IDs as repeated or comma-separated UUID values",
+            "explode": false,
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "description": "Record IDs as repeated or comma-separated UUID values",
+              "items": {
+                "type": "string"
+              },
+              "title": "Ids",
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Source-system resource identifiers as repeated or comma-separated values",
+            "explode": false,
+            "in": "query",
+            "name": "externalIds",
+            "required": false,
+            "schema": {
+              "description": "Source-system resource identifiers as repeated or comma-separated values",
+              "items": {
+                "type": "string"
+              },
+              "title": "Externalids",
+              "type": "array"
+            },
+            "style": "form"
           },
           {
             "description": "OGC sortby: +field or -field",
@@ -22965,7 +23006,8 @@
             }
           },
           {
-            "description": "OGC Records external identifier filter (matches dataset UUID)",
+            "deprecated": true,
+            "description": "Deprecated singular compatibility alias for externalIds (matches a dataset UUID)",
             "in": "query",
             "name": "externalId",
             "required": false,
@@ -22978,7 +23020,8 @@
                   "type": "null"
                 }
               ],
-              "description": "OGC Records external identifier filter (matches dataset UUID)",
+              "deprecated": true,
+              "description": "Deprecated singular compatibility alias for externalIds (matches a dataset UUID)",
               "title": "Externalid"
             }
           },
@@ -23321,21 +23364,49 @@
         "responses": {
           "200": {
             "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OGCFeatureCollectionResponse"
+                }
+              },
               "application/json": {
                 "schema": {}
               }
             },
             "description": "Successful Response"
           },
-          "422": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
-              }
+              },
+              "application/problem+json": {}
             },
-            "description": "Validation Error"
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -23368,21 +23439,49 @@
         "responses": {
           "200": {
             "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OGCRecordResponse"
+                }
+              },
               "application/json": {
                 "schema": {}
               }
             },
             "description": "Successful Response"
           },
-          "422": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
-              }
+              },
+              "application/problem+json": {}
             },
-            "description": "Validation Error"
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "security": [
@@ -23408,6 +23507,39 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "summary": "Get Queryables",
@@ -23428,6 +23560,39 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "summary": "Get Record Schema",
@@ -23448,6 +23613,39 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
           }
         },
         "summary": "Get Sortables",
@@ -23520,17 +23718,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -23804,17 +23991,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -24036,17 +24212,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -24548,17 +24713,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -24998,17 +25152,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -25019,6 +25162,17 @@
               "application/problem+json": {}
             },
             "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service unavailable \u2014 required publication metadata is missing"
           }
         },
         "security": [
@@ -25066,17 +25220,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -25165,17 +25308,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -25233,17 +25365,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -25332,17 +25453,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -25400,17 +25510,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -26722,17 +26821,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -26743,6 +26831,17 @@
               "application/problem+json": {}
             },
             "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service unavailable \u2014 required publication metadata is missing"
           }
         },
         "security": [
@@ -26802,17 +26901,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -26884,17 +26972,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -26964,17 +27041,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -28818,17 +28884,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -28898,17 +28953,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -43097,6 +43141,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid standards parameters"
           }
         },
         "summary": "Landing Page",
@@ -43119,6 +43173,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid standards parameters"
           }
         },
         "summary": "Get Collections",
@@ -43137,7 +43201,6 @@
             "name": "collection_id",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Collection Id",
               "type": "string"
             }
@@ -43154,15 +43217,15 @@
             },
             "description": "Successful Response"
           },
-          "422": {
+          "400": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad request \u2014 invalid standards parameters"
           }
         },
         "summary": "Get Collection",
@@ -43181,7 +43244,6 @@
             "name": "collection_id",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Collection Id",
               "type": "string"
             }
@@ -43280,17 +43342,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -43324,7 +43375,6 @@
             "name": "collection_id",
             "required": true,
             "schema": {
-              "format": "uuid",
               "title": "Collection Id",
               "type": "string"
             }
@@ -43349,15 +43399,15 @@
             },
             "description": "Successful Response"
           },
-          "422": {
+          "400": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad request \u2014 invalid standards parameters"
           }
         },
         "security": [
@@ -43385,6 +43435,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid standards parameters"
           }
         },
         "summary": "Conformance",
@@ -43418,15 +43478,15 @@
             },
             "description": "Successful Response"
           },
-          "422": {
+          "400": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Bad request \u2014 invalid standards parameters"
           }
         },
         "security": [
@@ -43594,17 +43654,6 @@
             },
             "description": "Not found"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
           "500": {
             "content": {
               "application/json": {
@@ -43671,17 +43720,6 @@
               "application/problem+json": {}
             },
             "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
           },
           "500": {
             "content": {
@@ -44624,5 +44662,6 @@
       "description": "VRT raster mosaic creation and management.",
       "name": "Datasets - VRT"
     }
-  ]
+  ],
+  "x-geolens-standards-errors": "400-problem-details"
 }

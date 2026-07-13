@@ -2,7 +2,7 @@ import uuid
 from urllib.parse import urlencode
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -32,7 +32,7 @@ from app.standards.ogc.schemas import (
     OGCLink,
     OGCSingleFeatureResponse,
 )
-from app.standards.ogc.utils import build_url
+from app.standards.ogc.utils import build_url, link_header_value
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -196,11 +196,16 @@ async def _get_visible_dataset(
 @ogc_router.get("/", response_model=LandingPage, responses=ERROR_RESPONSES_PUBLIC)
 async def landing_page(
     request: Request,
+    response: Response,
     f: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> LandingPage:
     """OGC API landing page -- entry point for machine clients."""
     _validate_f_param(f)
+    # This representation is static English; Accept-Language does not select a
+    # translated variant, so report the serialized language rather than echoing
+    # the requested language.
+    response.headers["Content-Language"] = "en"
     public_api_url = await get_public_api_url(db, request=request)
     return LandingPage(
         title="GeoLens",
@@ -227,7 +232,7 @@ async def landing_page(
             OGCLink(
                 href=build_url("/openapi.json", base_url=public_api_url),
                 rel="service-desc",
-                type="application/vnd.oai.openapi+json;version=3.0",
+                type="application/vnd.oai.openapi+json;version=3.1",
                 title="OpenAPI definition",
             ),
             OGCLink(
@@ -252,11 +257,9 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/core",
             "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/landing-page",
             "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/json",
-            "http://www.opengis.net/spec/ogcapi-common-1/1.0/conf/oas30",
             # OGC API Features Part 1: Core
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
-            "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30",
             # CQL2 query language (advertised for the Records collection, which
             # supports filtering + /queryables). fix(#430 BA-14): the Features Part 3
             # `conf/filter` / `conf/features-filter` classes were dropped because
@@ -686,10 +689,13 @@ async def get_collection_items(
     if dataset.table_name:
         await _emit_ogc_usage_event(dataset.table_name)
 
+    headers = {"Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"}
+    if link_value := link_header_value(links):
+        headers["Link"] = link_value
     return JSONResponse(
         content=response_data.model_dump(mode="json"),
         media_type="application/geo+json",
-        headers={"Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"},
+        headers=headers,
     )
 
 
@@ -788,8 +794,11 @@ async def get_collection_item_feature(
         ],
     )
 
+    headers = {"Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"}
+    if link_value := link_header_value(feature.links):
+        headers["Link"] = link_value
     return JSONResponse(
         content=feature.model_dump(mode="json"),
         media_type="application/geo+json",
-        headers={"Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"},
+        headers=headers,
     )

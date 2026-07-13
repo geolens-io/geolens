@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import Select, case, collate, func, literal, or_, select, text
+from sqlalchemy import Select, and_, case, collate, func, literal, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement, Label
@@ -93,6 +93,27 @@ def _apply_search_only_filters(stmt: Select, filters: SearchFilters) -> Select:
     """
     if filters.record_type:
         stmt = stmt.where(Record.record_type == filters.record_type)
+    if filters.record_ids is not None:
+        # ``in_`` deliberately receives an empty tuple when a standards type
+        # filter excludes every resource type emitted by this collection;
+        # SQLAlchemy renders a portable false predicate and the response stays
+        # a normal empty FeatureCollection.
+        stmt = stmt.where(Dataset.id.in_(filters.record_ids))
+    if filters.external_ids is not None:
+        # OGC ``externalIds`` identifies the described resource in its source
+        # system; it is distinct from the server-assigned record UUID.  Remote
+        # STAC imports retain the canonical source Item ID in
+        # ``source_filename``. Service imports may store a friendly layer title
+        # there, so WFS/ArcGIS/OAPIF are intentionally excluded until their
+        # canonical layer identifier is persisted on Dataset. Source URLs are
+        # not identifiers because they may contain non-public connection data.
+        remote_formats = ("stac",)
+        stmt = stmt.where(
+            and_(
+                Dataset.source_format.in_(remote_formats),
+                Dataset.source_filename.in_(filters.external_ids),
+            )
+        )
     if filters.date_from:
         stmt = stmt.where(Record.created_at >= filters.date_from)
     if filters.date_to:

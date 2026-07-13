@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -45,6 +45,7 @@ from app.processing.raster.models import DatasetAsset, RasterAsset
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.utils import (
     content_language_for_record_languages,
+    link_header_value,
     parse_accept_languages,
 )
 from app.core.geo import make_bbox_filter
@@ -69,6 +70,16 @@ stac_router = APIRouter(prefix="/stac", tags=["STAC"])
 # Record types eligible for STAC
 _STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
 
+# STAC Items must be collection-scoped to remain browsable by machine clients.
+# This virtual collection does not create or mutate a catalog Collection; it is
+# a deterministic protocol view over published raster/VRT datasets with no
+# CollectionDataset membership.
+STAC_UNASSIGNED_COLLECTION_ID = "geolens-unassigned"
+_STAC_UNASSIGNED_COLLECTION_NAME = "Unassigned GeoLens Items"
+_STAC_UNASSIGNED_COLLECTION_DESCRIPTION = (
+    "Published raster datasets that have not been assigned to a GeoLens collection."
+)
+
 
 def _stac_content_language_headers(items: Sequence[dict]) -> dict[str, str]:
     languages: list[str | None] = []
@@ -91,6 +102,19 @@ def _published_raster_filters():
     )
 
 
+def _unassigned_dataset_filter():
+    """Match datasets without changing their core Collection relationships."""
+    return Dataset.id.not_in(select(CollectionDataset.dataset_id))
+
+
+def _parse_collection_uuid(collection_id: str) -> uuid.UUID | None:
+    """Parse a stored Collection ID, returning None for non-UUID identifiers."""
+    try:
+        return uuid.UUID(collection_id)
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -101,6 +125,18 @@ async def _resolve_urls(db: AsyncSession, request: Request) -> tuple[str, str]:
     public_api_url = await get_public_api_url(db, request=request)
     stac_api_url = f"{public_api_url.rstrip('/')}/stac"
     return stac_api_url, public_api_url
+
+
+def _item_collection_response(result: StacItemCollection) -> Response:
+    """Serialize one STAC FeatureCollection with matching HTTP navigation."""
+    headers = _stac_content_language_headers(result.features)
+    if link_value := link_header_value(result.links):
+        headers["Link"] = link_value
+    return Response(
+        content=result.model_dump_json(),
+        media_type="application/geo+json",
+        headers=headers,
+    )
 
 
 def _stac_page_url(
@@ -225,29 +261,23 @@ async def _dataset_to_stac_item(
         public_app_url=public_app_url,
     )
 
-    # Declare projection STAC extension for raster/VRT items that emit proj:* properties.
-    # Lives here (not in dataset_to_ogc_record) so OGC Records output stays free of
-    # STAC-specific keys.
-    record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
-    if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
-        has_proj = raster_meta.get("epsg") is not None or bool(
-            raster_meta.get("width") and raster_meta.get("height")
-        )
-        if has_proj:
-            ogc_record.setdefault("stac_extensions", []).append(
-                "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
-            )
-
     # Look up collection membership if not provided
     if collection_id is None:
         cd_result = await db.execute(
             select(CollectionDataset.collection_id)
             .where(CollectionDataset.dataset_id == dataset.id)
+            .order_by(
+                CollectionDataset.sort_order.asc(),
+                CollectionDataset.added_at.asc(),
+                CollectionDataset.collection_id.asc(),
+            )
             .limit(1)
         )
         cd_row = cd_result.scalar_one_or_none()
         if cd_row is not None:
             collection_id = str(cd_row)
+        else:
+            collection_id = STAC_UNASSIGNED_COLLECTION_ID
 
     return ogc_record_to_stac_item(
         ogc_record,
@@ -301,6 +331,57 @@ async def _resolve_roles(db: AsyncSession, user: Identity | None) -> set[str]:
     return await get_user_roles(db, user)
 
 
+async def _has_unassigned_items(
+    db: AsyncSession,
+    user: Identity | None,
+    user_roles: set[str],
+) -> bool:
+    """Return whether the caller can see at least one unassigned STAC Item."""
+    stmt = (
+        _base_published_raster_query(user, user_roles)
+        .where(_unassigned_dataset_filter())
+        .with_only_columns(Dataset.id)
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none() is not None
+
+
+async def _collection_scope_filter(
+    db: AsyncSession,
+    collection_id: str,
+    user: Identity | None,
+    user_roles: set[str],
+):
+    """Resolve a real or virtual STAC collection to its item filter."""
+    if collection_id == STAC_UNASSIGNED_COLLECTION_ID:
+        if not await _has_unassigned_items(db, user, user_roles):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found",
+            )
+        return _unassigned_dataset_filter()
+
+    collection_uuid = _parse_collection_uuid(collection_id)
+    if collection_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+    coll_result = await db.execute(
+        select(Collection.id).where(Collection.id == collection_uuid)
+    )
+    if coll_result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+    return Dataset.id.in_(
+        select(CollectionDataset.dataset_id).where(
+            CollectionDataset.collection_id == collection_uuid
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -310,6 +391,7 @@ async def _resolve_roles(db: AsyncSession, user: Identity | None) -> set[str]:
 async def landing_page(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCatalog:
     """STAC Catalog landing page."""
     stac_api_url, _ = await _resolve_urls(db, request)
@@ -328,13 +410,13 @@ async def landing_page(
         StacLink(
             rel="search",
             href=f"{stac_api_url}/search",
-            type="application/json",
+            type="application/geo+json",
             method="GET",
         ),
         StacLink(
             rel="service-desc",
             href=f"{stac_api_url.rsplit('/stac', 1)[0]}/openapi.json",
-            type="application/vnd.oai.openapi+json;version=3.0",
+            type="application/vnd.oai.openapi+json;version=3.1",
         ),
     ]
 
@@ -345,6 +427,15 @@ async def landing_page(
             StacLink(
                 rel="child",
                 href=f"{stac_api_url}/collections/{coll.id}",
+                type="application/json",
+            )
+        )
+    user_roles = await _resolve_roles(db, user)
+    if await _has_unassigned_items(db, user, user_roles):
+        links.append(
+            StacLink(
+                rel="child",
+                href=(f"{stac_api_url}/collections/{STAC_UNASSIGNED_COLLECTION_ID}"),
                 type="application/json",
             )
         )
@@ -383,7 +474,7 @@ async def get_collections(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # Three independent metadata queries -- run concurrently with separate
+    # Four independent metadata queries -- run concurrently with separate
     # sessions (async sessions are not safe to share across gather tasks).
 
     async def _fetch_extents() -> dict[str, tuple]:
@@ -399,7 +490,7 @@ async def get_collections(
             )
             .select_from(Record)
             .join(Dataset, Dataset.record_id == Record.id)
-            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .outerjoin(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
             .where(*_published_raster_filters())
             .group_by(CollectionDataset.collection_id)
         )
@@ -408,7 +499,12 @@ async def get_collections(
         )
         async with _db_module.async_session() as s:
             rows = await s.execute(extent_stmt)
-            return {str(r[0]): r[1:] for r in rows.all()}
+            return {
+                (str(r[0]) if r[0] is not None else STAC_UNASSIGNED_COLLECTION_ID): r[
+                    1:
+                ]
+                for r in rows.all()
+            }
 
     async def _fetch_keywords() -> dict[str, list[str]]:
         kw_stmt = (
@@ -419,7 +515,7 @@ async def get_collections(
             .select_from(RecordKeyword)
             .join(Record, RecordKeyword.record_id == Record.id)
             .join(Dataset, Dataset.record_id == Record.id)
-            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .outerjoin(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
             .where(*_published_raster_filters())
             .group_by(CollectionDataset.collection_id)
         )
@@ -432,10 +528,15 @@ async def get_collections(
             for row in rows.all():
                 kws = row[1]
                 if kws:
-                    result[str(row[0])] = sorted([k for k in kws if k])
+                    key = (
+                        str(row[0])
+                        if row[0] is not None
+                        else STAC_UNASSIGNED_COLLECTION_ID
+                    )
+                    result[key] = sorted([k for k in kws if k])
             return result
 
-    async def _fetch_epsg_codes() -> dict[str, list[int]]:
+    async def _fetch_projection_codes() -> dict[str, list[str]]:
         epsg_stmt = (
             select(
                 CollectionDataset.collection_id,
@@ -444,7 +545,7 @@ async def get_collections(
             .select_from(RasterAsset)
             .join(Dataset, Dataset.id == RasterAsset.dataset_id)
             .join(Record, Record.id == Dataset.record_id)
-            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .outerjoin(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
             .where(*_published_raster_filters(), RasterAsset.epsg.isnot(None))
             .group_by(CollectionDataset.collection_id)
         )
@@ -457,11 +558,25 @@ async def get_collections(
             for row in rows.all():
                 codes = row[1]
                 if codes:
-                    result[str(row[0])] = sorted([c for c in codes if c])
+                    key = (
+                        str(row[0])
+                        if row[0] is not None
+                        else STAC_UNASSIGNED_COLLECTION_ID
+                    )
+                    result[key] = [
+                        f"EPSG:{code}" for code in sorted(c for c in codes if c)
+                    ]
             return result
 
-    extent_map, keywords_map, epsg_map = await asyncio.gather(
-        _fetch_extents(), _fetch_keywords(), _fetch_epsg_codes()
+    async def _fetch_has_unassigned() -> bool:
+        async with _db_module.async_session() as s:
+            return await _has_unassigned_items(s, user, user_roles)
+
+    extent_map, keywords_map, projection_map, has_unassigned = await asyncio.gather(
+        _fetch_extents(),
+        _fetch_keywords(),
+        _fetch_projection_codes(),
+        _fetch_has_unassigned(),
     )
 
     stac_collections = []
@@ -471,8 +586,8 @@ async def get_collections(
         spatial_extent, temporal_extent = _parse_extent_row(ext_row)
 
         summaries = {}
-        if coll_key in epsg_map:
-            summaries["proj:epsg"] = epsg_map[coll_key]
+        if coll_key in projection_map:
+            summaries["proj:code"] = projection_map[coll_key]
 
         stac_coll = ogc_collection_to_stac_collection(
             coll_key,
@@ -485,6 +600,27 @@ async def get_collections(
             summaries=summaries or None,
         )
         stac_collections.append(stac_coll)
+
+    if has_unassigned:
+        fallback_key = STAC_UNASSIGNED_COLLECTION_ID
+        spatial_extent, temporal_extent = _parse_extent_row(
+            extent_map.get(fallback_key)
+        )
+        fallback_summaries = None
+        if fallback_key in projection_map:
+            fallback_summaries = {"proj:code": projection_map[fallback_key]}
+        stac_collections.append(
+            ogc_collection_to_stac_collection(
+                fallback_key,
+                _STAC_UNASSIGNED_COLLECTION_NAME,
+                _STAC_UNASSIGNED_COLLECTION_DESCRIPTION,
+                spatial_extent=spatial_extent,
+                temporal_extent=temporal_extent,
+                stac_api_url=stac_api_url,
+                keywords=keywords_map.get(fallback_key),
+                summaries=fallback_summaries,
+            )
+        )
 
     return StacCollectionListResponse(
         collections=stac_collections,
@@ -499,7 +635,7 @@ async def get_collections(
 
 @stac_router.get("/collections/{collection_id}", response_model=StacCollection)
 async def get_collection(
-    collection_id: uuid.UUID,
+    collection_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
     # fix(#430 codex): no-schema variant — see get_collections above.
@@ -510,14 +646,33 @@ async def get_collection(
     # fix(#430 BA-05): scope aggregate summaries to visible rasters.
     user_roles = await _resolve_roles(db, user)
 
-    coll_result = await db.execute(
-        select(Collection).where(Collection.id == collection_id)
-    )
-    coll = coll_result.scalar_one_or_none()
-    if coll is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
+    is_unassigned = collection_id == STAC_UNASSIGNED_COLLECTION_ID
+    collection_uuid = _parse_collection_uuid(collection_id)
+    if is_unassigned:
+        if not await _has_unassigned_items(db, user, user_roles):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found",
+            )
+        collection_name = _STAC_UNASSIGNED_COLLECTION_NAME
+        collection_description = _STAC_UNASSIGNED_COLLECTION_DESCRIPTION
+    else:
+        if collection_uuid is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found",
+            )
+        coll_result = await db.execute(
+            select(Collection).where(Collection.id == collection_uuid)
         )
+        coll = coll_result.scalar_one_or_none()
+        if coll is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found",
+            )
+        collection_name = coll.name
+        collection_description = coll.description
 
     # Three independent metadata queries -- run concurrently with separate sessions.
 
@@ -533,12 +688,14 @@ async def get_collection(
             )
             .select_from(Record)
             .join(Dataset, Dataset.record_id == Record.id)
-            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-            .where(
-                CollectionDataset.collection_id == collection_id,
-                *_published_raster_filters(),
-            )
+            .where(*_published_raster_filters())
         )
+        if is_unassigned:
+            extent_stmt = extent_stmt.where(_unassigned_dataset_filter())
+        else:
+            extent_stmt = extent_stmt.join(
+                CollectionDataset, CollectionDataset.dataset_id == Dataset.id
+            ).where(CollectionDataset.collection_id == collection_uuid)
         extent_stmt = apply_visibility_filter(
             extent_stmt, user, user_roles, Record, DatasetGrant
         )
@@ -551,12 +708,14 @@ async def get_collection(
             .select_from(RecordKeyword)
             .join(Record, RecordKeyword.record_id == Record.id)
             .join(Dataset, Dataset.record_id == Record.id)
-            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-            .where(
-                CollectionDataset.collection_id == collection_id,
-                *_published_raster_filters(),
-            )
+            .where(*_published_raster_filters())
         )
+        if is_unassigned:
+            kw_stmt = kw_stmt.where(_unassigned_dataset_filter())
+        else:
+            kw_stmt = kw_stmt.join(
+                CollectionDataset, CollectionDataset.dataset_id == Dataset.id
+            ).where(CollectionDataset.collection_id == collection_uuid)
         kw_stmt = apply_visibility_filter(
             kw_stmt, user, user_roles, Record, DatasetGrant
         )
@@ -565,35 +724,39 @@ async def get_collection(
             result = sorted([r[0] for r in rows.all() if r[0]])
             return result or None
 
-    async def _fetch_epsg() -> dict | None:
-        epsg_stmt = (
+    async def _fetch_projection() -> dict | None:
+        projection_stmt = (
             select(func.distinct(RasterAsset.epsg))
             .join(Dataset, Dataset.id == RasterAsset.dataset_id)
             .join(Record, Record.id == Dataset.record_id)
-            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
             .where(
-                CollectionDataset.collection_id == collection_id,
                 *_published_raster_filters(),
                 RasterAsset.epsg.isnot(None),
             )
         )
-        epsg_stmt = apply_visibility_filter(
-            epsg_stmt, user, user_roles, Record, DatasetGrant
+        if is_unassigned:
+            projection_stmt = projection_stmt.where(_unassigned_dataset_filter())
+        else:
+            projection_stmt = projection_stmt.join(
+                CollectionDataset, CollectionDataset.dataset_id == Dataset.id
+            ).where(CollectionDataset.collection_id == collection_uuid)
+        projection_stmt = apply_visibility_filter(
+            projection_stmt, user, user_roles, Record, DatasetGrant
         )
         async with _db_module.async_session() as s:
-            rows = await s.execute(epsg_stmt)
+            rows = await s.execute(projection_stmt)
             codes = sorted([r[0] for r in rows.all() if r[0]])
-            return {"proj:epsg": codes} if codes else None
+            return {"proj:code": [f"EPSG:{code}" for code in codes]} if codes else None
 
     ext_row, coll_keywords, summaries = await asyncio.gather(
-        _fetch_extent(), _fetch_kw(), _fetch_epsg()
+        _fetch_extent(), _fetch_kw(), _fetch_projection()
     )
     spatial_extent, temporal_extent = _parse_extent_row(ext_row)
 
     return ogc_collection_to_stac_collection(
-        str(coll.id),
-        coll.name,
-        coll.description,
+        collection_id,
+        collection_name,
+        collection_description,
         spatial_extent=spatial_extent,
         temporal_extent=temporal_extent,
         stac_api_url=stac_api_url,
@@ -611,7 +774,7 @@ async def get_collection(
     },
 )
 async def get_collection_items(
-    collection_id: uuid.UUID,
+    collection_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: Identity | None = Depends(get_optional_user),
@@ -636,23 +799,12 @@ async def get_collection_items(
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
-    # Verify collection exists
-    coll_result = await db.execute(
-        select(Collection).where(Collection.id == collection_id)
+    collection_scope = await _collection_scope_filter(
+        db, collection_id, user, user_roles
     )
-    if coll_result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
-        )
 
     # Base query filtered to this collection
-    stmt = _base_published_raster_query(user, user_roles).where(
-        Dataset.id.in_(
-            select(CollectionDataset.dataset_id).where(
-                CollectionDataset.collection_id == collection_id
-            )
-        )
-    )
+    stmt = _base_published_raster_query(user, user_roles).where(collection_scope)
 
     # Filter by bbox (antimeridian-aware)
     if bbox:
@@ -780,11 +932,7 @@ async def get_collection_items(
         numberReturned=len(features),
         context={"limit": limit, "returned": len(features), "matched": total},
     )
-    return Response(
-        content=result.model_dump_json(),
-        media_type="application/geo+json",
-        headers=_stac_content_language_headers(features),
-    )
+    return _item_collection_response(result)
 
 
 async def _build_item_response(
@@ -829,7 +977,7 @@ async def _build_item_response(
 
 @stac_router.get("/collections/{collection_id}/items/{item_id}", response_model=None)
 async def get_collection_item(
-    collection_id: uuid.UUID,
+    collection_id: str,
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -841,23 +989,14 @@ async def get_collection_item(
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
-    # Verify collection exists
-    coll_result = await db.execute(
-        select(Collection).where(Collection.id == collection_id)
+    collection_scope = await _collection_scope_filter(
+        db, collection_id, user, user_roles
     )
-    if coll_result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
-        )
 
     # Fetch published raster/VRT dataset within this collection
     stmt = _base_published_raster_query(user, user_roles).where(
         Dataset.id == item_id,
-        Dataset.id.in_(
-            select(CollectionDataset.dataset_id).where(
-                CollectionDataset.collection_id == collection_id
-            )
-        ),
+        collection_scope,
     )
     result = await db.execute(stmt)
     dataset = result.unique().scalar_one_or_none()
@@ -871,7 +1010,7 @@ async def get_collection_item(
         dataset,
         public_api_url,
         stac_api_url,
-        collection_id=str(collection_id),
+        collection_id=collection_id,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
     )
@@ -945,19 +1084,33 @@ def _build_search_filters(
             collections.split(",") if isinstance(collections, str) else collections
         )
         parsed_coll_ids = []
+        include_unassigned = False
         for cid_str in coll_strings:
+            cid_str = cid_str.strip()
+            if cid_str == STAC_UNASSIGNED_COLLECTION_ID:
+                include_unassigned = True
+                continue
             try:
-                parsed_coll_ids.append(uuid.UUID(cid_str.strip()))
+                parsed_coll_ids.append(uuid.UUID(cid_str))
             except ValueError:
                 continue
+        collection_filters = []
         if parsed_coll_ids:
-            filters.append(
+            collection_filters.append(
                 Dataset.id.in_(
                     select(CollectionDataset.dataset_id).where(
                         CollectionDataset.collection_id.in_(parsed_coll_ids)
                     )
                 )
             )
+        if include_unassigned:
+            collection_filters.append(_unassigned_dataset_filter())
+        if collection_filters:
+            filters.append(or_(*collection_filters))
+        else:
+            # An unknown collection must produce no results, never silently
+            # broaden a scoped search to the entire catalog.
+            filters.append(Dataset.id.in_([]))
 
     # Filter by intersects (GeoJSON geometry) — accept string or dict
     if intersects:
@@ -1096,13 +1249,13 @@ async def _execute_search(
 
     # Early return when ids param was given but all values were invalid
     if ids_empty:
-        return StacItemCollection(
+        result = StacItemCollection(
             features=[],
             links=[
                 StacLink(
                     rel="self",
                     href=f"{stac_api_url}/search",
-                    type="application/json",
+                    type="application/geo+json",
                 ),
                 StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
             ],
@@ -1110,6 +1263,7 @@ async def _execute_search(
             numberReturned=0,
             context={"limit": limit, "returned": 0, "matched": 0},
         )
+        return _item_collection_response(result)
 
     stmt = _base_published_raster_query(user, user_roles)
     for f in filters:
@@ -1147,11 +1301,38 @@ async def _execute_search(
         cd_stmt = select(
             CollectionDataset.dataset_id, CollectionDataset.collection_id
         ).where(CollectionDataset.dataset_id.in_(ds_ids))
+
+        # For collection-scoped Item Search, choose a canonical membership from
+        # the requested collections so every returned Item names a collection
+        # that satisfied the filter. Unscoped search uses the same deterministic
+        # ordering as single-item retrieval.
+        if collections:
+            requested_values = (
+                collections.split(",") if isinstance(collections, str) else collections
+            )
+            requested_ids: list[uuid.UUID] = []
+            for value in requested_values:
+                try:
+                    requested_ids.append(uuid.UUID(value.strip()))
+                except ValueError:
+                    continue
+            if requested_ids:
+                cd_stmt = cd_stmt.where(
+                    CollectionDataset.collection_id.in_(requested_ids)
+                )
+
+        cd_stmt = cd_stmt.order_by(
+            CollectionDataset.dataset_id.asc(),
+            CollectionDataset.sort_order.asc(),
+            CollectionDataset.added_at.asc(),
+            CollectionDataset.collection_id.asc(),
+        )
         async with _db_module.async_session() as s:
             cd_result = await s.execute(cd_stmt)
-            return {
-                str(row.dataset_id): str(row.collection_id) for row in cd_result.all()
-            }
+            memberships: dict[str, str] = {}
+            for row in cd_result.all():
+                memberships.setdefault(str(row.dataset_id), str(row.collection_id))
+            return memberships
 
     asset_rows_map, raster_meta_map, collection_id_map = await asyncio.gather(
         _assets(), _raster(), _coll_membership()
@@ -1167,7 +1348,9 @@ async def _execute_search(
             stac_api_url,
             stac_asset_rows=asset_rows_map.get(str(dataset.id)),
             raster_meta=raster_meta_map.get(str(dataset.id)),
-            collection_id=collection_id_map.get(str(dataset.id)),
+            collection_id=(
+                collection_id_map.get(str(dataset.id)) or STAC_UNASSIGNED_COLLECTION_ID
+            ),
             public_app_url=public_app_url,
             preferred_languages=preferred_languages,
         )
@@ -1194,11 +1377,7 @@ async def _execute_search(
         numberReturned=len(features),
         context={"limit": limit, "returned": len(features), "matched": total},
     )
-    return Response(
-        content=result.model_dump_json(),
-        media_type="application/geo+json",
-        headers=_stac_content_language_headers(features),
-    )
+    return _item_collection_response(result)
 
 
 @stac_router.get(

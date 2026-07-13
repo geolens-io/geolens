@@ -657,6 +657,20 @@ async def test_collections_has_top_level_links(
     assert "self" in rels, f"Missing 'self' rel in top-level links: {rels}"
     assert "root" in rels, f"Missing 'root' rel in top-level links: {rels}"
 
+    assert 'rel="self"' in resp.headers["link"]
+    assert 'rel="root"' in resp.headers["link"]
+
+
+@pytest.mark.anyio
+async def test_collections_self_link_preserves_pagination(
+    client: AsyncClient, public_dataset: Dataset
+):
+    resp = await client.get("/collections", params={"offset": 1, "limit": 1})
+    assert resp.status_code == 200
+    self_link = next(link for link in resp.json()["links"] if link["rel"] == "self")
+    assert "offset=1" in self_link["href"]
+    assert "limit=1" in self_link["href"]
+
 
 @pytest.mark.anyio
 async def test_items_self_link_includes_query_params(
@@ -679,6 +693,8 @@ async def test_items_self_link_includes_query_params(
     assert "offset=0" in self_link["href"], (
         f"offset missing from self link: {self_link['href']}"
     )
+    assert 'rel="self"' in resp.headers["link"]
+    assert 'rel="collection"' in resp.headers["link"]
 
     # Test with bbox
     resp2 = await client.get(

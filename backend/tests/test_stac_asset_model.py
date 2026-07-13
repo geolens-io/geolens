@@ -166,17 +166,29 @@ class TestToStacProperties:
 
         props = raster.to_stac_properties()
 
-        assert props["proj:epsg"] == 4326
+        assert props["proj:code"] == "EPSG:4326"
         assert props["proj:wkt2"] == "GEOGCS[...]"
         assert props["proj:shape"] == [2048, 1024]  # [height, width]
         assert props["gsd"] == pytest.approx(0.001)
-        assert len(props["bands"]) == 3
-        assert props["bands"][0] == {"data_type": "uint8", "nodata": 0, "name": "Red"}
-        assert props["bands"][1] == {"data_type": "uint8", "nodata": 0, "name": "Green"}
-        assert props["bands"][2] == {"data_type": "uint8", "nodata": 0, "name": "Blue"}
+        assert len(props["raster:bands"]) == 3
+        assert props["raster:bands"][0] == {
+            "data_type": "uint8",
+            "nodata": 0,
+            "name": "Red",
+        }
+        assert props["raster:bands"][1] == {
+            "data_type": "uint8",
+            "nodata": 0,
+            "name": "Green",
+        }
+        assert props["raster:bands"][2] == {
+            "data_type": "uint8",
+            "nodata": 0,
+            "name": "Blue",
+        }
 
     async def test_to_stac_properties_sparse(self, client, test_db_session):
-        """to_stac_properties() with only epsg returns only proj:epsg."""
+        """to_stac_properties() with only epsg returns Projection v2 code."""
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
@@ -190,7 +202,7 @@ class TestToStacProperties:
 
         props = raster.to_stac_properties()
 
-        assert props == {"proj:epsg": 32632}
+        assert props == {"proj:code": "EPSG:32632"}
 
     async def test_to_stac_properties_empty(self, client, test_db_session):
         """to_stac_properties() with no metadata returns empty dict."""

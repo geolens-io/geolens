@@ -8,13 +8,12 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.http_validation_error import HTTPValidationError
+from ...models.problem_detail import ProblemDetail
 from ...models.stac_collection import StacCollection
-from uuid import UUID
 
 
 def _get_kwargs(
-    collection_id: UUID,
+    collection_id: str,
 ) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
@@ -29,16 +28,16 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | StacCollection | None:
+) -> ProblemDetail | StacCollection | None:
     if response.status_code == 200:
         response_200 = StacCollection.from_dict(response.json())
 
         return response_200
 
-    if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
 
-        return response_422
+        return response_400
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -48,7 +47,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | StacCollection]:
+) -> Response[ProblemDetail | StacCollection]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -58,23 +57,23 @@ def _build_response(
 
 
 def sync_detailed(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | StacCollection]:
+) -> Response[ProblemDetail | StacCollection]:
     """Get Collection
 
      Get a single STAC Collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | StacCollection]
+        Response[ProblemDetail | StacCollection]
     """
 
     kwargs = _get_kwargs(
@@ -89,23 +88,23 @@ def sync_detailed(
 
 
 def sync(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | StacCollection | None:
+) -> ProblemDetail | StacCollection | None:
     """Get Collection
 
      Get a single STAC Collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | StacCollection
+        ProblemDetail | StacCollection
     """
 
     return sync_detailed(
@@ -115,23 +114,23 @@ def sync(
 
 
 async def asyncio_detailed(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[HTTPValidationError | StacCollection]:
+) -> Response[ProblemDetail | StacCollection]:
     """Get Collection
 
      Get a single STAC Collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | StacCollection]
+        Response[ProblemDetail | StacCollection]
     """
 
     kwargs = _get_kwargs(
@@ -144,23 +143,23 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    collection_id: UUID,
+    collection_id: str,
     *,
     client: AuthenticatedClient | Client,
-) -> HTTPValidationError | StacCollection | None:
+) -> ProblemDetail | StacCollection | None:
     """Get Collection
 
      Get a single STAC Collection.
 
     Args:
-        collection_id (UUID):
+        collection_id (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | StacCollection
+        ProblemDetail | StacCollection
     """
 
     return (

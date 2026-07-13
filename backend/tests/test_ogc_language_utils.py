@@ -1,6 +1,8 @@
 from app.standards.ogc.utils import (
     content_language_for_record_languages,
+    link_header_value,
     normalize_language_tag,
+    standards_api_path,
 )
 
 
@@ -24,3 +26,31 @@ def test_content_language_for_record_languages_omits_mixed_languages():
 def test_content_language_for_record_languages_falls_back_for_empty_pages():
     assert content_language_for_record_languages([]) == "en"
     assert content_language_for_record_languages([None, ""]) == "en"
+
+
+def test_link_header_value_serializes_navigation_links():
+    value = link_header_value(
+        [
+            {
+                "href": "https://api.example/collections?offset=1",
+                "rel": "next",
+                "type": "application/json",
+            }
+        ]
+    )
+    assert value == (
+        '<https://api.example/collections?offset=1>; rel="next"; '
+        'type="application/json"'
+    )
+
+
+def test_standards_api_path_recognizes_nested_dcat_routes():
+    assert standards_api_path("/datasets/dcat/") == "/datasets/dcat/"
+    assert (
+        standards_api_path("/datasets/abc/dcat-us/3.0/") == "/datasets/abc/dcat-us/3.0/"
+    )
+    assert (
+        standards_api_path("/api/datasets/abc/geodcat-ap/", root_path="/api")
+        == "/datasets/abc/geodcat-ap/"
+    )
+    assert standards_api_path("/datasets/abc") is None

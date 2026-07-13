@@ -20,10 +20,12 @@ from app.modules.catalog.search.service_filters import (
     _build_text_filter,
     parse_ogc_datetime,
 )
+from app.modules.catalog.search.record_metadata import (
+    build_themes as _build_themes,
+    build_time as _build_time,
+)
 from app.modules.catalog.search.service_records import (
     _build_stac_assets,
-    _build_themes,
-    _build_time,
     build_assets,
     dataset_to_ogc_record,
 )

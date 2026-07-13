@@ -23,7 +23,7 @@ def _polygon(n_vertices: int) -> dict:
 
 
 def test_oversized_intersects_is_rejected():
-    """A huge GeoJSON polygon is rejected at validation (422 at the API)."""
+    """A huge polygon is rejected by the model (surfaced as 400 by the API)."""
     big = _polygon(5000)
     assert len(json.dumps(big)) > 10000, "test fixture should exceed the cap"
     with pytest.raises(ValidationError):

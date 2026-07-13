@@ -776,6 +776,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
         "backend/app/modules/catalog/maps/service_crud.py": 550,
+        # fix(#474, #475): localized ranking/eager loading plus the OGC
+        # ids/externalIds filters cross the default by nine lines. Keep the
+        # carve-out exact so further growth requires another review.
+        "backend/app/modules/catalog/search/service_datasets.py": 359,
         # Phase 1062 CR-04: +13 lines from non-expiring embed-token CSP fix
         # (or_ IS NULL predicate, _create_non_expiring_embed_token helper).
         # Cap raised from 575 → 600 to allow ~12 lines of headroom above 588.
@@ -895,7 +899,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 #     builder polish took it to 2107; extracting _router_helpers.py brought it back.
 #     Splitting share/media/layers into sub-routers is the remaining work.
 #   search/router.py  1515 → 1600 → 1640 → 1700. OGC record metadata (#315), then the
-#     record_type/sort_by allowlist + to_filters() chokepoint (#317 A2).
+#     record_type/sort_by allowlist + to_filters() chokepoint (#317 A2). The OGC
+#     Records array-query contract and explicit GeoJSON response schemas add the
+#     final 21 lines after protocol helpers were extracted to records_protocol.py.
+#   standards/stac/router.py entered the allowlist at 1547 for the virtual
+#     unassigned Collection, deterministic multi-membership selection, and HTTP
+#     Link parity required by the 2026-07-12 compliance remediation.
 #   tiles/router.py   1500 → 1660 → 1850 → 1920 → 2050 → 2090. Raster meta TTLCache
 #     (1176 PERF-002), SET LOCAL ROLE binding (1209-03 DP-02), cloud fairness/metering
 #     seams (1213-06), the cold-tier seam (1214-04), terrainrgb nodata (#186), and
@@ -905,9 +914,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 _ROUTER_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router.py": 1884,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
-    # and OGC record serialization. This is the reviewed i18n carve-out; the
-    # ratchet remains exact so subsequent growth still fails.
-    "backend/app/modules/catalog/search/router.py": 1691,
+    # and OGC record serialization; fix(#475) adds the Records array-query
+    # contract and response-header parity. The ratchet remains exact.
+    "backend/app/modules/catalog/search/router.py": 1706,
+    # fix(#474): negotiate localized STAC record text; fix(#475) adds the
+    # unassigned Collection and matching HTTP Link navigation.
+    "backend/app/standards/stac/router.py": 1584,
     "backend/app/processing/tiles/router.py": 2077,
 }
 

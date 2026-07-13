@@ -5,8 +5,11 @@ Uses the same _make_ogc_record helper pattern as test_stac_serializer.py.
 """
 
 import pystac
+from pystac.validation import validate_dict
 
 from app.standards.stac.serializer import (
+    STAC_PROJECTION_EXTENSION_URI,
+    STAC_RASTER_EXTENSION_URI,
     ogc_collection_to_stac_collection,
     ogc_record_to_stac_item,
 )
@@ -49,9 +52,10 @@ def _make_ogc_record(
         props["datetime"] = None
 
     if has_stac_extensions:
-        props["proj:epsg"] = 4326
+        props["proj:code"] = "EPSG:4326"
         props["proj:shape"] = [1024, 2048]
         props["gsd"] = 30.0
+        props["raster:bands"] = [{"name": "B1", "data_type": "uint16"}]
 
     if language is not None:
         props["language"] = language
@@ -95,7 +99,8 @@ def _make_ogc_record(
 
     if has_stac_extensions:
         record["stac_extensions"] = [
-            "https://stac-extensions.github.io/projection/v2/schema.json",
+            STAC_PROJECTION_EXTENSION_URI,
+            STAC_RASTER_EXTENSION_URI,
         ]
 
     return record
@@ -143,8 +148,25 @@ class TestPystacRoundtrip:
         item = pystac.Item.from_dict(stac_item)
         roundtripped = item.to_dict(include_self_link=False, transform_hrefs=False)
         assert "stac_extensions" in roundtripped
-        assert len(roundtripped["stac_extensions"]) == 1
-        assert "projection" in roundtripped["stac_extensions"][0]
+        assert len(roundtripped["stac_extensions"]) == 2
+        assert any("projection" in uri for uri in roundtripped["stac_extensions"])
+        assert any("raster" in uri for uri in roundtripped["stac_extensions"])
+
+    def test_item_strict_schema_validation_with_declared_extensions(self):
+        """Representative raster output satisfies core and every declared schema."""
+        ogc = _make_ogc_record(has_stac_extensions=True)
+        stac_item = ogc_record_to_stac_item(
+            ogc,
+            collection_id="collection-1",
+            stac_api_url=STAC_API_URL,
+        )
+
+        validated_schemas = validate_dict(stac_item, stac_version="1.0.0")
+
+        assert STAC_PROJECTION_EXTENSION_URI in validated_schemas
+        assert STAC_RASTER_EXTENSION_URI in validated_schemas
+        assert stac_item["properties"]["proj:code"] == "EPSG:4326"
+        assert "proj:epsg" not in stac_item["properties"]
 
     def test_item_roundtrip_with_language_extension(self):
         """Language extension metadata survives PySTAC roundtrip."""
@@ -208,6 +230,21 @@ class TestStacStructureValidation:
 
         required_keys = {"type", "stac_version", "id", "extent", "links", "license"}
         assert required_keys.issubset(coll.keys())
+
+    def test_collection_projection_summary_strict_schema_validation(self):
+        """Collection summaries use the declared Projection v2 property shape."""
+        coll = ogc_collection_to_stac_collection(
+            "coll-1",
+            "Test",
+            "Description",
+            summaries={"proj:code": ["EPSG:4326", "EPSG:32618"]},
+            stac_api_url=STAC_API_URL,
+        )
+
+        validated_schemas = validate_dict(coll, stac_version="1.0.0")
+
+        assert coll["stac_extensions"] == [STAC_PROJECTION_EXTENSION_URI]
+        assert STAC_PROJECTION_EXTENSION_URI in validated_schemas
 
     def test_item_links_required_rels(self):
         """STAC Item links contain self, root, parent rels."""
