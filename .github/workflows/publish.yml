@@ -105,7 +105,7 @@ jobs:
       # (QEMU is set up above for the arm64 build). The push below ships
       # linux/amd64,linux/arm64, so each arch must clear the gate first.
       - name: Build amd64 image for scanning
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
           context: .
           file: Dockerfile
@@ -125,7 +125,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Build arm64 image for scanning
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
           context: .
           file: Dockerfile
@@ -150,7 +150,7 @@ jobs:
       - name: Build and push
         id: push
         if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7
         with:
           context: .
           file: Dockerfile
