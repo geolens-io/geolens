@@ -916,7 +916,7 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header parity. Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1714,
+    "backend/app/modules/catalog/search/router.py": 1733,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation.
     "backend/app/standards/stac/router.py": 1584,

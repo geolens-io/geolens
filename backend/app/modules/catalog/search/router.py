@@ -465,36 +465,56 @@ async def _handle_search(
         for d in datasets
     ]
 
-    # Collections are surfaced for text searches or explicit collection IDs
-    # when the request is not scoped to an internal record type or membership.
+    collection_type_requested = bool(
+        resource_types is not None and "collection" in resource_types
+    )
+    text_search_requested = bool(params.q and params.q.strip())
+
+    # Collections are surfaced for text searches, explicit collection IDs, or
+    # an explicit public collection type when the request is not scoped to an
+    # internal record type or collection membership.
     collections_applicable = bool(
-        (params.q and params.q.strip() or collection_ids is not None)
+        (
+            text_search_requested
+            or collection_ids is not None
+            or collection_type_requested
+        )
         and not params.record_type
         and not params.collection_id
         and (resource_types is None or "collection" in resource_types)
     )
+    collections_paginated = bool(
+        collections_applicable
+        and (collection_type_requested or collection_ids is not None)
+    )
 
-    # fix(#315): count matching collections on EVERY page so numberMatched stays
-    # stable; ``total`` (dataset-only) still drives the next-link, since appended
-    # collections are a page-0-only augmentation that is never paginated. Cap the
-    # count at the page-0 display limit so numberMatched never claims more
-    # collections than are actually retrievable (only the first 5 are ever shown).
+    # fix(#315): retain the five-item page-0 augmentation for native text search.
+    # fix(#475): explicit Records collection filters participate in the combined
+    # dataset-first result set, including its count and pagination.
     page0_collection_cap = 5
     collection_total = 0
     if collections_applicable:
-        collection_total = min(
-            await count_collections(db, params.q or "", collection_ids=collection_ids),
-            page0_collection_cap,
+        collection_total = await count_collections(
+            db, params.q or "", collection_ids=collection_ids
         )
+        if not collections_paginated:
+            collection_total = min(collection_total, page0_collection_cap)
 
-    # Append collection results on the first page only (display augmentation).
-    if collections_applicable and params.offset == 0:
+    if collections_paginated:
+        collection_limit = max(0, params.limit - len(features))
+        collection_offset = max(0, params.offset - total)
+    else:
+        collection_limit = page0_collection_cap if params.offset == 0 else 0
+        collection_offset = 0
+
+    if collections_applicable and collection_limit:
         coll_results = await search_collections(
             db,
             params.q or "",
             user,
             user_roles,
-            limit=page0_collection_cap,
+            limit=collection_limit,
+            offset=collection_offset,
             collection_ids=collection_ids,
         )
         for coll in coll_results:
@@ -530,9 +550,8 @@ async def _handle_search(
         ),
     ]
 
-    # Next link driven by the dataset-only ``total`` (page-0 collections are not
-    # paginated, so they must not produce a phantom next-link to an empty page).
-    if params.offset + params.limit < total:
+    pagination_total = total + collection_total if collections_paginated else total
+    if params.offset + params.limit < pagination_total:
         links.append(
             OGCRecordLink(
                 rel="next",
@@ -568,8 +587,8 @@ async def _handle_search(
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
-        # fix(#315): dataset total + full collection count = stable across pages
-        # and always >= numberReturned (page 0 shows <=5 collections; later none).
+        # fix(#315): stable across pages; fix(#475): explicitly selected
+        # collections are counted and paginated with datasets.
         numberMatched=total + collection_total,
         numberReturned=len(features),
         features=features,

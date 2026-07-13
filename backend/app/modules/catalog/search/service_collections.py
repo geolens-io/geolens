@@ -21,13 +21,19 @@ async def search_collections(
     user_roles: set[str],
     *,
     limit: int = 10,
+    offset: int = 0,
     collection_ids: Sequence[uuid.UUID] | None = None,
 ) -> list[dict]:
     """Search collections by text/ID and return with visible member counts.
 
     When q and collection_ids are absent, returns all collections (up to limit).
     """
-    coll_stmt = select(Collection).limit(limit)
+    coll_stmt = (
+        select(Collection)
+        .order_by(Collection.name, Collection.id)
+        .offset(offset)
+        .limit(limit)
+    )
 
     if q and q.strip():
         q_like = f"%{q.strip().lower()}%"
@@ -84,16 +90,10 @@ async def count_collections(
 ) -> int:
     """Count collections matching the text filter used by ``search_collections``.
 
-    Page-independent total of all matching collections (not just the <=5 shown
-    on page 0). Used to compute a stable ``numberMatched`` that includes the
-    page-0 collection augmentation. Mirrors the text filter in
-    ``search_collections`` exactly (no LIMIT, no visibility filter on the
-    Collection rows themselves — consistent with the search). Returns 0 when
-    both ``q`` and ``collection_ids`` are absent.
+    Page-independent total used to compute a stable ``numberMatched``. Mirrors
+    the filters in ``search_collections`` exactly (no LIMIT, no visibility
+    filter on the Collection rows themselves — consistent with the search).
     """
-    if (not q or not q.strip()) and collection_ids is None:
-        return 0
-
     count_stmt = select(func.count()).select_from(Collection)
     if q and q.strip():
         q_like = f"%{q.strip().lower()}%"

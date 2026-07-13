@@ -15,6 +15,7 @@ Covers all 10 conformance gaps:
 
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 import pytest
 from httpx import AsyncClient
@@ -415,6 +416,71 @@ async def test_records_ids_filter_collection_resources(
         assert body["numberReturned"] == 1
         assert [feature["id"] for feature in body["features"]] == [str(requested.id)]
         assert body["features"][0]["properties"]["type"] == "collection"
+
+
+@pytest.mark.anyio
+async def test_records_explicit_collection_types_are_paginated(
+    client: AsyncClient, test_db_session, clean_tables
+):
+    admin_id = await _get_admin_id(test_db_session)
+    token = uuid.uuid4().hex[:8]
+    collections = [
+        Collection(
+            name=f"explicit-type-{token}-{index}",
+            description="Collection selected by the OGC type filter",
+            created_by=admin_id,
+        )
+        for index in range(3)
+    ]
+    test_db_session.add_all(collections)
+    await test_db_session.commit()
+    dataset = await _create_dataset(
+        test_db_session,
+        admin_id=admin_id,
+        name=f"explicit-type-dataset-{token}",
+    )
+
+    collection_ids = {str(collection.id) for collection in collections}
+    for resource_type, expected_types, expected_ids in (
+        ("collection", {"collection"}, collection_ids),
+        (
+            "dataset,collection",
+            {"dataset", "collection"},
+            collection_ids | {str(dataset.id)},
+        ),
+    ):
+        response = await client.get(
+            "/collections/datasets/items",
+            params={"type": resource_type, "limit": 2},
+        )
+        seen_ids: set[str] = set()
+        number_matched: int | None = None
+
+        while True:
+            assert response.status_code == 200
+            body = response.json()
+            if number_matched is None:
+                number_matched = body["numberMatched"]
+            assert body["numberMatched"] == number_matched
+            assert body["numberReturned"] == len(body["features"])
+            assert body["numberReturned"] <= 2
+            assert {
+                feature["properties"]["type"] for feature in body["features"]
+            } <= expected_types
+
+            page_ids = {feature["id"] for feature in body["features"]}
+            assert seen_ids.isdisjoint(page_ids)
+            seen_ids.update(page_ids)
+
+            next_link = _find_link(body["links"], "next")
+            if next_link is None:
+                break
+            assert len(seen_ids) < number_matched
+            parsed = urlparse(next_link["href"])
+            response = await client.get(f"{parsed.path}?{parsed.query}")
+
+        assert len(seen_ids) == number_matched
+        assert expected_ids <= seen_ids
 
 
 @pytest.mark.anyio
