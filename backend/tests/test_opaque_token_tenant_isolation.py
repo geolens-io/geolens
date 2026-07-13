@@ -47,9 +47,24 @@ def _api_key_request(raw_key: str) -> Request:
 
 async def test_opaque_child_tokens_follow_their_rls_visible_parent(
     multi_tenant_rls,
+    monkeypatch,
 ):
     """Wrong-host credentials neither resolve nor consume another tenant's row."""
     ctx = multi_tenant_rls
+
+    # _resolve_api_key intentionally opens a separate session for last-used
+    # bookkeeping. Keep that runtime path under the harness's per-loop engine,
+    # tenant GUC, and RLS role instead of borrowing the process-global pool.
+    import app.core.db as db_module
+    from app.core.db.tenant_session import current_tenant_var
+
+    def _tenant_side_session():
+        tenant_id = current_tenant_var.get()
+        assert tenant_id is not None
+        return ctx.tenant_session(tenant_id)
+
+    monkeypatch.setattr(db_module, "async_session", _tenant_side_session)
+
     map_id = uuid.uuid4()
     api_key_id: uuid.UUID | None = None
     refresh_id: uuid.UUID | None = None
