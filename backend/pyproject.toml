@@ -98,7 +98,7 @@ dev = [
     "pip-audit>=2.10.1",
     "moto[s3]>=5.2.2",
     "fakeredis>=2.21.0",
-    "pystac>=1.14",
+    "pystac>=1.15.1",
 ]
 
 [tool.ruff.lint]
