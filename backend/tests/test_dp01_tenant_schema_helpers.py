@@ -228,6 +228,12 @@ _TENANT_DYNAMIC = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 _SCHEMA_DYNAMIC = "data_t_dddddddd_dddd_dddd_dddd_dddddddddddd"
 _ROLE_DYNAMIC = "geolens_reader_t_dddddddd_dddd_dddd_dddd_dddddddddddd"
 
+_TENANT_REENTRY = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+_SCHEMA_REENTRY = "data_t_eeeeeeee_eeee_eeee_eeee_eeeeeeeeeeee"
+_READER_REENTRY = "geolens_reader_t_eeeeeeee_eeee_eeee_eeee_eeeeeeeeeeee"
+_WRITER_REENTRY = "geolens_writer_t_eeeeeeee_eeee_eeee_eeee_eeeeeeeeeeee"
+_TABLE_REENTRY = "provisioning_reentry_probe"
+
 
 class TestApplyMultiTenantProvisioning:
     """E: apply_tenant_data_schema creates schema + role in multi_tenant (idempotent)."""
@@ -330,6 +336,137 @@ class TestApplyMultiTenantProvisioning:
                         {"id": _TENANT_DYNAMIC},
                     )
                     await deprovision_tenant_data_schema(conn, _TENANT_DYNAMIC)
+            finally:
+                await engine2.dispose()
+            await engine.dispose()
+
+    async def test_reentry_after_writer_creates_relation_preserves_isolation(
+        self, monkeypatch
+    ):
+        """Re-provisioning reconciles substrate, not writer-owned object ACLs."""
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+        from app.core.db.tenant_schema import (
+            apply_tenant_data_schema,
+            deprovision_tenant_data_schema,
+        )
+
+        db_url = await _get_test_db_url()
+        engine = create_async_engine(db_url, poolclass=NullPool)
+        qualified_table = f"{_SCHEMA_REENTRY}.{_TABLE_REENTRY}"
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.tenants (id, slug, name) "
+                        "VALUES (CAST(:id AS uuid), :slug, :name)"
+                    ),
+                    {
+                        "id": _TENANT_REENTRY,
+                        "slug": "dp01-reentry",
+                        "name": "DP01 re-entry",
+                    },
+                )
+                await apply_tenant_data_schema(conn, _TENANT_REENTRY)
+
+                # Model the real ingest contract: the fixed writer gateway SETs
+                # the per-tenant writer role, which owns every object it creates
+                # and explicitly grants the paired reader SELECT access.
+                await conn.execute(sa.text(f"SET LOCAL ROLE {_WRITER_REENTRY}"))
+                await conn.execute(
+                    sa.text(
+                        f"CREATE TABLE {qualified_table} "
+                        "(id bigint PRIMARY KEY, marker text NOT NULL)"
+                    )
+                )
+                await conn.execute(
+                    sa.text(f"GRANT SELECT ON {qualified_table} TO {_READER_REENTRY}")
+                )
+                await conn.execute(sa.text("RESET ROLE"))
+
+                # This was the production failure: the SECURITY DEFINER
+                # provisioner cannot GRANT on a writer-owned relation. A retry
+                # must validate/reconcile only the substrate it owns.
+                await apply_tenant_data_schema(conn, _TENANT_REENTRY)
+
+                owner = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT owner_role.rolname "
+                            "FROM pg_catalog.pg_class AS relation "
+                            "JOIN pg_catalog.pg_namespace AS namespace "
+                            "ON namespace.oid = relation.relnamespace "
+                            "JOIN pg_catalog.pg_roles AS owner_role "
+                            "ON owner_role.oid = relation.relowner "
+                            "WHERE namespace.nspname = :schema "
+                            "AND relation.relname = :table"
+                        ),
+                        {"schema": _SCHEMA_REENTRY, "table": _TABLE_REENTRY},
+                    )
+                ).scalar_one()
+                assert owner == _WRITER_REENTRY
+
+                async def has_table_privilege(role: str, privilege: str) -> bool:
+                    return (
+                        await conn.execute(
+                            sa.text(
+                                "SELECT has_table_privilege(:role, :table, :privilege)"
+                            ),
+                            {
+                                "role": role,
+                                "table": qualified_table,
+                                "privilege": privilege,
+                            },
+                        )
+                    ).scalar_one()
+
+                assert await has_table_privilege(_READER_REENTRY, "SELECT") is True
+                assert await has_table_privilege(_READER_REENTRY, "INSERT") is False
+                assert await has_table_privilege(_WRITER_REENTRY, "SELECT, INSERT")
+                assert (
+                    await has_table_privilege("geolens_tenant_provisioner", "SELECT")
+                    is False
+                )
+                assert await has_table_privilege(_ROLE_A, "SELECT") is False
+                assert await has_table_privilege("geolens_reader", "SELECT") is False
+
+                # The provisioner keeps ADMIN-only, non-inherited/non-SET role
+                # management authority; a retry must not broaden that edge.
+                membership = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT membership.admin_option, "
+                            "membership.inherit_option, membership.set_option "
+                            "FROM pg_catalog.pg_auth_members AS membership "
+                            "JOIN pg_catalog.pg_roles AS granted_role "
+                            "ON granted_role.oid = membership.roleid "
+                            "JOIN pg_catalog.pg_roles AS member_role "
+                            "ON member_role.oid = membership.member "
+                            "WHERE granted_role.rolname = :writer "
+                            "AND member_role.rolname = 'geolens_tenant_provisioner'"
+                        ),
+                        {"writer": _WRITER_REENTRY},
+                    )
+                ).one()
+                assert tuple(membership) == (True, False, False)
+
+                other_schema_usage = (
+                    await conn.execute(
+                        sa.text("SELECT has_schema_privilege(:role, :schema, 'USAGE')"),
+                        {"role": _WRITER_REENTRY, "schema": _SCHEMA_A},
+                    )
+                ).scalar_one()
+                assert other_schema_usage is False
+        finally:
+            engine2 = create_async_engine(db_url, poolclass=NullPool)
+            try:
+                async with engine2.begin() as conn:
+                    await conn.execute(
+                        sa.text(
+                            "DELETE FROM catalog.tenants WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": _TENANT_REENTRY},
+                    )
+                    await deprovision_tenant_data_schema(conn, _TENANT_REENTRY)
             finally:
                 await engine2.dispose()
             await engine.dispose()
