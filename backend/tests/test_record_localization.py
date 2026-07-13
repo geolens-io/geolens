@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from starlette.requests import Request
 
 from app.modules.catalog.records.localization import select_localized_record_text
@@ -58,6 +59,29 @@ def test_localized_text_falls_back_to_primary_and_reports_actual_language():
         "Rivers",
         "River networks",
     )
+
+
+def test_localized_text_without_preferences_does_not_load_translations():
+    class PrimaryOnlyRecord:
+        language = "en"
+        title = "Rivers"
+        summary = "River networks"
+
+        @property
+        def translations(self):
+            raise AssertionError("translations relationship should remain unloaded")
+
+    selected = select_localized_record_text(PrimaryOnlyRecord())
+
+    assert (selected.language, selected.title, selected.summary) == (
+        "en",
+        "Rivers",
+        "River networks",
+    )
+    with pytest.raises(
+        AssertionError, match="translations relationship should remain unloaded"
+    ):
+        select_localized_record_text(PrimaryOnlyRecord(), ["fr"])
 
 
 def test_localized_text_uses_script_aware_progressive_lookup():

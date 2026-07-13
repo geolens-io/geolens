@@ -59,6 +59,14 @@ def select_localized_record_text(
     primary_language = _normalize_language_tag(record.language, fallback="en") or "en"
     primary = LocalizedRecordText(primary_language, record.title, record.summary)
 
+    requested_languages = tuple(preferred_languages or ())
+    if not requested_languages:
+        # Most internal serializers do not negotiate a representation. Avoid
+        # touching the lazy="raise" relationship in that path; callers that do
+        # negotiate must still eager-load translations and fail fast if they do
+        # not, preserving the catalog query-discipline guard.
+        return primary
+
     variants: list[LocalizedRecordText] = [primary]
     for translation in getattr(record, "translations", ()) or ():
         language = _normalize_language_tag(translation.language)
@@ -74,7 +82,7 @@ def select_localized_record_text(
     for variant in variants:
         exact.setdefault(variant.language.lower(), variant)
 
-    for requested in preferred_languages or ():
+    for requested in requested_languages:
         normalized = _normalize_language_tag(requested)
         if normalized is None:
             continue
