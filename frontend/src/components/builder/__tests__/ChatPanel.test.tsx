@@ -323,6 +323,19 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('a streamed 500 error stays inline and does not issue a second LLM request', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield { event: 'error', data: { message: 'stream failed', status: 500 } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'trigger an unexpected stream error');
+
+    expect(await screen.findByText('Something went wrong. Please try again.')).toBeInTheDocument();
+    expect(mockSendChat).not.toHaveBeenCalled();
+  });
+
   it('ignores malformed style paint payloads instead of applying indexed string keys', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

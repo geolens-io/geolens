@@ -332,9 +332,22 @@ class StatusUpdateResponse(BaseModel):
     id: str
     record_status: str
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "0190f4c8-8c6a-7a21-9a34-13bc2f31dc02",
+                    "record_status": "published",
+                }
+            ]
+        }
+    )
+
 
 class StatusUpdate(BaseModel):
     status: str = Field(max_length=20)
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"status": "published"}]})
 
     @field_validator("status")
     @classmethod
@@ -375,6 +388,24 @@ class BulkDeleteResponse(BaseModel):
 
 
 class DatasetMeta(BaseModel):
+    """Partial-update payload for dataset metadata.
+
+    The class name remains ``DatasetMeta`` for generated-SDK compatibility;
+    new backend call sites use the ``DatasetMetaUpdate`` alias below.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "title": "Updated flood zones",
+                    "summary": "Revised from the 2026 authoritative release.",
+                    "visibility": "public",
+                }
+            ]
+        },
+    )
+
     title: str | None = Field(default=None, max_length=500)
     summary: str | None = Field(default=None, max_length=5000)
     visibility: Visibility | None = Field(
@@ -475,6 +506,11 @@ class DatasetMeta(BaseModel):
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
+
+# Prefer the semantically precise name in new Python call sites while retaining
+# the public ``DatasetMeta`` component and generated-SDK class for compatibility.
+DatasetMetaUpdate = DatasetMeta
 
 
 class DatasetListResponse(BaseModel):

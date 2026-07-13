@@ -8,9 +8,7 @@ from attrs import field as _attrs_field
 
 
 if TYPE_CHECKING:
-    from ..models.stac_collection_list_response_collections_item import (
-        StacCollectionListResponseCollectionsItem,
-    )
+    from ..models.stac_collection import StacCollection
     from ..models.stac_link import StacLink
 
 
@@ -22,11 +20,11 @@ class StacCollectionListResponse:
     """STAC collections list response.
 
     Attributes:
-        collections (list[StacCollectionListResponseCollectionsItem]): List of STAC collections.
+        collections (list[StacCollection]): List of STAC collections.
         links (list[StacLink]): Top-level collection navigation links.
     """
 
-    collections: list[StacCollectionListResponseCollectionsItem]
+    collections: list[StacCollection]
     links: list[StacLink]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -54,18 +52,14 @@ class StacCollectionListResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.stac_collection_list_response_collections_item import (
-            StacCollectionListResponseCollectionsItem,
-        )
+        from ..models.stac_collection import StacCollection
         from ..models.stac_link import StacLink
 
         d = dict(src_dict)
         collections = []
         _collections = d.pop("collections")
         for collections_item_data in _collections:
-            collections_item = StacCollectionListResponseCollectionsItem.from_dict(
-                collections_item_data
-            )
+            collections_item = StacCollection.from_dict(collections_item_data)
 
             collections.append(collections_item)
 

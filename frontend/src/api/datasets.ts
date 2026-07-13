@@ -21,6 +21,7 @@ import type {
   ValidationResultResponse,
   PresignedUploadResponse,
   UploadResponse,
+  StatusUpdateResponse,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -144,8 +145,8 @@ export async function updateDataset(
 export async function updatePublicationStatus(
   id: string,
   status: string,
-): Promise<DatasetResponse> {
-  return apiFetch<DatasetResponse>(`/datasets/${id}/status/`, {
+): Promise<StatusUpdateResponse> {
+  return apiFetch<StatusUpdateResponse>(`/datasets/${id}/status/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -156,8 +157,8 @@ export async function updatePublicationStatus(
 export async function setTargetStatus(
   id: string,
   status: string,
-): Promise<DatasetResponse> {
-  return apiFetch<DatasetResponse>(`/datasets/${id}/target-status/`, {
+): Promise<StatusUpdateResponse> {
+  return apiFetch<StatusUpdateResponse>(`/datasets/${id}/target-status/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),

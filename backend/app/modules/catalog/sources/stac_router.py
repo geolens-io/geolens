@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_WRITE
 
 from app.core.url_redaction import has_url_credentials, redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -122,7 +122,9 @@ async def _fetch_cog_info(url: str) -> dict | None:
 
 
 router = APIRouter(
-    prefix="/services/stac", tags=["STAC Import"], responses=ERROR_RESPONSES_WRITE
+    prefix="/services/stac",
+    tags=["STAC Import"],
+    responses=ERROR_RESPONSES_WRITE,
 )
 
 
@@ -370,7 +372,11 @@ async def stac_connect(
     )
 
 
-@router.post("/collections", response_model=StacCollectionsResponse)
+@router.post(
+    "/collections",
+    response_model=StacCollectionsResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def stac_collections(
     request: StacConnectRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -397,7 +403,11 @@ async def stac_collections(
     )
 
 
-@router.post("/search", response_model=StacSearchResponse)
+@router.post(
+    "/search",
+    response_model=StacSearchResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def stac_search(
     request: StacSearchRequest,
     user: Identity = Depends(require_permission("create_layers")),

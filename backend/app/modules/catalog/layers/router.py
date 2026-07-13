@@ -35,6 +35,7 @@ from app.modules.catalog.layers.service import (
     rename_column,
 )
 from app.platform.cache.provider import get_tile_cache
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 
 async def _invalidate_tiles(table_name: str) -> None:
@@ -68,7 +69,9 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
 
 logger = structlog.stdlib.get_logger(__name__)
 
-layers_router = APIRouter(prefix="/layers", tags=["Maps"])
+layers_router = APIRouter(
+    prefix="/layers", tags=["Maps"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 @layers_router.post(

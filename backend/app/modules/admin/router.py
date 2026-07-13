@@ -49,7 +49,11 @@ from app.modules.catalog.maps.schemas import (
     AdminShareTokenResponse,
 )
 from app.platform.jobs.router import get_retry_capability
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    CONFLICT_RESPONSE,
+    ERROR_RESPONSES_AUTH,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -107,6 +111,7 @@ def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     "/users/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={409: CONFLICT_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def create_user(
@@ -889,6 +894,7 @@ async def get_embedding_stats(
 @router.post(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def trigger_backfill(

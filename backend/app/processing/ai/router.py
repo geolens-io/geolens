@@ -25,6 +25,13 @@ from app.processing.ai.schemas import (
     ChatResponse,
     MapGenerateRequest,
     MapGenerateResponse,
+    SSEActionsEvent,
+    SSEChatDoneEvent,
+    SSEErrorEvent,
+    SSEMapDoneEvent,
+    SSETokenEvent,
+    SSEToolResultEvent,
+    SSEToolStartEvent,
 )
 from app.processing.ai.streaming import stream_chat_edit
 from app.processing.ai.metadata_schemas import (
@@ -56,7 +63,7 @@ from app.core.persistent_config import (
 from app.processing.ai.token_usage import AITokenUsage
 from app.modules.auth.router import limiter
 from app.platform.sandbox.validator import build_table_allowlist
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -72,6 +79,79 @@ router = APIRouter(prefix="/ai", tags=["Maps"], responses=ERROR_RESPONSES_AUTH)
 # Metadata assist: 20/min (lighter, single LLM call)
 _AI_GENERATE_LIMIT = "10/minute"
 _AI_METADATA_LIMIT = "20/minute"
+
+
+def _sse_response_contract(
+    *event_models: type[BaseModel], example: str
+) -> dict[int, dict]:
+    """Describe SSE framing and the JSON payload carried by each data field."""
+    return {
+        200: {
+            "description": "Server-Sent Events stream",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "description": (
+                            "UTF-8 server-sent event frames. Each data field contains "
+                            "one JSON event payload described by "
+                            "x-geolens-event-schema."
+                        ),
+                    },
+                    "example": example,
+                    "x-geolens-event-schema": {
+                        "oneOf": [
+                            {"$ref": (f"#/components/schemas/{model.__name__}")}
+                            for model in event_models
+                        ]
+                    },
+                }
+            },
+        }
+    }
+
+
+_MAP_STREAM_RESPONSES = _sse_response_contract(
+    SSEToolStartEvent,
+    SSEToolResultEvent,
+    SSEMapDoneEvent,
+    SSEErrorEvent,
+    example=(
+        'event: tool_start\ndata: {"type":"tool_start","tool":"create_map",'
+        '"label":"Building map..."}\n\n'
+        'event: done\ndata: {"type":"done","map_id":"0190...",'
+        '"map_name":"Flood risk","explanation":"Created the map",'
+        '"datasets_used":["Flood zones"]}\n\n'
+    ),
+)
+
+_CHAT_STREAM_RESPONSES = _sse_response_contract(
+    SSETokenEvent,
+    SSEToolStartEvent,
+    SSEToolResultEvent,
+    SSEActionsEvent,
+    SSEChatDoneEvent,
+    SSEErrorEvent,
+    example=(
+        'event: token\ndata: {"type":"token","text":"Updated "}\n\n'
+        'event: actions\ndata: {"type":"actions","actions":[]}\n\n'
+        'event: done\ndata: {"type":"done","explanation":"Updated the map"}\n\n'
+    ),
+)
+
+
+def _sse_error_event(
+    message: object, *, status_code: int | None = None
+) -> ServerSentEvent:
+    """Serialize one consistent error frame for failures raised by the router."""
+    payload = {"type": "error", "message": message}
+    if status_code is not None:
+        payload["status"] = status_code
+    return ServerSentEvent(
+        data=json.dumps(payload, default=str),
+        event="error",
+    )
+
 
 # Shared permission handle so the availability probe and the budget gate below
 # resolve the same `use_ai_chat` check exactly once.
@@ -301,7 +381,11 @@ async def _validate_chat_layers(
     return validated, basemap_style, can_edit
 
 
-@router.post("/generate-map/", response_model=MapGenerateResponse)
+@router.post(
+    "/generate-map/",
+    response_model=MapGenerateResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_endpoint(
     request: Request,
@@ -330,12 +414,8 @@ async def generate_map_endpoint(
 
 @router.post(
     "/generate-map/stream/",
-    responses={
-        200: {
-            "description": "Server-Sent Events stream",
-            "content": {"text/event-stream": {}},
-        }
-    },
+    response_class=EventSourceResponse,
+    responses=_MAP_STREAM_RESPONSES,
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_stream_endpoint(
@@ -355,20 +435,18 @@ async def generate_map_stream_endpoint(
             await _check_ai_available(db)
             user_roles = await port.get_user_roles(db, user)
         except HTTPException as exc:
-            yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": exc.detail}),
-                event="error",
+            yield _sse_error_event(
+                exc.detail,
+                status_code=exc.status_code,
             )
             return
         except (
             Exception
         ):  # broad: pre-flight validation can fail unpredictably in async SSE context
             logger.exception("Map generation pre-flight error")
-            yield ServerSentEvent(
-                data=json.dumps(
-                    {"type": "error", "message": "An unexpected error occurred"}
-                ),
-                event="error",
+            yield _sse_error_event(
+                "An unexpected error occurred",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
             return
 
@@ -384,17 +462,17 @@ async def generate_map_stream_endpoint(
                 )
         except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Map generation stream error")
-            yield ServerSentEvent(
-                data=json.dumps(
-                    {"type": "error", "message": "An unexpected error occurred"}
-                ),
-                event="error",
+            yield _sse_error_event(
+                "An unexpected error occurred",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     return EventSourceResponse(event_generator())
 
 
-@router.post("/chat/", response_model=ChatResponse)
+@router.post(
+    "/chat/", response_model=ChatResponse, responses={502: BAD_GATEWAY_RESPONSE}
+)
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_endpoint(
     request: Request,
@@ -433,12 +511,8 @@ async def chat_endpoint(
 
 @router.post(
     "/chat/stream/",
-    responses={
-        200: {
-            "description": "Server-Sent Events stream",
-            "content": {"text/event-stream": {}},
-        }
-    },
+    response_class=EventSourceResponse,
+    responses=_CHAT_STREAM_RESPONSES,
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_stream_endpoint(
@@ -464,26 +538,18 @@ async def chat_stream_endpoint(
             # Thread the HTTP status into the SSE error so the client can classify
             # it like a normal HTTP error (403/503 → banner, etc.) instead of a
             # generic retryable failure — the SSE body is always a 200 stream.
-            yield ServerSentEvent(
-                data=json.dumps(
-                    {
-                        "type": "error",
-                        "message": exc.detail,
-                        "status": exc.status_code,
-                    }
-                ),
-                event="error",
+            yield _sse_error_event(
+                exc.detail,
+                status_code=exc.status_code,
             )
             return
         except (
             Exception
         ):  # broad: pre-flight validation can fail unpredictably in async SSE context
             logger.exception("Chat pre-flight error")
-            yield ServerSentEvent(
-                data=json.dumps(
-                    {"type": "error", "message": "An unexpected error occurred"}
-                ),
-                event="error",
+            yield _sse_error_event(
+                "An unexpected error occurred",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
             return
 
@@ -509,11 +575,9 @@ async def chat_stream_endpoint(
                 )
         except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Chat stream error")
-            yield ServerSentEvent(
-                data=json.dumps(
-                    {"type": "error", "message": "An unexpected error occurred"}
-                ),
-                event="error",
+            yield _sse_error_event(
+                "An unexpected error occurred",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     return EventSourceResponse(event_generator())
@@ -629,7 +693,11 @@ async def _authorize_metadata_dataset(
     await port.check_dataset_access(db, dataset, dsid, user)
 
 
-@router.post("/metadata/summary/", response_model=SummaryDraftResponse)
+@router.post(
+    "/metadata/summary/",
+    response_model=SummaryDraftResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_summary(
     request: Request,
@@ -647,7 +715,11 @@ async def generate_metadata_summary(
     )
 
 
-@router.post("/metadata/keywords/", response_model=KeywordSuggestionsResponse)
+@router.post(
+    "/metadata/keywords/",
+    response_model=KeywordSuggestionsResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_keywords(
     request: Request,
@@ -665,7 +737,11 @@ async def generate_metadata_keywords(
     )
 
 
-@router.post("/metadata/lineage/", response_model=LineageDraftResponse)
+@router.post(
+    "/metadata/lineage/",
+    response_model=LineageDraftResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_lineage(
     request: Request,
@@ -684,7 +760,9 @@ async def generate_metadata_lineage(
 
 
 @router.post(
-    "/metadata/quality-statement/", response_model=QualityStatementDraftResponse
+    "/metadata/quality-statement/",
+    response_model=QualityStatementDraftResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_quality_statement(

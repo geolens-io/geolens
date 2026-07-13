@@ -53,10 +53,16 @@ from app.modules.quota.service import check_upload_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    ERROR_RESPONSES_WRITE,
+    PAYLOAD_TOO_LARGE_RESPONSE,
+)
 
 router = APIRouter(
-    prefix="/datasets", tags=["Datasets - Reupload"], responses=ERROR_RESPONSES_WRITE
+    prefix="/datasets",
+    tags=["Datasets - Reupload"],
+    responses=ERROR_RESPONSES_WRITE,
 )
 logger = structlog.get_logger(__name__)
 
@@ -190,6 +196,7 @@ def _assert_compatible_record_type(
     "/{dataset_id}/reupload",
     response_model=ReuploadResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
 )
 async def reupload_dataset(
     dataset_id: uuid.UUID,
@@ -276,6 +283,7 @@ async def reupload_dataset(
 @router.post(
     "/{dataset_id}/reupload/service/preview",
     response_model=ReuploadPreviewResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
 )
 async def reupload_service_preview(
     dataset_id: uuid.UUID,
@@ -651,6 +659,10 @@ async def reupload_commit(
     "/{dataset_id}/reupload/presigned",
     response_model=PresignedUploadResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+        502: BAD_GATEWAY_RESPONSE,
+    },
 )
 async def request_presigned_reupload(
     dataset_id: uuid.UUID,
@@ -798,6 +810,10 @@ async def request_presigned_reupload(
 @router.post(
     "/{dataset_id}/reupload/presigned/{job_id}/complete",
     response_model=UploadResponse,
+    responses={
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+        502: BAD_GATEWAY_RESPONSE,
+    },
 )
 async def complete_presigned_reupload(
     dataset_id: uuid.UUID,

@@ -36,7 +36,10 @@ from app.modules.catalog.records.router import router as records_router
 from app.modules.catalog.search.router import collections_router, search_router
 from app.modules.catalog.sources.router import router as services_router
 from app.modules.catalog.sources.stac_router import router as stac_import_router
-from app.modules.settings.router import router as settings_router
+from app.modules.settings.router import (
+    public_router as settings_public_router,
+    router as settings_router,
+)
 from app.standards.stac.router import stac_router
 from app.processing.tiles.router import router as tiles_router
 
@@ -76,6 +79,7 @@ api_router.include_router(services_router)
 api_router.include_router(stac_import_router)
 api_router.include_router(layers_router)
 api_router.include_router(settings_router)
+api_router.include_router(settings_public_router)
 api_router.include_router(oauth_router)
 api_router.include_router(config_ops_router)
 api_router.include_router(embed_tokens_router)

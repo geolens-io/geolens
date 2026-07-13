@@ -180,12 +180,14 @@ from .dry_run_response import DryRunResponse
 from .dry_run_response_oauth_providers import DryRunResponseOauthProviders
 from .dry_run_response_settings import DryRunResponseSettings
 from .duplicate_map_response import DuplicateMapResponse
+from .edition_info_response import EditionInfoResponse
 from .embed_token_create import EmbedTokenCreate
 from .embed_token_created_response import EmbedTokenCreatedResponse
 from .embed_token_list_response import EmbedTokenListResponse
 from .embed_token_response import EmbedTokenResponse
 from .embed_token_update import EmbedTokenUpdate
 from .embedding_stats_response import EmbeddingStatsResponse
+from .enterprise_tabs_response import EnterpriseTabsResponse
 from .export_format import ExportFormat
 from .facet_count_response import FacetCountResponse
 from .facet_count_response_record_type import FacetCountResponseRecordType
@@ -412,6 +414,7 @@ from .preview_response_sample_rows_item import PreviewResponseSampleRowsItem
 from .probe_request import ProbeRequest
 from .probe_response import ProbeResponse
 from .problem_detail import ProblemDetail
+from .problem_detail_detail_type_1 import ProblemDetailDetailType1
 from .provider_health import ProviderHealth
 from .quality_detail import QualityDetail
 from .quality_statement_draft_response import QualityStatementDraftResponse
@@ -497,25 +500,36 @@ from .shared_layer_response_style_config_type_0 import (
     SharedLayerResponseStyleConfigType0,
 )
 from .shared_map_response import SharedMapResponse
+from .sse_actions_event import SSEActionsEvent
+from .sse_chat_done_event import SSEChatDoneEvent
+from .sse_error_event import SSEErrorEvent
+from .sse_error_event_message_type_1 import SSEErrorEventMessageType1
+from .sse_map_done_event import SSEMapDoneEvent
+from .sse_token_event import SSETokenEvent
+from .sse_tool_result_event import SSEToolResultEvent
+from .sse_tool_start_event import SSEToolStartEvent
 from .stac_asset import StacAsset
 from .stac_catalog import StacCatalog
 from .stac_collection import StacCollection
 from .stac_collection_extent import StacCollectionExtent
 from .stac_collection_list_response import StacCollectionListResponse
-from .stac_collection_list_response_collections_item import (
-    StacCollectionListResponseCollectionsItem,
-)
 from .stac_collection_summary import StacCollectionSummary
 from .stac_collections_response import StacCollectionsResponse
 from .stac_conformance import StacConformance
 from .stac_connect_request import StacConnectRequest
 from .stac_connect_response import StacConnectResponse
+from .stac_context import StacContext
 from .stac_import_item import StacImportItem
 from .stac_import_request import StacImportRequest
 from .stac_import_request_visibility import StacImportRequestVisibility
 from .stac_import_response import StacImportResponse
 from .stac_import_result import StacImportResult
 from .stac_import_result_status import StacImportResultStatus
+from .stac_item_asset import StacItemAsset
+from .stac_item_collection_response import StacItemCollectionResponse
+from .stac_item_properties import StacItemProperties
+from .stac_item_response import StacItemResponse
+from .stac_item_response_assets import StacItemResponseAssets
 from .stac_item_summary import StacItemSummary
 from .stac_link import StacLink
 from .stac_search_body import StacSearchBody
@@ -736,12 +750,14 @@ __all__ = (
     "DryRunResponseOauthProviders",
     "DryRunResponseSettings",
     "DuplicateMapResponse",
+    "EditionInfoResponse",
     "EmbeddingStatsResponse",
     "EmbedTokenCreate",
     "EmbedTokenCreatedResponse",
     "EmbedTokenListResponse",
     "EmbedTokenResponse",
     "EmbedTokenUpdate",
+    "EnterpriseTabsResponse",
     "ExportFormat",
     "FacetCountResponse",
     "FacetCountResponseRecordType",
@@ -908,6 +924,7 @@ __all__ = (
     "ProbeRequest",
     "ProbeResponse",
     "ProblemDetail",
+    "ProblemDetailDetailType1",
     "ProviderHealth",
     "QualityDetail",
     "QualityStatementDraftResponse",
@@ -969,23 +986,36 @@ __all__ = (
     "SharedMapResponse",
     "ShareTokenRequest",
     "ShareTokenResponse",
+    "SSEActionsEvent",
+    "SSEChatDoneEvent",
+    "SSEErrorEvent",
+    "SSEErrorEventMessageType1",
+    "SSEMapDoneEvent",
+    "SSETokenEvent",
+    "SSEToolResultEvent",
+    "SSEToolStartEvent",
     "StacAsset",
     "StacCatalog",
     "StacCollection",
     "StacCollectionExtent",
     "StacCollectionListResponse",
-    "StacCollectionListResponseCollectionsItem",
     "StacCollectionsResponse",
     "StacCollectionSummary",
     "StacConformance",
     "StacConnectRequest",
     "StacConnectResponse",
+    "StacContext",
     "StacImportItem",
     "StacImportRequest",
     "StacImportRequestVisibility",
     "StacImportResponse",
     "StacImportResult",
     "StacImportResultStatus",
+    "StacItemAsset",
+    "StacItemCollectionResponse",
+    "StacItemProperties",
+    "StacItemResponse",
+    "StacItemResponseAssets",
     "StacItemSummary",
     "StacLink",
     "StacSearchBody",

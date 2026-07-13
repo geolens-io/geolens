@@ -55,7 +55,7 @@ from app.modules.settings.schemas import (
     SettingsUpdateRequest,
     TileConfigResponse,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 # Phase 1229 Plan 03 — channel functions imported at module level so tests can
 # monkeypatch at `app.modules.settings.router.send_email` / `.post_webhook`
@@ -66,6 +66,7 @@ from app.platform.notifications.webhook_channel import post_webhook  # noqa: E40
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
+public_router = APIRouter(prefix="/settings", tags=["Admin"])
 
 
 def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
@@ -223,7 +224,6 @@ async def get_all_settings(
 @router.get(
     "/enterprise-tabs/",
     response_model=EnterpriseTabsResponse,
-    include_in_schema=False,
 )
 async def get_enterprise_only_tabs(
     _user: Identity = Depends(require_permission("manage_settings")),
@@ -441,7 +441,11 @@ async def get_api_key_status(
     response_model=DetectEmbeddingDimsResponse,
     include_in_schema=False,
 )
-@router.post("/detect-embedding-dims/", response_model=DetectEmbeddingDimsResponse)
+@router.post(
+    "/detect-embedding-dims/",
+    response_model=DetectEmbeddingDimsResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def detect_embedding_dims(
     _user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
@@ -935,8 +939,10 @@ async def delete_oauth_provider(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get("/edition", response_model=EditionInfoResponse, include_in_schema=False)
-@router.get("/edition/", response_model=EditionInfoResponse, include_in_schema=False)
+@public_router.get(
+    "/edition", response_model=EditionInfoResponse, include_in_schema=False
+)
+@public_router.get("/edition/", response_model=EditionInfoResponse)
 async def edition_info() -> EditionInfoResponse:
     """Return runtime capability metadata. Public, no auth required."""
     from app.core.tenancy import TENANCY_MODE_SINGLE, is_multi_tenant
@@ -950,10 +956,10 @@ async def edition_info() -> EditionInfoResponse:
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
+@public_router.get(
     "/feature-flags", response_model=FeatureFlagsResponse, include_in_schema=False
 )
-@router.get("/feature-flags/", response_model=FeatureFlagsResponse)
+@public_router.get("/feature-flags/", response_model=FeatureFlagsResponse)
 async def get_feature_flags(
     db: AsyncSession = Depends(get_db),
 ) -> FeatureFlagsResponse:
@@ -965,8 +971,10 @@ async def get_feature_flags(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
-@router.get("/branding/", response_model=BrandingResponse)
+@public_router.get(
+    "/branding", response_model=BrandingResponse, include_in_schema=False
+)
+@public_router.get("/branding/", response_model=BrandingResponse)
 async def get_branding(
     db: AsyncSession = Depends(get_db),
 ) -> BrandingResponse:
@@ -988,12 +996,12 @@ async def get_branding(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
+@public_router.get(
     "/basemaps",
     response_model=list[BasemapPublicResponse],
     include_in_schema=False,
 )
-@router.get("/basemaps/", response_model=list[BasemapPublicResponse])
+@public_router.get("/basemaps/", response_model=list[BasemapPublicResponse])
 @limiter.limit(_basemap_proxy_rate_limit)
 async def get_basemaps(
     request: Request,
@@ -1027,10 +1035,10 @@ async def get_basemaps(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
+@public_router.get(
     "/map-defaults", response_model=MapDefaultsResponse, include_in_schema=False
 )
-@router.get("/map-defaults/", response_model=MapDefaultsResponse)
+@public_router.get("/map-defaults/", response_model=MapDefaultsResponse)
 async def get_map_defaults(
     db: AsyncSession = Depends(get_db),
 ) -> MapDefaultsResponse:
@@ -1040,10 +1048,10 @@ async def get_map_defaults(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
+@public_router.get(
     "/enabled-plugins", response_model=list[str] | None, include_in_schema=False
 )
-@router.get("/enabled-plugins/", response_model=list[str] | None)
+@public_router.get("/enabled-plugins/", response_model=list[str] | None)
 async def get_enabled_plugins(
     db: AsyncSession = Depends(get_db),
 ) -> list[str] | None:
@@ -1052,8 +1060,10 @@ async def get_enabled_plugins(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get("/tile-config", response_model=TileConfigResponse, include_in_schema=False)
-@router.get("/tile-config/", response_model=TileConfigResponse)
+@public_router.get(
+    "/tile-config", response_model=TileConfigResponse, include_in_schema=False
+)
+@public_router.get("/tile-config/", response_model=TileConfigResponse)
 async def get_tile_config(
     request: Request,
     db: AsyncSession = Depends(get_db),

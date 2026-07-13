@@ -2,8 +2,11 @@
 
 import pytest
 import structlog
-from httpx import AsyncClient
+from fastapi import FastAPI, HTTPException
+from httpx import ASGITransport, AsyncClient
 from slowapi.wrappers import LimitGroup
+
+from app.standards.ogc.errors import register_error_handlers
 
 
 @pytest.mark.anyio
@@ -204,6 +207,34 @@ async def test_rate_limit_429_includes_retry_after(client: AsyncClient):
     finally:
         limiter.enabled = original_enabled
         limiter._storage.reset()
+
+
+@pytest.mark.parametrize(
+    "detail",
+    ["Tile service busy, please retry", {"code": "tile_service_busy"}],
+)
+@pytest.mark.anyio
+async def test_http_exception_handler_preserves_response_headers(detail):
+    """RFC 7807 conversion keeps headers attached to HTTPException responses."""
+    test_app = FastAPI()
+
+    @test_app.get("/limited")
+    async def limited():
+        raise HTTPException(
+            status_code=429,
+            detail=detail,
+            headers={"Retry-After": "2"},
+        )
+
+    register_error_handlers(test_app)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as test_client:
+        response = await test_client.get("/limited")
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "2"
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["detail"] == detail
 
 
 @pytest.mark.anyio

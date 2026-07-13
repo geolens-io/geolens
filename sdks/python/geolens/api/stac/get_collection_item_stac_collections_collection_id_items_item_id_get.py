@@ -9,6 +9,7 @@ from ...types import Response
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...models.stac_item_response import StacItemResponse
 from uuid import UUID
 
 
@@ -30,15 +31,36 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> ProblemDetail | StacItemResponse | None:
     if response.status_code == 200:
-        response_200 = response.json()
+        response_200 = StacItemResponse.from_dict(response.json())
+
         return response_200
 
     if response.status_code == 400:
         response_400 = ProblemDetail.from_dict(response.json())
 
         return response_400
+
+    if response.status_code == 404:
+        response_404 = ProblemDetail.from_dict(response.json())
+
+        return response_404
+
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -48,7 +70,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[ProblemDetail | StacItemResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -62,7 +84,7 @@ def sync_detailed(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ProblemDetail]:
+) -> Response[ProblemDetail | StacItemResponse]:
     """Get Collection Item
 
      Get a single STAC Item within a collection.
@@ -76,7 +98,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[ProblemDetail | StacItemResponse]
     """
 
     kwargs = _get_kwargs(
@@ -96,7 +118,7 @@ def sync(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | ProblemDetail | None:
+) -> ProblemDetail | StacItemResponse | None:
     """Get Collection Item
 
      Get a single STAC Item within a collection.
@@ -110,7 +132,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        ProblemDetail | StacItemResponse
     """
 
     return sync_detailed(
@@ -125,7 +147,7 @@ async def asyncio_detailed(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ProblemDetail]:
+) -> Response[ProblemDetail | StacItemResponse]:
     """Get Collection Item
 
      Get a single STAC Item within a collection.
@@ -139,7 +161,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[ProblemDetail | StacItemResponse]
     """
 
     kwargs = _get_kwargs(
@@ -157,7 +179,7 @@ async def asyncio(
     item_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | ProblemDetail | None:
+) -> ProblemDetail | StacItemResponse | None:
     """Get Collection Item
 
      Get a single STAC Item within a collection.
@@ -171,7 +193,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        ProblemDetail | StacItemResponse
     """
 
     return (
