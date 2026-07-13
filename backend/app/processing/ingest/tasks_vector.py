@@ -549,7 +549,6 @@ async def ingest_file(
                     session,
                     table_name=staging_table_name,
                     user_metadata=um,
-                    attempt_id=attempt_uuid,
                     effective_srid=effective_srid,
                 )
                 if override_geom_type is not None:

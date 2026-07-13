@@ -197,6 +197,73 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
     assert failed.progress == 0.1
 
 
+@pytest.mark.anyio
+async def test_vector_worker_geometry_override_uses_helper_contract(
+    test_db_session, monkeypatch
+):
+    """X/Y imports must call the geometry helper with supported arguments."""
+    from unittest.mock import patch
+
+    from app.processing.ingest import tasks_vector
+
+    class GeometryOverrideReached(Exception):
+        pass
+
+    admin_id = await _get_admin_id(test_db_session)
+    fixture = str(Path(__file__).parent / "fixtures" / "ingest" / "mixed_types.csv")
+    job = IngestJob(
+        source_filename="mixed_types.csv",
+        file_path=fixture,
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": "Geometry Override Contract",
+            "visibility": "private",
+            "x_column": "longitude",
+            "y_column": "latitude",
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+
+    async def _fake_run_ogrinfo(*_args, **_kwargs):
+        return {"srid": None, "geometry_type": None, "columns": []}
+
+    async def _fake_run_ogr2ogr(*_args, **_kwargs):
+        return None
+
+    async def _no_reserved_renames(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogrinfo", _fake_run_ogrinfo)
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogr2ogr", _fake_run_ogr2ogr)
+    monkeypatch.setattr("app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:")
+    monkeypatch.setattr(
+        "app.processing.ingest.metadata.rename_reserved_columns",
+        _no_reserved_renames,
+    )
+
+    with patch.object(
+        tasks_vector,
+        "_detect_and_override_geometry",
+        autospec=True,
+        side_effect=GeometryOverrideReached,
+    ) as geometry_override:
+        with pytest.raises(GeometryOverrideReached):
+            await tasks_vector.ingest_file.func(
+                job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
+                file_path=fixture,
+                user_id=str(admin_id),
+            )
+
+    call_kwargs = geometry_override.await_args.kwargs
+    assert set(call_kwargs) == {"table_name", "user_metadata", "effective_srid"}
+    assert call_kwargs["user_metadata"] == job.user_metadata
+    assert call_kwargs["effective_srid"] == 4326
+
+
 # ---------------------------------------------------------------------------
 # 3. Service ingest advances progress while remote import is still running
 # ---------------------------------------------------------------------------
