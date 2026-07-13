@@ -26,6 +26,20 @@ MAX_SEARCH_ITEMS = 100
 STAC_TIMEOUT = 30.0
 
 
+def _projection_epsg(properties: dict[str, Any]) -> int | None:
+    """Return an EPSG identifier from Projection Extension v2 or legacy data."""
+    projection_code = properties.get("proj:code")
+    if isinstance(projection_code, str) and projection_code.startswith("EPSG:"):
+        code = projection_code.removeprefix("EPSG:")
+        if code.isdecimal():
+            return int(code)
+
+    legacy_epsg = properties.get("proj:epsg")
+    if isinstance(legacy_epsg, int) and not isinstance(legacy_epsg, bool):
+        return legacy_epsg
+    return None
+
+
 def _make_client() -> httpx.AsyncClient:
     """Shared httpx client configuration for STAC API requests.
 
@@ -213,7 +227,7 @@ async def search_stac_items(
                 "datetime_start": dt_start,
                 "datetime_end": dt_end,
                 "title": props.get("title", f.get("id")),
-                "epsg": props.get("proj:epsg"),
+                "epsg": _projection_epsg(props),
                 "gsd": props.get("gsd"),
                 "cloud_cover": props.get("eo:cloud_cover"),
                 "data_asset_href": data_asset.get("href") if data_asset else None,
