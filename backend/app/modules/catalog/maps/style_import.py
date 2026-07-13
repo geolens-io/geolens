@@ -6,10 +6,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.modules.catalog.maps.schemas import (
     MapLayerInput,
     MapStyleImportSummary,
     MapStyleImportWarning,
+    TerrainConfig,
 )
 from app.modules.catalog.maps.style_sanitizers import (
     clean_basemap_config,
@@ -43,6 +46,17 @@ class ImportedStyleMap:
     basemap_config: dict | None = None
     light: dict | None = None
     transition: dict | None = None
+
+
+def _validated_terrain_config(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the normal-write persistence shape for active terrain metadata."""
+    try:
+        terrain = TerrainConfig.model_validate(raw)
+    except ValidationError:
+        return None
+    if not terrain.enabled or terrain.source_dataset_id is None:
+        return None
+    return terrain.model_dump(mode="json")
 
 
 def _source_dataset_id(source: dict[str, Any]) -> uuid.UUID | None:
@@ -379,15 +393,13 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
             matched_sources.get(str(terrain_source)) if terrain_source else None
         )
         if dataset_id is not None:
-            try:
-                exaggeration = float(raw_terrain.get("exaggeration", 1.0))
-            except (TypeError, ValueError):
-                exaggeration = 1.0
-            terrain_config = {
-                "enabled": True,
-                "source_dataset_id": str(dataset_id),
-                "exaggeration": exaggeration,
-            }
+            terrain_config = _validated_terrain_config(
+                {
+                    "enabled": True,
+                    "source_dataset_id": dataset_id,
+                    "exaggeration": raw_terrain.get("exaggeration", 1.0),
+                }
+            )
 
     center = style.get("center")
     metadata = style.get("metadata") if isinstance(style.get("metadata"), dict) else {}
@@ -396,20 +408,8 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
     )
     if terrain_config is None:
         meta_terrain = geolens_meta.get("terrain_config")
-        if (
-            isinstance(meta_terrain, dict)
-            and meta_terrain.get("enabled")
-            and meta_terrain.get("source_dataset_id")
-        ):
-            try:
-                exaggeration = float(meta_terrain.get("exaggeration", 1.0))
-            except (TypeError, ValueError):
-                exaggeration = 1.0
-            terrain_config = {
-                "enabled": True,
-                "source_dataset_id": str(meta_terrain["source_dataset_id"]),
-                "exaggeration": exaggeration,
-            }
+        if isinstance(meta_terrain, dict):
+            terrain_config = _validated_terrain_config(meta_terrain)
     return ImportedStyleMap(
         name=str(style.get("name") or "Imported style"),
         description=geolens_meta.get("description"),

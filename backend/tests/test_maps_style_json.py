@@ -976,9 +976,43 @@ def test_parse_maplibre_style_import_restores_terrain_from_metadata_fallback():
         },
     }
     imported = parse_maplibre_style_import(style)
-    assert imported.terrain_config["enabled"] is True
-    assert imported.terrain_config["source_dataset_id"] == str(dem_id)
-    assert imported.terrain_config["exaggeration"] == 1.5
+    assert imported.terrain_config == {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 1.5,
+    }
+
+
+@pytest.mark.parametrize(
+    "terrain_config",
+    [
+        {
+            "enabled": True,
+            "source_dataset_id": "not-a-uuid",
+            "exaggeration": 1.5,
+        },
+        {
+            "enabled": True,
+            "source_dataset_id": str(uuid.uuid4()),
+            "exaggeration": 3.5,
+        },
+    ],
+    ids=["invalid-source-dataset-id", "exaggeration-above-maximum"],
+)
+def test_parse_maplibre_style_import_drops_invalid_terrain_metadata(
+    terrain_config,
+):
+    imported = parse_maplibre_style_import(
+        {
+            "version": 8,
+            "name": "Invalid terrain metadata",
+            "sources": {},
+            "layers": [],
+            "metadata": {"geolens": {"terrain_config": terrain_config}},
+        }
+    )
+
+    assert imported.terrain_config is None
 
 
 def test_parse_maplibre_style_import_restores_basemap_config_from_metadata():
