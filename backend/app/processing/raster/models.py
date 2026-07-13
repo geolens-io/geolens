@@ -101,7 +101,7 @@ class RasterAsset(Base):
         """Extract STAC-compatible properties from raster metadata."""
         props: dict = {}
         if self.epsg is not None:
-            props["proj:epsg"] = self.epsg
+            props["proj:code"] = f"EPSG:{self.epsg}"
         if self.crs_wkt:
             props["proj:wkt2"] = self.crs_wkt
         if self.width is not None and self.height is not None:
@@ -109,7 +109,7 @@ class RasterAsset(Base):
         if self.res_x is not None and self.res_y is not None:
             props["gsd"] = min(abs(self.res_x), abs(self.res_y))
 
-        # Bands (STAC common metadata format)
+        # Bands (STAC Raster Extension v1.1 format)
         if self.band_info:
             bands = []
             for b in self.band_info:
@@ -122,7 +122,7 @@ class RasterAsset(Base):
                     band["name"] = b["color_interp"]
                 bands.append(band)
             if bands:
-                props["bands"] = bands
+                props["raster:bands"] = bands
 
         return props
 

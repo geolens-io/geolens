@@ -43,6 +43,10 @@ class SearchFilters:
     srid: int | None = None
     source_organization: str | None = None
     record_type: str | None = None
+    record_ids: tuple[uuid_mod.UUID, ...] | None = None
+    external_ids: tuple[str, ...] | None = None
+    public_resource_types: tuple[str, ...] | None = None
+    standards_query_params: tuple[tuple[str, tuple[str, ...]], ...] | None = None
     date_from: date | None = None
     date_to: date | None = None
     vintage_start: date | None = None

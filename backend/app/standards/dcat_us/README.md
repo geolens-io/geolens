@@ -20,7 +20,7 @@ The schema definitions are vendored so validation is deterministic and does not 
 | Distribution | `RecordDistribution` rows |
 | DataService | Service-like `RecordDistribution` rows when the current metadata has an API/service URL |
 | Organization | `Record.source_organization`, `Record.owner_org`, or GeoLens fallback publisher |
-| Kind | `RecordContact` rows with `name`/`organization` and `email` |
+| Kind | `RecordContact` rows with `name`/`organization` and `email`, or the configured catalog organization role mailbox |
 | PeriodOfTime | `Record.temporal_start` and `Record.temporal_end` |
 | Location | `Record.spatial_extent` serialized as WKT bounding polygon |
 | Concept | `Record.theme_category` and keyword values where appropriate |
@@ -29,7 +29,7 @@ The schema definitions are vendored so validation is deterministic and does not 
 
 - DatasetSeries is not first-class in the current catalog model. Use future requirement `DCAT-FU-01` before adding authoring or persistence.
 - Structured `AccessRestriction`, `UseRestriction`, and `CUIRestriction` are not first-class in the current metadata model. Current free-text access/use constraints can be surfaced, but structured authoring is future requirement `DCAT-FU-02`.
-- Dataset `contactPoint` is mandatory in DCAT-US 3.0. GeoLens should not invent federal contact emails. Validation reports must identify datasets missing usable contact metadata.
+- Dataset `contactPoint` is mandatory in DCAT-US 3.0. GeoLens never invents an address: operators may configure a monitored organization role mailbox with `DCAT_CONTACT_EMAIL`. Without a record contact or this setting, validation reports the gap and export returns an RFC 7807 `503` instead of publishing a deceptive feed.
 
 ## Routes
 
@@ -55,21 +55,29 @@ Validation uses the vendored JSON Schema 2020-12 definitions with local `$ref` r
 - `errors[].schema_path`
 - `errors[].validator`
 - `errors[].message`
+- catalog source/serialized/excluded/fallback counts
+- per-dataset `uses_metadata_fallback` and `metadata_fallback_fields`
 
 Validation is a metadata-quality signal, not an authorization bypass. Catalog validation sees only datasets visible to the caller, and per-dataset validation runs the same access checks as per-dataset export.
 
-## Conformance posture: filter the feed
+## Conformance and feed completeness
 
-GeoLens keeps its catalog **feeds** conformant by **filtering**, not by blocking authoring (issue #203).
+Every visible input dataset is serialized; validators no longer act as a hidden
+feed filter. A missing description uses the dataset title. A missing usable
+record contact uses `DCAT_CONTACT_EMAIL` as an organization-level role contact.
+The fallback is explicit in response headers and validation reports.
 
-- **Catalog feeds** (`GET /datasets/dcat-us/3.0/`, and the equivalent W3C DCAT 3 `/datasets/dcat/` and GeoDCAT-AP `/datasets/geodcat-ap/` feeds) emit **only** records that pass that profile's validator. A record missing a property mandatory for the profile (for DCAT-US 3.0, most commonly a usable `contactPoint`) is **silently skipped** from the feed. The feed as a whole is therefore always conformant, with **zero onboarding friction**. Incomplete drafts simply do not appear until their metadata is filled in.
-- **Per-dataset endpoints** (`GET /datasets/{id}/dcat-us/3.0/`, and the DCAT 3 / GeoDCAT-AP equivalents) are **not** filtered: they always serialize the requested record as-is so operators can inspect and fix an incomplete record. The matching `.../validation/` endpoints report exactly which mandatory properties are missing.
-
-This is implemented in the `catalog_to_*` serializers (`app.standards.dcat_us.service.catalog_to_dcat_us3`, `app.standards.dcat.service.catalog_to_dcat`, `app.standards.geodcat_ap.service.catalog_to_geodcat_ap`): each candidate record is serialized and then validated with that profile's validator, and only valid entries are included.
+If neither contact source exists, the validation endpoint reports the required
+`contactPoint` error and the catalog/per-dataset export returns RFC 7807 `503`.
+This preserves protocol truthfulness and makes remediation discoverable without
+misrepresenting a populated catalog as empty.
 
 ### Optional stricter lever: `REQUIRE_METADATA_FOR_PUBLISH`
 
-Filtering keeps the feeds clean without forcing completeness on every author. Operators who instead want to **block publish** of incomplete records (so an incomplete record can never reach a feed in the first place) can enable the optional `REQUIRE_METADATA_FOR_PUBLISH` persistent-config lever (default **False**). The two mechanisms are complementary: filtering guarantees feed conformance regardless of the lever, while the lever also enforces completeness at authoring time.
+Operators who want to **block publish** of incomplete records can additionally
+enable the optional `REQUIRE_METADATA_FOR_PUBLISH` persistent-config lever
+(default **False**). Export-time fallbacks and explicit failures remain the
+machine-client safety net for existing published records.
 
 ## Migration notes
 

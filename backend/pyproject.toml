@@ -29,13 +29,13 @@ dependencies = [
     "shapely>=2.0",
     "pygeofilter[backend-sqlalchemy]>=0.4.0",
     "structlog>=25.4.0",
-    "anthropic>=0.111.0",
-    "openai>=2.43.0,<3",
-    "pgvector>=0.3.6",
+    "anthropic>=0.116.0",
+    "openai>=2.45.0,<3",
+    "pgvector>=0.5.0",
     "defusedxml>=0.7.1",
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
-    "boto3>=1.43.34",
+    "boto3>=1.43.46",
     # Azure Blob Storage provider (STOR-01 / Phase 1210). azure-identity is included
     # for managed-identity / account-URL auth paths (account_url + credential constructor).
     "azure-storage-blob>=12.24.0",
@@ -51,7 +51,7 @@ dependencies = [
     # 8.0.0 lifts the starlette<1.0.0 cap (prior 7.x pinned <1.0.0), which was
     # the sole blocker preventing starlette>=1.0.1 from resolving for the
     # CVE-2026-48710 fix below.
-    "prometheus-fastapi-instrumentator>=8.0.0",
+    "prometheus-fastapi-instrumentator>=8.0.2",
     "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
     "python-multipart>=0.0.27",
     # httpx: promoted from [dependency-groups].dev to prod (dep-audit 2026-06-02).
@@ -97,8 +97,8 @@ dev = [
     "bandit>=1.8",
     "pip-audit>=2.10.1",
     "moto[s3]>=5.2.2",
-    "fakeredis>=2.21.0",
-    "pystac>=1.14",
+    "fakeredis>=2.36.2",
+    "pystac>=1.15.1",
 ]
 
 [tool.ruff.lint]

@@ -15,6 +15,12 @@ from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.records.localization import select_localized_record_text
 from app.modules.catalog.datasets.domain.utils import extract_bbox
+from app.modules.catalog.search.record_metadata import (
+    build_contacts,
+    build_external_ids,
+    build_themes,
+    build_time,
+)
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.standards.ogc.utils import build_url
 
@@ -171,46 +177,6 @@ def _build_stac_assets(
     return result
 
 
-def _build_themes(
-    theme_category: list[str] | None,
-    keywords: list | None = None,
-) -> list[dict] | None:
-    """Convert theme_category + keyword vocabulary data to OGC themes."""
-    themes: list[dict] = []
-    # Group keywords by vocabulary_uri
-    if keywords:
-        by_vocab: dict[str | None, list[str]] = {}
-        for kw in keywords:
-            uri = getattr(kw, "vocabulary_uri", None)
-            by_vocab.setdefault(uri, []).append(kw.keyword)
-        for uri, kws in by_vocab.items():
-            entry: dict = {"concepts": [{"id": k} for k in kws]}
-            if uri:
-                entry["scheme"] = uri
-            themes.append(entry)
-    # Fallback: theme_category without vocabulary info
-    if not themes and theme_category:
-        themes.append({"concepts": [{"id": cat} for cat in theme_category]})
-    return themes or None
-
-
-def _build_time(dataset: Dataset) -> dict | None:
-    """Build OGC time extent from record temporal_start/end."""
-    record = dataset.record
-    start = record.temporal_start
-    end = record.temporal_end
-    if start is None and end is None:
-        return None
-    return {
-        "interval": [
-            [
-                start.isoformat() if start else "..",
-                end.isoformat() if end else "..",
-            ]
-        ]
-    }
-
-
 def dataset_to_ogc_record(
     dataset: Dataset,
     public_api_url: str,
@@ -294,7 +260,16 @@ def dataset_to_ogc_record(
 
     # OGC Records puts "time" at the record root (alongside geometry)
     # AND in properties for STAC consumer compatibility.
-    record_time = _build_time(dataset)
+    record_time = build_time(dataset)
+    description = (
+        localized.summary.strip()
+        if localized.summary and localized.summary.strip()
+        else localized.title.strip()
+    )
+    keywords = [keyword.keyword for keyword in record.keywords]
+    if not keywords:
+        keywords = list(record.theme_category or [])
+    license_value = record.license or "proprietary"
 
     # Resolve record_type once; used both for has_quicklook dispatch (below)
     # and for the STAC raster properties block at the end of this function.
@@ -312,10 +287,8 @@ def dataset_to_ogc_record(
         "properties": {
             "type": "dataset",
             "title": localized.title,
-            "description": localized.summary,
-            "keywords": [kw.keyword for kw in record.keywords]
-            if record.keywords
-            else None,
+            "description": description,
+            "keywords": keywords,
             "created": record.created_at.isoformat() if record.created_at else None,
             "updated": record.updated_at.isoformat() if record.updated_at else None,
             "updated_by_display": last_edited.display,
@@ -329,7 +302,7 @@ def dataset_to_ogc_record(
             if getattr(record, "record_type", None) == "table"
             else None,
             "column_count": len(dataset.column_info) if dataset.column_info else None,
-            "license": record.license,
+            "license": license_value,
             "source_organization": record.source_organization,
             # Dataset origin for catalog cards: file format for uploads,
             # service/stac identifiers for remote registrations, 'created'
@@ -360,24 +333,10 @@ def dataset_to_ogc_record(
                 else list(_FORMAT_MEDIA.values())
             ),
             "language": localized.language,
-            "themes": _build_themes(record.theme_category, record.keywords),
-            "rights": record.license,
-            "contacts": [
-                {
-                    k: v
-                    for k, v in {
-                        "name": c.name,
-                        "organization": c.organization,
-                        "roles": [c.role] if c.role else [],
-                        "email": c.email,
-                        "phone": c.phone,
-                    }.items()
-                    if v is not None
-                }
-                for c in record.contacts
-            ]
-            if record.contacts
-            else None,
+            "externalIds": build_external_ids(dataset),
+            "themes": build_themes(record.theme_category, record.keywords),
+            "rights": license_value,
+            "contacts": build_contacts(dataset),
             "datetime": stac_datetime,
             **(
                 {
@@ -448,7 +407,7 @@ def dataset_to_ogc_record(
     # STAC properties for raster/VRT records (record_type already resolved above)
     if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
         if raster_meta.get("epsg") is not None:
-            ogc_record["properties"]["proj:epsg"] = raster_meta["epsg"]
+            ogc_record["properties"]["proj:code"] = f"EPSG:{raster_meta['epsg']}"
         if raster_meta.get("width") and raster_meta.get("height"):
             ogc_record["properties"]["proj:shape"] = [
                 raster_meta["height"],
@@ -481,7 +440,7 @@ def dataset_to_ogc_record(
                         band_entry["description"] = bi["description"]
                 bands.append(band_entry)
         if bands:
-            ogc_record["properties"]["bands"] = bands
+            ogc_record["properties"]["raster:bands"] = bands
 
         # VRT-specific fields
         if raster_meta.get("vrt_type"):

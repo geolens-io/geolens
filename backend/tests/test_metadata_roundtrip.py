@@ -1,4 +1,4 @@
-"""Round-trip + filter-the-feed tests for catalog standards output (issue #203).
+"""Round-trip + complete-feed tests for catalog standards output (issue #203).
 
 Verifies two guarantees of the DCAT-US metadata-completeness conformance work:
 
@@ -6,10 +6,9 @@ Verifies two guarantees of the DCAT-US metadata-completeness conformance work:
    SURFACES in every standards serialization GeoLens emits: W3C DCAT 3,
    DCAT-US 3.0, GeoDCAT-AP 2.0.0, STAC, and the OGC API Records GeoJSON output.
 
-2. **Filter-the-feed:** an INCOMPLETE record (missing a property mandatory for
-   the profile) is EXCLUDED from the DCAT 3 / DCAT-US / GeoDCAT-AP catalog
-   feeds, while a COMPLETE record is INCLUDED. The per-dataset endpoints still
-   serialize the requested record as-is regardless of completeness.
+2. **Complete feeds:** minimally populated published records stay visible in
+   DCAT 3 / DCAT-US / GeoDCAT-AP. Deterministic required-field fallbacks make
+   the feed and per-dataset validators agree, and coverage counts are exposed.
 """
 
 import uuid
@@ -194,17 +193,20 @@ async def test_edited_metadata_surfaces_in_all_standards_outputs(
 
 
 # ---------------------------------------------------------------------------
-# Filter-the-feed: incomplete record excluded, complete record included
+# Complete feeds: minimally populated records are visible and conformant
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_incomplete_record_excluded_complete_included_in_feeds(
+async def test_minimal_published_record_remains_visible_and_conformant_in_feeds(
     client: AsyncClient,
     test_db_session,
+    monkeypatch,
 ):
-    """A record missing a mandatory property is dropped from the DCAT-3 /
-    DCAT-US / GeoDCAT-AP catalog feeds, while a complete record stays."""
+    """Required-field gaps use observable fallbacks instead of feed filtering."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "dcat_contact_email", "metadata@example.gov")
     session = test_db_session
     # Isolate this worker's view of the anonymous catalog (pytest -n 4).
     for _table in ("catalog.datasets", "catalog.records", "catalog.collections"):
@@ -229,25 +231,50 @@ async def test_incomplete_record_excluded_complete_included_in_feeds(
     )
     await session.commit()
 
-    for path, key in (
-        ("/datasets/dcat/", "dcat:dataset"),
-        ("/datasets/dcat-us/3.0/", "dataset"),
-        ("/datasets/geodcat-ap/", "dcat:dataset"),
+    for path, validation_path, key in (
+        ("/datasets/dcat/", "/datasets/dcat/validation/", "dcat:dataset"),
+        (
+            "/datasets/dcat-us/3.0/",
+            "/datasets/dcat-us/3.0/validation/",
+            "dataset",
+        ),
+        (
+            "/datasets/geodcat-ap/",
+            "/datasets/geodcat-ap/validation/",
+            "dcat:dataset",
+        ),
     ):
         resp = await client.get(path)
         assert resp.status_code == 200, path
         ids = " ".join(d["@id"] for d in resp.json()[key])
         assert str(complete.id) in ids, f"complete missing from {path}"
-        assert str(incomplete.id) not in ids, f"incomplete leaked into {path}"
+        assert str(incomplete.id) in ids, f"minimal record missing from {path}"
+        assert resp.headers["x-geolens-source-dataset-count"] == "2"
+        assert resp.headers["x-geolens-serialized-dataset-count"] == "2"
+        assert resp.headers["x-geolens-excluded-dataset-count"] == "0"
+        assert resp.headers["x-geolens-metadata-fallback-dataset-count"] == "1"
+
+        validation = await client.get(validation_path)
+        assert validation.status_code == 200, validation_path
+        report = validation.json()
+        assert report["valid"] is True, report
+        assert report["source_dataset_count"] == 2
+        assert report["serialized_dataset_count"] == 2
+        assert report["excluded_dataset_count"] == 0
+        assert report["metadata_fallback_dataset_count"] == 1
 
 
 @pytest.mark.anyio
-async def test_incomplete_record_still_served_by_per_dataset_endpoint(
+async def test_minimal_record_per_dataset_fallbacks_pass_all_validators(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    monkeypatch,
 ):
-    """Per-dataset endpoints serialize the record as-is even when incomplete."""
+    """Per-dataset output uses the same conformant fallbacks as catalog feeds."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "dcat_contact_email", "metadata@example.gov")
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     incomplete = await _create_complete_dataset(
@@ -262,25 +289,48 @@ async def test_incomplete_record_still_served_by_per_dataset_endpoint(
     )
     await session.commit()
 
-    # The DCAT-3 per-dataset endpoint still returns the record (not filtered).
-    resp = await client.get(
-        f"/datasets/{incomplete.id}/dcat/", headers=admin_auth_header
-    )
-    assert resp.status_code == 200
-    assert resp.json()["dcterms:title"]["@value"] == "Incomplete Single"
+    for export_suffix, validation_suffix, description_path, expected_fields in (
+        (
+            "dcat/",
+            "dcat/validation/",
+            ("dcterms:description", "@value"),
+            ["dcterms:description"],
+        ),
+        (
+            "dcat-us/3.0/",
+            "dcat-us/3.0/validation/",
+            ("description",),
+            ["description", "contactPoint"],
+        ),
+        (
+            "geodcat-ap/",
+            "geodcat-ap/validation/",
+            ("dcterms:description", "@value"),
+            ["dcterms:description"],
+        ),
+    ):
+        resp = await client.get(
+            f"/datasets/{incomplete.id}/{export_suffix}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        value = resp.json()
+        for key in description_path:
+            value = value[key]
+        assert value == "Incomplete Single"
+        assert resp.headers["x-geolens-metadata-fallback-fields"].split(",") == (
+            expected_fields
+        )
 
-    # ...and its validation report flags the missing description.
-    val = await client.get(
-        f"/datasets/{incomplete.id}/dcat/validation/", headers=admin_auth_header
-    )
-    assert val.status_code == 200
-    report = val.json()
-    assert report["schema"] == "Dataset"
-    assert report["valid"] is False
-    assert any(
-        e["validator"] == "required" and "dcterms:description" in e["message"]
-        for e in report["errors"]
-    )
+        val = await client.get(
+            f"/datasets/{incomplete.id}/{validation_suffix}",
+            headers=admin_auth_header,
+        )
+        assert val.status_code == 200
+        report = val.json()
+        assert report["schema"] == "Dataset"
+        assert report["valid"] is True, report
+        assert report["metadata_fallback_fields"] == expected_fields
 
 
 @pytest.mark.anyio

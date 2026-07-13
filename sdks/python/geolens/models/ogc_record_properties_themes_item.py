@@ -7,11 +7,11 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-T = TypeVar("T", bound="OGCRecordPropertiesTimeType0")
+T = TypeVar("T", bound="OGCRecordPropertiesThemesItem")
 
 
 @_attrs_define
-class OGCRecordPropertiesTimeType0:
+class OGCRecordPropertiesThemesItem:
     """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -26,10 +26,10 @@ class OGCRecordPropertiesTimeType0:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        ogc_record_properties_time_type_0 = cls()
+        ogc_record_properties_themes_item = cls()
 
-        ogc_record_properties_time_type_0.additional_properties = d
-        return ogc_record_properties_time_type_0
+        ogc_record_properties_themes_item.additional_properties = d
+        return ogc_record_properties_themes_item
 
     @property
     def additional_keys(self) -> list[str]:

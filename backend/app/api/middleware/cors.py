@@ -7,6 +7,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.standards.ogc.utils import standards_api_path
+
 # In-memory cache to avoid a DB pool checkout on every CORS request.
 _origins_cache: tuple[float, set[str]] = (0.0, set())
 _ORIGINS_CACHE_TTL = 30  # seconds — matches PersistentConfig cache TTL
@@ -30,7 +32,21 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         allowed = await self._is_origin_allowed(origin)
 
         if not allowed:
-            # Origin not permitted -- pass through without CORS headers
+            # Standards discovery and read/search routes are intentionally
+            # usable by anonymous browser clients on a default deployment.  A
+            # wildcard response is safe here because credential-bearing
+            # requests are excluded and Access-Control-Allow-Credentials is not
+            # emitted. Native application routes retain the explicit-origin,
+            # credentialed policy below.
+            if self._is_anonymous_standards_request(request):
+                if request.method == "OPTIONS":
+                    response = Response(status_code=status.HTTP_200_OK)
+                else:
+                    response = await call_next(request)
+                self._set_public_standards_cors_headers(response, request)
+                return response
+
+            # Origin not permitted -- pass through without CORS headers.
             return await call_next(request)
 
         # Preflight (OPTIONS)
@@ -85,5 +101,78 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Allow-Headers"] = (
             "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token"
         )
-        response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+        response.headers["Access-Control-Expose-Headers"] = (
+            "X-Total-Count, Link, Content-Crs, Content-Language, "
+            "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
+            "X-GeoLens-Excluded-Dataset-Count, "
+            "X-GeoLens-Metadata-Fallback-Dataset-Count, "
+            "X-GeoLens-Metadata-Fallback-Fields"
+        )
+        response.headers["Access-Control-Max-Age"] = "3600"
+
+    @staticmethod
+    def _standards_path(request: Request) -> str | None:
+        return standards_api_path(
+            request.scope.get("path", request.url.path),
+            root_path=request.scope.get("root_path", ""),
+        )
+
+    @classmethod
+    def _is_anonymous_standards_request(cls, request: Request) -> bool:
+        path = cls._standards_path(request)
+        if path is None:
+            return False
+
+        requested_method = request.headers.get(
+            "access-control-request-method", request.method
+        ).upper()
+        if requested_method not in {"GET", "HEAD"} and not (
+            requested_method == "POST" and path.rstrip("/") == "/stac/search"
+        ):
+            return False
+
+        # Never grant wildcard browser access to a request that can carry an
+        # application identity.  This covers actual requests and preflights.
+        credential_headers = {
+            "authorization",
+            "cookie",
+            "x-api-key",
+            "x-embed-token",
+        }
+        if any(request.headers.get(header) for header in credential_headers):
+            return False
+        if "api_key" in request.query_params or "embed_token" in request.query_params:
+            return False
+
+        requested_headers = {
+            value.strip().lower()
+            for value in request.headers.get(
+                "access-control-request-headers", ""
+            ).split(",")
+            if value.strip()
+        }
+        allowed_headers = {
+            "accept",
+            "accept-language",
+            "content-language",
+            "content-type",
+        }
+        return requested_headers <= allowed_headers
+
+    @staticmethod
+    def _set_public_standards_cors_headers(
+        response: Response, request: Request
+    ) -> None:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST, OPTIONS"
+        requested_headers = request.headers.get("access-control-request-headers")
+        if requested_headers:
+            response.headers["Access-Control-Allow-Headers"] = requested_headers
+        response.headers["Access-Control-Expose-Headers"] = (
+            "Link, Content-Crs, Content-Language, "
+            "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
+            "X-GeoLens-Excluded-Dataset-Count, "
+            "X-GeoLens-Metadata-Fallback-Dataset-Count, "
+            "X-GeoLens-Metadata-Fallback-Fields"
+        )
         response.headers["Access-Control-Max-Age"] = "3600"

@@ -437,8 +437,9 @@ async def test_externalid_owner_admin_private_returns_200(
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["id"] == str(priv.id)
-    assert body["type"] == "Feature"
+    assert body["type"] == "FeatureCollection"
+    assert body["numberMatched"] == 1
+    assert [feature["id"] for feature in body["features"]] == [str(priv.id)]
 
 
 @pytest.mark.anyio
@@ -459,4 +460,7 @@ async def test_externalid_no_auth_public_returns_200(
         "/collections/datasets/items", params={"externalId": str(pub.id)}
     )
     assert resp.status_code == 200
-    assert resp.json()["id"] == str(pub.id)
+    body = resp.json()
+    assert body["type"] == "FeatureCollection"
+    assert body["numberMatched"] == 1
+    assert [feature["id"] for feature in body["features"]] == [str(pub.id)]

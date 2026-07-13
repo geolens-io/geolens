@@ -9336,9 +9336,9 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Contacts */
-            contacts?: {
+            contacts: {
                 [key: string]: unknown;
-            }[] | null;
+            }[];
             /** Created */
             created?: string | null;
             /** Crs */
@@ -9346,11 +9346,16 @@ export interface components {
             /** Dataset Count */
             dataset_count?: number | null;
             /** Description */
-            description?: string | null;
+            description: string;
             /** Distributions */
             distributions?: {
                 [key: string]: unknown;
             }[] | null;
+            /**
+             * Externalids
+             * @description Identifiers assigned by the described resource's source system.
+             */
+            externalIds?: string[];
             /** Feature Count */
             feature_count?: number | null;
             /** Formats */
@@ -9365,11 +9370,11 @@ export interface components {
              */
             has_quicklook: boolean;
             /** Keywords */
-            keywords?: string[] | null;
+            keywords: string[];
             /** Language */
             language?: string | null;
             /** License */
-            license?: string | null;
+            license: string;
             /** Lineage */
             lineage?: string | null;
             /**
@@ -9407,13 +9412,13 @@ export interface components {
             /** Source Organization */
             source_organization?: string | null;
             /** Themes */
-            themes?: {
+            themes: {
                 [key: string]: unknown;
-            }[] | null;
+            }[];
             /** Time */
-            time?: {
+            time: {
                 [key: string]: unknown;
-            } | null;
+            };
             /** Title */
             title: string;
             /**
@@ -9453,9 +9458,9 @@ export interface components {
             links: components["schemas"]["OGCRecordLink"][];
             properties: components["schemas"]["OGCRecordProperties"];
             /** Time */
-            time?: {
+            time: {
                 [key: string]: unknown;
-            } | null;
+            };
             /**
              * Type
              * @default Feature
@@ -11808,16 +11813,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16988,13 +16983,34 @@ export interface operations {
                     "application/json": components["schemas"]["OGCCollectionsResponse"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
                 };
             };
         };
@@ -17017,16 +17033,53 @@ export interface operations {
                     "application/json": components["schemas"]["OGCCollectionMetadataResponse"];
                 };
             };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
         };
     };
     collection_items_collections_datasets_items_get: {
         parameters: {
             query?: {
-                /** @description OGC record type filter */
-                type?: string | null;
+                /** @description Public OGC resource types as repeated or comma-separated values (for example, type=dataset,collection) */
+                type?: string[];
+                /** @description Record IDs as repeated or comma-separated UUID values */
+                ids?: string[];
+                /** @description Source-system resource identifiers as repeated or comma-separated values */
+                externalIds?: string[];
                 /** @description OGC sortby: +field or -field */
                 sortby?: string | null;
-                /** @description OGC Records external identifier filter (matches dataset UUID) */
+                /**
+                 * @deprecated
+                 * @description Deprecated singular compatibility alias for externalIds (matches a dataset UUID)
+                 */
                 externalId?: string | null;
                 q?: string | null;
                 bbox?: string | null;
@@ -17066,16 +17119,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/geo+json": components["schemas"]["OGCFeatureCollectionResponse"];
                     "application/json": unknown;
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
                 };
             };
         };
@@ -17097,16 +17172,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/geo+json": components["schemas"]["OGCRecordResponse"];
                     "application/json": unknown;
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
                 };
             };
         };
@@ -17129,6 +17226,36 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
         };
     };
     get_record_schema_collections_datasets_schema_get: {
@@ -17149,6 +17276,36 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
         };
     };
     get_sortables_collections_datasets_sortables_get: {
@@ -17167,6 +17324,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                    "application/problem+json": unknown;
                 };
             };
         };
@@ -17205,16 +17392,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17324,16 +17501,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -17410,16 +17577,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17812,16 +17969,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -18158,8 +18305,8 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18168,8 +18315,8 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Internal server error */
-            500: {
+            /** @description Service unavailable — required publication metadata is missing */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18210,16 +18357,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18283,16 +18420,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -18335,16 +18462,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18408,16 +18525,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -18460,16 +18567,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19467,8 +19564,8 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19477,8 +19574,8 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Internal server error */
-            500: {
+            /** @description Service unavailable — required publication metadata is missing */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19521,16 +19618,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19591,16 +19678,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -19645,16 +19722,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20630,16 +20697,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -20684,16 +20741,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -31252,6 +31299,15 @@ export interface operations {
                     "application/json": components["schemas"]["StacCatalog"];
                 };
             };
+            /** @description Bad request — invalid standards parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
         };
     };
     get_collections_stac_collections_get: {
@@ -31270,6 +31326,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StacCollectionListResponse"];
+                };
+            };
+            /** @description Bad request — invalid standards parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
         };
@@ -31294,13 +31359,13 @@ export interface operations {
                     "application/json": components["schemas"]["StacCollection"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Bad request — invalid standards parameters */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
         };
@@ -31354,16 +31419,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -31397,13 +31452,13 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Bad request — invalid standards parameters */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
         };
@@ -31424,6 +31479,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StacConformance"];
+                };
+            };
+            /** @description Bad request — invalid standards parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
         };
@@ -31448,13 +31512,13 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Bad request — invalid standards parameters */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
         };
@@ -31512,16 +31576,6 @@ export interface operations {
                     "application/problem+json": unknown;
                 };
             };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -31569,16 +31623,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetail"];
-                    "application/problem+json": unknown;
-                };
-            };
-            /** @description Validation error */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

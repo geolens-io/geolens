@@ -6222,9 +6222,9 @@ export type OgcRecordProperties = {
     /**
      * Contacts
      */
-    contacts?: Array<{
+    contacts: Array<{
         [key: string]: unknown;
-    }> | null;
+    }>;
     /**
      * Created
      */
@@ -6240,13 +6240,19 @@ export type OgcRecordProperties = {
     /**
      * Description
      */
-    description?: string | null;
+    description: string;
     /**
      * Distributions
      */
     distributions?: Array<{
         [key: string]: unknown;
     }> | null;
+    /**
+     * Externalids
+     *
+     * Identifiers assigned by the described resource's source system.
+     */
+    externalIds?: Array<string>;
     /**
      * Feature Count
      */
@@ -6270,7 +6276,7 @@ export type OgcRecordProperties = {
     /**
      * Keywords
      */
-    keywords?: Array<string> | null;
+    keywords: Array<string>;
     /**
      * Language
      */
@@ -6278,7 +6284,7 @@ export type OgcRecordProperties = {
     /**
      * License
      */
-    license?: string | null;
+    license: string;
     /**
      * Lineage
      */
@@ -6332,15 +6338,15 @@ export type OgcRecordProperties = {
     /**
      * Themes
      */
-    themes?: Array<{
+    themes: Array<{
         [key: string]: unknown;
-    }> | null;
+    }>;
     /**
      * Time
      */
-    time?: {
+    time: {
         [key: string]: unknown;
-    } | null;
+    };
     /**
      * Title
      */
@@ -6405,9 +6411,9 @@ export type OgcRecordResponse = {
     /**
      * Time
      */
-    time?: {
+    time: {
         [key: string]: unknown;
-    } | null;
+    };
     /**
      * Type
      */
@@ -9577,10 +9583,6 @@ export type LandingPageGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -12660,9 +12662,17 @@ export type ListCollectionsCollectionsGetData = {
 
 export type ListCollectionsCollectionsGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid query parameters or payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
 };
 
 export type ListCollectionsCollectionsGetError = ListCollectionsCollectionsGetErrors[keyof ListCollectionsCollectionsGetErrors];
@@ -12683,6 +12693,23 @@ export type GetCollectionMetadataCollectionsDatasetsGetData = {
     url: '/collections/datasets';
 };
 
+export type GetCollectionMetadataCollectionsDatasetsGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetCollectionMetadataCollectionsDatasetsGetError = GetCollectionMetadataCollectionsDatasetsGetErrors[keyof GetCollectionMetadataCollectionsDatasetsGetErrors];
+
 export type GetCollectionMetadataCollectionsDatasetsGetResponses = {
     /**
      * Successful Response
@@ -12702,9 +12729,21 @@ export type CollectionItemsCollectionsDatasetsItemsGetData = {
         /**
          * Type
          *
-         * OGC record type filter
+         * Public OGC resource types as repeated or comma-separated values (for example, type=dataset,collection)
          */
-        type?: string | null;
+        type?: Array<string>;
+        /**
+         * Ids
+         *
+         * Record IDs as repeated or comma-separated UUID values
+         */
+        ids?: Array<string>;
+        /**
+         * Externalids
+         *
+         * Source-system resource identifiers as repeated or comma-separated values
+         */
+        externalIds?: Array<string>;
         /**
          * Sortby
          *
@@ -12714,7 +12753,9 @@ export type CollectionItemsCollectionsDatasetsItemsGetData = {
         /**
          * Externalid
          *
-         * OGC Records external identifier filter (matches dataset UUID)
+         * Deprecated singular compatibility alias for externalIds (matches a dataset UUID)
+         *
+         * @deprecated
          */
         externalId?: string | null;
         /**
@@ -12807,9 +12848,17 @@ export type CollectionItemsCollectionsDatasetsItemsGetData = {
 
 export type CollectionItemsCollectionsDatasetsItemsGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid query parameters or payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
 };
 
 export type CollectionItemsCollectionsDatasetsItemsGetError = CollectionItemsCollectionsDatasetsItemsGetErrors[keyof CollectionItemsCollectionsDatasetsItemsGetErrors];
@@ -12818,8 +12867,10 @@ export type CollectionItemsCollectionsDatasetsItemsGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: OgcFeatureCollectionResponse;
 };
+
+export type CollectionItemsCollectionsDatasetsItemsGetResponse = CollectionItemsCollectionsDatasetsItemsGetResponses[keyof CollectionItemsCollectionsDatasetsItemsGetResponses];
 
 export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetData = {
     body?: never;
@@ -12835,9 +12886,17 @@ export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetData = {
 
 export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid query parameters or payload
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
 };
 
 export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetError = GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors[keyof GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors];
@@ -12846,8 +12905,10 @@ export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: OgcRecordResponse;
 };
+
+export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetResponse = GetCollectionItemCollectionsDatasetsItemsRecordIdGetResponses[keyof GetCollectionItemCollectionsDatasetsItemsRecordIdGetResponses];
 
 export type GetQueryablesCollectionsDatasetsQueryablesGetData = {
     body?: never;
@@ -12855,6 +12916,23 @@ export type GetQueryablesCollectionsDatasetsQueryablesGetData = {
     query?: never;
     url: '/collections/datasets/queryables';
 };
+
+export type GetQueryablesCollectionsDatasetsQueryablesGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetQueryablesCollectionsDatasetsQueryablesGetError = GetQueryablesCollectionsDatasetsQueryablesGetErrors[keyof GetQueryablesCollectionsDatasetsQueryablesGetErrors];
 
 export type GetQueryablesCollectionsDatasetsQueryablesGetResponses = {
     /**
@@ -12870,6 +12948,23 @@ export type GetRecordSchemaCollectionsDatasetsSchemaGetData = {
     url: '/collections/datasets/schema';
 };
 
+export type GetRecordSchemaCollectionsDatasetsSchemaGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetRecordSchemaCollectionsDatasetsSchemaGetError = GetRecordSchemaCollectionsDatasetsSchemaGetErrors[keyof GetRecordSchemaCollectionsDatasetsSchemaGetErrors];
+
 export type GetRecordSchemaCollectionsDatasetsSchemaGetResponses = {
     /**
      * Successful Response
@@ -12883,6 +12978,23 @@ export type GetSortablesCollectionsDatasetsSortablesGetData = {
     query?: never;
     url: '/collections/datasets/sortables';
 };
+
+export type GetSortablesCollectionsDatasetsSortablesGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetSortablesCollectionsDatasetsSortablesGetError = GetSortablesCollectionsDatasetsSortablesGetErrors[keyof GetSortablesCollectionsDatasetsSortablesGetErrors];
 
 export type GetSortablesCollectionsDatasetsSortablesGetResponses = {
     /**
@@ -12917,10 +13029,6 @@ export type GetDatasetCollectionCollectionsDatasetIdGetErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -12998,10 +13106,6 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -13090,10 +13194,6 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetErrors 
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -13354,10 +13454,6 @@ export type ConformanceConformanceGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -13560,13 +13656,13 @@ export type GetDcatUs3CatalogDatasetsDcatUs30GetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — required publication metadata is missing
+     */
+    503: ProblemDetail;
 };
 
 export type GetDcatUs3CatalogDatasetsDcatUs30GetError = GetDcatUs3CatalogDatasetsDcatUs30GetErrors[keyof GetDcatUs3CatalogDatasetsDcatUs30GetErrors];
@@ -13594,10 +13690,6 @@ export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -13643,10 +13735,6 @@ export type GetDcatCatalogDatasetsDcatGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -13677,10 +13765,6 @@ export type ValidateDcat3CatalogDatasetsDcatValidationGetErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -13726,10 +13810,6 @@ export type GetGeodcatApCatalogDatasetsGeodcatApGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -13760,10 +13840,6 @@ export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -14371,13 +14447,13 @@ export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Service unavailable — required publication metadata is missing
+     */
+    503: ProblemDetail;
 };
 
 export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetError = GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors[keyof GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors];
@@ -14410,10 +14486,6 @@ export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors = 
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -14451,10 +14523,6 @@ export type GetDcatRecordDatasetsDatasetIdDcatGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -14490,10 +14558,6 @@ export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -15211,10 +15275,6 @@ export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -15250,10 +15310,6 @@ export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */
@@ -21696,6 +21752,15 @@ export type LandingPageStacGetData = {
     url: '/stac/';
 };
 
+export type LandingPageStacGetErrors = {
+    /**
+     * Bad request — invalid standards parameters
+     */
+    400: ProblemDetail;
+};
+
+export type LandingPageStacGetError = LandingPageStacGetErrors[keyof LandingPageStacGetErrors];
+
 export type LandingPageStacGetResponses = {
     /**
      * Successful Response
@@ -21711,6 +21776,15 @@ export type GetCollectionsStacCollectionsGetData = {
     query?: never;
     url: '/stac/collections';
 };
+
+export type GetCollectionsStacCollectionsGetErrors = {
+    /**
+     * Bad request — invalid standards parameters
+     */
+    400: ProblemDetail;
+};
+
+export type GetCollectionsStacCollectionsGetError = GetCollectionsStacCollectionsGetErrors[keyof GetCollectionsStacCollectionsGetErrors];
 
 export type GetCollectionsStacCollectionsGetResponses = {
     /**
@@ -21735,9 +21809,9 @@ export type GetCollectionStacCollectionsCollectionIdGetData = {
 
 export type GetCollectionStacCollectionsCollectionIdGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid standards parameters
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
 };
 
 export type GetCollectionStacCollectionsCollectionIdGetError = GetCollectionStacCollectionsCollectionIdGetErrors[keyof GetCollectionStacCollectionsCollectionIdGetErrors];
@@ -21796,10 +21870,6 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -21832,9 +21902,9 @@ export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetData = {
 
 export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid standards parameters
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
 };
 
 export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetError = GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors[keyof GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors];
@@ -21852,6 +21922,15 @@ export type ConformanceStacConformanceGetData = {
     query?: never;
     url: '/stac/conformance';
 };
+
+export type ConformanceStacConformanceGetErrors = {
+    /**
+     * Bad request — invalid standards parameters
+     */
+    400: ProblemDetail;
+};
+
+export type ConformanceStacConformanceGetError = ConformanceStacConformanceGetErrors[keyof ConformanceStacConformanceGetErrors];
 
 export type ConformanceStacConformanceGetResponses = {
     /**
@@ -21876,9 +21955,9 @@ export type GetItemStacItemsItemIdGetData = {
 
 export type GetItemStacItemsItemIdGetErrors = {
     /**
-     * Validation Error
+     * Bad request — invalid standards parameters
      */
-    422: HttpValidationError;
+    400: ProblemDetail;
 };
 
 export type GetItemStacItemsItemIdGetError = GetItemStacItemsItemIdGetErrors[keyof GetItemStacItemsItemIdGetErrors];
@@ -21948,10 +22027,6 @@ export type SearchGetStacSearchGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
      * Internal server error
      */
     500: ProblemDetail;
@@ -21982,10 +22057,6 @@ export type SearchPostStacSearchPostErrors = {
      * Not found
      */
     404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
     /**
      * Internal server error
      */

@@ -15,12 +15,14 @@ Covers all 10 conformance gaps:
 
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.auth.models import User
+from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -47,6 +49,9 @@ async def _create_dataset(
     record_type: str = "vector_dataset",
     keywords: list[tuple[str, str | None]] | None = None,
     contacts: list[dict] | None = None,
+    source_format: str = "geojson",
+    source_filename: str = "test.geojson",
+    source_url: str | None = None,
 ) -> Dataset:
     """Create a Record + Dataset pair with optional keywords and contacts."""
     _name = name or f"ogc-conf-{uuid.uuid4().hex[:8]}"
@@ -86,8 +91,9 @@ async def _create_dataset(
         srid=4326,
         geometry_type="MultiPolygon",
         feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
+        source_format=source_format,
+        source_filename=source_filename,
+        source_url=source_url,
     )
     session.add(dataset)
     await session.commit()
@@ -311,12 +317,14 @@ async def test_sortby_invalid_field_returns_400(client: AsyncClient):
     resp = await client.get("/collections/datasets/items", params={"sortby": "+bogus"})
     assert resp.status_code == 400
     data = resp.json()
-    assert "InvalidParameterValue" in data.get("code", "")
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    assert data["status"] == 400
+    assert "Unknown sortby field" in data["detail"]
 
 
 @pytest.mark.anyio
 async def test_type_query_param(client: AsyncClient, test_db_session):
-    """Gap 8: type query param accepted as alias for record_type."""
+    """Gap 8: type uses the public Records resource type, not an internal subtype."""
     admin_id = await _get_admin_id(test_db_session)
     await _create_dataset(
         test_db_session,
@@ -327,9 +335,196 @@ async def test_type_query_param(client: AsyncClient, test_db_session):
 
     resp = await client.get(
         "/collections/datasets/items",
-        params={"type": "vector_dataset", "limit": 5},
+        params={"type": "dataset", "limit": 5},
     )
     assert resp.status_code == 200
+
+    internal_type = await client.get(
+        "/collections/datasets/items",
+        params={"type": "vector_dataset", "limit": 5},
+    )
+    assert internal_type.status_code == 200
+    assert internal_type.json()["numberMatched"] == 0
+
+
+@pytest.mark.anyio
+async def test_records_array_query_parameters(client: AsyncClient, test_db_session):
+    """Records arrays accept comma-separated values and retain collection shape."""
+    admin_id = await _get_admin_id(test_db_session)
+    first = await _create_dataset(
+        test_db_session,
+        admin_id=admin_id,
+        name=f"ids-first-{uuid.uuid4().hex[:6]}",
+    )
+    second = await _create_dataset(
+        test_db_session,
+        admin_id=admin_id,
+        name=f"ids-second-{uuid.uuid4().hex[:6]}",
+    )
+
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={
+            "type": "dataset,service",
+            "ids": f"{first.id},{second.id}",
+            "limit": 10,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "FeatureCollection"
+    assert body["numberMatched"] == 2
+    assert {feature["id"] for feature in body["features"]} == {
+        str(first.id),
+        str(second.id),
+    }
+    self_link = next(link for link in body["links"] if link["rel"] == "self")
+    assert "type=dataset%2Cservice" in self_link["href"]
+    assert "ids=" in self_link["href"]
+    assert 'rel="self"' in resp.headers["link"]
+
+
+@pytest.mark.anyio
+async def test_records_ids_filter_collection_resources(
+    client: AsyncClient, test_db_session
+):
+    admin_id = await _get_admin_id(test_db_session)
+    token = f"collection-ids-{uuid.uuid4().hex[:8]}"
+    requested = Collection(
+        name=f"{token} requested",
+        description="Collection selected by the OGC ids filter",
+        created_by=admin_id,
+    )
+    excluded = Collection(
+        name=f"{token} excluded",
+        description="Collection omitted by the OGC ids filter",
+        created_by=admin_id,
+    )
+    test_db_session.add_all([requested, excluded])
+    await test_db_session.commit()
+    await test_db_session.refresh(requested)
+
+    for params in (
+        {"q": token, "type": "collection", "ids": str(requested.id)},
+        {"type": "collection", "ids": str(requested.id)},
+    ):
+        resp = await client.get("/collections/datasets/items", params=params)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["numberMatched"] == 1
+        assert body["numberReturned"] == 1
+        assert [feature["id"] for feature in body["features"]] == [str(requested.id)]
+        assert body["features"][0]["properties"]["type"] == "collection"
+
+
+@pytest.mark.anyio
+async def test_records_explicit_collection_types_are_paginated(
+    client: AsyncClient, test_db_session, clean_tables
+):
+    admin_id = await _get_admin_id(test_db_session)
+    token = uuid.uuid4().hex[:8]
+    collections = [
+        Collection(
+            name=f"explicit-type-{token}-{index}",
+            description="Collection selected by the OGC type filter",
+            created_by=admin_id,
+        )
+        for index in range(3)
+    ]
+    test_db_session.add_all(collections)
+    await test_db_session.commit()
+    dataset = await _create_dataset(
+        test_db_session,
+        admin_id=admin_id,
+        name=f"explicit-type-dataset-{token}",
+    )
+
+    collection_ids = {str(collection.id) for collection in collections}
+    for resource_type, expected_types, expected_ids in (
+        ("collection", {"collection"}, collection_ids),
+        (
+            "dataset,collection",
+            {"dataset", "collection"},
+            collection_ids | {str(dataset.id)},
+        ),
+    ):
+        response = await client.get(
+            "/collections/datasets/items",
+            params={"type": resource_type, "limit": 2},
+        )
+        seen_ids: set[str] = set()
+        number_matched: int | None = None
+
+        while True:
+            assert response.status_code == 200
+            body = response.json()
+            if number_matched is None:
+                number_matched = body["numberMatched"]
+            assert body["numberMatched"] == number_matched
+            assert body["numberReturned"] == len(body["features"])
+            assert body["numberReturned"] <= 2
+            assert {
+                feature["properties"]["type"] for feature in body["features"]
+            } <= expected_types
+
+            page_ids = {feature["id"] for feature in body["features"]}
+            assert seen_ids.isdisjoint(page_ids)
+            seen_ids.update(page_ids)
+
+            next_link = _find_link(body["links"], "next")
+            if next_link is None:
+                break
+            assert len(seen_ids) < number_matched
+            parsed = urlparse(next_link["href"])
+            response = await client.get(f"{parsed.path}?{parsed.query}")
+
+        assert len(seen_ids) == number_matched
+        assert expected_ids <= seen_ids
+
+
+@pytest.mark.anyio
+async def test_records_plural_external_ids(client: AsyncClient, test_db_session):
+    admin_id = await _get_admin_id(test_db_session)
+    source_item_id = f"external-item-{uuid.uuid4().hex[:8]}"
+    dataset = await _create_dataset(
+        test_db_session,
+        admin_id=admin_id,
+        name=f"external-ids-{uuid.uuid4().hex[:6]}",
+        source_format="stac",
+        source_filename=source_item_id,
+    )
+
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"externalIds": f"{source_item_id},does-not-exist"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "FeatureCollection"
+    assert [feature["id"] for feature in body["features"]] == [str(dataset.id)]
+    assert body["features"][0]["properties"]["externalIds"] == [source_item_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("params", "detail"),
+    [
+        ({"limit": 0}, "limit"),
+        ({"filter-lang": "not-cql"}, "filter-lang"),
+    ],
+)
+async def test_records_invalid_parameters_use_problem_400(
+    client: AsyncClient,
+    params: dict[str, object],
+    detail: str,
+):
+    resp = await client.get("/collections/datasets/items", params=params)
+    assert resp.status_code == 400
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    body = resp.json()
+    assert body["status"] == 400
+    assert detail in body["detail"]
 
 
 @pytest.mark.anyio

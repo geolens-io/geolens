@@ -70,8 +70,8 @@ class OGCRecordProperties(BaseModel):
 
     type: str = "dataset"
     title: str
-    description: str | None = None
-    keywords: list[str] | None = None
+    description: str
+    keywords: list[str]
     created: datetime | None = None
     updated: datetime | None = None
     updated_by_display: str | None = None
@@ -89,7 +89,7 @@ class OGCRecordProperties(BaseModel):
         default=None,
         description="Number of columns in the dataset (populated from column_info length).",
     )
-    license: str | None = None
+    license: str
     source_organization: str | None = None
     source_format: str | None = Field(
         default=None,
@@ -103,10 +103,14 @@ class OGCRecordProperties(BaseModel):
     quality_statement: str | None = None
     formats: list[str] | None = None
     language: str | None = None
-    themes: list[dict] | None = None
+    externalIds: list[str] = Field(
+        default_factory=list,
+        description="Identifiers assigned by the described resource's source system.",
+    )
+    themes: list[dict]
     rights: str | None = None
-    contacts: list[dict] | None = None
-    time: dict | None = None
+    contacts: list[dict]
+    time: dict
     lineage: str | None = None
     update_frequency: str | None = None
     constraints: dict | None = None
@@ -142,7 +146,7 @@ class OGCRecordResponse(BaseModel):
     type: str = "Feature"
     id: str
     conformsTo: list[str] | None = None
-    time: dict | None = None  # OGC Records temporal extent at record root
+    time: dict  # OGC Records temporal extent at record root
     geometry: dict | None = None  # GeoJSON bbox polygon — built dynamically
     properties: OGCRecordProperties
     links: list[OGCRecordLink]

@@ -410,6 +410,7 @@ export interface OGCRecordProperties {
   column_count?: number | null;
   contacts?: Array<{ name?: string; organization?: string; roles?: string[]; email?: string; phone?: string }> | null;
   license: string | null;
+  externalIds?: string[];
   source_organization: string | null;
   /** Ingest source format ('geojson', 'wfs', 'stac', 'created', ...).
    * Null for registered PostGIS tables and composed VRTs. */

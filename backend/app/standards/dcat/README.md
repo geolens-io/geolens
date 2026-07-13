@@ -38,14 +38,10 @@ the same access checks as per-dataset export. Reports include `valid`,
 `error_count`, and `errors[]` with `path`, `schema_path`, `validator`, and
 `message`, identical in shape to the DCAT-US and GeoDCAT-AP validators.
 
-## Conformance posture: filter the feed
+## Conformance and feed completeness
 
-The DCAT 3 **catalog feed** (`GET /datasets/dcat/`) emits **only** records that
-pass DCAT 3 structural validation. Records missing a mandatory property (title
-or description) are silently skipped so the feed stays conformant with zero
-onboarding friction. The **per-dataset** endpoint
-(`GET /datasets/{id}/dcat/`) is **not** filtered and always serializes the
-requested record as-is. See
-[`app/standards/dcat_us/README.md`](../dcat_us/README.md#conformance-posture-filter-the-feed)
-for the full posture, including the optional stricter
-`REQUIRE_METADATA_FOR_PUBLISH` publish-time lever.
+The DCAT 3 catalog and per-dataset serializers use the dataset title when the
+optional source description is absent. Every visible input record remains in
+the feed; validation no longer filters records before reporting success.
+Catalog responses expose source, serialized, excluded, and fallback dataset
+counts in `X-GeoLens-*` headers, and validation reports include the same counts.
