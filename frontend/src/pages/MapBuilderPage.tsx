@@ -63,6 +63,7 @@ import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
 import { computeNextSelection } from '@/components/builder/selection-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { SceneSpinnerFallback } from '@/components/builder/SceneSpinnerFallback';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -1154,9 +1155,9 @@ export function MapBuilderPage() {
               sublayerId={sublayer.id}
               sublayerName={sublayer.name}
               opacity={sublayer.opacity}
-              strokeColor={basemapState.config.sublayer_overrides?.[overrideKey]?.stroke_color ?? '#888888'}
+              strokeColor={basemapState.config.sublayer_overrides?.[overrideKey]?.stroke_color ?? MAP_COLORS.basemapSublayer.stroke}
               strokeWidth={basemapState.config.sublayer_overrides?.[overrideKey]?.stroke_width ?? 1}
-              casingColor={basemapState.config.sublayer_overrides?.[overrideKey]?.casing_color ?? '#cccccc'}
+              casingColor={basemapState.config.sublayer_overrides?.[overrideKey]?.casing_color ?? MAP_COLORS.basemapSublayer.casing}
               casingWidth={basemapState.config.sublayer_overrides?.[overrideKey]?.casing_width ?? 0.5}
               minZoom={basemapState.config.sublayer_overrides?.[overrideKey]?.min_zoom ?? 0}
               maxZoom={basemapState.config.sublayer_overrides?.[overrideKey]?.max_zoom ?? 22}
@@ -1436,6 +1437,7 @@ export function MapBuilderPage() {
         {/* Column 1: sidebar (340px full or 64px rail at <1100px) */}
         <aside
           data-testid="builder-sidebar"
+          aria-label={t('layers.title')}
           className="border-e bg-background flex flex-col overflow-hidden"
         >
           {/* fix(#394) UX-01/B-027: recoverable boundary — a stack-panel render
@@ -1576,6 +1578,7 @@ export function MapBuilderPage() {
           // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- container-level Escape shortcut for keystrokes bubbling from the panel's own interactive children; the aside itself stays non-interactive
           <aside
             data-testid="builder-layer-editor"
+            aria-label={t('layerEditor.tabsLabel')}
             className="border-e bg-background flex flex-col overflow-hidden"
             onKeyDown={(e) => {
               // fix(#394) UX-02/B-015: Escape closes the desktop editor flyout —

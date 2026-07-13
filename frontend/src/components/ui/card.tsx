@@ -2,12 +2,26 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+type CardDensity = "default" | "compact" | "flush"
+
+const cardDensityClasses: Record<CardDensity, string> = {
+  default: "gap-6 py-6",
+  compact: "gap-2 py-4",
+  flush: "gap-0 py-0",
+}
+
+function Card({
+  className,
+  density = "default",
+  ...props
+}: React.ComponentProps<"div"> & { density?: CardDensity }) {
   return (
     <div
       data-slot="card"
+      data-density={density}
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-lg py-6 shadow-sm hover:shadow-md transition-shadow duration-200 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "bg-card text-card-foreground flex flex-col rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        cardDensityClasses[density],
         className
       )}
       {...props}

@@ -94,7 +94,7 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
     <div
       {...getRootProps()}
       className={cn(
-        'relative cursor-pointer rounded-2xl border-[1.5px] border-dashed px-8 py-14 text-center transition-all duration-200 ease-out',
+        'relative cursor-pointer rounded-2xl border-[1.5px] border-dashed px-8 py-14 text-center transition-[transform,background-color,border-color] duration-200 ease-out',
         'bg-card',
         isDragReject && 'border-destructive bg-destructive/10 scale-[1.005]',
         isDragActive && !isDragReject && 'border-primary bg-primary/5 scale-[1.005]',
@@ -115,7 +115,7 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
 
       <h3
         className={cn(
-          'mb-1.5 text-[17px] font-medium tracking-tight',
+          'mb-1.5 text-lg font-medium tracking-tight',
           isDragReject && 'text-destructive',
           isDragActive && !isDragReject && 'text-primary',
         )}
@@ -131,7 +131,7 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
               </>}
       </h3>
 
-      <p className="mb-5 text-[13px] text-muted-foreground">
+      <p className="mb-5 text-xs text-muted-foreground">
         {t('dropzone.subtext', {
           max: effectiveMaxFiles,
           defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.',
@@ -147,7 +147,7 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
         </div>
       )}
 
-      <p className="font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+      <p className="font-mono text-2xs uppercase tracking-widest text-muted-foreground">
         {maxSizeMb != null
           ? t('dropzone.sizeLimitDynamic', { size: maxSizeMb, defaultValue: `Max ${maxSizeMb} MB per file` })
           : t('dropzone.sizeLimit')}{' '}

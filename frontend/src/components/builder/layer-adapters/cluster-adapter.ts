@@ -127,7 +127,7 @@ function clusterStyle(input: AdapterLayerInput) {
   const circleColor = clusterColorValue(builder.clusterColorRamp, clusterColor);
   const textColor = typeof builder.clusterTextColor === 'string'
     ? builder.clusterTextColor
-    : '#ffffff';
+    : MAP_COLORS.cluster.text;
   const textSize = numericBuilderValue(builder.clusterTextSize, 12, 8, 24);
   return { clusterColor, circleColor, textColor, textSize };
 }
@@ -150,7 +150,7 @@ function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
     'circle-color': circleColor,
     'circle-radius': ['step', ['get', 'point_count'], 16, 100, 21, 750, 27],
     'circle-opacity': opacity,
-    'circle-stroke-color': '#ffffff',
+    'circle-stroke-color': MAP_COLORS.cluster.stroke,
     'circle-stroke-width': 1.5,
     'circle-stroke-opacity': Math.min(opacity + 0.1, 1),
   };
@@ -173,7 +173,7 @@ function clusterCountPaint(input: AdapterLayerInput): Record<string, unknown> {
   return {
     'text-color': textColor,
     'text-opacity': input.opacity ?? 1,
-    'text-halo-color': 'rgba(0, 0, 0, 0.35)',
+    'text-halo-color': MAP_COLORS.cluster.textHalo,
     'text-halo-width': 1,
   };
 }

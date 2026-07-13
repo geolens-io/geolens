@@ -89,7 +89,7 @@ export const fillAdapter: LayerAdapter = {
           };
       // Suppress native 1px fill outline when stroke is disabled
       if (strokeDisabled) {
-        effectiveFillPaint['fill-outline-color'] = 'rgba(0,0,0,0)';
+        effectiveFillPaint['fill-outline-color'] = MAP_COLORS.transparent;
       }
       // BUG-01: honor input.visible at initial add so callers that don't
       // immediately follow up with syncVisibility (e.g. swapLayerOnMap for
@@ -181,7 +181,7 @@ export const fillAdapter: LayerAdapter = {
       syncLayerFilter(map, layerId, filter);
       const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
       const outlineColor = (builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
-      setLayerProperty(map, layerId, 'fill-outline-color', strokeDisabled ? 'rgba(0,0,0,0)' : (outlineColor ?? 'rgba(0,0,0,0)'));
+      setLayerProperty(map, layerId, 'fill-outline-color', strokeDisabled ? MAP_COLORS.transparent : (outlineColor ?? MAP_COLORS.transparent));
     }
     // Sync outline companion layer
     if (map.getLayer(outlineId)) {

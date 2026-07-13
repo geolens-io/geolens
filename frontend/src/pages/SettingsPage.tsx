@@ -33,7 +33,7 @@ export function SettingsPage() {
           {/* Profile */}
           <Card className="border border-border">
             <CardHeader>
-              <CardTitle>{t('settings.profile.title')}</CardTitle>
+              <CardTitle level={2}>{t('settings.profile.title')}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-4">
@@ -54,7 +54,7 @@ export function SettingsPage() {
           {/* Storage usage */}
           <Card className="border border-border">
             <CardHeader>
-              <CardTitle>{t('settings.storage.title')}</CardTitle>
+              <CardTitle level={2}>{t('settings.storage.title')}</CardTitle>
               <CardDescription>{t('settings.storage.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -124,7 +124,7 @@ export function SettingsPage() {
           {/* Language */}
           <Card className="border border-border">
             <CardHeader>
-              <CardTitle>{t('settings.language.title')}</CardTitle>
+              <CardTitle level={2}>{t('settings.language.title')}</CardTitle>
             </CardHeader>
             <CardContent>
               <FieldLabel htmlFor="settings-language-select">
@@ -154,7 +154,7 @@ export function SettingsPage() {
         <TabsContent value="apiKeys">
           <Card className="border border-border">
             <CardHeader>
-              <CardTitle>{t('settings.tabs.apiKeys')}</CardTitle>
+              <CardTitle level={2}>{t('settings.tabs.apiKeys')}</CardTitle>
             </CardHeader>
             <CardContent>
               <MyApiKeySection />

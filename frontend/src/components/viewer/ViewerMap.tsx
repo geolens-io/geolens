@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useBranding, useTileConfig } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
+import { MAP_COLORS } from '@/lib/map-colors';
 import {
   findBasemapById,
   sanitizeMaplibreStyle,
@@ -21,7 +22,6 @@ import {
   activateClusterFeature,
   clusterAggregateFeatureInfo,
   clusterFeatureCoordinates,
-  clusterInteractiveLayerIds,
   isClusterFeature,
 } from '@/components/map/cluster-interactions';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
@@ -31,8 +31,6 @@ import type { MapLibreEvent, MapMouseEvent, StyleSpecification, VectorTileSource
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import { isGenericGeometryType } from '@/components/builder/layer-adapters/shared';
-import { mixedInteractiveLayerIds } from '@/components/builder/layer-adapters/mixed-adapter';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { clearTerrainForStyleSwap, resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
@@ -41,6 +39,16 @@ import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
+import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
+import {
+  toAccessibleMapFeatures,
+  type AccessibleMapFeatureResult,
+} from '@/components/viewer/accessible-map-data';
+import {
+  VIEWER_PREFIX,
+  viewerManagedLayerIds,
+  viewerQueryLayerIds,
+} from '@/components/viewer/viewer-query-layer-ids';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -78,9 +86,6 @@ interface ViewerMapProps {
    */
   showInlineBranding?: boolean;
 }
-
-/** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
-const VIEWER_PREFIX = 'viewer-';
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
  *  Exported for unit testing (popup_config preservation, #350). */
@@ -247,6 +252,12 @@ export const ViewerMap = memo(function ViewerMap({
     latitude: number;
     features: FeatureInfo[];
   } | null>(null);
+  const [dataPanelOpen, setDataPanelOpen] = useState(false);
+  const [accessibleFeatures, setAccessibleFeatures] = useState<AccessibleMapFeatureResult>({
+    features: [],
+    total: 0,
+    truncated: false,
+  });
 
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
@@ -298,7 +309,7 @@ export const ViewerMap = memo(function ViewerMap({
         {
           id: 'background',
           type: 'background',
-          paint: { 'background-color': '#111111' },
+          paint: { 'background-color': MAP_COLORS.canvas.background },
         },
       ],
     });
@@ -482,24 +493,21 @@ export const ViewerMap = memo(function ViewerMap({
 
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
   const interactiveLayers = useMemo(
-    () =>
-      layerEntries
-        .filter(({ key }) => visibleLayers.has(key))
-        .filter(({ layer }) => layer.style_config?.render_mode !== 'heatmap')
-        .flatMap(({ layer, key }) => {
-          const layerId = prefixed('layer', key, VIEWER_PREFIX);
-          // fix(#430 codex r23): mixed-geometry layers spread hits across
-          // per-family sublayers — include them so point/line features stay
-          // clickable (queryInteractiveFeatures filters to attached layers).
-          if (isClusterRenderMode(layer)) return clusterInteractiveLayerIds(layerId);
-          if (isGenericGeometryType(layer.geometry_type)) return mixedInteractiveLayerIds(layerId);
-          return [layerId];
-        }),
+    () => viewerQueryLayerIds(layerEntries, visibleLayers, { includeHeatmaps: false }),
+    [layerEntries, visibleLayers],
+  );
+  // The data alternative is broader than pointer interaction: heatmaps do not
+  // produce useful click popups, but their underlying rendered points are
+  // still queryable and must remain available to keyboard/screen-reader users.
+  const accessibleLayerIds = useMemo(
+    () => viewerQueryLayerIds(layerEntries, visibleLayers, { includeHeatmaps: true }),
     [layerEntries, visibleLayers],
   );
   // Ref so event handlers always see current value without re-registration
   const interactiveLayersRef = useRef(interactiveLayers);
   interactiveLayersRef.current = interactiveLayers;
+  const accessibleLayerIdsRef = useRef(accessibleLayerIds);
+  accessibleLayerIdsRef.current = accessibleLayerIds;
   const layersRef = useRef(layers);
   layersRef.current = layers;
 
@@ -521,13 +529,8 @@ export const ViewerMap = memo(function ViewerMap({
   useEffect(() => {
     const m = new Map<string, { layer: SharedLayerResponse; sourceId: string }>();
     for (const { layer, key } of layerEntries) {
-      const layerId = prefixed('layer', key, VIEWER_PREFIX);
       const sourceId = prefixed('source', key, VIEWER_PREFIX);
-      const ids = isClusterRenderMode(layer)
-        ? clusterInteractiveLayerIds(layerId)
-        : isGenericGeometryType(layer.geometry_type)
-          ? mixedInteractiveLayerIds(layerId)
-          : [layerId];
+      const ids = viewerManagedLayerIds(layer, key);
       for (const id of ids) m.set(id, { layer, sourceId });
     }
     layerByMapIdRef.current = m;
@@ -541,6 +544,49 @@ export const ViewerMap = memo(function ViewerMap({
     if (!includePopupDisabled && hit.layer.popup_config?.enabled === false) return null;
     return hit;
   }, []);
+
+  // Keyboard and screen-reader equivalent for the visual map: expose the
+  // GeoLens features rendered in the current viewport as structured layer,
+  // geometry/extent, and attribute data. Basemap features are excluded by the
+  // managed GeoLens-layer allowlist, and the result is bounded before it
+  // reaches the DOM.
+  const refreshAccessibleFeatures = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) {
+      setAccessibleFeatures({ features: [], total: 0, truncated: false });
+      return;
+    }
+
+    const queryIds = accessibleLayerIdsRef.current.filter((id) => map.getLayer(id));
+    if (queryIds.length === 0) {
+      setAccessibleFeatures({ features: [], total: 0, truncated: false });
+      return;
+    }
+
+    try {
+      const rendered = map.queryRenderedFeatures({ layers: queryIds });
+      setAccessibleFeatures(toAccessibleMapFeatures(
+        rendered,
+        (mapLayerId) => lookupHitLayer(mapLayerId, true)?.layer ?? null,
+      ));
+    } catch {
+      // Style transitions can briefly invalidate a layer between getLayer()
+      // and queryRenderedFeatures(). The next idle event refreshes safely.
+      setAccessibleFeatures({ features: [], total: 0, truncated: false });
+    }
+  }, [lookupHitLayer]);
+
+  useEffect(() => {
+    if (!dataPanelOpen) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    refreshAccessibleFeatures();
+    map.on('idle', refreshAccessibleFeatures);
+    return () => {
+      map.off('idle', refreshAccessibleFeatures);
+    };
+  }, [dataPanelOpen, mapReady, visibleLayers, refreshAccessibleFeatures]);
 
   // Click handler: show popup with feature attributes
   useEffect(() => {
@@ -1006,6 +1052,15 @@ export const ViewerMap = memo(function ViewerMap({
         )}
       </MapGL>
       <MapCoordReadout map={mapRef.current} />
+      <AccessibleMapDataPanel
+        layers={layers}
+        visibleLayers={visibleLayers}
+        featureResult={accessibleFeatures}
+        open={dataPanelOpen}
+        onOpenChange={setDataPanelOpen}
+        onRefresh={refreshAccessibleFeatures}
+        disabled={!mapReady}
+      />
       {/* fix(#430 V-05): loading veil over the pre-terrain flat-DEM frame — fades
           out once the saved-camera 3D view is ready to show (or immediately
           for non-terrain maps). */}

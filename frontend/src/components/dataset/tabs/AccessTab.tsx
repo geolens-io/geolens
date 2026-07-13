@@ -163,7 +163,7 @@ function ApiSnippet({
   return (
     <section>
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-[15px] font-semibold tracking-tight">
+        <h2 className="text-base font-semibold tracking-tight">
           {t('overview.apiTitle', { defaultValue: 'Access via API' })}
         </h2>
         <span className="font-mono text-mini text-muted-foreground tracking-wide">
@@ -203,7 +203,7 @@ function ApiSnippet({
             {copied ? t('common:copied') : t('common:copy')}
           </button>
         </div>
-        <pre className="px-5 py-4 font-mono text-[12.5px] leading-7 overflow-x-auto whitespace-pre-wrap m-0">
+        <pre className="px-5 py-4 font-mono text-xs leading-7 overflow-x-auto whitespace-pre-wrap m-0">
           {highlighted[activeTab]}
         </pre>
       </div>

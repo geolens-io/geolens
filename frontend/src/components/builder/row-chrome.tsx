@@ -27,7 +27,7 @@ export function rowStateClasses({
 }): string {
   return cn(
     !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
-    selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
+    selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] selection-inset',
     isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
   );
 }

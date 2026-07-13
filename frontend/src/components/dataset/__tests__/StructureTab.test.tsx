@@ -27,4 +27,21 @@ describe('StructureTab', () => {
 
     expect(screen.queryByTestId('attribute-table')).not.toBeInTheDocument();
   });
+
+  it('uses a level-two title and places the edit control in the card action slot', () => {
+    render(
+      <StructureTab
+        {...defaultProps}
+        canEdit
+        capability={{ editable: true } as never}
+      />,
+    );
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Attribute Metadata' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Manage Columns' }).closest('[data-slot="card-action"]'),
+    ).toBeInTheDocument();
+  });
 });

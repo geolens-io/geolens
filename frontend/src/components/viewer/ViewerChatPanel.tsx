@@ -86,7 +86,7 @@ function QueryResultTable({ result }: { result: QueryResult }) {
       </div>
       <p className="px-2 py-1 text-xs text-muted-foreground">
         {t('viewer.ai.queryResult.rowCount', { count: rowCount })}
-        {truncated && <span className="ms-1 text-muted-foreground/80">{t('viewer.ai.queryResult.truncated')}</span>}
+        {truncated && <span className="ms-1 text-muted-foreground">{t('viewer.ai.queryResult.truncated')}</span>}
       </p>
     </div>
   );
@@ -239,7 +239,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         <section
           role="dialog"
           aria-label={t('viewer.ai.title')}
-          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-xl backdrop-blur"
+          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
         >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
@@ -255,7 +255,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
             {messages.length === 0 && (
               <div className="space-y-1 py-6 text-center">
                 <p className="text-sm text-muted-foreground">{t('viewer.ai.emptyHint')}</p>
-                <p className="text-xs text-muted-foreground/80">{t('viewer.ai.readOnlyNote')}</p>
+                <p className="text-xs text-muted-foreground">{t('viewer.ai.readOnlyNote')}</p>
               </div>
             )}
             {messages.map((msg) =>

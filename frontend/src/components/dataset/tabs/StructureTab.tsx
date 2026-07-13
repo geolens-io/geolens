@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Settings } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AttributeMetadataTable } from '@/components/dataset/AttributeMetadataTable';
 import { SchemaEditor } from '@/components/dataset/SchemaEditor';
@@ -28,17 +28,19 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability, gated
     <>
       {/* Attribute Metadata */}
       <Card data-field-anchor="attribute_metadata">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardHeader>
           <CardTitle level={2} className="text-base">{t('attributeMetadata.title')}</CardTitle>
           {canEdit && columnInfo && capability.editable && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSchemaOpen(true)}
-            >
-              <Settings className="h-4 w-4 me-1" />
-              {t('metadata.manageColumns')}
-            </Button>
+            <CardAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSchemaOpen(true)}
+              >
+                <Settings className="h-4 w-4 me-1" />
+                {t('metadata.manageColumns')}
+              </Button>
+            </CardAction>
           )}
         </CardHeader>
         <CardContent className="space-y-3">

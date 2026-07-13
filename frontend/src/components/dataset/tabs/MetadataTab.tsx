@@ -7,7 +7,7 @@ import { useValidation } from '@/components/dataset/hooks/use-dataset';
 import { useAuthStore } from '@/stores/auth-store';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/api/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContactsEditor } from '@/components/dataset/ContactsEditor';
 import { KeywordsEditor } from '@/components/dataset/KeywordsEditor';
 import { AiAssistButton, AiKeywordSuggestions } from '@/components/dataset/AiAssistButton';
@@ -126,9 +126,9 @@ export function MetadataTab({
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle level={2} className="text-base">{t('keywords.title')}</CardTitle>
-            {canEdit && isAIAvailable && (
+          <CardTitle level={2} className="text-base">{t('keywords.title')}</CardTitle>
+          {canEdit && isAIAvailable && (
+            <CardAction>
               <AiAssistButton
                 onClick={() =>
                   keywordSuggestions
@@ -154,8 +154,8 @@ export function MetadataTab({
                 }
                 isPending={keywordSuggestions.isPending}
               />
-            )}
-          </div>
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
           <KeywordsEditor recordId={dataset.record_id} canEdit={canEdit} />

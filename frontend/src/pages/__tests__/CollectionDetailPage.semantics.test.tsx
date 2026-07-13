@@ -58,17 +58,19 @@ beforeEach(() => {
 });
 
 describe('CollectionDetailPage semantics', () => {
-  it('COLL-01: metadata card uses dl semantics', () => {
+  it('COLL-01: metadata card groups every term with exactly one description', () => {
     const { container } = render(<CollectionDetailPage />);
 
     const dl = container.querySelector('dl');
     expect(dl).not.toBeNull();
+    expect(dl).toHaveAccessibleName('Collection metadata');
 
-    const dts = dl!.querySelectorAll('dt');
-    expect(dts.length).toBeGreaterThanOrEqual(4);
-
-    const dds = dl!.querySelectorAll('dd');
-    expect(dds.length).toBeGreaterThanOrEqual(4);
+    const metadataItems = Array.from(dl!.children);
+    expect(metadataItems).toHaveLength(5);
+    metadataItems.forEach((item) => {
+      expect(item.querySelectorAll(':scope > dt')).toHaveLength(1);
+      expect(item.querySelectorAll(':scope > dd')).toHaveLength(1);
+    });
   });
 
   it('COLL-02: header title supports word wrapping', () => {

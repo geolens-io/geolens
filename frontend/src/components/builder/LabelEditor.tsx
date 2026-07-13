@@ -163,7 +163,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           {/* Colors */}
           <StyleColorPicker
             label={t('labels.textColor')}
-            color={labelConfig.textColor ?? '#111827'}
+            color={labelConfig.textColor ?? MAP_COLORS.label.color}
             onChange={(hex) => update({ textColor: hex })}
           />
 
@@ -180,7 +180,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
 
           <StyleColorPicker
             label={t('labels.haloColor')}
-            color={labelConfig.haloColor ?? '#ffffff'}
+            color={labelConfig.haloColor ?? MAP_COLORS.label.halo}
             onChange={(hex) => update({ haloColor: hex })}
           />
 

@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function CollectionCardSkeleton() {
   return (
-    <Card className="flex flex-col sm:flex-row gap-0 py-0 overflow-hidden">
+    <Card density="flush" className="flex flex-col sm:flex-row overflow-hidden">
       <div className="flex-1 p-4 space-y-3">
         <Skeleton className="h-5 w-3/4" />
         <div className="space-y-1.5">

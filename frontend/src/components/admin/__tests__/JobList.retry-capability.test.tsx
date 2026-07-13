@@ -79,4 +79,18 @@ describe('JobList retry capability', () => {
 
     expect(mockRetry).toHaveBeenCalledWith('job-1');
   });
+
+  it('uses a level-two card heading and the shared card action slot', () => {
+    mockUseAdminJobs.mockReturnValue({
+      data: { jobs: [], total: 0 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<JobList />);
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Jobs' })).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="card-action"] input')).toBeInTheDocument();
+  });
 });

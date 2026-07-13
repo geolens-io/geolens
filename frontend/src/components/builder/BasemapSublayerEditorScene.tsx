@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 import { formatNumber } from '@/lib/format';
 
@@ -120,7 +121,7 @@ export function BasemapSublayerEditorScene({
           <div className="space-y-3">
             <StyleColorPicker
               label={t('basemapSublayer.strokeColor', { defaultValue: 'Color' })}
-              color={strokeColor ?? '#888888'}
+              color={strokeColor ?? MAP_COLORS.basemapSublayer.stroke}
               onChange={(hex) => onStrokeColorChange?.(hex)}
             />
             <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
@@ -155,7 +156,7 @@ export function BasemapSublayerEditorScene({
           <div className="space-y-3">
             <StyleColorPicker
               label={t('basemapSublayer.casingColor', { defaultValue: 'Casing color' })}
-              color={casingColor ?? '#cccccc'}
+              color={casingColor ?? MAP_COLORS.basemapSublayer.casing}
               onChange={(hex) => onCasingColorChange?.(hex)}
             />
             <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">

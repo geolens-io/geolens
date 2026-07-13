@@ -101,7 +101,7 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
             </span>
             <CopyButton value={duckdbSnippet} />
           </div>
-          <pre className="overflow-x-auto text-2xs leading-5 text-foreground/90">
+          <pre className="overflow-x-auto text-2xs leading-5 text-foreground">
             <code>{duckdbSnippet}</code>
           </pre>
         </div>

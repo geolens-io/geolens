@@ -27,7 +27,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
   // Raster preview
   if (isRasterPreview(preview)) {
     return (
-      <Card className="p-4 space-y-2">
+      <Card density="compact" className="px-4">
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
@@ -87,7 +87,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('preview.title')}</CardTitle>
+        <CardTitle level={2}>{t('preview.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Metadata grid */}

@@ -121,7 +121,7 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
             <span className="w-full border-t opacity-60" />
           </div>
           <div className="relative flex justify-center">
-            <span className="bg-background px-3 font-mono text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
+            <span className="bg-background px-3 font-mono text-mini uppercase tracking-[0.1em] text-muted-foreground">
               {t('oauth.divider')}
             </span>
           </div>

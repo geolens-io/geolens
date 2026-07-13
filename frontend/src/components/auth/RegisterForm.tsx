@@ -49,7 +49,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle className="text-xl">{t('createAccount')}</CardTitle>
+        <CardTitle level={2} className="text-xl">{t('createAccount')}</CardTitle>
         <CardDescription>
           {t('registerForAccount')}
         </CardDescription>
@@ -58,7 +58,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* #305: on a server error mark the credential fields invalid + describe by the error */}
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="username" className="text-[12.5px]">{t('username')}</Label>
+            <Label htmlFor="username" className="text-xs">{t('username')}</Label>
             <Input
               id="username"
               type="text"
@@ -74,7 +74,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email" className="text-[12.5px]">{t('email')}</Label>
+            <Label htmlFor="email" className="text-xs">{t('email')}</Label>
             <Input
               id="email"
               type="email"
@@ -89,7 +89,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password" className="text-[12.5px]">{t('password')}</Label>
+            <Label htmlFor="password" className="text-xs">{t('password')}</Label>
             <PasswordInput
               id="password"
               value={password}

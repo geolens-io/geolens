@@ -31,7 +31,7 @@ export function SettingsAppearanceTab({ onDirtyChange }: TabProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('settings.appearance.branding.title')}</CardTitle>
+        <CardTitle level={2}>{t('settings.appearance.branding.title')}</CardTitle>
         <CardDescription>{t('settings.appearance.branding.description')}</CardDescription>
       </CardHeader>
       <CardContent>

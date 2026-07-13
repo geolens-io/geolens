@@ -36,16 +36,17 @@ export const DEFAULT_HEATMAP_PAINT = {
 /**
  * builder-audit #338 ADAPT-06: single hillshade default (previously byte-identical
  * copies in renderAs.DEFAULT_HILLSHADE_PAINT and
- * hillshade-adapter.HILLSHADE_PAINT_DEFAULTS). Shadow/highlight/accent are pure
- * black/white, not palette tokens, so they stay as literals.
+ * hillshade-adapter.HILLSHADE_PAINT_DEFAULTS). Shadow/highlight/accent are map
+ * roles rather than CSS theme colors, so they live in MAP_COLORS with the other
+ * MapLibre-safe literals.
  */
 export const DEFAULT_HILLSHADE_PAINT = {
   'hillshade-illumination-direction': 335,
   'hillshade-illumination-anchor': 'viewport',
   'hillshade-exaggeration': 0.5,
-  'hillshade-shadow-color': '#000000',
-  'hillshade-highlight-color': '#ffffff',
-  'hillshade-accent-color': '#000000',
+  'hillshade-shadow-color': MAP_COLORS.hillshade.shadow,
+  'hillshade-highlight-color': MAP_COLORS.hillshade.highlight,
+  'hillshade-accent-color': MAP_COLORS.hillshade.accent,
 } as const;
 
 /**
@@ -53,7 +54,7 @@ export const DEFAULT_HILLSHADE_PAINT = {
  * add-time fallback used by BOTH circle-adapter and cluster-adapter (the dominant
  * path). NOTE: renderAs's render-as-switch circle default previously used a white
  * (#ffffff) stroke; render-as-created circles will now start with the token stroke
- * (MAP_COLORS.default.stroke = #1d4ed8) instead, matching what every default point
+ * (MAP_COLORS.default.stroke = #0058ac) instead, matching what every default point
  * already renders with at add-time.
  */
 export const DEFAULT_CIRCLE_PAINT = {

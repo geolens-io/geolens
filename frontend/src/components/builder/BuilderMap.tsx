@@ -12,6 +12,7 @@ import {
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
@@ -314,7 +315,7 @@ export const BuilderMap = memo(function BuilderMap({
         {
           id: 'background',
           type: 'background',
-          paint: { 'background-color': '#111111' },
+          paint: { 'background-color': MAP_COLORS.canvas.background },
         },
       ],
     });

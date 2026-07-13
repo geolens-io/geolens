@@ -89,7 +89,7 @@ function ExportSection() {
   return (
     <Card className="border border-border">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle level={2} className="flex items-center gap-2">
           <Download className="h-4 w-4" />
           {t('configOps.export.title')}
         </CardTitle>
@@ -154,7 +154,7 @@ function ValidateSection() {
   return (
     <Card className="border border-border">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle level={2} className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4" />
           {t('configOps.validate.title')}
         </CardTitle>
@@ -317,7 +317,7 @@ function ImportSection() {
     <>
     <Card className="border border-border">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle level={2} className="flex items-center gap-2">
           <Upload className="h-4 w-4" />
           {t('configOps.import.title')}
         </CardTitle>
@@ -418,9 +418,9 @@ function ImportSection() {
             {/* Settings changes */}
             {dryRunResult.settings.changes.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-sm font-medium">
+                <h3 className="text-sm font-medium">
                   {t('configOps.import.settingsChanges')}
-                </h4>
+                </h3>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -455,9 +455,9 @@ function ImportSection() {
             {/* OAuth provider changes */}
             {dryRunResult.oauth_providers.changes.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-sm font-medium">
+                <h3 className="text-sm font-medium">
                   {t('configOps.import.oauthChanges')}
-                </h4>
+                </h3>
                 <Table>
                   <TableHeader>
                     <TableRow>

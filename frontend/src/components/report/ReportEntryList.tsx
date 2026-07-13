@@ -43,7 +43,7 @@ function EntryRow({ entry, language }: { entry: ReportEntry; language: string })
         <span className="shrink-0 rounded-sm bg-muted px-1 py-0.5 font-mono text-2xs uppercase text-muted-foreground">
           {entry.source}
         </span>
-        <span className="min-w-0 flex-1 break-words font-mono text-foreground/90">
+        <span className="min-w-0 flex-1 break-words font-mono text-foreground">
           {entry.message}
           {entry.count > 1 && <span className="ms-1 text-muted-foreground">×{entry.count}</span>}
           {entry.suppressed && <span className="ms-1 italic text-muted-foreground">{t('technicalSuppressed')}</span>}

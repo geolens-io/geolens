@@ -208,6 +208,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // Most component tests can skip stylesheet processing. The map-palette
+    // contract test imports index.css as source so it can verify OKLCH/WebGL
+    // parity without Node-only fs globals in the frontend TypeScript project.
+    css: { include: [/index\.css/] },
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
     coverage: {

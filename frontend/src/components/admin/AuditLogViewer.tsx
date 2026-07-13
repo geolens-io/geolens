@@ -8,7 +8,7 @@ import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { DataTablePagination } from './DataTablePagination';
 import { DataTableSearch } from './DataTableSearch';
@@ -112,26 +112,24 @@ export function AuditLogViewer() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium">{t('audit.title')}</CardTitle>
-          <div className="flex items-center gap-2">
-            {isEnterprise && (
-              <ExportSplitButton
-                filters={{
-                  action: action || undefined,
-                  date_from: dateFrom || undefined,
-                  date_to: dateTo || undefined,
-                  search: searchQuery || undefined,
-                }}
-              />
-            )}
-            <DataTableSearch
-              value={searchQuery}
-              onChange={(v) => { setSearchQuery(v); setPage(0); }}
-              placeholder={t('audit.table.user') + ' / ' + t('audit.table.action')}
+        <CardTitle level={2} className="text-sm font-medium">{t('audit.title')}</CardTitle>
+        <CardAction className="flex items-center gap-2">
+          {isEnterprise && (
+            <ExportSplitButton
+              filters={{
+                action: action || undefined,
+                date_from: dateFrom || undefined,
+                date_to: dateTo || undefined,
+                search: searchQuery || undefined,
+              }}
             />
-          </div>
-        </div>
+          )}
+          <DataTableSearch
+            value={searchQuery}
+            onChange={(v) => { setSearchQuery(v); setPage(0); }}
+            placeholder={t('audit.table.user') + ' / ' + t('audit.table.action')}
+          />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Filters */}

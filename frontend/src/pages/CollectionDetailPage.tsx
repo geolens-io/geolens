@@ -139,41 +139,39 @@ export function CollectionDetailPage() {
       {/* Metadata card */}
       <Card>
         <CardContent className="pt-6">
-          <dl aria-label={t('detail.metadataAriaLabel', { defaultValue: 'Collection metadata' })} className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {/* Left: metadata fields */}
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  <Database className="h-3.5 w-3.5" />
-                  {t('detail.datasets')}
-                </dt>
-                <dd className="text-sm">{formatNumber(collection.dataset_count)}</dd>
-              </div>
-              <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {t('detail.temporalRange')}
-                </dt>
-                <dd className="text-sm">{formatTemporal()}</dd>
-              </div>
-              <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {t('detail.created')}
-                </dt>
-                <dd className="text-sm">{formatDate(collection.created_at)}</dd>
-              </div>
-              <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {t('detail.lastUpdated')}
-                </dt>
-                <dd className="text-sm">{formatDate(collection.updated_at)}</dd>
-              </div>
+          <dl
+            aria-label={t('detail.metadataAriaLabel', { defaultValue: 'Collection metadata' })}
+            className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2"
+          >
+            <div className="space-y-2 sm:col-start-1 sm:row-start-1">
+              <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Database className="h-3.5 w-3.5" />
+                {t('detail.datasets')}
+              </dt>
+              <dd className="text-sm">{formatNumber(collection.dataset_count)}</dd>
             </div>
-
-            {/* Right: spatial extent */}
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-start-1 sm:row-start-2">
+              <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                {t('detail.temporalRange')}
+              </dt>
+              <dd className="text-sm">{formatTemporal()}</dd>
+            </div>
+            <div className="space-y-2 sm:col-start-1 sm:row-start-3">
+              <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                {t('detail.created')}
+              </dt>
+              <dd className="text-sm">{formatDate(collection.created_at)}</dd>
+            </div>
+            <div className="space-y-2 sm:col-start-1 sm:row-start-4">
+              <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                {t('detail.lastUpdated')}
+              </dt>
+              <dd className="text-sm">{formatDate(collection.updated_at)}</dd>
+            </div>
+            <div className="space-y-2 sm:col-start-2 sm:row-span-4 sm:row-start-1">
               <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5" />
                 {t('detail.spatialExtent')}

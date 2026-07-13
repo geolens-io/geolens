@@ -2,12 +2,13 @@ import { useMemo } from 'react';
 import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
 import { getColorProperty, getRampColors } from '@/lib/color-ramps';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { MAP_COLORS } from '@/lib/map-colors';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Darken a hex color by reducing each channel by ~30% for outline contrast */
 function darkenColor(hex: string): string {
   const m = hex.match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
-  if (!m) return '#333333';
+  if (!m) return MAP_COLORS.icon.invalidColor;
   const darken = (ch: string) => Math.max(0, Math.round(parseInt(ch, 16) * 0.6)).toString(16).padStart(2, '0');
   return `#${darken(m[1])}${darken(m[2])}${darken(m[3])}`;
 }
@@ -109,7 +110,7 @@ function HeatmapIcon({ colors, layerId, opacityStyle }: IconSubProps) {
 function LineIcon({ colors, layerId, opacityStyle, styleHints }: IconSubProps) {
   const rawSW = styleHints?.strokeWidth;
   const svgStrokeWidth = rawSW !== undefined ? (rawSW <= 1.5 ? 2 : rawSW > 4 ? 4.5 : 3) : 3;
-  const color = colors[0] ?? '#6366f1';
+  const color = colors[0] ?? MAP_COLORS.icon.fallback;
   const hasGradient = colors.length > 1;
   const gradientId = `layer-grad-${layerId}`;
   const dashArray = styleHints?.dashPattern
@@ -144,7 +145,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint }: IconS
   const showOutline = !styleHints?.strokeDisabled;
 
   if (colors.length <= 1) {
-    const color = colors[0] ?? '#6366f1';
+    const color = colors[0] ?? MAP_COLORS.icon.fallback;
     const stroke = isPoint
       ? (styleHints?.strokeColor ? { stroke: styleHints.strokeColor, strokeWidth: 2 } : { strokeWidth: 0 })
       : showOutline
@@ -159,7 +160,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint }: IconS
 
   const gradientId = `layer-grad-${layerId}`;
   const stroke = !isPoint && showOutline
-    ? { stroke: styleHints?.strokeColor ?? '#666666', strokeWidth: 2.5 }
+    ? { stroke: styleHints?.strokeColor ?? MAP_COLORS.icon.outline, strokeWidth: 2.5 }
     : styleHints?.strokeColor
       ? { stroke: styleHints.strokeColor, strokeWidth: 1.5 }
       : { strokeWidth: 0 };
@@ -221,7 +222,7 @@ export function getLayerColors(layer: Pick<MapLayerResponse, 'dataset_geometry_t
     return layer.style_config.categories.map((c) => c.color);
   if (layer.style_config?.colors?.length)
     return layer.style_config.colors;
-  return ['#6366f1'];
+  return [MAP_COLORS.icon.fallback];
 }
 
 /**

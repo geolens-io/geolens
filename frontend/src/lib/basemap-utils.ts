@@ -8,6 +8,7 @@ import type {
   MapBasemapVisibilityMode,
   MapProjection,
 } from '@/types/api';
+import { MAP_COLORS } from '@/lib/map-colors';
 import positronThumb from '@/assets/basemaps/positron.png';
 import darkThumb from '@/assets/basemaps/dark.png';
 import osmThumb from '@/assets/basemaps/osm.png';
@@ -169,7 +170,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
         {
           id: 'background',
           type: 'background' as const,
-          paint: { 'background-color': 'rgba(0,0,0,0)' },
+          paint: { 'background-color': MAP_COLORS.transparent },
         },
       ],
     };
@@ -192,7 +193,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
       {
         id: 'background',
         type: 'background' as const,
-        paint: { 'background-color': 'rgba(0,0,0,0)' },
+        paint: { 'background-color': MAP_COLORS.transparent },
       },
       { id: 'basemap-tiles', type: 'raster' as const, source: 'basemap' },
     ],

@@ -244,6 +244,25 @@ describe('MapCoordReadout — MAP-08 load-bearing positioning regression pin', (
     expect(pill).toHaveClass('z-10');
   });
 
+  it('uses an opaque semantic surface and stays out of the mobile map viewport', () => {
+    const { map } = makeFakeMap({ lat: 0, lng: 0, zoom: 5 });
+    const { container } = render(<MapCoordReadout map={map} showScale />);
+
+    const wrapper = container.querySelector('[data-coord-readout="true"]');
+    const readout = wrapper?.firstElementChild;
+
+    expect(wrapper).toHaveClass('hidden', 'sm:block');
+    expect(readout).toHaveClass(
+      'border-border',
+      'bg-popover',
+      'text-popover-foreground',
+      'shadow-sm',
+    );
+    expect(readout?.className).not.toMatch(/bg-[^ ]+\/\d+/);
+    expect(screen.getByText('z')).toHaveClass('text-muted-foreground');
+    expect(screen.getByText('1:')).toHaveClass('text-muted-foreground');
+  });
+
   it('MAP-08 source-text pin: RESP-02 docstring references both BuilderMap and ViewerMap contexts', () => {
     const src = mapCoordReadoutSrc;
     // The docstring that ships the cross-context contract must be present.

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { DatasetResponse } from '@/types/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { qualityScoreClasses } from '@/lib/status-colors';
 import { Badge } from '@/components/ui/badge';
 import { deriveQualityFreshness } from '@/lib/quality-freshness';
@@ -52,20 +52,20 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
 
   return (
     <Card>
-      <CardHeader className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle level={2}>{t('quality.title')}</CardTitle>
-            <p className="text-xs text-muted-foreground" data-testid="quality-freshness-time">
-              {absoluteTimestamp} ({relativeAge})
-            </p>
-          </div>
+      <CardHeader className="gap-3">
+        <div className="space-y-1">
+          <CardTitle level={2}>{t('quality.title')}</CardTitle>
+          <p className="text-xs text-muted-foreground" data-testid="quality-freshness-time">
+            {absoluteTimestamp} ({relativeAge})
+          </p>
+        </div>
+        <CardAction>
           <Badge className={qualityScoreClasses(qualityScore.overall)}>
             {Math.round(qualityScore.overall)}
           </Badge>
-        </div>
+        </CardAction>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="col-span-full flex flex-wrap items-center gap-2">
           <Badge
             className={freshnessBadgeClass(freshness.state)}
             data-testid="quality-freshness-badge"
@@ -78,7 +78,7 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
         </div>
 
         {(freshness.state === 'stale' || freshness.state === 'missing') && (
-          <p className="text-xs text-warning" data-testid="quality-remediation-hint">
+          <p className="col-span-full text-xs text-warning" data-testid="quality-remediation-hint">
             {remediationHint}
           </p>
         )}
