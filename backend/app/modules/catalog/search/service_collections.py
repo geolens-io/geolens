@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
+
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,10 +21,11 @@ async def search_collections(
     user_roles: set[str],
     *,
     limit: int = 10,
+    collection_ids: Sequence[uuid.UUID] | None = None,
 ) -> list[dict]:
-    """Search collections by text and return with visible member counts.
+    """Search collections by text/ID and return with visible member counts.
 
-    When q is empty, returns all collections (up to limit).
+    When q and collection_ids are absent, returns all collections (up to limit).
     """
     coll_stmt = select(Collection).limit(limit)
 
@@ -33,6 +37,8 @@ async def search_collections(
                 func.lower(func.coalesce(Collection.description, "")).like(q_like),
             )
         )
+    if collection_ids is not None:
+        coll_stmt = coll_stmt.where(Collection.id.in_(collection_ids))
     coll_result = await session.execute(coll_stmt)
     collections = coll_result.scalars().all()
 
@@ -73,6 +79,8 @@ async def search_collections(
 async def count_collections(
     session: AsyncSession,
     q: str,
+    *,
+    collection_ids: Sequence[uuid.UUID] | None = None,
 ) -> int:
     """Count collections matching the text filter used by ``search_collections``.
 
@@ -81,17 +89,20 @@ async def count_collections(
     page-0 collection augmentation. Mirrors the text filter in
     ``search_collections`` exactly (no LIMIT, no visibility filter on the
     Collection rows themselves — consistent with the search). Returns 0 when
-    ``q`` is empty.
+    both ``q`` and ``collection_ids`` are absent.
     """
-    if not q or not q.strip():
+    if (not q or not q.strip()) and collection_ids is None:
         return 0
 
     count_stmt = select(func.count()).select_from(Collection)
-    q_like = f"%{q.strip().lower()}%"
-    count_stmt = count_stmt.where(
-        or_(
-            func.lower(Collection.name).like(q_like),
-            func.lower(func.coalesce(Collection.description, "")).like(q_like),
+    if q and q.strip():
+        q_like = f"%{q.strip().lower()}%"
+        count_stmt = count_stmt.where(
+            or_(
+                func.lower(Collection.name).like(q_like),
+                func.lower(func.coalesce(Collection.description, "")).like(q_like),
+            )
         )
-    )
+    if collection_ids is not None:
+        count_stmt = count_stmt.where(Collection.id.in_(collection_ids))
     return (await session.execute(count_stmt)).scalar_one()

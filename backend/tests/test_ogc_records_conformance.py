@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.auth.models import User
+from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -380,6 +381,40 @@ async def test_records_array_query_parameters(client: AsyncClient, test_db_sessi
     assert "type=dataset%2Cservice" in self_link["href"]
     assert "ids=" in self_link["href"]
     assert 'rel="self"' in resp.headers["link"]
+
+
+@pytest.mark.anyio
+async def test_records_ids_filter_collection_resources(
+    client: AsyncClient, test_db_session
+):
+    admin_id = await _get_admin_id(test_db_session)
+    token = f"collection-ids-{uuid.uuid4().hex[:8]}"
+    requested = Collection(
+        name=f"{token} requested",
+        description="Collection selected by the OGC ids filter",
+        created_by=admin_id,
+    )
+    excluded = Collection(
+        name=f"{token} excluded",
+        description="Collection omitted by the OGC ids filter",
+        created_by=admin_id,
+    )
+    test_db_session.add_all([requested, excluded])
+    await test_db_session.commit()
+    await test_db_session.refresh(requested)
+
+    for params in (
+        {"q": token, "type": "collection", "ids": str(requested.id)},
+        {"type": "collection", "ids": str(requested.id)},
+    ):
+        resp = await client.get("/collections/datasets/items", params=params)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["numberMatched"] == 1
+        assert body["numberReturned"] == 1
+        assert [feature["id"] for feature in body["features"]] == [str(requested.id)]
+        assert body["features"][0]["properties"]["type"] == "collection"
 
 
 @pytest.mark.anyio

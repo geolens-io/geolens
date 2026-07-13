@@ -914,9 +914,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 _ROUTER_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router.py": 1884,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
-    # and OGC record serialization; fix(#475) adds the Records array-query
-    # contract and response-header parity. The ratchet remains exact.
-    "backend/app/modules/catalog/search/router.py": 1706,
+    # and OGC record serialization; fix(#475) adds Records array-query handling,
+    # including collection IDs, plus response-header parity. Ratchet stays exact.
+    "backend/app/modules/catalog/search/router.py": 1714,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation.
     "backend/app/standards/stac/router.py": 1584,

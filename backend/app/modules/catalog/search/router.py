@@ -372,9 +372,9 @@ async def _handle_search(
     params: SearchQueryParams,
     *,
     record_ids: tuple[uuid.UUID, ...] | None = None,
+    collection_ids: tuple[uuid.UUID, ...] | None = None,
     external_ids: tuple[str, ...] | None = None,
     resource_types: frozenset[str] | None = None,
-    identifiers_requested: bool = False,
     extra_pagination_params: dict[str, str | list[str]] | None = None,
 ) -> OGCFeatureCollectionResponse:
     """Parse parameters, run search, and return OGC FeatureCollection."""
@@ -465,14 +465,12 @@ async def _handle_search(
         for d in datasets
     ]
 
-    # Collections are surfaced alongside datasets only for text searches that
-    # are not scoped to a specific record_type or collection.
+    # Collections are surfaced for text searches or explicit collection IDs
+    # when the request is not scoped to an internal record type or membership.
     collections_applicable = bool(
-        params.q
-        and params.q.strip()
+        (params.q and params.q.strip() or collection_ids is not None)
         and not params.record_type
         and not params.collection_id
-        and not identifiers_requested
         and (resource_types is None or "collection" in resource_types)
     )
 
@@ -485,13 +483,19 @@ async def _handle_search(
     collection_total = 0
     if collections_applicable:
         collection_total = min(
-            await count_collections(db, params.q), page0_collection_cap
+            await count_collections(db, params.q or "", collection_ids=collection_ids),
+            page0_collection_cap,
         )
 
     # Append collection results on the first page only (display augmentation).
     if collections_applicable and params.offset == 0:
         coll_results = await search_collections(
-            db, params.q, user, user_roles, limit=page0_collection_cap
+            db,
+            params.q or "",
+            user,
+            user_roles,
+            limit=page0_collection_cap,
+            collection_ids=collection_ids,
         )
         for coll in coll_results:
             features.append(collection_search_feature(coll, public_api_url))
@@ -1370,6 +1374,10 @@ async def collection_items(
         matching_ids = set.intersection(*identifier_sets)
         record_ids = tuple(sorted(matching_ids, key=str))
 
+    collection_ids = parsed_ids
+    if legacy_external_id is not None or parsed_external_ids is not None:
+        collection_ids = ()
+
     # The serialized dataset rows expose the public Records type "dataset".
     # Internal storage subtypes (vector_dataset, raster_dataset, table, etc.)
     # remain available through the native record_type parameter but are not
@@ -1420,9 +1428,9 @@ async def collection_items(
         request,
         effective_params,
         record_ids=record_ids,
+        collection_ids=collection_ids,
         external_ids=parsed_external_ids,
         resource_types=resource_types,
-        identifiers_requested=bool(identifier_sets or parsed_external_ids is not None),
         extra_pagination_params=pagination_params,
     )
     return JSONResponse(
