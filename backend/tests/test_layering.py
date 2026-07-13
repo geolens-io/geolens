@@ -918,8 +918,9 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # including collection IDs, plus response-header parity. Ratchet stays exact.
     "backend/app/modules/catalog/search/router.py": 1749,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
-    # unassigned Collection and matching HTTP Link navigation.
-    "backend/app/standards/stac/router.py": 1618,
+    # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
+    # validated STAC item responses wire-compatible with serializer output.
+    "backend/app/standards/stac/router.py": 1626,
     "backend/app/processing/tiles/router.py": 2082,
 }
 

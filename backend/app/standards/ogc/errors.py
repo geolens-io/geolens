@@ -190,28 +190,22 @@ def register_error_handlers(app: FastAPI) -> None:
     async def http_exception_handler(
         request: Request, exc: HTTPException
     ) -> JSONResponse:
-        # When the detail is a structured object (dict/list), preserve it as-is
-        # so that callers can reliably access its fields (e.g. 409 duplicate_source).
-        # Plain strings go through the standard ProblemDetail serialization path.
-        if isinstance(exc.detail, (dict, list)):
-            return JSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "type": "about:blank",
-                    "title": _status_title(exc.status_code),
-                    "status": exc.status_code,
-                    "detail": exc.detail,
-                },
-                media_type="application/problem+json",
-            )
+        # Preserve structured details for callers that inspect their fields;
+        # serialize only non-JSON detail objects to the safe string fallback.
+        detail = (
+            exc.detail
+            if isinstance(exc.detail, (dict, list))
+            else _serialize_detail(exc.detail)
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content=ProblemDetail(
                 title=_status_title(exc.status_code),
                 status=exc.status_code,
-                detail=_serialize_detail(exc.detail),
+                detail=detail,
             ).model_dump(),
             media_type="application/problem+json",
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)

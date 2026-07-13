@@ -4,6 +4,7 @@ Pure unit tests -- validates conformance, schema instantiation,
 and parameter parsing without requiring a running database.
 """
 
+import json
 import uuid
 from urllib.parse import parse_qs, urlparse
 
@@ -161,15 +162,19 @@ class TestStacItemCollection:
             "stac_version": "1.0.0",
             "id": "item-1",
             "geometry": None,
-            "bbox": [-180.0, -90.0, 180.0, 90.0],
             "properties": {"datetime": "2026-01-15T00:00:00Z"},
-            "links": [],
-            "assets": {},
-            "collection": "collection-1",
+            "links": [{"rel": "self", "href": "https://example.test/item-1"}],
+            "assets": {"data": {"href": "https://example.test/item-1.tif"}},
         }
         result = StacItemCollection(
             features=[item],
-            links=[],
+            links=[
+                StacLink(
+                    rel="self",
+                    href="https://example.test/stac/search",
+                    type="application/geo+json",
+                )
+            ],
             numberMatched=1,
             numberReturned=1,
             context={"limit": 10, "returned": 1, "matched": 1},
@@ -177,9 +182,13 @@ class TestStacItemCollection:
 
         response = _item_collection_response(result)
         parsed = StacItemCollectionResponse.model_validate_json(response.body)
+        payload = json.loads(response.body)
 
         assert response.media_type == "application/geo+json"
         assert parsed.features[0].id == "item-1"
+        assert payload["type"] == "FeatureCollection"
+        assert payload["links"][0]["method"] is None
+        assert payload["features"][0] == item
 
     def test_item_bbox_requires_exactly_four_or_six_coordinates(self):
         item = {

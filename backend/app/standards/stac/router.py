@@ -144,8 +144,14 @@ def _item_collection_response(result: StacItemCollection) -> Response:
     headers = _stac_content_language_headers(result.features)
     if link_value := link_header_value(result.links):
         headers["Link"] = link_value
-    return Response(
-        content=result.model_dump_json(),
+    payload = result.model_dump(mode="json")
+    # Validation must not add optional fields that the item serializer omitted.
+    payload["features"] = [
+        feature.model_dump(mode="json", exclude_unset=True)
+        for feature in result.features
+    ]
+    return JSONResponse(
+        content=payload,
         media_type="application/geo+json",
         headers=headers,
     )
@@ -971,6 +977,8 @@ async def _build_item_response(
 
     asset_rows, raster_meta = await asyncio.gather(_assets(), _raster())
 
+    # Intentional validation boundary: serializer output must satisfy the
+    # published STAC response contract before it reaches the wire.
     item = StacItemResponse.model_validate(
         await _dataset_to_stac_item(
             db,
@@ -985,7 +993,7 @@ async def _build_item_response(
         )
     )
     return JSONResponse(
-        content=item.model_dump(mode="json"),
+        content=item.model_dump(mode="json", exclude_unset=True),
         media_type="application/geo+json",
         headers=_stac_content_language_headers([item]),
     )
