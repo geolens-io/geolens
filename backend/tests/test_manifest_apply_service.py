@@ -409,6 +409,72 @@ class TestManifestApplyHelpers:
         assert list(tmp_path.glob("manifest_*")) == []
         assert body.iterated is not with_content_length
 
+    @pytest.mark.anyio
+    async def test_http_download_closes_file_if_cancelled_during_open(
+        self, test_db_session, monkeypatch, tmp_path
+    ):
+        import asyncio
+        import threading
+
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        source = ManifestSource(
+            type="vector",
+            uri="https://data.example.test/roads.geojson",
+        )
+        body = _StreamingBody()
+
+        def handler(_request: HttpxRequest) -> HttpxResponse:
+            return HttpxResponse(200, stream=body)
+
+        client = AsyncClient(transport=MockTransport(handler))
+        original_open = Path.open
+        open_started = threading.Event()
+        release_open = threading.Event()
+        opened_files = []
+
+        def blocking_open(path: Path, *args, **kwargs):
+            file_obj = original_open(path, *args, **kwargs)
+            if path.parent == tmp_path and path.name.startswith("manifest_"):
+                opened_files.append(file_obj)
+                open_started.set()
+                release_open.wait(timeout=5)
+            return file_obj
+
+        with (
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.modules.catalog.sources.security.make_safe_client",
+                return_value=client,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.UPLOAD_MAX_SIZE_MB.get",
+                new=AsyncMock(return_value=100),
+            ),
+            patch.object(Path, "open", new=blocking_open),
+        ):
+            prepared = await classify_manifest_source(source)
+            task = asyncio.create_task(_download_http_source(test_db_session, prepared))
+            assert await asyncio.to_thread(open_started.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0)
+            cancellation_is_draining = not task.done()
+            release_open.set()
+            assert cancellation_is_draining, (
+                "cancellation returned before open released"
+            )
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert len(opened_files) == 1
+        assert opened_files[0].closed
+        assert list(tmp_path.glob("manifest_*")) == []
+
 
 @pytest.mark.anyio
 class TestManifestApplyService:

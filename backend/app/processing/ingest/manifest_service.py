@@ -12,7 +12,10 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.async_io import run_in_thread_draining
+from app.core.async_io import (
+    run_in_thread_draining,
+    run_in_thread_draining_capture_cancel,
+)
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
@@ -205,12 +208,26 @@ async def _download_http_source(
                 # a multi-GB download. Writes now go to a worker thread, batched
                 # through a 4 MiB buffer so we are not paying a thread handoff per
                 # 64 KiB httpx chunk.
-                # fix(#435 codex r4): each threaded write/close is drained on
-                # cancellation (run_in_thread_draining), so worker shutdown or a client
-                # disconnect cannot return while a thread still owns the staged fd and
-                # race the unlink below. `bytes(buffer)` snapshots before the thread
-                # reads it, so the following `buffer.clear()` is safe.
-                file_obj = await run_in_thread_draining(destination.open, "wb")
+                # fix(#476): opening creates a resource, so retain the completed
+                # handle even if cancellation arrives while its worker thread runs.
+                # Close that handle before propagating cancellation; otherwise it is
+                # never assigned and the normal finally block cannot reach it.
+                (
+                    file_obj,
+                    open_cancellation,
+                ) = await run_in_thread_draining_capture_cancel(destination.open, "wb")
+                if open_cancellation is not None:
+                    try:
+                        await run_in_thread_draining(file_obj.close)
+                    finally:
+                        destination.unlink(missing_ok=True)
+                    raise open_cancellation
+
+                # Each threaded write/close is drained on cancellation, so worker
+                # shutdown or a client disconnect cannot return while a thread still
+                # owns the staged fd and race the unlink below. `bytes(buffer)`
+                # snapshots before the thread reads it, so the following
+                # `buffer.clear()` is safe.
                 try:
                     buffer = bytearray()
                     async for chunk in response.aiter_bytes():
