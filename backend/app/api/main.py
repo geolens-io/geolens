@@ -26,7 +26,10 @@ from app.platform.cache.provider import init_tile_cache
 from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging
 from app.core.runtime.staging import ensure_staging_ready, sweep_orphaned_exports
-from app.platform.extensions.bootstrap import bootstrap
+from app.platform.extensions.bootstrap import (
+    assert_enterprise_ports_resolved,
+    bootstrap,
+)
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.modules.auth.router import limiter
@@ -191,6 +194,13 @@ async def lifespan(app: FastAPI):
     # on_startup dispatch, cache init. bootstrap() is the single source of truth
     # for this sequence; both API and worker delegate here to prevent drift.
     await bootstrap(app=app)
+
+    # WORK-02: run the same affirmative port assertion the worker runs
+    # (worker.py) so both entrypoints fail closed together. Without it, a
+    # license-key activation with a missing overlay would crash the worker while
+    # the API kept serving on Default community ports — the API-up/worker-down
+    # split-brain WORK-01 exists to prevent. No-op in community/single-tenant.
+    assert_enterprise_ports_resolved()
 
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
     exports_dir = ensure_staging_ready(staging_root / "exports")

@@ -6,9 +6,10 @@ BOTH ``api/main.py`` lifespan AND ``worker.main()`` so the two entrypoints
 cannot drift into different bootstrap states.
 
 WORK-02: ``assert_enterprise_ports_resolved()`` performs an affirmative
-post-bootstrap assertion: under ``GEOLENS_EDITION=enterprise``, every expected
-single-slot port MUST be resolved to a non-Default implementation or the
-process raises ``RuntimeError`` and refuses to start.
+post-bootstrap assertion: each overlay tier's single-slot ports MUST resolve to
+a non-Default implementation (enterprise ports under a resolved enterprise
+edition; cloud ports under ``GEOLENS_TENANCY_MODE=multi_tenant``) or the process
+raises ``RuntimeError`` and refuses to start.
 
 References: WORK-01, WORK-02
 """
@@ -16,7 +17,6 @@ References: WORK-01, WORK-02
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import TYPE_CHECKING
 
 import structlog
@@ -31,6 +31,7 @@ from app.core.edition import (
     get_edition,
     init_edition,
 )
+from app.core.tenancy import is_multi_tenant
 from app.platform.extensions import (
     get_billing_extensions,
     get_extension_routers,
@@ -46,15 +47,32 @@ logger = structlog.stdlib.get_logger(__name__)
 # Ports checked by assert_enterprise_ports_resolved() (WORK-02)
 # ---------------------------------------------------------------------------
 
-#: Single-slot port accessor names + their Default class names.
-#: Any port whose runtime class name matches the Default name is considered
-#: un-resolved under GEOLENS_EDITION=enterprise and causes a loud failure.
+#: Single-slot ports the ENTERPRISE overlay registers (permission/identity/
+#: workflow). Any port still matching its Default* class name under a resolved
+#: enterprise edition is un-resolved and causes a loud failure.
 _ENTERPRISE_PORT_CHECKS: list[tuple[str, str]] = [
-    ("processing_port", "DefaultProcessingPort"),
-    ("catalog_port", "DefaultCatalogPort"),
     ("permission", "DefaultPermissionExtension"),
     ("identity", "DefaultIdentityExtension"),
     ("workflow", "DefaultWorkflowExtension"),
+]
+
+#: Single-slot ports that ONLY the cloud (multi-tenant) overlay registers.
+#: WORK-02 fix: the enterprise overlay never registers processing_port /
+#: catalog_port (it fills auth/identity/permission/workflow/audit/branding), so
+#: a bare enterprise worker legitimately runs the community defaults for these.
+#: Demanding them under GEOLENS_EDITION=enterprise crash-looped the worker while
+#: the API served fine. They are required only when multi-tenant — the same
+#: signal that already REQUIRES the cloud overlay (see check_tenancy_mode_supported).
+#:
+#: entitlement is included: DefaultEntitlementPort is fail-OPEN (grant-all
+#: has_feature + no-op enforce_limit) and the cloud overlay replaces it for
+#: per-tenant plan/quota enforcement (Phase 1213). Without it here, a
+#: multi-tenant worker could boot green while every tenant quota check silently
+#: passes.
+_CLOUD_PORT_CHECKS: list[tuple[str, str]] = [
+    ("processing_port", "DefaultProcessingPort"),
+    ("catalog_port", "DefaultCatalogPort"),
+    ("entitlement", "DefaultEntitlementPort"),
 ]
 
 #: Additive-slot keys written into the `_extensions` registry by CORE bootstrap
@@ -76,78 +94,102 @@ def _overlay_extension_names() -> list[str]:
 
 
 def assert_enterprise_ports_resolved() -> None:
-    """Assert every expected single-slot port is NOT the Default* impl.
+    """Assert every REQUIRED single-slot port is NOT the Default* impl.
 
-    WORK-02 — Called by the worker after ``bootstrap()`` completes. Under
-    ``GEOLENS_EDITION=enterprise`` all expected single-slot ports MUST be
-    resolved to non-Default implementations.  If any port is still the
-    Default impl, this function raises ``RuntimeError`` naming every
-    still-Default port and pointing at the build-time-bake remedy.
+    WORK-02 — Called by the worker after ``bootstrap()`` completes. Which ports
+    are required depends on the resolved deployment tier:
 
-    Under community / no GEOLENS_EDITION: no-op (returns silently).
+    * Resolved edition ``enterprise`` (whatever ``get_edition()`` resolves — a
+      signed license, the legacy ``GEOLENS_EDITION`` env var, or legacy
+      extension auto-detection; keying on the resolved edition rather than the
+      raw env var means a license-key activation that omits the env var is
+      still covered) requires the enterprise-overlay ports:
+      permission, identity, workflow.
+    * ``GEOLENS_TENANCY_MODE=multi_tenant`` (the cloud overlay) additionally
+      requires processing_port and catalog_port. The enterprise overlay never
+      registers those, so demanding them under bare enterprise crash-looped the
+      worker while the API served fine — the WORK-02 regression this fixes.
 
-    Logs the resolved implementation class for each port at INFO level
-    regardless of edition — makes silent-community-fallback observable in
+    If any required port is still the Default impl, raises ``RuntimeError``
+    naming every still-Default port and pointing at the build-time-bake remedy.
+    Community with no cloud overlay: no-op (returns silently).
+
+    Logs the resolved implementation class for every known port at INFO level
+    regardless of tier — makes silent-community-fallback observable in
     production logs (WORK-02 observability clause).
     """
     from app.platform.extensions import (
         get_catalog_port,
+        get_entitlement_port,
         get_identity_extension,
         get_permission_extension,
         get_processing_port,
         get_workflow_extension,
     )
 
-    edition_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
+    _port_getters = {
+        "processing_port": get_processing_port,
+        "catalog_port": get_catalog_port,
+        "entitlement": get_entitlement_port,
+        "permission": get_permission_extension,
+        "identity": get_identity_extension,
+        "workflow": get_workflow_extension,
+    }
 
-    # Collect resolved port names + their class names for logging + assertion.
-    resolved: list[tuple[str, str]] = []
-    for port_key, _default_cls_name in _ENTERPRISE_PORT_CHECKS:
-        if port_key == "processing_port":
-            port = get_processing_port()
-        elif port_key == "catalog_port":
-            port = get_catalog_port()
-        elif port_key == "permission":
-            port = get_permission_extension()
-        elif port_key == "identity":
-            port = get_identity_extension()
-        elif port_key == "workflow":
-            port = get_workflow_extension()
-        else:
-            continue
-        resolved.append((port_key, type(port).__name__))
+    # Resolve every known port once — for the observability log AND the assertion.
+    resolved: dict[str, str] = {
+        key: type(getter()).__name__ for key, getter in _port_getters.items()
+    }
+    for port_key, cls_name in resolved.items():
+        logger.info("Extension port resolved", port=port_key, impl=cls_name)
 
-    # Log resolved impl per port (observable signal even in community mode).
-    for port_key, cls_name in resolved:
-        logger.info(
-            "Extension port resolved",
-            port=port_key,
-            impl=cls_name,
-        )
+    # Build the REQUIRED set from the resolved tier. Tenancy comes from the
+    # settings-backed helper (not raw os.environ) so a multi_tenant value set
+    # only in the repo .env file — not exported — is still honored, matching how
+    # the rest of the app resolves tenancy.
+    required: list[tuple[str, str]] = []
+    if get_edition().edition == "enterprise":
+        required += _ENTERPRISE_PORT_CHECKS
+    if is_multi_tenant():
+        required += _CLOUD_PORT_CHECKS
 
-    if edition_val != "enterprise":
-        # Not enterprise — no assertion required.
+    if not required:
+        # Community, single-tenant — no overlay ports are required.
         return
 
-    # Build a lookup from port_key → expected Default class name
-    _default_by_key: dict[str, str] = {k: v for k, v in _ENTERPRISE_PORT_CHECKS}
-    still_default: list[str] = [
-        f"{port_key} ({cls_name})"
-        for port_key, cls_name in resolved
-        if cls_name == _default_by_key.get(port_key)
+    still_default_keys = [
+        port_key
+        for port_key, default_cls_name in required
+        if resolved[port_key] == default_cls_name
     ]
 
-    if still_default:
-        still_list = ", ".join(still_default)
+    if still_default_keys:
+        still_list = ", ".join(f"{k} ({resolved[k]})" for k in still_default_keys)
+
+        # Point at the overlay that actually provides each missing tier. The
+        # enterprise overlay does NOT ship processing_port/catalog_port, so a
+        # cloud-port failure must send the operator to the cloud overlay build,
+        # not INSTALL_ENTERPRISE_OVERLAY=1 (which bakes /enterprise only).
+        cloud_keys = {k for k, _ in _CLOUD_PORT_CHECKS}
+        remedies: list[str] = []
+        if any(k not in cloud_keys for k in still_default_keys):
+            remedies.append(
+                "the enterprise overlay (build --build-arg INSTALL_OVERLAYS="
+                '"/enterprise", or the legacy --build-arg '
+                "INSTALL_ENTERPRISE_OVERLAY=1)"
+            )
+        if any(k in cloud_keys for k in still_default_keys):
+            remedies.append(
+                "the cloud overlay that provides processing_port/catalog_port "
+                "under GEOLENS_TENANCY_MODE=multi_tenant (build --build-arg "
+                'INSTALL_OVERLAYS="/enterprise /cloud")'
+            )
+
         raise RuntimeError(
-            f"GEOLENS_EDITION=enterprise is set but the following single-slot ports "
-            f"are still the Default community implementations: [{still_list}]. "
-            f"The enterprise overlay must register non-Default implementations for "
-            f"all expected single-slot ports before the worker starts. "
-            f"Pre-bake the overlay into the image at build time using "
-            f"'docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...' "
-            f"(see ARG INSTALL_ENTERPRISE_OVERLAY in the Dockerfile). "
-            f"References: WORK-02."
+            f"A licensed/overlay edition is active but the following single-slot "
+            f"ports are still the Default community implementations: [{still_list}]. "
+            f"Pre-bake {' and '.join(remedies)} into the image at build time "
+            f"(see ARG INSTALL_OVERLAYS in the Dockerfile). References: WORK-02."
         )
 
 
