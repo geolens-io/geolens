@@ -35,7 +35,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
-    "boto3>=1.43.34",
+    "boto3>=1.43.46",
     # Azure Blob Storage provider (STOR-01 / Phase 1210). azure-identity is included
     # for managed-identity / account-URL auth paths (account_url + credential constructor).
     "azure-storage-blob>=12.24.0",
