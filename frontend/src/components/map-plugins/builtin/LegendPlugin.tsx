@@ -156,7 +156,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
               {legendTitle}
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground/70 truncate">
+            <span className="text-xs text-muted-foreground truncate">
               {t('plugins.legend.titlePlaceholder')}
             </span>
           )}

@@ -186,7 +186,7 @@ export function RegisterForm() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('register.searchPlaceholder', { defaultValue: 'Search tables…' })}
-              className="h-8 ps-8 text-[12.5px]"
+              className="h-8 ps-8 text-xs"
             />
           </div>
         </div>
@@ -202,7 +202,7 @@ export function RegisterForm() {
               key={table.table_name}
               onClick={() => handleToggle(table.table_name)}
               className={cn(
-                'grid w-full grid-cols-[14px_1fr_auto] items-center gap-2 px-3.5 py-1.5 text-start text-[12.5px] cursor-pointer',
+                'grid w-full grid-cols-[14px_1fr_auto] items-center gap-2 px-3.5 py-1.5 text-start text-xs cursor-pointer',
                 'hover:bg-surface-2',
                 selected === table.table_name && 'bg-primary/10',
               )}
@@ -211,7 +211,7 @@ export function RegisterForm() {
               <span className={cn('truncate', selected === table.table_name && 'text-primary font-semibold')}>
                 {table.table_name}
               </span>
-              <span className="font-mono text-[10.5px] text-muted-foreground tracking-wide">
+              <span className="font-mono text-2xs text-muted-foreground tracking-wide">
                 {table.estimated_rows != null ? formatNumber(table.estimated_rows) : '—'}
               </span>
             </button>
@@ -262,7 +262,7 @@ function TableDetail({
         public / <span className="font-medium text-foreground normal-case">{table.table_name}</span>
       </p>
       <h2 className="text-xl font-medium tracking-tight mb-1.5">{table.table_name}</h2>
-      <p className="text-[13px] text-muted-foreground mb-5 max-w-lg">
+      <p className="text-xs text-muted-foreground mb-5 max-w-lg">
         {t('register.detailDesc', {
           defaultValue: 'Register to expose as a GeoLens dataset — tiled on the fly, no copy.',
         })}

@@ -107,7 +107,7 @@ function Pip({ count, on }: { count?: number | null; on?: boolean }) {
     return (
       <span
         aria-hidden="true"
-        className="inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground"
+        className="inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-2xs font-semibold leading-none text-primary-foreground"
       >
         {count}
       </span>

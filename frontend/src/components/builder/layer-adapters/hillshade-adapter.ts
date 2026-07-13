@@ -3,6 +3,7 @@ import type { AdapterLayerInput, LayerAdapter } from './types';
 import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
 import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
 import { COLOR_RELIEF_SUFFIX } from '../companion-ids';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 // builder-audit #338 ADAPT-06: re-export the single hillshade default from builder-defaults
 // (was a byte-identical local copy that diverged from renderAs's DEFAULT_HILLSHADE_PAINT).
@@ -95,7 +96,7 @@ function compoundRgbColorAlpha(color: string, opacity: number): string | null {
 
 function compoundColorAlpha(color: string, opacity: number): string {
   if (opacity === 1) return color;
-  if (color.trim().toLowerCase() === 'transparent') return 'rgba(0, 0, 0, 0)';
+  if (color.trim().toLowerCase() === 'transparent') return MAP_COLORS.transparent;
   return compoundHexColorAlpha(color, opacity)
     ?? compoundRgbColorAlpha(color, opacity)
     ?? color;

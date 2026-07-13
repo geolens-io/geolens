@@ -28,22 +28,22 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
     <div className="col-span-full mt-3 grid gap-5 border-t border-dashed border-border pt-4 md:grid-cols-2">
       {/* Geometry & projection */}
       <div>
-        <h5 className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <h5 className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {raster ? t('detect.rasterInfo') : t('detect.geometry')}
         </h5>
         <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1 text-xs">
           {raster ? (
             <>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.bands')}</dt>
-              <dd className="font-mono text-[11.5px]">{preview.band_count}</dd>
+              <dd className="font-mono text-mini">{preview.band_count}</dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.size')}</dt>
-              <dd className="font-mono text-[11.5px]">{preview.width} x {preview.height} px</dd>
+              <dd className="font-mono text-mini">{preview.width} x {preview.height} px</dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.dataType')}</dt>
-              <dd className="font-mono text-[11.5px]">{preview.dtype}</dd>
+              <dd className="font-mono text-mini">{preview.dtype}</dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.crs')}</dt>
-              <dd className="font-mono text-[11.5px]">{preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : t('preview.unknown')}</dd>
+              <dd className="font-mono text-mini">{preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : t('preview.unknown')}</dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.cog')}</dt>
-              <dd className="font-mono text-[11.5px]">
+              <dd className="font-mono text-mini">
                 {preview.is_cog_compliant
                   ? <span className="text-success">{t('detect.validCog')}</span>
                   : <span className="text-warning-foreground">{t('detect.willConvert')}</span>}
@@ -52,22 +52,22 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
           ) : file ? (
             <>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.type')}</dt>
-              <dd className="font-mono text-[11.5px]">
+              <dd className="font-mono text-mini">
                 {file.geometry_type ? getGeometryTypeLabel(t, file.geometry_type) : t('detect.nonSpatial')}
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.features')}</dt>
-              <dd className="font-mono text-[11.5px]">
+              <dd className="font-mono text-mini">
                 {file.feature_count != null ? formatNumber(file.feature_count) : '—'}
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.crs')}</dt>
-              <dd className="font-mono text-[11.5px]">
+              <dd className="font-mono text-mini">
                 {file.crs ? `EPSG:${file.crs}` : '—'}
                 {file.crs && file.crs !== 4326 && file.crs !== 3857 && (
                   <span className="ms-1 text-muted-foreground">→ {t('detect.willReproject')}</span>
                 )}
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.layer')}</dt>
-              <dd className="font-mono text-[11.5px]">{file.layer_name}</dd>
+              <dd className="font-mono text-mini">{file.layer_name}</dd>
             </>
           ) : null}
         </dl>
@@ -76,7 +76,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
       {/* Schema columns */}
       {file && file.columns.length > 0 && (
         <div>
-          <h5 className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+          <h5 className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
             {t('detect.schema')} · {t('detect.columnCount', { count: file.columns.length, value: formatNumber(file.columns.length) })}
           </h5>
           <div className="max-h-44 overflow-y-auto rounded-sm border border-border">
@@ -90,10 +90,10 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
               <tbody>
                 {file.columns.slice(0, 12).map((col) => (
                   <tr key={col.name} className="border-b border-border last:border-0">
-                    <td className="px-2 py-1 font-mono text-[11.5px]">{col.name}</td>
+                    <td className="px-2 py-1 font-mono text-mini">{col.name}</td>
                     <td className="px-2 py-1">
                       <span className={cn(
-                        'inline-block rounded-sm px-1.5 py-px font-mono text-[10.5px]',
+                        'inline-block rounded-sm px-1.5 py-px font-mono text-2xs',
                         col.type.toLowerCase().includes('geom')
                           ? 'bg-type-vector-bg text-type-vector'
                           : 'bg-surface-2 text-muted-foreground',
@@ -265,7 +265,7 @@ export function BulkReviewList({
       {/* File list card */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
+        <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           <span>
             {t('review.headerStatus')} · <span className="text-success">{t('review.readyCount', { count: readyCount, value: formatNumber(readyCount) })}</span>
           </span>
@@ -312,7 +312,7 @@ export function BulkReviewList({
                         ? <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
                         : <ChevronRight className="size-3.5 text-muted-foreground shrink-0 rtl-mirror" />
                     )}
-                    <span className="truncate text-[13.5px] font-medium tracking-tight">
+                    <span className="truncate text-sm font-medium tracking-tight">
                       {entry.fileName.replace(/\.[^.]+$/, '')}
                       <span className="font-mono font-normal text-muted-foreground">{ext}</span>
                     </span>
@@ -323,7 +323,7 @@ export function BulkReviewList({
                     )}
                   </div>
                   {entry.previewData && (
-                    <p className="mt-0.5 font-mono text-[11.5px] text-muted-foreground">
+                    <p className="mt-0.5 font-mono text-mini text-muted-foreground">
                       {formatPreviewSummary(entry.previewData)}
                     </p>
                   )}
@@ -417,7 +417,7 @@ export function BulkReviewList({
       {/* Action bar */}
       <div className="flex items-center gap-3 border-t border-dashed border-border pt-4">
         <div className="flex-1">
-          <p className="text-[13px] font-semibold">
+          <p className="text-xs font-semibold">
             {t('review.actionSummary', {
               files: formatReviewCount('fileCount', entries.length),
               vectors: formatReviewCount('vectorCount', vectorCount),

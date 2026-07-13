@@ -67,7 +67,7 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
   if (isLoading || !data || data.keywords.length === 0) return null;
 
   return (
-    <Card className="gap-2 py-4">
+    <Card density="compact">
       <CardHeader className="pb-2">
         <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('overview.tagsTitle', { defaultValue: 'Tags' })}
@@ -100,7 +100,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
   const versions = [...data.versions].sort((a, b) => b.version_number - a.version_number).slice(0, 5);
 
   return (
-    <Card className="gap-2 py-4">
+    <Card density="compact">
       <CardHeader className="pb-2">
         <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('overview.provenanceTitle')}
@@ -121,7 +121,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
                 {formatDate(v.uploaded_at)}
                 {' · '}v{v.version_number}
               </div>
-              <div className="text-[13px] font-medium">
+              <div className="text-sm font-medium">
                 {v.source_filename ?? t('overview.provenanceUpload')}
               </div>
               {v.feature_count != null && (
@@ -188,7 +188,7 @@ export function OverviewTab({
       {/* Details card — catalog info at a glance. Named "Details" (not "Metadata")
           to avoid colliding with the full Metadata tab; bbox/CRS live in the stats
           strip + Metadata tab, so they're intentionally not repeated here. */}
-      <Card className="gap-2 py-4">
+      <Card density="compact">
         <CardHeader className="pb-2">
           <CardTitle level={2} className={SECTION_EYEBROW}>
             {t('overview.detailsTitle', { defaultValue: 'Details' })}
@@ -233,7 +233,7 @@ export function OverviewTab({
 
       {/* VRT Derivation card — only for VRT datasets */}
       {isVrt && dataset.raster && (
-        <Card className="gap-2 py-4">
+        <Card density="compact">
           <CardHeader className="pb-2">
             <CardTitle level={2} className={SECTION_EYEBROW}>
               {t('sections.identityAndDerivation', { defaultValue: 'Derivation' })}
@@ -275,7 +275,7 @@ export function OverviewTab({
 
       {/* Collections */}
       {dataset.collections && dataset.collections.length > 0 && (
-        <Card className="gap-2 py-4">
+        <Card density="compact">
           <CardHeader className="pb-2">
             <CardTitle level={2} className={SECTION_EYEBROW}>
               {t('overview.appearsIn', { defaultValue: 'Appears in' })}
@@ -304,7 +304,7 @@ export function OverviewTab({
           {/* About / Summary section */}
           <section>
             <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-[15px] font-semibold tracking-tight">
+              <h2 className="text-base font-semibold tracking-tight">
                 {t('overview.aboutTitle', { defaultValue: 'About this dataset' })}
               </h2>
               {canEdit && isAIAvailable && (
@@ -376,7 +376,7 @@ export function OverviewTab({
               column carries content (mirrors Raster Properties below; the two
               branches are mutually exclusive by record type). */}
           {!isRaster && !isVrt && dataset.column_info && dataset.column_info.length > 0 && (
-            <Card className="gap-2 py-4">
+            <Card density="compact">
               <CardHeader>
                 <CardTitle level={2} className="text-base">
                   {t('overview.fieldsTitle', { defaultValue: 'Fields' })}
@@ -407,7 +407,7 @@ export function OverviewTab({
 
           {/* Raster Properties */}
           {(isRaster || isVrt) && dataset.raster && (
-            <Card className="gap-2 py-4">
+            <Card density="compact">
               <CardHeader>
                 <CardTitle level={2} className="text-base">
                   {t('overview.rasterProperties', { defaultValue: 'Raster Properties' })}

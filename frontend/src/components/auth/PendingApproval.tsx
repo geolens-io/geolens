@@ -16,7 +16,7 @@ export function PendingApproval() {
     <Card className="w-full max-w-sm">
       <CardHeader className="items-center justify-items-center text-center">
         <Clock className="text-muted-foreground mb-2 h-10 w-10" />
-        <CardTitle className="text-xl">{t('pendingApproval')}</CardTitle>
+        <CardTitle level={2} className="text-xl">{t('pendingApproval')}</CardTitle>
         <CardDescription>
           {t('pendingApprovalDescription')}
         </CardDescription>

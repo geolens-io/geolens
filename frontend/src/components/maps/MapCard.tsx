@@ -30,7 +30,8 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
   return (
     <Card
       data-testid="map-card"
-      className="flex-col sm:!flex-row !gap-0 !py-0 items-stretch overflow-hidden hover:shadow-md hover:border-primary/20 hover:bg-accent/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out"
+      density="flush"
+      className="flex-col sm:flex-row items-stretch overflow-hidden hover:shadow-md hover:border-primary/20 hover:bg-accent/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out"
     >
       {/* Thumbnail — full-width banner on mobile, fixed side thumbnail from sm up */}
       <Link

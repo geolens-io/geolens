@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, Database, Globe, Satellite } from 'lucide-react';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { PageShell } from '@/components/layout/PageShell';
 import { AppErrorBoundary } from '@/components/error';
 import { UploadForm } from '@/components/import/UploadForm';
@@ -28,24 +29,21 @@ export function ImportPage() {
   useDocumentTitle(t('common:pageTitle.import'));
 
   return (
-    <PageShell className="space-y-0">
-      {/* Hero */}
-      <div className="pb-4 pt-2">
-        <p className="mb-2.5 font-mono text-mini uppercase tracking-[0.12em] text-muted-foreground">
-          {t('eyebrow', { defaultValue: 'Import' })}
-        </p>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {t('title', { defaultValue: 'Bring data into the atlas' })}
-        </h1>
-        <p className="mt-2.5 max-w-2xl text-[15px] text-muted-foreground">
-          {t('pageDescription', {
-            defaultValue:
-              'Upload files, register tables from your Postgres, or connect a remote service. GeoLens detects geometry, schema, and CRS, then makes it queryable, styleable, and embeddable.',
-          })}
-        </p>
+    <PageShell>
+      <PageHeader
+        title={t('title', { defaultValue: 'Bring data into the atlas' })}
+        description={t('pageDescription', {
+          defaultValue:
+            'Upload files, register tables from your Postgres, or connect a remote service. GeoLens detects geometry, schema, and CRS, then makes it queryable, styleable, and embeddable.',
+        })}
+      />
 
-        {/* Mode tabs */}
-        <div className="mt-6 inline-flex border-b border-border">
+      {/* Mode tabs */}
+      <nav
+        aria-label={t('tabs.label', { defaultValue: 'Import sources' })}
+        className="max-w-full overflow-x-auto"
+      >
+        <div className="inline-flex min-w-max border-b border-border">
           {MODE_TABS.map(({ value, icon: Icon, labelKey }) => (
             <button
               key={value}
@@ -53,7 +51,7 @@ export function ImportPage() {
               onClick={() => setActiveTab(value)}
               aria-current={activeTab === value ? 'page' : undefined}
               className={cn(
-                'inline-flex items-center gap-2 border-b-2 px-4 pb-3 pt-3 text-[13.5px] font-medium transition-colors',
+                'inline-flex items-center gap-2 border-b-2 px-4 pb-3 pt-3 text-sm font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
                 activeTab === value
                   ? 'border-primary text-foreground'
@@ -70,10 +68,10 @@ export function ImportPage() {
             </button>
           ))}
         </div>
-      </div>
+      </nav>
 
       {/* Two-column layout */}
-      <div className="grid grid-cols-1 gap-7 pb-12 pt-6 xl:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-6 pb-12 xl:grid-cols-[1fr_320px]">
         <div className="min-w-0">
           <AppErrorBoundary>
             {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}

@@ -6,6 +6,7 @@ import turfDistance from '@turf/distance';
 import turfArea from '@turf/area';
 import { point, polygon } from '@turf/helpers';
 import { cn } from '@/lib/utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { PluginContext } from '../types';
 
@@ -144,7 +145,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
         source: MEASURE_SOURCE,
         filter: ['==', '$type', 'LineString'],
         paint: {
-          'line-color': '#3b82f6',
+          'line-color': MAP_COLORS.measurement.color,
           'line-width': 2,
           'line-dasharray': [2, 1],
         },
@@ -159,9 +160,9 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
         filter: ['==', '$type', 'Point'],
         paint: {
           'circle-radius': 5,
-          'circle-color': '#3b82f6',
+          'circle-color': MAP_COLORS.measurement.color,
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#fff',
+          'circle-stroke-color': MAP_COLORS.measurement.pointOutline,
         },
       });
     }

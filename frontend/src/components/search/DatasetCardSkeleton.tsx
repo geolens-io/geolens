@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 export function DatasetCardSkeleton() {
   return (
     <div className="block">
-      <Card className="overflow-hidden border-border/60 py-0">
+      <Card density="flush" className="overflow-hidden border-border/60">
         <div className="p-4">
           <div className="flex flex-col gap-2">
             {/* Band 1 — Header */}

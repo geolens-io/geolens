@@ -102,7 +102,7 @@ export function BasemapGroupEditorScene({
               className={cn(
                 'flex flex-col rounded-[var(--radius-md)] border p-2 text-left transition-colors',
                 activePresetId === BLANK_BASEMAP_ID
-                  ? 'border-primary shadow-[0_0_0_1px_var(--primary)]'
+                  ? 'border-primary ring-1 ring-inset ring-primary'
                   : 'border-[var(--border)] hover:bg-[var(--surface-2)]',
               )}
             >
@@ -129,7 +129,7 @@ export function BasemapGroupEditorScene({
                   className={cn(
                     'flex flex-col rounded-[var(--radius-md)] border p-2 text-left transition-colors',
                     isActive
-                      ? 'border-primary shadow-[0_0_0_1px_var(--primary)]'
+                      ? 'border-primary ring-1 ring-inset ring-primary'
                       : 'border-[var(--border)] hover:bg-[var(--surface-2)]',
                   )}
                 >

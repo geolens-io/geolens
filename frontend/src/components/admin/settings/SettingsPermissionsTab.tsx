@@ -81,7 +81,7 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('settings.permissions.title')}</CardTitle>
+        <CardTitle level={2}>{t('settings.permissions.title')}</CardTitle>
         <CardDescription>
           {t('settings.permissions.description')}
         </CardDescription>

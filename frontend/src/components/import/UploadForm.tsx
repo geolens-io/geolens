@@ -432,8 +432,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       <AlertCircle className="mt-0.5 size-4 shrink-0" />
       <div>
         <p className="font-medium">{t('upload.quotaBannerTitle')}</p>
-        <p className="mt-0.5 text-destructive/90">{quotaNotice}</p>
-        <p className="mt-0.5 text-xs text-destructive/80">{t('upload.quotaBannerHint')}</p>
+        <p className="mt-0.5 text-destructive">{quotaNotice}</p>
+        <p className="mt-0.5 text-xs text-destructive">{t('upload.quotaBannerHint')}</p>
       </div>
     </div>
   ) : null;

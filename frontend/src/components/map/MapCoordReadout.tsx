@@ -121,17 +121,20 @@ export const MapCoordReadout = memo(function MapCoordReadout({
     : null;
 
   return (
-    <div data-coord-readout="true" className="absolute top-2 right-14 z-10 pointer-events-none">
-      <div className="font-mono text-2xs tracking-wide text-muted-foreground/70 bg-background/60 backdrop-blur-sm rounded-sm px-1.5 py-0.5">
+    <div
+      data-coord-readout="true"
+      className="pointer-events-none absolute right-14 top-2 z-10 hidden sm:block"
+    >
+      <div className="rounded-sm border border-border bg-popover px-1.5 py-0.5 font-mono text-2xs tracking-wide text-popover-foreground shadow-sm">
         {Math.abs(coords.lat).toFixed(2)}° {latDir}
         {' · '}
         {Math.abs(coords.lng).toFixed(2)}° {lngDir}
         {' · '}
-        <span className="text-foreground/50">z</span> {coords.zoom.toFixed(1)}
+        <span className="text-muted-foreground">z</span> {coords.zoom.toFixed(1)}
         {showScale && rfValue != null && (
           <>
             {' · '}
-            <span className="text-foreground/50">1:</span>
+            <span className="text-muted-foreground">1:</span>
             {rfValue}
           </>
         )}

@@ -183,7 +183,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
               {t('schema.dropWarning', { name: confirmDelete })}
             </p>
             {(columnReferences.data?.map_count ?? 0) > 0 && (
-              <p className="text-amber-600 dark:text-amber-500">
+              <p className="text-warning">
                 {t('schema.usedByMaps', { mapCount: columnReferences.data!.map_count })}
               </p>
             )}

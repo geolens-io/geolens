@@ -88,8 +88,12 @@ export function SearchPage() {
         {t('workspaceTitle', { defaultValue: 'Search the GeoLens catalog' })}
       </h1>
 
-      <PageShell maxWidth="wide" className="pb-8 pt-5 sm:pt-6">
-        <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
+      {/* Search is the catalog landing surface: its search module is the
+          primary page affordance, so a visible PageHeader would duplicate the
+          same purpose and spend scarce result-list space. Keep the semantic h1
+          above, while following the standard six-unit page rhythm here. */}
+      <PageShell maxWidth="wide" className="pb-8 pt-6">
+        <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
           <aside className="hidden lg:block">
             <div className="sticky top-16 max-h-[calc(100vh-5rem)] overflow-y-auto">
               <FilterPanel
@@ -100,8 +104,8 @@ export function SearchPage() {
             </div>
           </aside>
 
-          <div className="min-w-0 space-y-5">
-            <section className="rounded-lg border bg-card px-4 py-4 shadow-sm sm:px-5">
+          <div className="min-w-0 space-y-6">
+            <section className="rounded-lg border bg-card p-4 shadow-sm sm:px-6">
               <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined}>
                 {token ? <SavedSearches className="justify-center md:justify-start" /> : null}
               </SearchControls>

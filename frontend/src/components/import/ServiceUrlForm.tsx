@@ -160,11 +160,11 @@ export function ServiceUrlForm() {
               type="text"
               readOnly
               value={probeResult.url}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-[13.5px] text-foreground outline-none"
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none"
             />
             <button
               onClick={reset}
-              className="border-s border-border bg-surface-2 px-4 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+              className="border-s border-border bg-surface-2 px-4 text-xs font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
             >
               {t('serviceUrl.clear', { defaultValue: 'Clear' })}
             </button>
@@ -178,7 +178,7 @@ export function ServiceUrlForm() {
               {probeResult.service_type}
             </span>
             <div className="flex-1">
-              <h3 className="text-[15px] font-medium tracking-tight">
+              <h3 className="text-sm font-medium tracking-tight">
                 {probeResult.url}
               </h3>
               <p className="font-mono text-mini text-muted-foreground tracking-wide">
@@ -208,10 +208,10 @@ export function ServiceUrlForm() {
                 >
                   <TypeTag kind={layer.kind} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <p className="truncate text-[12.5px] font-medium tracking-tight">
+                    <p className="truncate text-xs font-medium tracking-tight">
                       {layer.title || layer.name}
                     </p>
-                    <p className="truncate font-mono text-[10.5px] text-muted-foreground tracking-wide mt-0.5">
+                    <p className="truncate font-mono text-2xs text-muted-foreground tracking-wide mt-0.5">
                       {layer.name}
                       {layer.geometry_type && ` · ${layer.geometry_type}`}
                     </p>
@@ -271,12 +271,12 @@ export function ServiceUrlForm() {
               placeholder={t('serviceUrl.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/50"
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
             />
             <button
               type="submit"
               disabled={!url.trim()}
-              className="bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+              className="bg-primary px-4 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t('serviceUrl.probe', { defaultValue: 'Probe →' })}
             </button>

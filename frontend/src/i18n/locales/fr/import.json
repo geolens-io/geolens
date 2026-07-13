@@ -1,6 +1,7 @@
 {
   "title": "Importer des données",
   "tabs": {
+    "label": "Sources d’importation",
     "upload": "Télécharger un fichier",
     "register": "Enregistrer une table",
     "service": "URL de service",

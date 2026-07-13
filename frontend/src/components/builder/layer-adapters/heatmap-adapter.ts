@@ -6,6 +6,7 @@ import { getBuilderStyleConfig, syncOwnedPaintProperties, syncSingleLayerVisibil
 // literals that previously diverged from renderAs's heatmap default (radius 18 / weight 0.5).
 import { DEFAULT_HEATMAP_PAINT as HEATMAP_PAINT_DEFAULTS } from './builder-defaults';
 import { getRampColors } from '@/lib/color-ramps';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 /** builder-audit #338 ADAPT-11: typed coercion so an out-of-range / string / expression
  *  heatmap-opacity cannot flow through a bare `as number` cast into NaN math
@@ -21,7 +22,7 @@ export function buildHeatmapColorExpression(rampName: string): unknown[] {
   const colors = getRampColors(rampName, 5);
   return [
     'interpolate', ['linear'], ['heatmap-density'],
-    0,   'rgba(0,0,0,0)',
+    0,   MAP_COLORS.transparent,
     0.2, colors[0],
     0.4, colors[1],
     0.6, colors[2],

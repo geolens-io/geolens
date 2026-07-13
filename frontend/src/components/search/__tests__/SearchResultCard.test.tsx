@@ -1,6 +1,11 @@
 import { render, screen } from '@/test/test-utils';
 import type { OGCRecordResponse } from '@/types/api';
+import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { SearchResultCard } from '../SearchResultCard';
+
+vi.mock('@/components/maps/hooks/use-quicklook', () => ({
+  useQuicklook: vi.fn(() => ({ url: null, status: 'idle' })),
+}));
 
 function makeFeature(
   propertyOverrides: Partial<OGCRecordResponse['properties']> = {},
@@ -127,6 +132,27 @@ describe('SearchResultCard', () => {
       const specs = screen.getByTestId('dataset-card-specs');
       expect(specs).toHaveTextContent('4 bands');
       expect(specs).toHaveTextContent('10 m');
+    });
+
+    it('dims quicklook imagery in dark mode to prevent bright thumbnail glare', () => {
+      vi.mocked(useQuicklook).mockReturnValueOnce({
+        url: 'blob:quicklook-preview',
+        status: 'ready',
+      });
+
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'raster_dataset',
+            geometry_type: null,
+            has_quicklook: true,
+          })}
+        />,
+      );
+
+      const quicklook = screen.getByRole('img', { name: 'Preview of World Countries' });
+      expect(quicklook).toHaveAttribute('src', 'blob:quicklook-preview');
+      expect(quicklook).toHaveClass('dark:brightness-75');
     });
   });
 
