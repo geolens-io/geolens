@@ -451,7 +451,7 @@ function ShareLinkSettings({
                             type="button"
                             onClick={() => handleRemoveOrigin(o)}
                             aria-label={t('share.removeOrigin', { origin: o, defaultValue: 'Remove {{origin}}' })}
-                            className="h-4 w-4 rounded-full -mr-1 hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center"
+                            className="h-4 w-4 rounded-full -me-1 hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center"
                           >
                             <X className="h-3 w-3" />
                           </button>
@@ -571,7 +571,7 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
         aria-expanded={expanded}
         aria-label={t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
       >
-        <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+        <ChevronRight className={cn('h-3 w-3 transition-transform', expanded ? 'rotate-90' : 'rtl-mirror')} />
         {t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
       </button>
       {expanded && (
@@ -616,7 +616,9 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
           )}
           <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground border-t border-border">
             <Shield className="h-3 w-3" aria-hidden="true" />
-            {t('share.iframeSandboxNote', { defaultValue: 'sandbox="allow-scripts" only — SEC-07 contract' })}
+            {t('share.iframeSandboxNote', {
+              defaultValue: 'The embed preview runs in a restricted sandbox that permits scripts only.',
+            })}
           </div>
         </div>
       )}

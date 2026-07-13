@@ -51,6 +51,10 @@ class Record(Base):
             name="chk_records_record_type",
         ),
         CheckConstraint(
+            "language IS NULL OR language ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$'",
+            name="chk_records_language_tag",
+        ),
+        CheckConstraint(
             "temporal_start IS NULL OR temporal_end IS NULL OR temporal_start <= temporal_end",
             name="chk_temporal_ordering",
         ),
@@ -138,7 +142,7 @@ class Record(Base):
         String(20), nullable=False, server_default="vector_dataset"
     )
     language: Mapped[str | None] = mapped_column(
-        String(10), default="en", server_default="en"
+        String(35), default="en", server_default="en"
     )
     spatial_extent: Mapped[str | None] = mapped_column(
         # spatial_index=False: the GiST index is declared explicitly in
@@ -227,6 +231,73 @@ class Record(Base):
         passive_deletes=True,
         lazy="select",
     )
+    translations: Mapped[list["RecordTranslation"]] = relationship(
+        "RecordTranslation",
+        back_populates="record",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="raise",
+        order_by="RecordTranslation.language",
+    )
+
+
+class RecordTranslation(Base):
+    """Localized title/summary variants for a catalog record.
+
+    The primary title, summary, and language remain on ``Record`` for backwards
+    compatibility and search ranking.  This normalized child table stores only
+    alternate representations selected by standards endpoints during language
+    negotiation.
+    """
+
+    __tablename__ = "record_translations"
+    __table_args__ = (
+        CheckConstraint(
+            "language ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$'",
+            name="chk_record_translations_language_tag",
+        ),
+        Index(
+            "uq_record_translations_record_language_ci",
+            "record_id",
+            text("lower(language)"),
+            unique=True,
+        ),
+        Index(
+            "ix_record_translations_simple_search_vector",
+            text(
+                "to_tsvector('simple'::regconfig, (COALESCE(title, ''::text) || ' '::text) || COALESCE(summary, ''::text))"
+            ),
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_record_translations_title_trgm",
+            text("lower(catalog.immutable_unaccent(title))"),
+            postgresql_using="gin",
+            postgresql_ops={"lower(catalog.immutable_unaccent(title))": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_record_translations_summary_trgm",
+            text("lower(catalog.immutable_unaccent(coalesce(summary, '')))"),
+            postgresql_using="gin",
+            postgresql_ops={
+                "lower(catalog.immutable_unaccent(coalesce(summary, '')))": "gin_trgm_ops"
+            },
+        ),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    record_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.records.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    record: Mapped["Record"] = relationship("Record", back_populates="translations")
 
 
 def _stamp_published_at(mapper, connection, target: "Record") -> None:

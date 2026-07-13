@@ -1,6 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from './client';
-import { summarizeErrorDetail } from '@/lib/error-map';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
 export async function login(
@@ -16,16 +16,14 @@ export async function login(
   });
 
   if (!response.ok) {
-    let detail = 'Login failed';
+    let detail: unknown;
     try {
       const body = await response.json();
-      if (body.detail) {
-        detail = summarizeErrorDetail(body.detail, detail);
-      }
+      detail = body.detail;
     } catch {
       // body not JSON
     }
-    throw new Error(detail);
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
 
   return response.json() as Promise<TokenResponse>;
@@ -46,19 +44,21 @@ export async function registerUser(data: {
     body: JSON.stringify(data),
   });
   if (!response.ok) {
-    let detail = 'Registration failed';
+    let detail: unknown;
     try {
       const body = await response.json();
-      if (body.detail) detail = summarizeErrorDetail(body.detail, detail);
+      detail = body.detail;
     } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
   return response.json() as Promise<SignupResponse>;
 }
 
 export async function getAuthConfig(): Promise<AuthConfigResponse> {
   const response = await fetch(`${API_BASE}/auth/config/`);
-  if (!response.ok) throw new Error('Failed to fetch auth config');
+  if (!response.ok) {
+    throw new Error(translateApiErrorDetail(undefined, response.status));
+  }
   return response.json() as Promise<AuthConfigResponse>;
 }
 
@@ -103,12 +103,12 @@ export async function verifyEmail(token: string): Promise<MessageResponse> {
     body: JSON.stringify({ token }),
   });
   if (!response.ok) {
-    let detail = 'Verification failed';
+    let detail: unknown;
     try {
       const body = await response.json();
-      if (body.detail) detail = summarizeErrorDetail(body.detail, detail);
+      detail = body.detail;
     } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
   return response.json() as Promise<MessageResponse>;
 }
@@ -120,12 +120,12 @@ export async function resendVerification(email: string): Promise<MessageResponse
     body: JSON.stringify({ email }),
   });
   if (!response.ok) {
-    let detail = 'Resend failed';
+    let detail: unknown;
     try {
       const body = await response.json();
-      if (body.detail) detail = summarizeErrorDetail(body.detail, detail);
+      detail = body.detail;
     } catch { /* ignore */ }
-    throw new Error(detail);
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
   return response.json() as Promise<MessageResponse>;
 }
@@ -140,7 +140,7 @@ export async function refreshAccessToken(
   });
 
   if (!response.ok) {
-    throw new Error('Token refresh failed');
+    throw new Error(translateApiErrorDetail(undefined, response.status));
   }
 
   return response.json() as Promise<TokenResponse>;

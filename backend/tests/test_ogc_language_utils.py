@@ -8,6 +8,8 @@ def test_normalize_language_tag_canonicalizes_basic_tags():
     assert normalize_language_tag("ES") == "es"
     assert normalize_language_tag("pt_br") == "pt-BR"
     assert normalize_language_tag("  fr-ca  ") == "fr-CA"
+    assert normalize_language_tag("zh-hANT-tw") == "zh-Hant-TW"
+    assert normalize_language_tag("not_a_valid_tag") is None
 
 
 def test_content_language_for_record_languages_uses_homogeneous_language():

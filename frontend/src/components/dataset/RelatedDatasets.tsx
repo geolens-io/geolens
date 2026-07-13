@@ -48,7 +48,7 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
                   <span>{t('relatedDatasets.featureCount', { count: item.feature_count, defaultValue: '{{count}} features' })}</span>
                 )}
                 {item.band_count != null && !item.feature_count && (
-                  <span>{item.band_count} bands</span>
+                  <span>{t('relatedDatasets.bandCount', { count: item.band_count })}</span>
                 )}
                 <span className="ms-auto text-mini">
                   {t('relatedDatasets.similarityMatch', { percent: Math.round(item.similarity * 100), defaultValue: '{{percent}}% match' })}

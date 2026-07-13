@@ -32,7 +32,7 @@ function ConnectDropdownInline({ datasetId }: { datasetId: string }) {
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm">
           <Link2 className="me-1 size-3" />
-          Connect
+          {t('jobProgress.connect')}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -64,13 +64,25 @@ function ConnectDropdownInline({ datasetId }: { datasetId: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation('import');
   const colors = jobStatusColors[status];
+  const label = (() => {
+    switch (status) {
+      case 'pending': return t('jobProgress.status.pending');
+      case 'running': return t('jobProgress.status.running');
+      case 'complete': return t('jobProgress.status.complete');
+      case 'failed': return t('jobProgress.status.failed');
+      case 'cancelled': return t('jobProgress.status.cancelled');
+      case 'fanned_out': return t('jobProgress.status.fannedOut');
+      default: return t('jobProgress.status.unknown', { status });
+    }
+  })();
   if (!colors) {
-    return <Badge variant="secondary">{status}</Badge>;
+    return <Badge variant="secondary">{label}</Badge>;
   }
   return (
     <Badge variant="outline" className={colors}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {label}
     </Badge>
   );
 }

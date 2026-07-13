@@ -1020,6 +1020,12 @@ jobs:
       - name: Locale parity
         run: npm run test:i18n
 
+      - name: Hardcoded toast strings
+        run: npm run check:i18n:toast-strings
+
+      - name: Localized API error boundary
+        run: npm run check:i18n:api-errors
+
       - name: Changed namespaces exist in all languages
         run: npm run check:i18n:changed
 

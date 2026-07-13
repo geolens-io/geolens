@@ -1,5 +1,6 @@
 import { apiFetch, safeFetch } from '@/api/client';
 import { API_BASE } from '@/lib/constants';
+import { translateApiErrorDetail } from '@/lib/error-map';
 
 export type VectorTileToken = {
   kind: 'vector';
@@ -54,8 +55,15 @@ export function getTileTokensBatch(datasetIds: string[], apiKey?: string, embedT
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey, ...embedHeader },
       body: JSON.stringify({ dataset_ids: datasetIds }),
-    }).then((res) => {
-      if (!res.ok) throw new Error(`Batch token request failed: ${res.status}`);
+    }).then(async (res) => {
+      if (!res.ok) {
+        let detail: unknown;
+        try {
+          const body = await res.json();
+          detail = body.detail;
+        } catch { /* not JSON */ }
+        throw new Error(translateApiErrorDetail(detail, res.status));
+      }
       return res.json() as Promise<TileTokenBatchResponse>;
     });
   }

@@ -812,7 +812,7 @@ describe('SHARE-03 embed-preview iframe', () => {
     });
 
     // Security indicator footer: contains sandbox note text
-    expect(screen.getByText(/sandbox="allow-scripts" only/)).toBeInTheDocument();
+    expect(screen.getByText(/restricted sandbox that permits scripts only/i)).toBeInTheDocument();
   });
 });
 

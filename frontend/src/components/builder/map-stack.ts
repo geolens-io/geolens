@@ -1,11 +1,9 @@
 /**
- * fix(#438): I18N-04 — `buildMapStack` and the `mapStack.*` locale keys it
- * reads are TEST-ONLY: a verification oracle for the saved-map normalizer
+ * fix(#438): I18N-04 — `buildMapStack` is TEST-ONLY: a verification oracle for the saved-map normalizer
  * (`api/__tests__/maps.normalize.test.ts`, `__tests__/map-stack.test.ts`).
- * No production component calls `buildMapStack`, so Vite tree-shakes it and
- * its English labels never reach a user — the `mapStack.*` keys are not a
- * real i18n gap. If `buildMapStack` ever gains a production consumer, those
- * strings must be reviewed for translation quality like any rendered copy.
+ * No production component calls it, so Vite tree-shakes the derived group and
+ * entry labels. The shared duplicate helpers below are production code and use
+ * `mapStack.badges.copy` for the live stack-row badge.
  *
  * fix(#451): the REST of this module is production code — the shared terrain
  * resolver (`resolveTerrainSourceLayer`, `isTerrainCapableDemLayer`) and
@@ -21,7 +19,13 @@ import type {
   StyleConfig,
 } from '@/types/api';
 import { normalizeBasemapConfig } from '@/lib/basemap-utils';
+import i18n from '@/i18n/i18n';
 import { getClusterSourceStrategy, isClusterRenderMode, type ClusterSourceStrategyKind, type ClusterSourceStatus } from './cluster-source';
+
+type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+
+const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
+  i18n.t(key, { ns: 'builder', ...options }) as string;
 
 export const MAP_STACK_GROUP_ORDER = [
   'surface',
@@ -148,30 +152,30 @@ interface LayerDuplicateIndex {
   byLayerId: Map<string, MapStackDuplicateMetadata>;
 }
 
-const GROUP_TITLES: Record<MapStackGroupId, { title: string; description: string }> = {
+const GROUP_TITLES: Record<MapStackGroupId, { titleKey: string; descriptionKey: string }> = {
   surface: {
-    title: 'Surface',
-    description: 'Scene foundation, terrain, and elevation sources.',
+    titleKey: 'mapStack.groups.surface.title',
+    descriptionKey: 'mapStack.groups.surface.description',
   },
   relief: {
-    title: 'Relief',
-    description: 'DEM-derived visual overlays such as hillshade and color relief.',
+    titleKey: 'mapStack.groups.relief.title',
+    descriptionKey: 'mapStack.groups.relief.description',
   },
   basemap: {
-    title: 'Basemap',
-    description: 'Base map preset and future sublayer appearance controls.',
+    titleKey: 'mapStack.groups.basemap.title',
+    descriptionKey: 'mapStack.groups.basemap.description',
   },
   data: {
-    title: 'Data',
-    description: 'User-added thematic layers.',
+    titleKey: 'mapStack.groups.data.title',
+    descriptionKey: 'mapStack.groups.data.description',
   },
   labels: {
-    title: 'Labels',
-    description: 'Basemap and data label layers drawn above data geometry.',
+    titleKey: 'mapStack.groups.labels.title',
+    descriptionKey: 'mapStack.groups.labels.description',
   },
   interactions: {
-    title: 'Interactions',
-    description: 'Popup and plugin affordances surfaced with the map.',
+    titleKey: 'mapStack.groups.interactions.title',
+    descriptionKey: 'mapStack.groups.interactions.description',
   },
 };
 
@@ -189,8 +193,8 @@ const DEM_RECORD_TYPES = new Set(['raster_dataset', 'vrt_dataset']);
 function createEmptyGroups(): MapStackGroup[] {
   return MAP_STACK_GROUP_ORDER.map((id, index) => ({
     id,
-    title: GROUP_TITLES[id].title,
-    description: GROUP_TITLES[id].description,
+    title: defaultBuilderTranslator(GROUP_TITLES[id].titleKey),
+    description: defaultBuilderTranslator(GROUP_TITLES[id].descriptionKey),
     order: index,
     entries: [],
   }));
@@ -210,7 +214,10 @@ function sortLayers(layers: MapLayerResponse[]): IndexedLayer[] {
 }
 
 function displayLayerName(layer: MapLayerResponse) {
-  return layer.display_name || layer.dataset_name || layer.dataset_table_name || 'Untitled layer';
+  return layer.display_name
+    || layer.dataset_name
+    || layer.dataset_table_name
+    || defaultBuilderTranslator('mapStack.entries.untitledLayer');
 }
 
 function renderMode(styleConfig: StyleConfig | null | undefined): string | null {
@@ -285,36 +292,36 @@ function reliefRole(layer: MapLayerResponse): Extract<MapStackRole, `relief-${st
 
 function typeBadge(layer: MapLayerResponse): MapStackBadge {
   const mode = renderMode(layer.style_config);
-  if (mode === 'hillshade') return { label: 'Hillshade', tone: 'info' };
-  if (mode === 'heatmap') return { label: 'Heatmap', tone: 'info' };
-  if (mode === 'cluster') return { label: 'Cluster', tone: 'info' };
-  if (mode === 'symbol') return { label: 'Symbols', tone: 'info' };
-  if (mode === 'arrow') return { label: 'Arrow', tone: 'info' };
-  if (layer.is_dem) return { label: 'DEM', tone: 'info' };
+  if (mode === 'hillshade') return { label: defaultBuilderTranslator('mapStack.badges.hillshade'), tone: 'info' };
+  if (mode === 'heatmap') return { label: defaultBuilderTranslator('mapStack.badges.heatmap'), tone: 'info' };
+  if (mode === 'cluster') return { label: defaultBuilderTranslator('mapStack.badges.cluster'), tone: 'info' };
+  if (mode === 'symbol') return { label: defaultBuilderTranslator('mapStack.badges.symbol'), tone: 'info' };
+  if (mode === 'arrow') return { label: defaultBuilderTranslator('mapStack.badges.arrow'), tone: 'info' };
+  if (layer.is_dem) return { label: defaultBuilderTranslator('mapStack.badges.dem'), tone: 'info' };
   if (layer.layer_type !== 'raster_geolens' && !layer.dataset_geometry_type) {
-    return { label: 'Unsupported', tone: 'warning' };
+    return { label: defaultBuilderTranslator('mapStack.badges.unsupported'), tone: 'warning' };
   }
   if (layer.dataset_geometry_type) return { label: layer.dataset_geometry_type, tone: 'neutral' };
-  if (layer.layer_type === 'raster_geolens') return { label: 'Raster', tone: 'neutral' };
-  return { label: 'Layer', tone: 'neutral' };
+  if (layer.layer_type === 'raster_geolens') return { label: defaultBuilderTranslator('mapStack.badges.raster'), tone: 'neutral' };
+  return { label: defaultBuilderTranslator('mapStack.badges.layer'), tone: 'neutral' };
 }
 
 function clusterSourceBadge(layer: MapLayerResponse): MapStackBadge | null {
   if (!isClusterRenderMode(layer)) return null;
   const strategy = getClusterSourceStrategy(layer);
-  if (strategy.kind === 'server-tile') return { label: 'Server cluster', tone: 'info' };
-  if (strategy.kind === 'bounded-geojson') return { label: 'Bounded cluster', tone: 'success' };
-  return { label: 'Point fallback', tone: 'warning' };
+  if (strategy.kind === 'server-tile') return { label: defaultBuilderTranslator('mapStack.badges.serverCluster'), tone: 'info' };
+  if (strategy.kind === 'bounded-geojson') return { label: defaultBuilderTranslator('mapStack.badges.boundedCluster'), tone: 'success' };
+  return { label: defaultBuilderTranslator('mapStack.badges.pointFallback'), tone: 'warning' };
 }
 
 function layerBadges(layer: MapLayerResponse, duplicate?: MapStackDuplicateMetadata): MapStackBadge[] {
   const badges = [typeBadge(layer)];
   const sourceBadge = clusterSourceBadge(layer);
   if (sourceBadge) badges.push(sourceBadge);
-  if (!layer.visible) badges.push({ label: 'Hidden', tone: 'muted' });
-  if (layer.show_in_legend === false) badges.push({ label: 'Legend hidden', tone: 'muted' });
-  if (labelColumn(layer.label_config)) badges.push({ label: 'Labels', tone: 'success' });
-  if (popupEnabled(layer.popup_config)) badges.push({ label: 'Popup', tone: 'success' });
+  if (!layer.visible) badges.push({ label: defaultBuilderTranslator('mapStack.badges.hidden'), tone: 'muted' });
+  if (layer.show_in_legend === false) badges.push({ label: defaultBuilderTranslator('mapStack.badges.legendHidden'), tone: 'muted' });
+  if (labelColumn(layer.label_config)) badges.push({ label: defaultBuilderTranslator('mapStack.badges.labels'), tone: 'success' });
+  if (popupEnabled(layer.popup_config)) badges.push({ label: defaultBuilderTranslator('mapStack.badges.popup'), tone: 'success' });
   if (duplicate?.disambiguationLabel) {
     badges.push({ label: duplicate.disambiguationLabel, tone: 'warning' });
   }
@@ -323,25 +330,22 @@ function layerBadges(layer: MapLayerResponse, duplicate?: MapStackDuplicateMetad
 
 function dataOrderLabel(indexFromTop: number, total: number) {
   const position = indexFromTop + 1;
-  if (total === 1) return 'Data 1 of 1';
-  if (position === 1) return `Data ${position} of ${total} (top)`;
-  if (position === total) return `Data ${position} of ${total} (bottom)`;
-  return `Data ${position} of ${total}`;
+  if (position === 1 && total > 1) return defaultBuilderTranslator('mapStack.order.dataTop', { position, total });
+  if (position === total && total > 1) return defaultBuilderTranslator('mapStack.order.dataBottom', { position, total });
+  return defaultBuilderTranslator('mapStack.order.data', { position, total });
 }
 
 function reliefOrderLabel(indexFromBottom: number, total: number) {
   const position = indexFromBottom + 1;
-  if (total === 1) return 'Relief 1 of 1';
-  if (position === 1) return `Relief ${position} of ${total} (bottom)`;
-  if (position === total) return `Relief ${position} of ${total} (top)`;
-  return `Relief ${position} of ${total}`;
+  if (position === 1 && total > 1) return defaultBuilderTranslator('mapStack.order.reliefBottom', { position, total });
+  if (position === total && total > 1) return defaultBuilderTranslator('mapStack.order.reliefTop', { position, total });
+  return defaultBuilderTranslator('mapStack.order.relief', { position, total });
 }
 
 function dataLabelOrderLabel(indexFromBottom: number, total: number) {
   const position = indexFromBottom + 1;
-  if (total === 1) return 'Data labels 1 of 1';
-  if (position === total) return `Data labels ${position} of ${total} (top)`;
-  return `Data labels ${position} of ${total}`;
+  if (position === total && total > 1) return defaultBuilderTranslator('mapStack.order.dataLabelsTop', { position, total });
+  return defaultBuilderTranslator('mapStack.order.dataLabels', { position, total });
 }
 
 function stableDatasetKey(layer: MapLayerResponse) {
@@ -359,6 +363,7 @@ function stableDatasetKey(layer: MapLayerResponse) {
  */
 export function computeDisambiguationMetadata(
   layers: MapLayerResponse[],
+  t: BuilderTranslator = defaultBuilderTranslator,
 ): Map<string, MapStackDuplicateMetadata> {
   const datasetCounts = new Map<string, number>();
   const nameCounts = new Map<string, number>();
@@ -395,7 +400,9 @@ export function computeDisambiguationMetadata(
       datasetCount,
       nameOccurrence,
       nameCount,
-      disambiguationLabel: nameCount > 1 ? `Copy ${nameOccurrence} of ${nameCount}` : null,
+      disambiguationLabel: nameCount > 1
+        ? t('mapStack.badges.copy', { index: nameOccurrence, count: nameCount })
+        : null,
     });
   }
 
@@ -410,8 +417,9 @@ export function computeDisambiguationMetadata(
  */
 export function computeDisambiguationLabels(
   layers: MapLayerResponse[],
+  t: BuilderTranslator = defaultBuilderTranslator,
 ): Map<string, string | null> {
-  const metadata = computeDisambiguationMetadata(layers);
+  const metadata = computeDisambiguationMetadata(layers, t);
   const labels = new Map<string, string | null>();
   for (const [layerId, meta] of metadata) {
     labels.set(layerId, meta.disambiguationLabel);
@@ -483,13 +491,13 @@ function makeSurfaceEntries(groups: MapStackGroup[]) {
     id: 'surface:background',
     groupId: 'surface',
     role: 'surface-background',
-    title: 'Base background',
-    subtitle: 'Draws below terrain, basemap, relief, and data.',
+    title: defaultBuilderTranslator('mapStack.entries.baseBackground'),
+    subtitle: defaultBuilderTranslator('mapStack.subtitles.surfaceBackground'),
     order: GROUP_ORDER_BASE.surface,
-    orderLabel: 'Surface foundation',
+    orderLabel: defaultBuilderTranslator('mapStack.order.surfaceFoundation'),
     visible: true,
     locked: true,
-    badges: [{ label: 'Background', tone: 'neutral' }],
+    badges: [{ label: defaultBuilderTranslator('mapStack.badges.background'), tone: 'neutral' }],
     metadata: {
       drawOrder: GROUP_ORDER_BASE.surface,
       source: 'derived',
@@ -542,12 +550,18 @@ function makeTerrainReliefEntry(
         ? 'available'
         : 'disabled';
   const enabled = terrainConfig?.enabled === true && sourceStatus === 'active';
-  const title = sourceLayer ? displayLayerName(sourceLayer) : 'Terrain source missing';
+  const title = sourceLayer
+    ? displayLayerName(sourceLayer)
+    : defaultBuilderTranslator('mapStack.entries.terrainMissing');
   const subtitle = sourceLayer
-    ? `Elevation source${enabled ? `, ${terrainConfig?.exaggeration ?? 1}x exaggeration` : ''}`
+    ? enabled
+      ? defaultBuilderTranslator('mapStack.subtitles.elevationSourceExaggeration', {
+          exaggeration: terrainConfig?.exaggeration ?? 1,
+        })
+      : defaultBuilderTranslator('mapStack.subtitles.elevationSource')
     : configuredSourceId
-      ? `Saved source ${configuredSourceId} is unavailable`
-      : 'No DEM source selected';
+      ? defaultBuilderTranslator('mapStack.subtitles.savedSourceUnavailable', { id: configuredSourceId })
+      : defaultBuilderTranslator('mapStack.subtitles.noDemSource');
 
   const relief = groupFor(groups, 'relief');
   relief.entries.push({
@@ -557,13 +571,17 @@ function makeTerrainReliefEntry(
     title,
     subtitle,
     order: GROUP_ORDER_BASE.relief - 100,
-    orderLabel: 'Relief terrain',
+    orderLabel: defaultBuilderTranslator('mapStack.order.reliefTerrain'),
     visible: enabled,
     locked: false,
     badges: [
-      { label: 'Terrain', tone: enabled ? 'success' : 'muted' },
-      ...(sourceStatus === 'fallback' ? [{ label: 'Fallback source', tone: 'warning' } as const] : []),
-      ...(sourceStatus === 'missing' ? [{ label: 'Missing source', tone: 'warning' } as const] : []),
+      { label: defaultBuilderTranslator('mapStack.badges.terrain'), tone: enabled ? 'success' : 'muted' },
+      ...(sourceStatus === 'fallback'
+        ? [{ label: defaultBuilderTranslator('mapStack.badges.fallbackSource'), tone: 'warning' } as const]
+        : []),
+      ...(sourceStatus === 'missing'
+        ? [{ label: defaultBuilderTranslator('mapStack.badges.missingSource'), tone: 'warning' } as const]
+        : []),
     ],
     metadata: {
       drawOrder: GROUP_ORDER_BASE.surface + 100,
@@ -621,7 +639,7 @@ function makeReliefEntries(
 function makeBasemapEntries(groups: MapStackGroup[], map: MapStackMapInput) {
   const basemap = groupFor(groups, 'basemap');
   const style = map.basemap_style || 'default';
-  const label = map.basemap_label?.trim() || 'Basemap';
+  const label = map.basemap_label?.trim() || defaultBuilderTranslator('mapStack.groups.basemap.title');
   const config = normalizeBasemapConfig(map.basemap_config, map.show_basemap_labels ?? true);
   basemap.entries.push({
     id: `basemap:preset:${style}`,
@@ -630,14 +648,17 @@ function makeBasemapEntries(groups: MapStackGroup[], map: MapStackMapInput) {
     title: label,
     subtitle: style,
     order: GROUP_ORDER_BASE.basemap,
-    orderLabel: 'Basemap foundation',
+    orderLabel: defaultBuilderTranslator('mapStack.order.basemapFoundation'),
     visible: true,
     locked: false,
     badges: [
       { label: style, tone: 'neutral' },
-      { label: 'Preset', tone: 'muted' },
+      { label: defaultBuilderTranslator('mapStack.badges.preset'), tone: 'muted' },
       ...(config.land_water_tone !== 'default'
-        ? [{ label: config.land_water_tone, tone: 'info' } as const]
+        ? [{
+            label: defaultBuilderTranslator(`mapStack.badges.landWaterTone.${config.land_water_tone}`),
+            tone: 'info',
+          } as const]
         : []),
     ],
     metadata: {
@@ -696,19 +717,21 @@ function makeLabelEntries(
     id: 'labels:basemap',
     groupId: 'labels',
     role: 'basemap-labels',
-    title: 'Basemap labels',
+    title: defaultBuilderTranslator('mapStack.entries.basemapLabels'),
     subtitle: showBasemapLabels
       ? config.label_mode === 'subtle'
-        ? 'Subtle labels'
-        : 'Draw above data geometry and below data labels.'
-      : 'Hidden by map setting.',
+        ? defaultBuilderTranslator('mapStack.subtitles.subtleLabels')
+        : defaultBuilderTranslator('mapStack.subtitles.basemapLabelsVisible')
+      : defaultBuilderTranslator('mapStack.subtitles.hiddenByMap'),
     order: GROUP_ORDER_BASE.labels,
-    orderLabel: 'Labels: basemap labels',
+    orderLabel: defaultBuilderTranslator('mapStack.order.basemapLabels'),
     visible: showBasemapLabels,
     locked: false,
     badges: [
-      { label: 'Labels', tone: showBasemapLabels ? 'success' : 'muted' },
-      ...(showBasemapLabels ? [] : [{ label: 'Hidden', tone: 'muted' } as const]),
+      { label: defaultBuilderTranslator('mapStack.badges.labels'), tone: showBasemapLabels ? 'success' : 'muted' },
+      ...(showBasemapLabels
+        ? []
+        : [{ label: defaultBuilderTranslator('mapStack.badges.hidden'), tone: 'muted' } as const]),
     ],
     metadata: {
       drawOrder: GROUP_ORDER_BASE.labels,
@@ -733,15 +756,17 @@ function makeLabelEntries(
       id: `labels:data:${layer.id}`,
       groupId: 'labels',
       role: 'data-labels',
-      title: `${displayLayerName(layer)} labels`,
-      subtitle: `Column: ${labelColumn(layer.label_config)}`,
+      title: defaultBuilderTranslator('mapStack.entries.dataLabels', { name: displayLayerName(layer) }),
+      subtitle: defaultBuilderTranslator('mapStack.subtitles.column', { column: labelColumn(layer.label_config) }),
       order: drawOrder,
       orderLabel: dataLabelOrderLabel(indexFromBottom, labelLayers.length),
       visible: layer.visible,
       locked: false,
       badges: [
-        { label: 'Data labels', tone: 'success' },
-        ...(layer.visible ? [] : [{ label: 'Hidden', tone: 'muted' } as const]),
+        { label: defaultBuilderTranslator('mapStack.badges.dataLabels'), tone: 'success' },
+        ...(layer.visible
+          ? []
+          : [{ label: defaultBuilderTranslator('mapStack.badges.hidden'), tone: 'muted' } as const]),
         ...(duplicate?.disambiguationLabel
           ? [{ label: duplicate.disambiguationLabel, tone: 'warning' } as const]
           : []),
@@ -763,15 +788,20 @@ function makeInteractionEntries(groups: MapStackGroup[], orderedLayers: IndexedL
       id: `interactions:popup:${layer.id}`,
       groupId: 'interactions',
       role: 'interaction-popups',
-      title: `${displayLayerName(layer)} popup`,
-      subtitle: 'Feature click interaction',
+      title: defaultBuilderTranslator('mapStack.entries.layerPopup', { name: displayLayerName(layer) }),
+      subtitle: defaultBuilderTranslator('mapStack.subtitles.featureClick'),
       order: drawOrder,
-      orderLabel: `Popup ${index + 1} of ${popupLayers.length}`,
+      orderLabel: defaultBuilderTranslator('mapStack.order.popup', {
+        position: index + 1,
+        total: popupLayers.length,
+      }),
       visible: layer.visible,
       locked: false,
       badges: [
-        { label: 'Popup', tone: 'success' },
-        ...(layer.visible ? [] : [{ label: 'Hidden layer', tone: 'muted' } as const]),
+        { label: defaultBuilderTranslator('mapStack.badges.popup'), tone: 'success' },
+        ...(layer.visible
+          ? []
+          : [{ label: defaultBuilderTranslator('mapStack.badges.hiddenLayer'), tone: 'muted' } as const]),
       ],
       metadata: {
         ...layerMetadata(layer, drawOrder),
@@ -787,13 +817,13 @@ function makeInteractionEntries(groups: MapStackGroup[], orderedLayers: IndexedL
       id: 'interactions:plugins',
       groupId: 'interactions',
       role: 'interaction-plugins',
-      title: 'Map plugins',
+      title: defaultBuilderTranslator('mapStack.entries.mapPlugins'),
       subtitle: plugins.join(', '),
       order: drawOrder,
-      orderLabel: 'Plugins',
+      orderLabel: defaultBuilderTranslator('mapStack.order.plugins'),
       visible: true,
       locked: false,
-      badges: [{ label: `${plugins.length} plugin${plugins.length === 1 ? '' : 's'}`, tone: 'info' }],
+      badges: [{ label: defaultBuilderTranslator('mapStack.badges.plugins', { count: plugins.length }), tone: 'info' }],
       metadata: {
         drawOrder,
         source: 'derived',

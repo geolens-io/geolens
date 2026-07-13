@@ -1,7 +1,8 @@
 import { apiFetch, ApiError, tryRefresh } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { API_BASE } from '@/lib/constants';
-import { translateError, summarizeErrorDetail } from '@/lib/error-map';
+import { translateApiErrorDetail } from '@/lib/error-map';
+import i18n from '@/i18n/i18n';
 import { useAuthStore } from '@/stores/auth-store';
 import type {
   UploadResponse,
@@ -53,7 +54,7 @@ async function xhrUpload<T>(
       }
       xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
       xhr.onerror = () =>
-        reject(new ApiError('Network unavailable — check your connection', 0));
+        reject(new ApiError(i18n.t('common:errors.networkUnavailable'), 0));
       xhr.send(formData);
     });
 
@@ -63,17 +64,15 @@ async function xhrUpload<T>(
   }
 
   if (res.status < 200 || res.status >= 300) {
-    let detail = `HTTP ${res.status}`;
+    let detail: unknown;
     try {
       const parsed = JSON.parse(res.body);
-      if (parsed?.detail !== undefined) {
-        detail = summarizeErrorDetail(parsed.detail, detail);
-      }
+      detail = parsed?.detail;
     } catch {
-      // non-JSON body — keep the HTTP status fallback
+      // Non-JSON failures use the localized status category below.
     }
     if (res.status === 401) useAuthStore.getState().logout();
-    throw new ApiError(translateError(detail), res.status);
+    throw new ApiError(translateApiErrorDetail(detail, res.status), res.status, detail);
   }
 
   return JSON.parse(res.body) as T;
@@ -212,7 +211,11 @@ export async function uploadPresigned(
     // coarse 0→1 instead of an extra XHR-with-progress path.
     onProgress?.(0);
     const resp = await fetch(urls[0], { method: 'PUT', body: file });
-    if (!resp.ok) throw new Error(`S3 upload failed: ${resp.status} ${resp.statusText}`);
+    if (!resp.ok) {
+      throw new Error(
+        i18n.t('common:errors.storageUploadFailed', { status: resp.status }),
+      );
+    }
     onProgress?.(1);
     return completePresignedUpload(job_id);
   }

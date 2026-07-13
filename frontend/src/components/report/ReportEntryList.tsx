@@ -24,6 +24,7 @@ function formatRelative(ts: number, language: string): string {
 }
 
 function EntryRow({ entry, language }: { entry: ReportEntry; language: string }) {
+  const { t } = useTranslation('report');
   const [expanded, setExpanded] = useState(false);
   const canExpand = Boolean(entry.detail);
 
@@ -33,7 +34,7 @@ function EntryRow({ entry, language }: { entry: ReportEntry; language: string })
         type="button"
         onClick={() => canExpand && setExpanded((v) => !v)}
         className={cn(
-          'flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs',
+          'flex w-full items-start gap-2 px-2 py-1.5 text-start text-xs',
           canExpand ? 'cursor-pointer hover:bg-muted/50' : 'cursor-default',
         )}
         aria-expanded={canExpand ? expanded : undefined}
@@ -44,19 +45,22 @@ function EntryRow({ entry, language }: { entry: ReportEntry; language: string })
         </span>
         <span className="min-w-0 flex-1 break-words font-mono text-foreground/90">
           {entry.message}
-          {entry.count > 1 && <span className="ml-1 text-muted-foreground">×{entry.count}</span>}
-          {entry.suppressed && <span className="ml-1 italic text-muted-foreground">(suppressed)</span>}
+          {entry.count > 1 && <span className="ms-1 text-muted-foreground">×{entry.count}</span>}
+          {entry.suppressed && <span className="ms-1 italic text-muted-foreground">{t('technicalSuppressed')}</span>}
         </span>
         <span className="shrink-0 text-2xs text-muted-foreground">{formatRelative(entry.ts, language)}</span>
         {canExpand && (
           <ChevronRight
-            className={cn('size-3 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-90')}
+            className={cn(
+              'size-3 shrink-0 text-muted-foreground transition-transform',
+              expanded ? 'rotate-90' : 'rtl-mirror',
+            )}
             aria-hidden
           />
         )}
       </button>
       {expanded && entry.detail && (
-        <pre className="mb-1.5 ml-7 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/70 p-2 text-2xs leading-relaxed text-muted-foreground">
+        <pre className="mb-1.5 ms-7 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/70 p-2 text-2xs leading-relaxed text-muted-foreground">
           {entry.detail}
         </pre>
       )}

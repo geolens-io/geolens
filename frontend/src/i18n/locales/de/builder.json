@@ -30,26 +30,33 @@
     },
     "groups": {
       "surface": {
-        "title": "Oberfläche"
+        "title": "Oberfläche",
+        "description": "Szenengrundlage, Terrain und Höhenquellen."
       },
       "relief": {
-        "title": "Relief"
+        "title": "Relief",
+        "description": "Aus DEM abgeleitete visuelle Überlagerungen wie Schummerung und farbiges Relief."
       },
       "basemap": {
-        "title": "Basiskarte"
+        "title": "Basiskarte",
+        "description": "Basiskartenvorgabe und Darstellungssteuerung für Unterebenen."
       },
       "data": {
-        "title": "Daten"
+        "title": "Daten",
+        "description": "Vom Benutzer hinzugefügte thematische Layer."
       },
       "labels": {
-        "title": "Beschriftungen"
+        "title": "Beschriftungen",
+        "description": "Basiskarten- und Datenbeschriftungen über der Datengeometrie."
       },
       "interactions": {
-        "title": "Interaktionen"
+        "title": "Interaktionen",
+        "description": "Mit der Karte angezeigte Popup- und Plugin-Steuerungen."
       }
     },
     "entries": {
       "baseBackground": "Basishintergrund",
+      "untitledLayer": "Unbenannter Layer",
       "terrainSource": "Terrainquelle",
       "terrainMissing": "Terrainquelle fehlt",
       "basemapPreset": "Vorgabe",
@@ -60,6 +67,12 @@
     },
     "subtitles": {
       "surfaceBackground": "Grundlage",
+      "elevationSource": "Höhenquelle",
+      "elevationSourceExaggeration": "Höhenquelle, {{exaggeration}}-fache Überhöhung",
+      "savedSourceUnavailable": "Gespeicherte Quelle {{id}} ist nicht verfügbar",
+      "noDemSource": "Keine DEM-Quelle ausgewählt",
+      "subtleLabels": "Dezente Beschriftungen",
+      "column": "Spalte: {{column}}",
       "basemapLabelsVisible": "Über Datengrafik",
       "hiddenByMap": "Durch Karteneinstellung ausgeblendet",
       "featureClick": "Feature-Klick"
@@ -71,9 +84,12 @@
       "missingSource": "Quelle fehlt",
       "hillshade": "Schummerung",
       "heatmap": "Heatmap",
-      "symbol": "Symbol",
+      "symbol": "Symbole",
       "arrow": "Pfeil",
       "cluster": "Cluster",
+      "serverCluster": "Server-Cluster",
+      "boundedCluster": "Begrenzter Cluster",
+      "pointFallback": "Punkt-Ersatzdarstellung",
       "dem": "DEM",
       "hidden": "Ausgeblendet",
       "legendHidden": "Legende ausgeblendet",
@@ -90,12 +106,48 @@
       "unsupported": "Nicht unterstützt",
       "needsAttention": "Benötigt Aufmerksamkeit",
       "copy": "Kopie {{index}} von {{count}}",
-      "plugins": "{{count}} Plugin"
+      "plugins_one": "{{count}} Plugin",
+      "plugins_other": "{{count}} Plugins",
+      "landWaterTone": {
+        "muted": "Gedämpft",
+        "contrast": "Hoher Kontrast",
+        "monochrome": "Monochrom"
+      }
+    },
+    "order": {
+      "surfaceFoundation": "Oberflächengrundlage",
+      "reliefTerrain": "Relief-Terrain",
+      "basemapFoundation": "Basiskartengrundlage",
+      "basemapLabels": "Beschriftungen: Basiskarte",
+      "data": "Daten {{position}} von {{total}}",
+      "dataTop": "Daten {{position}} von {{total}} (oben)",
+      "dataBottom": "Daten {{position}} von {{total}} (unten)",
+      "relief": "Relief {{position}} von {{total}}",
+      "reliefTop": "Relief {{position}} von {{total}} (oben)",
+      "reliefBottom": "Relief {{position}} von {{total}} (unten)",
+      "dataLabels": "Datenbeschriftungen {{position}} von {{total}}",
+      "dataLabelsTop": "Datenbeschriftungen {{position}} von {{total}} (oben)",
+      "popup": "Popup {{position}} von {{total}}",
+      "plugins": "Plugins"
     },
     "actions": {
       "openInspector": "Inspektor öffnen",
       "toggleBasemapLabels": "Basiskarten-Beschriftungen umschalten"
     }
+  },
+  "renderAs": {
+    "point": "Punkt",
+    "symbol": "Symbole",
+    "heatmap": "Heatmap",
+    "cluster": "Cluster",
+    "line": "Linie",
+    "arrow": "Pfeil",
+    "fill": "Füllung",
+    "stroke": "Kontur",
+    "fillStroke": "Füllung + Kontur",
+    "extrusion3d": "3D-Extrusion",
+    "image": "Bild",
+    "hillshade": "Schummerung"
   },
   "inspector": {
     "title": "Layer-Inspektor",
@@ -182,7 +234,12 @@
       "addStop": "Stopp hinzufügen",
       "removeStop": "Stopp entfernen",
       "unsupported": "Diese Eigenschaft verwendet einen nicht unterstützten Ausdruck. Verwenden Sie erweitertes JSON, um ihn zu bearbeiten.",
-      "kindLabel": "Ausdruckstyp"
+      "kindLabel": "Ausdruckstyp",
+      "modeLabel": "Modus für {{label}}",
+      "baseValueLabel": "Basiswert für {{label}}",
+      "stopZoomLabel": "Zoom für Stützstelle {{index}} von {{label}}",
+      "stopValueLabel": "Wert für Stützstelle {{index}} von {{label}}",
+      "removeStopLabel": "Stützstelle {{index}} entfernen"
     },
     "styledBy": "Stilisiert nach: {{column}}",
     "radiusByColumn": "Radius nach: {{column}}",
@@ -464,7 +521,38 @@
     "colors": "Farben",
     "customColors": "Benutzerdefinierte Farben",
     "reverseRamp": "Umkehren",
-    "cvdSafeOnly": "Nur barrierefreie Farbpaletten (CVD)"
+    "cvdSafeOnly": "Nur barrierefreie Farbpaletten (CVD)",
+    "colorRamps": {
+      "yellowOrangeRed": "Gelb-Orange-Rot",
+      "yellowGreenBlue": "Gelb-Grün-Blau",
+      "viridis": "Viridis",
+      "inferno": "Inferno",
+      "plasma": "Plasma",
+      "blues": "Blautöne",
+      "greens": "Grüntöne",
+      "oranges": "Orangetöne",
+      "reds": "Rottöne",
+      "purples": "Violetttöne",
+      "blueGreen": "Blau-Grün",
+      "bluePurple": "Blau-Violett",
+      "orangeRed": "Orange-Rot",
+      "yellowGreen": "Gelb-Grün",
+      "redYellowBlue": "Rot-Gelb-Blau",
+      "redYellowGreen": "Rot-Gelb-Grün",
+      "redBlue": "Rot-Blau",
+      "brownBlueGreen": "Braun-Blau-Grün",
+      "pinkYellowGreen": "Rosa-Gelb-Grün",
+      "purpleGreen": "Violett-Grün",
+      "spectral": "Spektral",
+      "set1": "Satz 1",
+      "set2": "Satz 2",
+      "set3": "Satz 3",
+      "paired": "Gepaart",
+      "dark2": "Dunkel 2",
+      "accent": "Akzent",
+      "pastel1": "Pastell 1",
+      "pastel2": "Pastell 2"
+    }
   },
   "search": {
     "title": "Datensatz hinzufügen",
@@ -494,6 +582,8 @@
     "allTypes": "Alle",
     "vector": "Vektor",
     "raster": "Raster",
+    "collapseResult": "{{name}} einklappen",
+    "expandResult": "{{name}} ausklappen",
     "metadata": {
       "type": "Typ",
       "source": "Quelle",
@@ -572,7 +662,7 @@
     "iframeErrorTitle": "Vorschau nicht verfügbar",
     "iframeErrorBody": "Bitte überprüfen Sie, ob das Einbettungs-Token gültig und der Freigabelink aktiv ist. Zum Wiederholen neu laden.",
     "iframeReload": "Neu laden",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "iframeSandboxNote": "Die Einbettungsvorschau wird in einer eingeschränkten Umgebung ausgeführt, die nur Skripte zulässt.",
     "embedTokenMissing": "Diese Karte enthält nicht-öffentliche Ebenen. Betrachter können nicht alle Ebenen ohne ein Einbettungstoken sehen.",
     "embedTokenNotAvailable": "Das Einbettungstoken wurde in einer früheren Sitzung erstellt. Neu generieren, um den Einbettungscode zu erhalten.",
     "embedTokenRegenerated": "Einbettungstoken neu generiert",
@@ -1033,7 +1123,10 @@
     "emptySearchInput": "Datensätze zum Hinzufügen suchen",
     "suggestedListLabel": "Vorgeschlagene Datensätze",
     "browseAllLabel": "Alle Datensätze im Dialog „Daten hinzufügen“ durchsuchen",
-    "basemapSublayers": "Basiskarten-Sublayer"
+    "basemapSublayers": "Basiskarten-Sublayer",
+    "openSuggestion": "{{name}} im Dialog Daten hinzufügen öffnen",
+    "addSuggestion": "{{name}} zur Karte hinzufügen",
+    "toggleSublayerVisibility": "Sichtbarkeit von {{name}} umschalten"
   },
   "rail": {
     "aiDisabled": "KI durch Administrator deaktiviert",
@@ -1130,7 +1223,8 @@
     "hillshadeToggle": "Schummerung",
     "overlayOffHint": "Reliefschattierung ist aus — dieses DGM zeichnet keine 2D-Überlagerung.",
     "terrainSectionLabel": "3D-TERRAIN",
-    "useAsTerrain": "Als 3D-Terrain verwenden"
+    "useAsTerrain": "Als 3D-Terrain verwenden",
+    "sliderValueLabel": "Wert für {{label}}"
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",

@@ -350,9 +350,7 @@ describe('UnifiedStackPanel — basemap group rendering', () => {
     );
 
     const container = screen.getByTestId('basemap-group-children-basemap-group');
-    expect(container.style.marginLeft).toBe('28px');
-    expect(container.style.paddingLeft).toBe('12px');
-    expect(container.style.borderLeft).toBe('1px dashed var(--border)');
+    expect(container).toHaveClass('ms-7', 'ps-3', 'border-s', 'border-dashed');
   });
 
   it('renders EmptyStackState and basemap dock when layers=[] and basemapGroup is provided', () => {
@@ -436,9 +434,7 @@ describe('UnifiedStackPanel — folder group rendering', () => {
     expect(screen.getByText('Child Layer')).toBeInTheDocument();
 
     // Indent + dashed border
-    expect(container.style.marginLeft).toBe('28px');
-    expect(container.style.paddingLeft).toBe('12px');
-    expect(container.style.borderLeft).toBe('1px dashed var(--border)');
+    expect(container).toHaveClass('ms-7', 'ps-3', 'border-s', 'border-dashed');
   });
 
   it('child layers with parent_group_id do NOT render at top level (only inside group container)', () => {

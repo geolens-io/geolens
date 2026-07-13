@@ -30,6 +30,7 @@ import {
 import { ApiError } from '@/api/client';
 import type { OGCRecordResponse } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
+import { formatNumber } from '@/lib/format';
 
 const VRT_MAX_SOURCES = 20;
 
@@ -404,10 +405,17 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                                 <span>{result.properties.crs}</span>
                               )}
                               {result.properties.band_count != null && (
-                                <span>{result.properties.band_count} band{result.properties.band_count !== 1 ? 's' : ''}</span>
+                                <span>{t('vrt.bandCount', { count: result.properties.band_count })}</span>
                               )}
                               {result.properties.res_x != null && (
-                                <span>res: {result.properties.res_x.toFixed(4)}</span>
+                                <span>
+                                  {t('vrt.resolutionValue', {
+                                    value: formatNumber(result.properties.res_x, {
+                                      minimumFractionDigits: 4,
+                                      maximumFractionDigits: 4,
+                                    }),
+                                  })}
+                                </span>
                               )}
                             </div>
                           </button>
@@ -448,7 +456,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                           </Badge>
                         )}
                         {source.properties.band_count != null && (
-                          <span>{source.properties.band_count} band{source.properties.band_count !== 1 ? 's' : ''}</span>
+                          <span>{t('vrt.bandCount', { count: source.properties.band_count })}</span>
                         )}
                       </div>
                     </div>

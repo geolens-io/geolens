@@ -529,6 +529,8 @@
     "featureCount": "{{count}} features",
     "featureCount_one": "{{count}} feature",
     "featureCount_other": "{{count}} features",
+    "bandCount_one": "{{count}} band",
+    "bandCount_other": "{{count}} bands",
     "similarityMatch": "{{percent}}% match"
   },
   "relatedRecords": {
@@ -684,6 +686,8 @@
     "failedBanner": "VRT regeneration failed. Remove the problem source and try again.",
     "sourceCount_one": "{{count}} source",
     "sourceCount_other": "{{count}} sources",
+    "bandCount_one": "{{count}} band",
+    "bandCount_other": "{{count}} bands",
     "mosaic": "VRT Mosaic",
     "bandStack": "VRT Band Stack",
     "addSource": "Add Source",

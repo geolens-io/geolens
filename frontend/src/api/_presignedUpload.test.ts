@@ -64,7 +64,9 @@ describe('uploadChunks', () => {
     const file = new Blob(['aaaabbbbccc']);
     const urls = ['u1', 'u2', 'u3'];
 
-    await expect(uploadChunks(urls, file, 4)).rejects.toThrow(/S3 part 3 upload failed: 403/);
+    await expect(uploadChunks(urls, file, 4)).rejects.toThrow(
+      /Upload part 3 failed \(HTTP 403\)/,
+    );
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
@@ -95,7 +97,7 @@ describe('uploadChunks', () => {
 
     const file = new Blob(['aaaabbbb']);
     await expect(uploadChunks(['u1', 'u2'], file, 4)).rejects.toThrow(
-      /S3 part 1 upload failed: 400/,
+      /Upload part 1 failed \(HTTP 400\)/,
     );
     // Did not attempt the second part.
     expect(mockFetch).toHaveBeenCalledTimes(1);

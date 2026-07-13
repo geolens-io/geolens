@@ -10,6 +10,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
 import type { LabelConfig } from '@/types/api';
 import { DEFAULT_POINT_LABEL_OFFSET } from '@/components/builder/label-layer-utils';
+import { formatNumber } from '@/lib/format';
 
 interface LabelEditorProps {
   columns: { name: string; type: string }[];
@@ -254,7 +255,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                   className="flex-1"
                 />
                 <span className="text-xs text-muted-foreground w-10 text-end">
-                  {effectiveOffset[0].toFixed(1)}
+                  {formatNumber(effectiveOffset[0], { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -268,7 +269,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                   className="flex-1"
                 />
                 <span className="text-xs text-muted-foreground w-10 text-end">
-                  {effectiveOffset[1].toFixed(1)}
+                  {formatNumber(effectiveOffset[1], { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                 </span>
               </div>
             </>

@@ -89,12 +89,10 @@ function displayColumn(value: string | undefined): string {
     .replace(/\bkm\b/i, 'km');
 }
 
-function clusterLegendLabel(layer: SharedLayerResponse) {
+function clusterLegendKind(layer: SharedLayerResponse) {
   if (!isClusterRenderMode(layer)) return null;
   const strategy = getClusterSourceStrategy(layer);
-  if (strategy.kind === 'server-tile') return 'Server cluster';
-  if (strategy.kind === 'bounded-geojson') return 'Bounded cluster';
-  return 'Point fallback';
+  return strategy.kind;
 }
 
 function colorPaintKey(geometryType: string | null | undefined): string {
@@ -113,6 +111,7 @@ function GraduatedLegend({
   styleConfig: StyleConfig;
   swatchStyle: SwatchStyle;
 }) {
+  const { t } = useTranslation('common');
   const paint = layer.paint ?? {};
   const breaks = styleConfig.breaks ?? [];
   const metricLabel = styleConfig.sizeLabel ?? displayColumn(styleConfig.column);
@@ -128,7 +127,7 @@ function GraduatedLegend({
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">
-          Size: {metricLabel}
+          {t('viewer.legend.sizeLabel', { label: metricLabel })}
         </div>
         <GraduatedRadiusLegend
           sizes={styleConfig.sizes}
@@ -139,7 +138,9 @@ function GraduatedLegend({
         {parsedColor && colorColumn && colorColumn !== styleConfig.column && (
           <>
             <div className="pt-1 text-mini font-medium text-muted-foreground">
-              Color: {styleConfig.colorLabel ?? displayColumn(colorColumn)}
+              {t('viewer.legend.colorLabel', {
+                label: styleConfig.colorLabel ?? displayColumn(colorColumn),
+              })}
             </div>
             <GraduatedColorLegend
               colors={parsedColor.colors}
@@ -158,7 +159,7 @@ function GraduatedLegend({
     return (
       <div className="space-y-1">
         <div className="text-mini font-medium text-muted-foreground">
-          Width: {metricLabel}
+          {t('viewer.legend.widthLabel', { label: metricLabel })}
         </div>
         <GraduatedWidthLegend
           sizes={styleConfig.sizes}
@@ -246,7 +247,7 @@ export function LayerLegend({
         aria-expanded={isOpen}
         aria-controls="layer-legend-panel"
         aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
-        className="absolute left-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="absolute start-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
@@ -259,7 +260,7 @@ export function LayerLegend({
         id="layer-legend-panel"
         role="region"
         aria-label={t('viewer.legend.title')}
-        className="absolute left-3 top-14 z-10 w-64 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
+        className="absolute start-3 top-14 z-10 w-64 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
       >
         <div className="p-3 border-b border-border/50">
           <h3 className="text-sm font-semibold text-foreground">
@@ -295,7 +296,7 @@ export function LayerLegend({
             const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
             const layerName = viewerLegendEntryName(layer);
-            const clusterLabel = clusterLegendLabel(layer);
+            const clusterKind = clusterLegendKind(layer);
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
@@ -329,9 +330,13 @@ export function LayerLegend({
                     {isVisible ? <Eye className="w-4 h-4" aria-hidden="true" /> : <EyeOff className="w-4 h-4" aria-hidden="true" />}
                   </button>
                 </div>
-                {clusterLabel && (
+                {clusterKind && (
                   <div className="mt-1 ms-6 text-mini font-medium text-muted-foreground">
-                    {clusterLabel}
+                    {clusterKind === 'server-tile'
+                      ? t('viewer.legend.cluster.server')
+                      : clusterKind === 'bounded-geojson'
+                        ? t('viewer.legend.cluster.bounded')
+                        : t('viewer.legend.cluster.fallback')}
                   </div>
                 )}
 

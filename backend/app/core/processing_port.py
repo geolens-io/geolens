@@ -42,6 +42,15 @@ class KeywordProtocol(Protocol):
 
 
 @runtime_checkable
+class TranslationProtocol(Protocol):
+    """Localized record text included in embedding content."""
+
+    language: str
+    title: str
+    summary: str | None
+
+
+@runtime_checkable
 class AttributeProtocol(Protocol):
     """Slim attribute metadata contract — fields read by metadata_service."""
 
@@ -59,6 +68,7 @@ class RecordProtocol(Protocol):
     title: str
     summary: str | None
     keywords: Sequence[KeywordProtocol]
+    translations: Sequence[TranslationProtocol]
     spatial_extent: Any  # geoalchemy2 type — Any keeps core/ free of geoalchemy2 import
     lineage_summary: str | None
     source_organization: str | None
@@ -132,6 +142,7 @@ Map = MapProtocol
 DatasetGrant = DatasetGrantProtocol
 DatasetVersion = DatasetVersionProtocol
 Keyword = KeywordProtocol
+Translation = TranslationProtocol
 Attribute = AttributeProtocol
 
 
@@ -244,6 +255,9 @@ class ProcessingPort(Protocol):
     # OQ-3 InstrumentedAttribute encapsulators (Pitfall 3 / Pitfall 12 resolution)
     # -------------------------------------------------------------------------
 
+    # Implementations must eagerly populate both ``keywords`` and
+    # ``translations`` because embedding backfills consume them after query
+    # execution and the community ORM deliberately uses lazy="raise".
     async def get_records_without_embeddings(
         self, session: AsyncSession, *, force: bool = False
     ) -> list[RecordProtocol]: ...

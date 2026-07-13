@@ -69,7 +69,34 @@ def _dcat_relationship_options():
         selectinload(Record.keywords),
         selectinload(Record.contacts),
         selectinload(Record.distributions),
+        selectinload(Record.translations),
     )
+
+
+def _language_headers(language: str | None) -> dict[str, str]:
+    headers = {"Vary": "Accept-Language"}
+    if language:
+        headers["Content-Language"] = language
+    return headers
+
+
+def _dcat_content_language(document: object) -> str | None:
+    """Return a header only when every tagged string uses one language."""
+    languages: set[str] = set()
+
+    def collect(value: object) -> None:
+        if isinstance(value, dict):
+            language = value.get("@language")
+            if isinstance(language, str) and language:
+                languages.add(language)
+            for nested in value.values():
+                collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect(nested)
+
+    collect(document)
+    return next(iter(languages)) if len(languages) == 1 else None
 
 
 # fix(#430 BA-28): these anonymous feeds materialize every visible dataset (+ keywords/
@@ -170,15 +197,17 @@ async def get_dcat_catalog(
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db)
-    catalog = catalog_to_dcat(datasets, base_url)
+    from app.standards.ogc.utils import parse_accept_languages
 
-    from app.standards.ogc.utils import parse_accept_language
-
-    lang = parse_accept_language(request)
+    catalog = catalog_to_dcat(
+        datasets,
+        base_url,
+        preferred_languages=parse_accept_languages(request),
+    )
     return JSONResponse(
         content=catalog,
         media_type="application/ld+json",
-        headers={"Content-Language": lang},
+        headers=_language_headers(_dcat_content_language(catalog)),
     )
 
 
@@ -217,13 +246,10 @@ async def get_dcat_us3_catalog(
     base_url = await get_public_api_url(db)
     catalog = catalog_to_dcat_us3(datasets, base_url)
 
-    from app.standards.ogc.utils import parse_accept_language
-
-    lang = parse_accept_language(request)
     return JSONResponse(
         content=catalog,
         media_type="application/ld+json",
-        headers={"Content-Language": lang},
+        headers={"Content-Language": str(catalog.get("language") or "en")},
     )
 
 
@@ -262,13 +288,10 @@ async def get_geodcat_ap_catalog(
     base_url = await get_public_api_url(db)
     catalog = catalog_to_geodcat_ap(datasets, base_url)
 
-    from app.standards.ogc.utils import parse_accept_language
-
-    lang = parse_accept_language(request)
     return JSONResponse(
         content=catalog,
         media_type="application/ld+json",
-        headers={"Content-Language": lang},
+        headers={},
     )
 
 
@@ -324,15 +347,17 @@ async def get_dcat_record(
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db)
-    dcat = record_to_dcat(dataset, base_url)
+    from app.standards.ogc.utils import parse_accept_languages
 
-    from app.standards.ogc.utils import parse_accept_language
-
-    lang = parse_accept_language(request)
+    dcat = record_to_dcat(
+        dataset,
+        base_url,
+        preferred_languages=parse_accept_languages(request),
+    )
     return JSONResponse(
         content=dcat,
         media_type="application/ld+json",
-        headers={"Content-Language": lang},
+        headers=_language_headers(_dcat_content_language(dcat)),
     )
 
 
@@ -373,13 +398,10 @@ async def get_dcat_us3_record(
     base_url = await get_public_api_url(db)
     dcat = record_to_dcat_us3(dataset, base_url)
 
-    from app.standards.ogc.utils import parse_accept_language
-
-    lang = parse_accept_language(request)
     return JSONResponse(
         content=dcat,
         media_type="application/ld+json",
-        headers={"Content-Language": lang},
+        headers=_language_headers(dcat.get("language")),
     )
 
 
@@ -420,13 +442,11 @@ async def get_geodcat_ap_record(
     base_url = await get_public_api_url(db)
     geodcat = record_to_geodcat_ap(dataset, base_url)
 
-    from app.standards.ogc.utils import parse_accept_language
-
-    lang = parse_accept_language(request)
+    lang = geodcat.get("dcterms:title", {}).get("@language")
     return JSONResponse(
         content=geodcat,
         media_type="application/ld+json",
-        headers={"Content-Language": lang},
+        headers=_language_headers(lang),
     )
 
 

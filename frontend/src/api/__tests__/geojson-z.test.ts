@@ -5,10 +5,6 @@ vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
 }));
 
-vi.mock('@/lib/error-map', () => ({
-  translateError: (msg: string) => msg,
-}));
-
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
@@ -117,6 +113,6 @@ describe('fetchBoundedGeoJson', () => {
 
     await expect(fetchBoundedGeoJson('dataset-1', { apiKey: 'bad' }))
       .rejects
-      .toThrow('Bounded GeoJSON fetch failed: 403');
+      .toThrow('Access denied');
   });
 });

@@ -64,6 +64,17 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             "summary": r.summary,
             "keywords": [kw.keyword for kw in r.keywords] if r.keywords else [],
             "lineage": r.lineage_summary,
+            "localized_texts": [
+                "\n".join(
+                    part
+                    for part in (
+                        f"{translation.language}: {translation.title}",
+                        translation.summary,
+                    )
+                    if part
+                )
+                for translation in r.translations
+            ],
         }
         for r in records
     ]
@@ -90,6 +101,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             summary=rd["summary"],
             keywords=rd["keywords"],
             lineage=rd["lineage"],
+            localized_texts=rd["localized_texts"],
         )
         if not content_text:
             skipped += 1

@@ -232,7 +232,7 @@ export function useBulkLayerActions({
     const existingGroupCount = current.filter(
       (l) => (l as GroupedLayer).layer_type === 'group:folder',
     ).length;
-    const groupName = `Group ${existingGroupCount + 1}`;
+    const groupName = t('folderGroup.defaultName', { n: existingGroupCount + 1 });
     const minSortOrder = Math.min(...groupableLayers.map((l) => l.sort_order));
 
     const groupRow: GroupedLayer = {

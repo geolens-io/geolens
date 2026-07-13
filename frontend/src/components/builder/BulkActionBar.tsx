@@ -301,7 +301,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                     variant="ghost"
                     size="sm"
                     data-testid="bulk-action-overflow"
-                    className="h-8 w-8 p-0 shrink-0 ml-auto"
+                    className="h-8 w-8 p-0 shrink-0 ms-auto"
                     aria-label={t('bulkActions.moreActionsAriaLabel', { count: N })}
                     onPointerDown={(e) => e.stopPropagation()}
                   >

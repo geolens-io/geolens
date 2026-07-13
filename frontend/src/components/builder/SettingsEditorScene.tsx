@@ -89,14 +89,14 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', appearanceOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', appearanceOpen ? 'rotate-90' : 'rtl-mirror')}
               aria-hidden="true"
             />
             <span className={eyebrowClassName}>
               {t('settings.appearanceLabel', { defaultValue: 'APPEARANCE' })}
             </span>
             {!appearanceOpen && (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 {backgroundColor ?? t('settings.defaultBackgroundColor', { defaultValue: 'Default' })}
               </span>
             )}
@@ -135,14 +135,14 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', terrainOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', terrainOpen ? 'rotate-90' : 'rtl-mirror')}
               aria-hidden="true"
             />
             <span className={eyebrowClassName}>
               {t('settings.terrainLabel', { defaultValue: 'TERRAIN' })}
             </span>
             {!terrainOpen && (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 {terrainCollapsedHint}
               </span>
             )}
@@ -197,14 +197,14 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', pluginsOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', pluginsOpen ? 'rotate-90' : 'rtl-mirror')}
               aria-hidden="true"
             />
             <span className={eyebrowClassName}>
               {t('settings.pluginsLabel', { defaultValue: 'PLUGINS' })}
             </span>
             {!pluginsOpen && (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 {t('settings.pluginsEnabledCount', { count: activePluginIds.size, defaultValue: '{{count}} enabled' })}
               </span>
             )}
@@ -261,14 +261,14 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', projectionOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', projectionOpen ? 'rotate-90' : 'rtl-mirror')}
               aria-hidden="true"
             />
             <span className={eyebrowClassName}>
               {t('settings.projectionLabel', { defaultValue: 'PROJECTION' })}
             </span>
             {!projectionOpen && (
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 {projection === 'globe'
                   ? t('settings.projectionGlobe', { defaultValue: 'Globe' })
                   : t('settings.projectionMercator', { defaultValue: 'Mercator' })}

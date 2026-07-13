@@ -7,6 +7,7 @@ the single authoritative metadata path. No dual-write to legacy JSONB/tags colum
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import (
@@ -14,6 +15,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordContact,
     RecordDistribution,
     RecordKeyword,
+    RecordTranslation,
 )
 
 
@@ -26,6 +28,77 @@ async def get_record(session: AsyncSession, record_id: uuid.UUID) -> Record | No
     """Fetch a record by ID."""
     result = await session.execute(select(Record).where(Record.id == record_id))
     return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# Localized record text
+# ---------------------------------------------------------------------------
+
+
+async def list_translations(
+    session: AsyncSession, record_id: uuid.UUID
+) -> list[RecordTranslation]:
+    result = await session.execute(
+        select(RecordTranslation)
+        .where(RecordTranslation.record_id == record_id)
+        .order_by(RecordTranslation.language)
+    )
+    return list(result.scalars().all())
+
+
+async def upsert_translation(
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    language: str,
+    title: str,
+    summary: str | None,
+    record: Record | None = None,
+) -> RecordTranslation:
+    if record is None:
+        record = await get_record(session, record_id)
+    if record is None:
+        raise ValueError(f"Record {record_id} not found")
+    primary_language = (record.language or "en").replace("_", "-").casefold()
+    if primary_language == language.casefold():
+        raise ValueError("Translation language duplicates the primary language")
+
+    result = await session.execute(
+        insert(RecordTranslation)
+        .values(
+            record_id=record_id,
+            language=language,
+            title=title,
+            summary=summary,
+        )
+        .on_conflict_do_update(
+            index_elements=[
+                RecordTranslation.record_id,
+                func.lower(RecordTranslation.language),
+            ],
+            set_={"title": title, "summary": summary},
+        )
+        .returning(RecordTranslation)
+    )
+    translation = result.scalar_one()
+    await session.flush()
+    return translation
+
+
+async def delete_translation(
+    session: AsyncSession, record_id: uuid.UUID, language: str
+) -> None:
+    result = await session.execute(
+        select(RecordTranslation).where(
+            RecordTranslation.record_id == record_id,
+            RecordTranslation.language == language,
+        )
+    )
+    translation = result.scalar_one_or_none()
+    if translation is None:
+        raise ValueError(f"Translation {language} not found")
+    await session.delete(translation)
+    await session.flush()
 
 
 # ---------------------------------------------------------------------------

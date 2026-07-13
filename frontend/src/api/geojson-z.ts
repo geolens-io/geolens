@@ -1,5 +1,6 @@
 import { apiFetch } from './client';
 import { API_BASE } from '@/lib/constants';
+import { translateApiErrorDetail } from '@/lib/error-map';
 
 export interface BoundedGeoJsonResponse {
   type: 'FeatureCollection';
@@ -16,6 +17,15 @@ function boundedGeoJsonPath(datasetId: string) {
 
 function directFetchPath(datasetId: string) {
   return `${API_BASE}${boundedGeoJsonPath(datasetId)}`;
+}
+
+async function throwLocalizedResponseError(response: Response): Promise<never> {
+  let detail: unknown;
+  try {
+    const body = await response.json();
+    detail = body.detail;
+  } catch { /* not JSON */ }
+  throw new Error(translateApiErrorDetail(detail, response.status));
 }
 
 export function asFeatureCollection(response: BoundedGeoJsonResponse): GeoJSON.FeatureCollection {
@@ -54,13 +64,13 @@ export async function fetchBoundedGeoJson(
     const res = await fetch(directFetchPath(datasetId), {
       headers: { 'X-Embed-Token': options.embedToken },
     });
-    if (!res.ok) throw new Error(`Bounded GeoJSON fetch failed: ${res.status}`);
+    if (!res.ok) await throwLocalizedResponseError(res);
     return res.json() as Promise<BoundedGeoJsonResponse>;
   }
 
   if (options?.apiKey) {
     const res = await fetch(`${directFetchPath(datasetId)}?api_key=${encodeURIComponent(options.apiKey)}`);
-    if (!res.ok) throw new Error(`Bounded GeoJSON fetch failed: ${res.status}`);
+    if (!res.ok) await throwLocalizedResponseError(res);
     return res.json() as Promise<BoundedGeoJsonResponse>;
   }
 

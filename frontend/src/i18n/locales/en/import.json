@@ -49,7 +49,10 @@
       "nodata_inconsistent": "NoData value mismatch",
       "grid_misaligned": "Grid dimensions do not match"
     },
-    "searchError": "Failed to load results"
+    "searchError": "Failed to load results",
+    "bandCount_one": "{{count}} band",
+    "bandCount_other": "{{count}} bands",
+    "resolutionValue": "Resolution: {{value}}"
   },
   "upload": {
     "startOver": "Start Over",
@@ -197,7 +200,8 @@
     "previewFailed": "Failed to preview layer",
     "commitFailed": "Failed to start import",
     "unknownDataset": "Unknown dataset",
-    "alreadyRegistered": "Already registered: \"{{title}}\""
+    "alreadyRegistered": "Already registered: \"{{title}}\"",
+    "viewExisting": "View existing"
   },
   "rail": {
     "stageTitle": "Stage files",
@@ -263,6 +267,8 @@
     "searchPlaceholder": "Search tables…",
     "selectHint": "Select a table from the list to see its schema and register it.",
     "detailDesc": "Register to expose as a GeoLens dataset — tiled on the fly, no copy.",
+    "tableCount_one": "{{schema}} · {{count}} table",
+    "tableCount_other": "{{schema}} · {{count}} tables",
     "stats": {
       "rows": "Rows",
       "geometry": "Geometry",
@@ -370,6 +376,16 @@
     "copyXyzUrl": "Copy XYZ Tile URL",
     "cogDownloadFailed": "Could not start COG download — try again",
     "rowsSuffix": "rows",
+    "connect": "Connect",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "complete": "Complete",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "fannedOut": "Fanned out",
+      "unknown": "Unknown ({{status}})"
+    },
     "step": {
       "validating": "Validating",
       "ogr2ogr": "Loading features",

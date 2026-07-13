@@ -21,6 +21,7 @@ import {
   normalizeTerrainExaggeration,
 } from './map-sync';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
+import { formatNumber } from '@/lib/format';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 /** DEM render mode union. Assignable to StyleConfig['render_mode'] without cast. */
@@ -78,7 +79,7 @@ interface SliderRowProps {
 }
 
 function formatSliderValue(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return formatNumber(value, { maximumFractionDigits: 1 });
 }
 
 function clampToStep(value: number, min: number, max: number, step: number) {
@@ -89,7 +90,11 @@ function clampToStep(value: number, min: number, max: number, step: number) {
 }
 
 function SliderRow({ label, value, min, max, step, suffix, onChange, ariaLabel, showInput = false }: SliderRowProps) {
+  const { t } = useTranslation('builder');
   const displayValue = formatSliderValue(value);
+  // HTML number inputs require a locale-neutral serialized value; the adjacent
+  // display and aria-valuetext use the locale-aware formatter above.
+  const inputValue = String(value);
   const handleInputChange = (nextValue: string) => {
     const parsed = Number.parseFloat(nextValue);
     if (!Number.isFinite(parsed)) return;
@@ -111,13 +116,16 @@ function SliderRow({ label, value, min, max, step, suffix, onChange, ariaLabel, 
       {showInput ? (
         <div className="flex w-[72px] shrink-0 items-center gap-1">
           <Input
-            aria-label={`${ariaLabel} value`}
+            aria-label={t('demEditor.sliderValueLabel', {
+              label: ariaLabel,
+              defaultValue: '{{label}} value',
+            })}
             type="number"
             inputMode="decimal"
             min={min}
             max={max}
             step={step}
-            value={displayValue}
+            value={inputValue}
             onChange={(event) => handleInputChange(event.target.value)}
             className="h-7 px-2 text-right text-xs tabular-nums"
           />

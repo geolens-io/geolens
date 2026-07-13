@@ -12,6 +12,12 @@ import {
   resolveBasemapId,
 } from '@/lib/basemap-utils';
 import { normalizeTerrainExaggeration } from '@/components/builder/map-sync';
+import i18n from '@/i18n/i18n';
+
+type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+
+const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
+  i18n.t(key, { ns: 'builder', ...options }) as string;
 
 export type BuilderBasemapSublayerId =
   | 'basemap:roads'
@@ -101,32 +107,33 @@ function overrideOpacity(config: MapBasemapConfig, id: BuilderBasemapSublayerId)
 function sublayersFromConfig(
   config: MapBasemapConfig,
   showBasemapLabels: boolean,
+  t: BuilderTranslator,
 ): BuilderBasemapSublayer[] {
   return [
     {
       id: 'basemap:roads',
-      name: 'Roads',
+      name: t('basemap.roads'),
       visible: visibilityFromMode(config.road_visibility),
       opacity: overrideOpacity(config, 'basemap:roads'),
       kind: 'vector',
     },
     {
       id: 'basemap:labels',
-      name: 'Labels',
+      name: t('basemap.labels'),
       visible: showBasemapLabels && visibilityFromMode(config.label_mode),
       opacity: overrideOpacity(config, 'basemap:labels'),
       kind: 'vector',
     },
     {
       id: 'basemap:buildings',
-      name: 'Buildings',
+      name: t('basemap.buildings'),
       visible: config.building_visibility,
       opacity: overrideOpacity(config, 'basemap:buildings'),
       kind: 'vector',
     },
     {
       id: 'basemap:boundaries',
-      name: 'Boundaries',
+      name: t('basemap.boundaries'),
       visible: visibilityFromMode(config.boundary_visibility),
       opacity: overrideOpacity(config, 'basemap:boundaries'),
       kind: 'vector',
@@ -136,6 +143,7 @@ function sublayersFromConfig(
 
 export function createBuilderBasemapState(
   input: BuilderBasemapStateInput,
+  t: BuilderTranslator = defaultBuilderTranslator,
 ): BuilderBasemapState {
   const showBasemapLabels = input.showBasemapLabels ?? true;
   const basemapStyle = resolveBasemapId(input.basemapStyle || DEFAULT_BASEMAP_STYLE);
@@ -146,7 +154,7 @@ export function createBuilderBasemapState(
     hasVisibleBasemap: hasVisibleBasemapStyle(basemapStyle),
     config,
     terrainConfig: normalizedTerrainConfig(input.terrainConfig),
-    sublayers: sublayersFromConfig(config, showBasemapLabels),
+    sublayers: sublayersFromConfig(config, showBasemapLabels, t),
   };
 }
 

@@ -67,6 +67,20 @@ class TestBuildContentText:
         )
         assert result == "a, b, c"
 
+    def test_localized_text_is_included(self):
+        from app.processing.embeddings.service import build_content_text
+
+        result = build_content_text(
+            title="Rivers",
+            summary=None,
+            keywords=None,
+            lineage=None,
+            localized_texts=["fr: Rivières\nRéseaux hydrographiques"],
+        )
+
+        assert "fr: Rivières" in result
+        assert "Réseaux hydrographiques" in result
+
 
 # ---------------------------------------------------------------------------
 # compute_content_hash

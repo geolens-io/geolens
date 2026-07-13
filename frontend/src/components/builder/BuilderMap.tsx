@@ -1250,13 +1250,13 @@ export const BuilderMap = memo(function BuilderMap({
       data-builder-canvas="true"
     >
       {tilesLoading && (
-        <div className="absolute top-0 left-0 right-0 z-10 h-0.5 bg-primary/60 animate-pulse" />
+        <div className="absolute inset-x-0 top-0 z-10 h-0.5 bg-primary/60 animate-pulse" />
       )}
       {basemapNotice && (
         <div
           role="status"
           aria-live="polite"
-          className="absolute right-3 top-3 z-20 max-w-sm rounded-md border bg-background/95 p-3 text-sm shadow-md backdrop-blur"
+          className="absolute end-3 top-3 z-20 max-w-sm rounded-md border bg-background/95 p-3 text-sm shadow-md backdrop-blur"
         >
           <p className="font-medium text-foreground">
             {t('builderMap.basemapIssueTitle', { defaultValue: 'Basemap connection issue' })}

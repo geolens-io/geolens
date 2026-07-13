@@ -21,6 +21,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordContact,
     RecordDistribution,
     RecordKeyword,
+    RecordTranslation,
 )
 
 from tests.factories import get_user_id
@@ -181,6 +182,87 @@ async def test_single_record_dcat_has_title_and_description(
         "@value": "Description for Title Desc Test",
         "@language": "en",
     }
+
+
+@pytest.mark.anyio
+async def test_single_record_dcat_negotiates_stored_translation(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dcat_dataset(
+        test_db_session, created_by=admin_id, name="English Rivers"
+    )
+    test_db_session.add(
+        RecordTranslation(
+            record_id=ds.record_id,
+            language="de",
+            title="Deutsche Flüsse",
+            summary="Deutsche Zusammenfassung",
+        )
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat/",
+        headers={**admin_auth_header, "Accept-Language": "de-DE, en;q=0.5"},
+    )
+    assert resp.status_code == 200
+    assert "content-language" not in resp.headers
+    assert "Accept-Language" in resp.headers["vary"]
+    assert resp.json()["dcterms:title"] == {
+        "@value": "Deutsche Flüsse",
+        "@language": "de",
+    }
+    assert resp.json()["dcterms:description"] == {
+        "@value": "Deutsche Zusammenfassung",
+        "@language": "de",
+    }
+
+
+@pytest.mark.anyio
+async def test_dcat_title_only_regional_translation_preserves_field_languages(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dcat_dataset(
+        test_db_session, created_by=admin_id, name="English Wetlands"
+    )
+    test_db_session.add(
+        RecordTranslation(
+            record_id=ds.record_id,
+            language="pt-BR",
+            title="Zonas úmidas brasileiras",
+            summary=None,
+        )
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat/",
+        headers={**admin_auth_header, "Accept-Language": "pt-BR"},
+    )
+
+    assert resp.status_code == 200
+    assert "content-language" not in resp.headers
+    assert "Accept-Language" in resp.headers["vary"]
+    data = resp.json()
+    assert data["dcterms:title"] == {
+        "@value": "Zonas úmidas brasileiras",
+        "@language": "pt-BR",
+    }
+    assert data["dcterms:description"] == {
+        "@value": "Description for English Wetlands",
+        "@language": "en",
+    }
+    assert data["dcterms:language"]["@id"].endswith("/POR")
+    assert data["dcterms:provenance"]["@language"] == "en"
+    assert all(
+        theme["skos:prefLabel"]["@language"] == "en" for theme in data["dcat:theme"]
+    )
 
 
 @pytest.mark.anyio

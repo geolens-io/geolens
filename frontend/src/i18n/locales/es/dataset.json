@@ -234,6 +234,8 @@
     "bandStack": "Apilado de bandas VRT",
     "sourceCount_one": "{{count}} fuente",
     "sourceCount_other": "{{count}} fuentes",
+    "bandCount_one": "{{count}} banda",
+    "bandCount_other": "{{count}} bandas",
     "sourceTablePos": "#",
     "sourceTableTitle": "Conjunto de datos",
     "sourceTableCrs": "CRS",
@@ -635,6 +637,8 @@
     "featureCount": "{{count}} elementos",
     "featureCount_one": "{{count}} elemento",
     "featureCount_other": "{{count}} elementos",
+    "bandCount_one": "{{count}} banda",
+    "bandCount_other": "{{count}} bandas",
     "similarDatasets": "Conjuntos de datos similares",
     "similarityMatch": "{{percent}}% de coincidencia"
   },

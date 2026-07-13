@@ -21,6 +21,7 @@
  */
 
 import { apiFetch } from './client';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import type { OAuthProviderConfig } from './settings';
 
 // SAML reuses the OAuth provider table; this is a typed extension that
@@ -133,7 +134,12 @@ export async function deleteSamlProvider(id: string): Promise<void> {
 export async function fetchSamlMetadata(slug: string): Promise<string> {
   const response = await fetch(`/api/auth/saml/${slug}/metadata`);
   if (!response.ok) {
-    throw new Error(`Metadata fetch failed: ${response.status}`);
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = body.detail;
+    } catch { /* not JSON */ }
+    throw new Error(translateApiErrorDetail(detail, response.status));
   }
   return response.text();
 }

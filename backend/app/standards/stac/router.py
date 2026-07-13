@@ -11,6 +11,7 @@ import asyncio
 import json
 import math
 import uuid
+from collections.abc import Sequence
 from datetime import timedelta
 
 from urllib.parse import urlencode
@@ -42,6 +43,10 @@ from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.processing.raster.models import DatasetAsset, RasterAsset
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.utils import (
+    content_language_for_record_languages,
+    parse_accept_languages,
+)
 from app.core.geo import make_bbox_filter
 from app.modules.catalog.search.service import build_assets, dataset_to_ogc_record
 from app.standards.stac.schemas import (
@@ -63,6 +68,18 @@ stac_router = APIRouter(prefix="/stac", tags=["STAC"])
 
 # Record types eligible for STAC
 _STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
+
+
+def _stac_content_language_headers(items: Sequence[dict]) -> dict[str, str]:
+    languages: list[str | None] = []
+    for item in items:
+        value = item.get("properties", {}).get("language")
+        languages.append(value.get("code") if isinstance(value, dict) else None)
+    language = content_language_for_record_languages(languages, fallback=None)
+    headers = {"Vary": "Accept-Language"}
+    if language:
+        headers["Content-Language"] = language
+    return headers
 
 
 def _published_raster_filters():
@@ -166,6 +183,7 @@ async def _dataset_to_stac_item(
     collection_id: str | None = None,
     spatial_extent_geojson: str | None = None,
     public_app_url: str | None = None,
+    preferred_languages: Sequence[str] | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
@@ -188,6 +206,7 @@ async def _dataset_to_stac_item(
         raster_meta=raster_meta,
         spatial_extent_geojson=spatial_extent_geojson,
         public_app_url=public_app_url,
+        preferred_languages=preferred_languages,
     )
 
     # Re-build assets with storage_provider for presigned URLs
@@ -265,6 +284,7 @@ def _base_published_raster_query(
             selectinload(Dataset.record).selectinload(Record.keywords),
             selectinload(Dataset.record).selectinload(Record.contacts),
             selectinload(Dataset.record).selectinload(Record.distributions),
+            selectinload(Dataset.record).selectinload(Record.translations),
         )
         .where(
             Record.record_type.in_(_STAC_RECORD_TYPES),
@@ -710,6 +730,7 @@ async def get_collection_items(
             collection_id=coll_id_str,
             spatial_extent_geojson=extent_geojson_map.get(str(dataset.id)),
             public_app_url=public_app_url,
+            preferred_languages=parse_accept_languages(request),
         )
         features.append(item)
 
@@ -759,7 +780,11 @@ async def get_collection_items(
         numberReturned=len(features),
         context={"limit": limit, "returned": len(features), "matched": total},
     )
-    return Response(content=result.model_dump_json(), media_type="application/geo+json")
+    return Response(
+        content=result.model_dump_json(),
+        media_type="application/geo+json",
+        headers=_stac_content_language_headers(features),
+    )
 
 
 async def _build_item_response(
@@ -770,6 +795,7 @@ async def _build_item_response(
     *,
     collection_id: str | None = None,
     public_app_url: str | None = None,
+    preferred_languages: Sequence[str] | None = None,
 ) -> JSONResponse:
     """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
 
@@ -792,8 +818,13 @@ async def _build_item_response(
         raster_meta=raster_meta.get(str(dataset.id)),
         collection_id=collection_id,
         public_app_url=public_app_url,
+        preferred_languages=preferred_languages,
     )
-    return JSONResponse(content=item, media_type="application/geo+json")
+    return JSONResponse(
+        content=item,
+        media_type="application/geo+json",
+        headers=_stac_content_language_headers([item]),
+    )
 
 
 @stac_router.get("/collections/{collection_id}/items/{item_id}", response_model=None)
@@ -842,6 +873,7 @@ async def get_collection_item(
         stac_api_url,
         collection_id=str(collection_id),
         public_app_url=public_app_url,
+        preferred_languages=parse_accept_languages(request),
     )
 
 
@@ -867,7 +899,12 @@ async def get_item(
         )
 
     return await _build_item_response(
-        db, dataset, public_api_url, stac_api_url, public_app_url=public_app_url
+        db,
+        dataset,
+        public_api_url,
+        stac_api_url,
+        public_app_url=public_app_url,
+        preferred_languages=parse_accept_languages(request),
     )
 
 
@@ -1041,6 +1078,7 @@ async def _execute_search(
     limit: int = 10,
     offset: int = 0,
     public_app_url: str | None = None,
+    preferred_languages: Sequence[str] | None = None,
 ) -> JSONResponse:
     """Shared STAC Item Search logic for GET and POST endpoints.
 
@@ -1131,6 +1169,7 @@ async def _execute_search(
             raster_meta=raster_meta_map.get(str(dataset.id)),
             collection_id=collection_id_map.get(str(dataset.id)),
             public_app_url=public_app_url,
+            preferred_languages=preferred_languages,
         )
         features.append(item)
 
@@ -1155,7 +1194,11 @@ async def _execute_search(
         numberReturned=len(features),
         context={"limit": limit, "returned": len(features), "matched": total},
     )
-    return Response(content=result.model_dump_json(), media_type="application/geo+json")
+    return Response(
+        content=result.model_dump_json(),
+        media_type="application/geo+json",
+        headers=_stac_content_language_headers(features),
+    )
 
 
 @stac_router.get(
@@ -1214,6 +1257,7 @@ async def search_get(
         limit=limit,
         offset=offset,
         public_app_url=public_app_url,
+        preferred_languages=parse_accept_languages(request),
     )
 
 
@@ -1296,6 +1340,7 @@ async def search_post(
         limit=max(1, min(body.limit, 200)),
         offset=max(0, body.offset),
         public_app_url=public_app_url,
+        preferred_languages=parse_accept_languages(request),
     )
 
 

@@ -99,7 +99,7 @@ export function ServiceUrlForm() {
           setStep('layer-select');
           toast.error(msg, {
             action: {
-              label: 'View existing',
+              label: t('serviceUrl.viewExisting'),
               onClick: () => { window.location.href = `/datasets/${body.existing_dataset_id}`; },
             },
           });
@@ -152,7 +152,7 @@ export function ServiceUrlForm() {
             {t('serviceUrl.detectedLabel', { defaultValue: 'Service URL — detected' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
-            <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-mini font-semibold uppercase tracking-wider text-success">
+            <span className="flex items-center gap-1.5 border-e border-border bg-success/10 px-3.5 font-mono text-mini font-semibold uppercase tracking-wider text-success">
               <Check className="size-3.5" />
               {probeResult.service_type}
             </span>
@@ -164,7 +164,7 @@ export function ServiceUrlForm() {
             />
             <button
               onClick={reset}
-              className="border-l border-border bg-surface-2 px-4 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+              className="border-s border-border bg-surface-2 px-4 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
             >
               {t('serviceUrl.clear', { defaultValue: 'Clear' })}
             </button>
@@ -262,7 +262,7 @@ export function ServiceUrlForm() {
             {t('serviceUrl.label', { defaultValue: 'Service URL — we\'ll auto-detect the type' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">
-            <span className="flex items-center gap-1.5 border-r border-border bg-surface-2 px-3.5 font-mono text-mini uppercase tracking-wider text-muted-foreground font-medium">
+            <span className="flex items-center gap-1.5 border-e border-border bg-surface-2 px-3.5 font-mono text-mini uppercase tracking-wider text-muted-foreground font-medium">
               <Globe className="size-3.5" />
               URL
             </span>

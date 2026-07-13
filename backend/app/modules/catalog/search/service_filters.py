@@ -19,6 +19,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
     RecordContact,
     RecordKeyword,
+    RecordTranslation,
 )
 
 
@@ -118,6 +119,30 @@ def _build_text_filter(q: str):
         func.catalog.immutable_unaccent(func.coalesce(Record.summary, ""))
     ).like(unaccented_like, escape="\\")
 
+    translation_vector = func.to_tsvector(
+        "simple",
+        func.coalesce(RecordTranslation.title, "")
+        + " "
+        + func.coalesce(RecordTranslation.summary, ""),
+    )
+    translation_fts_sel = select(RecordTranslation.record_id).where(
+        RecordTranslation.record_id == Record.id,
+        translation_vector.bool_op("@@")(ts_query_simple),
+    )
+    translation_like_sel = select(RecordTranslation.record_id).where(
+        RecordTranslation.record_id == Record.id,
+        or_(
+            func.lower(func.catalog.immutable_unaccent(RecordTranslation.title)).like(
+                unaccented_like, escape="\\"
+            ),
+            func.lower(
+                func.catalog.immutable_unaccent(
+                    func.coalesce(RecordTranslation.summary, "")
+                )
+            ).like(unaccented_like, escape="\\"),
+        ),
+    )
+
     kw_fts_sel = select(RecordKeyword.id).where(
         RecordKeyword.record_id == Record.id,
         (
@@ -165,6 +190,8 @@ def _build_text_filter(q: str):
     keyword_partial_exists = exists(kw_like_sel)
     contact_exists = exists(ct_fts_sel)
     contact_partial_exists = exists(ct_like_sel)
+    translation_exists = exists(translation_fts_sel)
+    translation_partial_exists = exists(translation_like_sel)
 
     clause = or_(
         vector_match,
@@ -174,6 +201,8 @@ def _build_text_filter(q: str):
         keyword_partial_exists,
         contact_exists,
         contact_partial_exists,
+        translation_exists,
+        translation_partial_exists,
     )
 
     # Return individual parts too -- search_datasets needs them for ranking.
@@ -190,6 +219,8 @@ def _build_text_filter(q: str):
         "keyword_partial_exists": keyword_partial_exists,
         "contact_exists": contact_exists,
         "contact_partial_exists": contact_partial_exists,
+        "translation_exists": translation_exists,
+        "translation_partial_exists": translation_partial_exists,
     }
 
 

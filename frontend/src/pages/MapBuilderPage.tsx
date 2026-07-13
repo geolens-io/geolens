@@ -239,8 +239,8 @@ export function MapBuilderPage() {
       showBasemapLabels: layers.showBasemapLabels,
       basemapConfig: layers.basemapConfig,
       terrainConfig: layers.localTerrainConfig,
-    }),
-    [layers.localBasemap, layers.showBasemapLabels, layers.basemapConfig, layers.localTerrainConfig],
+    }, t),
+    [layers.localBasemap, layers.showBasemapLabels, layers.basemapConfig, layers.localTerrainConfig, t],
   );
   const applyBasemapPatch = useCallback(
     (patch: BuilderBasemapPatch) => {
@@ -1692,7 +1692,7 @@ export function MapBuilderPage() {
             onShortcutsClick={() => setShowShortcuts(true)}
           />
           {isEditorHidden && (
-            <div className="absolute right-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
+            <div className="absolute end-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
               {mobileRailButtons.map((btn) => (
                 <button
                   key={btn.id}
@@ -1719,7 +1719,7 @@ export function MapBuilderPage() {
                   {btn.id === 'notes' && dockNotes.trim().length > 0 && (
                     <span
                       aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
-                      className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary"
+                      className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
                     />
                   )}
                 </button>

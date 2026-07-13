@@ -315,7 +315,7 @@ describe('getMap normalizer integration', () => {
     const basemapEntry = groups.find((g) => g.id === 'basemap')?.entries[0];
     expect(basemapEntry).toMatchObject({
       badges: expect.arrayContaining([
-        expect.objectContaining({ label: 'muted' }),
+        expect.objectContaining({ label: 'Muted' }),
       ]),
       metadata: {
         basemap: {

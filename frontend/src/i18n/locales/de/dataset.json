@@ -234,6 +234,8 @@
     "bandStack": "VRT-Bandstapel",
     "sourceCount_one": "{{count}} Quelle",
     "sourceCount_other": "{{count}} Quellen",
+    "bandCount_one": "{{count}} Band",
+    "bandCount_other": "{{count}} Bänder",
     "sourceTablePos": "#",
     "sourceTableTitle": "Datensatz",
     "sourceTableCrs": "CRS",
@@ -635,6 +637,8 @@
     "featureCount": "{{count}} Elemente",
     "featureCount_one": "{{count}} Element",
     "featureCount_other": "{{count}} Elemente",
+    "bandCount_one": "{{count}} Band",
+    "bandCount_other": "{{count}} Bänder",
     "similarDatasets": "Ähnliche Datensätze",
     "similarityMatch": "{{percent}}% Übereinstimmung"
   },

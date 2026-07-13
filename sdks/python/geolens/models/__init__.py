@@ -540,6 +540,9 @@ from .tile_token_batch_response_tokens_additional_property_type_2 import (
     TileTokenBatchResponseTokensAdditionalPropertyType2,
 )
 from .token_response import TokenResponse
+from .translation_list_response import TranslationListResponse
+from .translation_response import TranslationResponse
+from .translation_upsert import TranslationUpsert
 from .type_change import TypeChange
 from .upload_config_response import UploadConfigResponse
 from .upload_response import UploadResponse
@@ -1005,6 +1008,9 @@ __all__ = (
     "TileTokenBatchResponseTokens",
     "TileTokenBatchResponseTokensAdditionalPropertyType2",
     "TokenResponse",
+    "TranslationListResponse",
+    "TranslationResponse",
+    "TranslationUpsert",
     "TypeChange",
     "UploadConfigResponse",
     "UploadResponse",

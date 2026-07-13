@@ -49,7 +49,10 @@
       "nodata_inconsistent": "NoData-Wert stimmt nicht überein",
       "grid_misaligned": "Gitterabmessungen stimmen nicht überein"
     },
-    "searchError": "Ergebnisse konnten nicht geladen werden"
+    "searchError": "Ergebnisse konnten nicht geladen werden",
+    "bandCount_one": "{{count}} Band",
+    "bandCount_other": "{{count}} Bänder",
+    "resolutionValue": "Auflösung: {{value}}"
   },
   "upload": {
     "startOver": "Neu beginnen",
@@ -185,7 +188,8 @@
     "probe": "Prüfen →",
     "supported": "Unterstützt:",
     "unknownDataset": "Unbekannter Datensatz",
-    "alreadyRegistered": "Bereits registriert: \"{{title}}\""
+    "alreadyRegistered": "Bereits registriert: \"{{title}}\"",
+    "viewExisting": "Vorhandenen Datensatz anzeigen"
   },
   "register": {
     "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
@@ -220,6 +224,8 @@
     "searchPlaceholder": "Tabellen suchen…",
     "selectHint": "Eine Tabelle aus der Liste auswählen, um ihr Schema zu sehen und sie zu registrieren.",
     "detailDesc": "Als GeoLens-Datensatz registrieren — direkt aus Tabellen gekachelt, keine Kopie.",
+    "tableCount_one": "{{schema}} · {{count}} Tabelle",
+    "tableCount_other": "{{schema}} · {{count}} Tabellen",
     "stats": {
       "rows": "Zeilen",
       "geometry": "Geometrie",
@@ -327,6 +333,16 @@
     "copyXyzUrl": "XYZ-Tile-URL kopieren",
     "cogDownloadFailed": "COG-Download konnte nicht gestartet werden — bitte erneut versuchen",
     "rowsSuffix": "Zeilen",
+    "connect": "Verbinden",
+    "status": {
+      "pending": "Ausstehend",
+      "running": "Wird ausgeführt",
+      "complete": "Abgeschlossen",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen",
+      "fannedOut": "Aufgeteilt",
+      "unknown": "Unbekannt ({{status}})"
+    },
     "step": {
       "validating": "Wird validiert",
       "ogr2ogr": "Features werden geladen",

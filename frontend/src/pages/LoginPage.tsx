@@ -337,7 +337,7 @@ export function LoginPage() {
           onClick={handleBrowseCatalog}
         >
           {t('browseCatalogCta')}
-          <ArrowRight className="size-3.5 text-primary-600" />
+          <ArrowRight className="size-3.5 text-primary-600 rtl-mirror" />
         </Button>
 
         <div className="w-full max-w-[360px]">
@@ -434,7 +434,7 @@ export function LoginPage() {
               onClick={handleBrowseCatalog}
             >
               {t('browseCatalogCta')}
-              <ArrowRight className="size-3.5 text-primary-600" />
+              <ArrowRight className="size-3.5 text-primary-600 rtl-mirror" />
             </Button>
           </div>
         </div>

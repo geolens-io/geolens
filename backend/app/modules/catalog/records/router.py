@@ -3,8 +3,8 @@
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -31,6 +31,10 @@ from app.modules.catalog.records.schemas import (
     KeywordCreate,
     KeywordListResponse,
     KeywordResponse,
+    TranslationListResponse,
+    TranslationResponse,
+    TranslationUpsert,
+    normalize_language_tag,
 )
 from app.modules.catalog.records.service import (
     create_contact,
@@ -46,6 +50,9 @@ from app.modules.catalog.records.service import (
     list_contacts,
     list_distributions,
     list_keywords,
+    list_translations,
+    upsert_translation,
+    delete_translation,
     update_contact,
     update_distribution,
 )
@@ -54,6 +61,15 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/records", tags=["Records"], responses=ERROR_RESPONSES_WRITE)
+
+
+_LANGUAGE_PATH = Path(
+    ...,
+    min_length=2,
+    max_length=35,
+    pattern=r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$",
+    description="BCP 47 language tag, for example fr or pt-BR",
+)
 
 
 async def _propagate_record_write(record_id: uuid.UUID, *, reembed: bool) -> None:
@@ -167,6 +183,88 @@ async def _check_record_ownership(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Not authorized to modify this record",
     )
+
+
+# ---------------------------------------------------------------------------
+# Localized title/summary variants
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{record_id}/translations/", response_model=TranslationListResponse)
+async def list_translations_endpoint(
+    record_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> TranslationListResponse:
+    """List localized title/summary variants visible with the parent record."""
+    await _check_record_read_access(db, record_id, user)
+    translations = await list_translations(db, record_id)
+    return TranslationListResponse(
+        translations=[TranslationResponse.model_validate(t) for t in translations],
+        total=len(translations),
+    )
+
+
+@router.put(
+    "/{record_id}/translations/{language}/",
+    response_model=TranslationResponse,
+)
+async def upsert_translation_endpoint(
+    record_id: uuid.UUID,
+    body: TranslationUpsert,
+    language: str = _LANGUAGE_PATH,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> TranslationResponse:
+    """Create or replace one localized title/summary variant."""
+    record = await _check_record_ownership(db, record_id, user)
+    normalized_language = normalize_language_tag(language)
+    try:
+        translation = await upsert_translation(
+            db,
+            record_id,
+            language=normalized_language,
+            title=body.title,
+            summary=body.summary,
+            record=record,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    record.updated_at = func.now()
+    record.updated_by = user.id
+    await db.commit()
+    await db.refresh(translation)
+    await _propagate_record_write(record_id, reembed=True)
+    return TranslationResponse.model_validate(translation)
+
+
+@router.delete(
+    "/{record_id}/translations/{language}/",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_translation_endpoint(
+    record_id: uuid.UUID,
+    language: str = _LANGUAGE_PATH,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Delete one localized title/summary variant."""
+    record = await _check_record_ownership(db, record_id, user)
+    try:
+        await delete_translation(db, record_id, normalize_language_tag(language))
+        record.updated_at = func.now()
+        record.updated_by = user.id
+        await db.commit()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Record translation not found",
+        )
+    await _propagate_record_write(record_id, reembed=True)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

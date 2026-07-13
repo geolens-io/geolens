@@ -113,7 +113,7 @@ export function MapTitleBar({
             className="text-sm font-medium truncate bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 -ms-1.5 w-full hover:bg-accent/40 transition-colors pe-5"
             title={name}
           />
-          <Pencil className="absolute right-1 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 group-focus-within:opacity-0 transition-opacity pointer-events-none" />
+          <Pencil className="absolute end-1 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 group-focus-within:opacity-0 transition-opacity pointer-events-none" />
         </div>
 
         {/* Inline description */}
@@ -176,7 +176,7 @@ export function MapTitleBar({
                   <span className="relative inline-flex">
                     <Save className="h-3 w-3" />
                     <span
-                      className="absolute -top-1 -right-1 h-1.5 w-1.5 rounded-full bg-warning ring-1 ring-background"
+                      className="absolute -top-1 -end-1 h-1.5 w-1.5 rounded-full bg-warning ring-1 ring-background"
                       aria-label={t('titleBar.unsavedDot', { defaultValue: 'Unsaved changes' })}
                     />
                   </span>
