@@ -51,7 +51,7 @@ dependencies = [
     # 8.0.0 lifts the starlette<1.0.0 cap (prior 7.x pinned <1.0.0), which was
     # the sole blocker preventing starlette>=1.0.1 from resolving for the
     # CVE-2026-48710 fix below.
-    "prometheus-fastapi-instrumentator>=8.0.0",
+    "prometheus-fastapi-instrumentator>=8.0.2",
     "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
     "python-multipart>=0.0.27",
     # httpx: promoted from [dependency-groups].dev to prod (dep-audit 2026-06-02).
