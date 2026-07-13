@@ -1078,7 +1078,7 @@ export function ChatPanel({
                     return (
                       <div className="mt-2 rounded-md border border-border px-3 py-2">
                         <p className="text-sm text-muted-foreground">{t('chat.queryResult.empty')}</p>
-                        <p className="text-xs text-muted-foreground/80 mt-1">{t('chat.queryResult.emptyHint')}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{t('chat.queryResult.emptyHint')}</p>
                       </div>
                     );
                   }
@@ -1129,7 +1129,7 @@ export function ChatPanel({
                         {/* builder-audit #338 DEAD-01: surface the wire `truncated` flag so the card
                             cannot show a capped table as if it were the complete result set. */}
                         {queryResultAction.truncated && (
-                          <span className="ms-1 text-muted-foreground/80">
+                          <span className="ms-1 text-muted-foreground">
                             {t('chat.queryResult.truncated', { defaultValue: '(showing a sample)' })}
                           </span>
                         )}

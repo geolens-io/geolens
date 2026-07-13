@@ -218,7 +218,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
       onMouseEnter={prefetchDetail}
       onFocus={prefetchDetail}
     >
-      <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
+      <Card density="flush" className="cursor-pointer overflow-hidden border-border/50 bg-card/95 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
         <div className="p-3 sm:p-4 lg:p-3.5">
           <div className="flex flex-col gap-1.5">
 
@@ -238,7 +238,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                   {properties.title}
                 </span>
                 {properties.description && (
-                  <p className="text-[13px] leading-5 text-muted-foreground/80 line-clamp-1">
+                  <p className="text-sm leading-5 text-muted-foreground line-clamp-1">
                     {properties.description}
                   </p>
                 )}
@@ -269,7 +269,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                     </p>
                   )}
                   <p
-                    className="text-[13px] leading-5 text-muted-foreground/85 line-clamp-2"
+                    className="text-sm leading-5 text-muted-foreground line-clamp-2"
                     data-testid="dataset-card-description"
                   >
                     {buildAutoDescription(properties, t, i18n.language)}
@@ -366,7 +366,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                         src={quicklookBlobUrl}
                         loading="lazy"
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
-                        className="size-[132px] object-cover xl:size-[148px]"
+                        className="size-[132px] object-cover dark:brightness-75 xl:size-[148px]"
                       />
                     ) : (
                       <BBoxPreview bbox={bbox} className="size-[132px] rounded-md bg-muted xl:size-[148px]" />

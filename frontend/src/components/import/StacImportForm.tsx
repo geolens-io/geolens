@@ -284,7 +284,7 @@ export function StacImportForm() {
         <div className="rounded-xl border border-success/30 bg-success/5 p-5">
           <div className="flex items-center gap-2 mb-3">
             <Check className="size-5 text-success" />
-            <h3 className="text-[15px] font-medium">{t('stac.importComplete')}</h3>
+            <h3 className="text-sm font-medium">{t('stac.importComplete')}</h3>
           </div>
           <div className="flex gap-6 text-sm text-muted-foreground">
             {importResult.created > 0 && (
@@ -301,20 +301,20 @@ export function StacImportForm() {
 
         {groupedFailures.length > 0 && (
           <details className="overflow-hidden rounded-xl border border-destructive/30 bg-destructive/5" open>
-            <summary className="cursor-pointer select-none px-5 py-3 text-[13px] font-medium text-destructive">
+            <summary className="cursor-pointer select-none px-5 py-3 text-xs font-medium text-destructive">
               {t('stac.failureDetails', { count: importResult.errors })}
             </summary>
             <ul className="divide-y divide-destructive/15 border-t border-destructive/20">
               {groupedFailures.map((group) => (
                 <li key={group.message} className="px-5 py-3">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-[13px] text-foreground">{group.message}</p>
+                    <p className="text-xs text-foreground">{group.message}</p>
                     <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 font-mono text-mini font-semibold text-destructive">
                       {t('stac.failureGroupCount', { count: group.itemIds.length })}
                     </span>
                   </div>
                   <p
-                    className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground"
+                    className="mt-1 truncate font-mono text-2xs text-muted-foreground"
                     title={group.itemIds.join(', ')}
                   >
                     {group.itemIds.join(', ')}
@@ -355,11 +355,11 @@ export function StacImportForm() {
               type="text"
               readOnly
               value={catalogInfo.url}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-[13.5px] text-foreground outline-none"
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none"
             />
             <button
               onClick={reset}
-              className="border-l border-border bg-surface-2 px-4 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+              className="border-l border-border bg-surface-2 px-4 text-xs font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
             >
               {t('stac.clear')}
             </button>
@@ -373,7 +373,7 @@ export function StacImportForm() {
               STAC
             </span>
             <div className="flex-1">
-              <h3 className="text-[15px] font-medium tracking-tight">{catalogInfo.title}</h3>
+              <h3 className="text-sm font-medium tracking-tight">{catalogInfo.title}</h3>
               <p className="font-mono text-mini text-muted-foreground tracking-wide">
                 {t('stac.collectionsAvailable', { count: collections.length })}
               </p>
@@ -394,7 +394,7 @@ export function StacImportForm() {
               >
                 <Layers className="mt-0.5 size-4 shrink-0 text-type-raster" />
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-[12.5px] font-medium tracking-tight">
+                  <p className="truncate text-xs font-medium tracking-tight">
                     {col.title}
                   </p>
                   {col.description && (
@@ -402,7 +402,7 @@ export function StacImportForm() {
                       {col.description}
                     </p>
                   )}
-                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-muted-foreground/70">
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-muted-foreground">
                     {col.item_count != null && <span>{t('stac.itemCount', { count: col.item_count })}</span>}
                     {col.license && <span>{col.license}</span>}
                     {col.temporal_start && (
@@ -453,7 +453,7 @@ export function StacImportForm() {
 
         {/* Action bar */}
         <div className="flex items-center justify-between rounded-lg border border-border bg-surface-1 px-4 py-2.5">
-          <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={allSelected}
@@ -517,8 +517,8 @@ export function StacImportForm() {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-[13px] font-medium">{item.title}</p>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0 font-mono text-[10.5px] text-muted-foreground">
+                  <p className="truncate text-xs font-medium">{item.title}</p>
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0 font-mono text-2xs text-muted-foreground">
                     {item.datetime_start && (
                       <span className="flex items-center gap-0.5">
                         <Calendar className="size-2.5" />
@@ -567,12 +567,12 @@ export function StacImportForm() {
               placeholder="https://earth-search.aws.element84.com/v1"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/50"
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
             />
             <button
               type="submit"
               disabled={!url.trim()}
-              className="bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+              className="bg-primary px-4 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t('stac.connect', { defaultValue: 'Connect' })}
             </button>

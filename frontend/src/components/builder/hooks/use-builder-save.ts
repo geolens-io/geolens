@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
+import { MAP_COLORS } from '@/lib/map-colors';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
@@ -764,18 +765,18 @@ export function useBuilderSave(state: SaveState) {
             return;
           }
 
-          ctx.fillStyle = '#ffffff';
+          ctx.fillStyle = MAP_COLORS.exportImage.background;
           ctx.fillRect(0, 0, totalW, totalH);
 
           let cursorY = 0;
           ctx.textBaseline = 'top';
 
           if (title) {
-            ctx.fillStyle = '#0a0a0a';
+            ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `700 ${titleFontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             ctx.fillText(title, pad, cursorY + pad);
             if (description) {
-              ctx.fillStyle = '#666666';
+              ctx.fillStyle = MAP_COLORS.exportImage.mutedText;
               ctx.font = `400 ${descFontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
               ctx.fillText(description, pad, cursorY + pad + titleFontPx + 8 * dpr);
             }
@@ -787,7 +788,7 @@ export function useBuilderSave(state: SaveState) {
 
           if (legendLayers.length > 0) {
             cursorY += 12 * dpr;
-            ctx.fillStyle = '#0a0a0a';
+            ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             ctx.fillText(t('export.legendHeader', { defaultValue: 'Legend' }), pad, cursorY);
             cursorY += legendHeaderH;
@@ -816,7 +817,7 @@ export function useBuilderSave(state: SaveState) {
                 layer.paint?.['circle-stroke-width'] === 0 ||
                 layer.paint?.['_outline-width'] === 0;
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
-              const solidFill = colors.find((c) => !!c) || '#6366f1';
+              const solidFill = colors.find((c) => !!c) || MAP_COLORS.icon.fallback;
               let filled = false;
               if (colors.length > 1) {
                 try {
@@ -831,10 +832,10 @@ export function useBuilderSave(state: SaveState) {
               }
               if (!filled) ctx.fillStyle = solidFill;
               ctx.fillRect(pad, rowY, swatchSize, swatchSize);
-              ctx.strokeStyle = (!strokeHidden && hints.strokeColor) || 'rgba(0,0,0,0.35)';
+              ctx.strokeStyle = (!strokeHidden && hints.strokeColor) || MAP_COLORS.previewOutline;
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
-              ctx.fillStyle = '#0a0a0a';
+              ctx.fillStyle = MAP_COLORS.exportImage.text;
               ctx.fillText(
                 layer.display_name || layer.dataset_name,
                 pad + swatchSize + 10 * dpr,
@@ -846,7 +847,7 @@ export function useBuilderSave(state: SaveState) {
 
           if (showBranding) {
             const footerText = t('export.poweredBy', { defaultValue: 'Powered by GeoLens' });
-            ctx.fillStyle = '#999999';
+            ctx.fillStyle = MAP_COLORS.exportImage.attribution;
             ctx.font = `400 ${12 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             ctx.textBaseline = 'middle';
             const metrics = ctx.measureText(footerText);

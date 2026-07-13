@@ -18,7 +18,7 @@ export function UsedInMaps({ datasetId }: UsedInMapsProps) {
   }
 
   return (
-    <Card className="gap-2 py-4">
+    <Card density="compact">
       <CardHeader className="pb-2">
         <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('usedInMaps.title')}

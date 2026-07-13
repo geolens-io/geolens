@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { getEnabledPluginDefinitions } from '@/components/map-plugins';
 import { StyleColorPicker } from './StyleColorPicker';
 import type { MapTerrainConfig } from '@/types/api';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 export interface SettingsEditorSceneProps {
   // Terrain
@@ -67,7 +68,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
     [enabledPluginIds],
   );
 
-  const backgroundSwatch = backgroundColor ?? '#ffffff';
+  const backgroundSwatch = backgroundColor ?? MAP_COLORS.canvas.settingsBackground;
 
   const terrainCollapsedHint = isTerrainActive
     ? boundLayerName ?? t('settings.terrainActiveHint', { defaultValue: 'Terrain active' })

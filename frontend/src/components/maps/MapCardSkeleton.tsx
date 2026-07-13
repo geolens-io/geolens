@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function MapCardSkeleton() {
   return (
-    <Card className="!flex-row !gap-0 !py-0 items-start overflow-hidden">
+    <Card density="flush" className="flex-row items-start overflow-hidden">
       <div className="w-40 shrink-0 aspect-[8/5]">
         <Skeleton className="w-full h-full" />
       </div>

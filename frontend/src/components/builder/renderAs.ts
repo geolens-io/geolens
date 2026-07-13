@@ -367,7 +367,7 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
       return (
         (typeof builder.clusterRadius === 'number' && builder.clusterRadius !== 48)
         || (typeof builder.clusterMaxZoom === 'number' && builder.clusterMaxZoom !== 14)
-        || (typeof builder.clusterTextColor === 'string' && builder.clusterTextColor !== '#ffffff')
+        || (typeof builder.clusterTextColor === 'string' && builder.clusterTextColor !== MAP_COLORS.cluster.text)
         || (typeof builder.clusterTextSize === 'number' && builder.clusterTextSize !== 12)
         || (typeof builder.clusterColor === 'string' && builder.clusterColor !== seededClusterColor)
         || (Array.isArray(builder.clusterColorRamp) && builder.clusterColorRamp.length > 0)
@@ -492,7 +492,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
           clusterRadius: layer.style_config?.builder?.clusterRadius ?? 48,
           clusterMaxZoom: layer.style_config?.builder?.clusterMaxZoom ?? 14,
           clusterColor: layer.style_config?.builder?.clusterColor ?? clusterColor,
-          clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? '#ffffff',
+          clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? MAP_COLORS.cluster.text,
           clusterTextSize: layer.style_config?.builder?.clusterTextSize ?? 12,
         }, { render_mode: 'cluster' }),
       },

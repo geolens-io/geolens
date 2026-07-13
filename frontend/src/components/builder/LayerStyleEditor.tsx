@@ -18,6 +18,7 @@ import { isNumericColumn } from '@/lib/column-utils';
 import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
 import { getLayerColors } from '@/components/map/layer-icons';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { getRenderAsOptions } from './renderAs';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
@@ -73,7 +74,7 @@ function StyleControlSection({
 function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: () => void }) {
   const { t } = useTranslation('builder');
   const colors = getLayerColors(layer);
-  const swatchColor = colors[0] ?? '#6366f1';
+  const swatchColor = colors[0] ?? MAP_COLORS.icon.fallback;
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-2">
       <div className="flex min-w-0 items-center gap-2">

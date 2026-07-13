@@ -475,7 +475,7 @@ export function SamlProvidersSection() {
                 }
                 placeholder={buildDefaultEntityId(form.slug || 'your-slug')}
               />
-              <p className="text-xs text-amber-700 dark:text-amber-500">
+              <p className="text-xs text-warning">
                 {t('saml.spEntityIdWarning')}
               </p>
             </div>

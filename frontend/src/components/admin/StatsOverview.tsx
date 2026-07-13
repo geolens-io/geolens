@@ -15,6 +15,7 @@ import { formatBytes, formatNumber } from '@/lib/format';
 import { semanticBadgeColors, visibilityColors } from '@/lib/status-colors';
 import {
   Card,
+  CardAction,
   CardContent,
   CardHeader,
   CardTitle,
@@ -113,22 +114,22 @@ function SystemHealthCard() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {overallHealthy ? (
-              <CheckCircle2 className="h-5 w-5 text-success" />
-            ) : (
-              <XCircle className="h-5 w-5 text-destructive" />
-            )}
-            <div>
-              <CardTitle className="text-base">
-                {overallHealthy ? t('infrastructure.allOperational') : t('infrastructure.degraded')}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {t('infrastructure.autoRefresh')}
-              </p>
-            </div>
+        <div className="flex items-center gap-3">
+          {overallHealthy ? (
+            <CheckCircle2 className="h-5 w-5 text-success" />
+          ) : (
+            <XCircle className="h-5 w-5 text-destructive" />
+          )}
+          <div>
+            <CardTitle level={2} className="text-base">
+              {overallHealthy ? t('infrastructure.allOperational') : t('infrastructure.degraded')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t('infrastructure.autoRefresh')}
+            </p>
           </div>
+        </div>
+        <CardAction className="self-center">
           <Button
             variant="ghost"
             size="icon"
@@ -140,7 +141,7 @@ function SystemHealthCard() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
-        </div>
+        </CardAction>
       </CardHeader>
       <CardContent>
         <div className="divide-y">
@@ -251,7 +252,7 @@ export function StatsOverview() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">{t('stats.byGeometryType')}</CardTitle>
+            <CardTitle level={2} className="text-sm font-medium">{t('stats.byGeometryType')}</CardTitle>
           </CardHeader>
           <CardContent>
             {Object.keys(data.datasets_by_geometry_type).length === 0 ? (
@@ -287,7 +288,7 @@ export function StatsOverview() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">{t('stats.byVisibility')}</CardTitle>
+            <CardTitle level={2} className="text-sm font-medium">{t('stats.byVisibility')}</CardTitle>
           </CardHeader>
           <CardContent>
             {Object.keys(data.datasets_by_visibility).length === 0 ? (

@@ -78,7 +78,7 @@ export function PublicViewerPage() {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
       <div className="app-surface-gradient flex min-h-screen items-center justify-center px-6">
-        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">
+        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           {isExpired ? (
             <>
               <Clock className="size-10 text-muted-foreground" />
@@ -186,7 +186,7 @@ export function PublicViewerPage() {
       {!isEmbed && (
         <AppFooter
           showBranding={showFooterBranding}
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-2xs text-muted-foreground/80"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-2xs text-muted-foreground"
           navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
         />
       )}

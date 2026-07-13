@@ -1,6 +1,7 @@
 {
   "title": "Import Data",
   "tabs": {
+    "label": "Import sources",
     "upload": "Upload File",
     "register": "Register Table",
     "service": "Service URL",

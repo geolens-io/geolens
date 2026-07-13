@@ -71,7 +71,7 @@ export function RegisterPage() {
         </div>
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle className="text-xl text-destructive">{t('common:error', { defaultValue: 'Error' })}</CardTitle>
+            <CardTitle level={2} className="text-xl text-destructive">{t('common:error', { defaultValue: 'Error' })}</CardTitle>
             <CardDescription>
               {t('configLoadError', { defaultValue: 'Unable to load registration settings. Please try again.' })}
             </CardDescription>
@@ -103,7 +103,7 @@ export function RegisterPage() {
         </div>
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle className="text-xl">{t('registrationDisabled')}</CardTitle>
+            <CardTitle level={2} className="text-xl">{t('registrationDisabled')}</CardTitle>
             <CardDescription>
               {t('registrationDisabledDescription')}
             </CardDescription>

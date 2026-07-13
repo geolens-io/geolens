@@ -163,7 +163,7 @@ export function ImportMetadataForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('metadata.title')}</CardTitle>
+        <CardTitle level={2}>{t('metadata.title')}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">

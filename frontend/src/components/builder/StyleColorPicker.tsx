@@ -6,6 +6,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 interface StyleColorPickerProps {
   label: string;
@@ -17,25 +18,19 @@ interface StyleColorPickerProps {
 // Previously copied inline in DataDrivenStyleEditor (two sites).
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
-// Map symbol preset colors — not UI chrome; exempt from design token rule
-const PRESET_COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#14b8a6', // teal
-  '#6366f1', // indigo
-  '#84cc16', // lime
-  '#a855f7', // purple
-  '#0ea5e9', // sky
-  '#d946ef', // fuchsia
-  '#64748b', // slate
-  '#1e293b', // dark
-];
+// Map symbol preset colors — not UI chrome. Reuse the centralized map palette
+// so a newly created layer always has a selected preset swatch.
+export const PRESET_COLORS = [
+  ...MAP_COLORS.categorical,
+  MAP_COLORS.selection.fill,
+  MAP_COLORS.drawing.fill,
+  MAP_COLORS.closing.point,
+  MAP_COLORS.ephemeral.color,
+  MAP_COLORS.icon.outline,
+  MAP_COLORS.label.color,
+  MAP_COLORS.cluster.text,
+  MAP_COLORS.canvas.background,
+] as const;
 
 /**
  * builder-audit #338 DRY-02: compact swatch button + popover hex editor shared by the
@@ -117,7 +112,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
                 onClick={() => onChange(hex)}
                 className={cn(
                   'cursor-pointer w-5 h-5 rounded-sm border transition-transform hover:scale-125',
-                  localColor === hex ? 'ring-2 ring-ring ring-offset-background' : 'border-border',
+                  localColor === hex ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'border-border',
                 )}
                 style={{ background: hex }}
                 title={hex}

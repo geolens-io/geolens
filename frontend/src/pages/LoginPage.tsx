@@ -298,20 +298,20 @@ export function LoginPage() {
 
           {/* Middle — hero (optically centered) */}
           <div className="my-auto max-w-[460px] py-8">
-            <h1 className="text-pretty text-[42px] font-semibold leading-[1.08] tracking-[-0.025em] text-foreground">
+            <h1 className="text-pretty text-4xl font-semibold leading-[1.08] tracking-[-0.025em] text-foreground">
               {t('loginHero')}
             </h1>
-            <p className="mt-4 max-w-[400px] text-[15.5px] leading-[1.55] text-muted-foreground">
+            <p className="mt-4 max-w-[400px] text-base leading-[1.55] text-muted-foreground">
               {t('loginHeroSub')}
             </p>
 
             <div className="mt-8 flex flex-col gap-3.5">
               {features.map(({ Icon, title, desc }) => (
                 <div key={title} className="flex items-start gap-3">
-                  <span className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary-600">
+                  <span className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <Icon className="size-[15px]" />
                   </span>
-                  <span className="text-[13.5px]">
+                  <span className="text-sm">
                     <span className="block font-semibold text-foreground">{title}</span>
                     <span className="leading-[1.45] text-muted-foreground">{desc}</span>
                   </span>
@@ -321,7 +321,7 @@ export function LoginPage() {
           </div>
 
           {/* Bottom — instance footer */}
-          <div className="flex items-center justify-between font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
+          <div className="flex items-center justify-between font-mono text-2xs tracking-[0.04em] text-muted-foreground">
             <span>{instanceHost}</span>
             <span>40.7128°N · 74.0060°W</span>
           </div>
@@ -333,11 +333,11 @@ export function LoginPage() {
         {/* Persistent top-right browse link — the immediate escape hatch. */}
         <Button
           variant="ghost"
-          className="absolute right-[14px] top-[14px] h-auto gap-1.5 px-3 py-1.5 text-[13px] font-medium text-muted-foreground min-[880px]:right-[26px] min-[880px]:top-[22px]"
+          className="absolute right-[14px] top-[14px] h-auto gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground min-[880px]:right-[26px] min-[880px]:top-[22px]"
           onClick={handleBrowseCatalog}
         >
           {t('browseCatalogCta')}
-          <ArrowRight className="size-3.5 text-primary-600 rtl-mirror" />
+          <ArrowRight className="size-3.5 text-primary rtl-mirror" />
         </Button>
 
         <div className="w-full max-w-[360px]">
@@ -347,10 +347,10 @@ export function LoginPage() {
           <h1 className="sr-only min-[880px]:hidden">{t('signIn')}</h1>
           {/* Form head */}
           <div className="mb-5">
-            <h2 className="text-[19px] font-semibold tracking-[-0.01em] text-foreground">
+            <h2 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
               {t('signIn')}
             </h2>
-            <p className="mt-1 text-[13.5px] text-muted-foreground">{t('welcomeBack')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('welcomeBack')}</p>
           </div>
 
           {configError && (
@@ -397,7 +397,7 @@ export function LoginPage() {
           </div>
 
           {/* Legal */}
-          <p className="mt-5 text-center text-[11.5px] leading-relaxed text-muted-foreground">
+          <p className="mt-5 text-center text-mini leading-relaxed text-muted-foreground">
             {t('consentNote')}{' '}
             <a
               href={GEOLENS_PRIVACY_URL}
@@ -423,7 +423,7 @@ export function LoginPage() {
 
           {/* Browse block — second, deliberate browse path at the end of the form. */}
           <div className="mt-[18px] border-t border-border pt-[18px] text-center">
-            <p className="mb-2.5 text-[12.5px] text-muted-foreground">
+            <p className="mb-2.5 text-xs text-muted-foreground">
               {t('browseCatalogHelper')}
             </p>
             {/* FRONT-02: sets gl-guest-browse to suppress the landing-first
@@ -434,7 +434,7 @@ export function LoginPage() {
               onClick={handleBrowseCatalog}
             >
               {t('browseCatalogCta')}
-              <ArrowRight className="size-3.5 text-primary-600 rtl-mirror" />
+              <ArrowRight className="size-3.5 text-primary rtl-mirror" />
             </Button>
           </div>
         </div>

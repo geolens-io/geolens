@@ -22,6 +22,8 @@ test.describe('Accessibility - WCAG 2AA', () => {
   let shareToken: string;
   let datasetId: string;
   let datasetTitle: string;
+  let collectionId: string;
+  let collectionName: string;
 
   test.beforeAll(async () => {
     // Seed a real dataset so the dataset-detail test has something to render.
@@ -30,6 +32,34 @@ test.describe('Accessibility - WCAG 2AA', () => {
     const seeded = await seedDataset();
     datasetId = seeded.id;
     datasetTitle = seeded.title;
+
+    collectionName = `A11y Collection Test ${Date.now()}`;
+    const collectionResponse = await fetch(`${BASE_URL}/api/catalog/collections/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+      body: JSON.stringify({
+        name: collectionName,
+        description: 'Temporary collection for detail-page accessibility coverage',
+      }),
+    });
+    expect(collectionResponse.ok).toBe(true);
+    collectionId = ((await collectionResponse.json()) as { id: string }).id;
+
+    const membershipResponse = await fetch(
+      `${BASE_URL}/api/catalog/collections/${collectionId}/datasets/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({ dataset_ids: [datasetId] }),
+      },
+    );
+    expect(membershipResponse.ok).toBe(true);
 
     builderMapName = `A11y Builder Test ${Date.now()}`;
     const response = await fetch(`${BASE_URL}/api/maps/`, {
@@ -49,13 +79,28 @@ test.describe('Accessibility - WCAG 2AA', () => {
     builderMapId = payload.id;
     expect(builderMapId).toBeTruthy();
 
+    const layerResponse = await fetch(`${BASE_URL}/api/maps/${builderMapId}/layers/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+      body: JSON.stringify({ dataset_id: datasetId }),
+    });
+    expect(layerResponse.ok).toBe(true);
+
     const publishResponse = await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${getAuthToken()}`,
       },
-      body: JSON.stringify({ visibility: 'public' }),
+      body: JSON.stringify({
+        visibility: 'public',
+        center_lng: -73.9857,
+        center_lat: 40.7484,
+        zoom: 14,
+      }),
     });
     expect(publishResponse.ok).toBe(true);
 
@@ -73,6 +118,14 @@ test.describe('Accessibility - WCAG 2AA', () => {
   });
 
   test.afterAll(async () => {
+    if (collectionId) {
+      await fetch(`${BASE_URL}/api/catalog/collections/${collectionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+      }).catch(() => {
+        /* teardown is best-effort; the CI stack is torn down anyway */
+      });
+    }
     if (datasetId) await deleteDataset(datasetId, datasetTitle);
     if (!builderMapId) return;
     await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
@@ -111,6 +164,16 @@ test.describe('Accessibility - WCAG 2AA', () => {
     test('public saved-map output has no accessibility violations', async ({ page }) => {
       await page.goto(`/m/${shareToken}`);
       await expect(page.getByText(builderMapName)).toBeVisible({ timeout: 15_000 });
+      await page.getByRole('button', { name: 'Map data' }).click();
+      const dataDialog = page.getByRole('dialog', { name: 'Map data' });
+      await expect(dataDialog).toBeVisible();
+      await expect(dataDialog.getByText(datasetTitle).first()).toBeVisible();
+      await expect(
+        dataDialog.getByRole('region', { name: 'Map layer and feature data' }),
+      ).toBeVisible();
+      await expect(dataDialog.getByText('E2E Test Point', { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
       await page.waitForLoadState('networkidle').catch(() => {
         /* MapLibre/background tile requests may keep the page active. */
       });
@@ -140,6 +203,20 @@ test.describe('Accessibility - WCAG 2AA', () => {
     const results = await new AxeBuilder({ page })
       .withTags(wcagTags)
       .exclude('.maplibregl-map')
+      .analyze();
+
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
+  test('collection detail page has no accessibility violations', async ({ page }) => {
+    await page.goto(`/collections/${collectionId}`);
+    await expect(
+      page.getByRole('heading', { name: collectionName, exact: true }),
+    ).toBeVisible();
+    await page.waitForLoadState('networkidle');
+
+    const results = await new AxeBuilder({ page })
+      .withTags(wcagTags)
       .analyze();
 
     expect(results.violations, formatViolations(results.violations)).toEqual([]);

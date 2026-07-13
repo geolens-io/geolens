@@ -194,7 +194,7 @@ export function InlineEdit({
         className,
       )}
     >
-      {value || <span className="text-foreground/70 italic">{placeholder}</span>}
+      {value || <span className="text-muted-foreground italic">{placeholder}</span>}
     </Tag>
   );
 }

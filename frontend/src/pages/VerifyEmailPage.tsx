@@ -92,7 +92,7 @@ export function VerifyEmailPage() {
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
             <Loader2 className="text-muted-foreground mb-2 h-10 w-10 animate-spin" />
-            <CardTitle className="text-xl">{t('verifyEmail.title')}</CardTitle>
+            <CardTitle level={2} className="text-xl">{t('verifyEmail.title')}</CardTitle>
             <CardDescription>{t('verifyEmail.verifying')}</CardDescription>
           </CardHeader>
         </Card>
@@ -102,7 +102,7 @@ export function VerifyEmailPage() {
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
             <Mail className="text-primary mb-2 h-10 w-10" />
-            <CardTitle className="text-xl">{t('verifyEmail.title')}</CardTitle>
+            <CardTitle level={2} className="text-xl">{t('verifyEmail.title')}</CardTitle>
             <CardDescription>{t('verifyEmail.success')}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
@@ -119,7 +119,7 @@ export function VerifyEmailPage() {
       {pageState === 'error' && (
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
-            <CardTitle className="text-destructive text-xl">
+            <CardTitle level={2} className="text-destructive text-xl">
               {t('verifyEmail.invalid')}
             </CardTitle>
             <CardDescription>{t('verifyEmail.invalidDescription')}</CardDescription>

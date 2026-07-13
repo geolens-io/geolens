@@ -16,7 +16,7 @@ import type { UserResponse } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -165,44 +165,46 @@ export function UserList() {
   return (
     <>
       <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              {t('users.title')}
-              {data ? <Badge variant="secondary">{data.total}</Badge> : null}
-            </CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
-              <DataTableSearch
-                value={searchQuery}
-                onChange={(v) => { setSearchQuery(v); setPage(0); }}
-                placeholder={t('users.table.username') + ' / ' + t('users.table.email')}
-              />
-              <FilterSelect
-                label=""
-                ariaLabel={t('users.table.status')}
-                value={statusFilter}
-                onChange={(v) => { setStatusFilter(v); setPage(0); }}
-                options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleExportCsv}
-                disabled={isExporting}
-                aria-busy={isExporting || undefined}
-              >
-                {isExporting ? (
-                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="me-2 h-4 w-4" />
-                )}
-                {t('users.exportEmailsCsv')}
-              </Button>
-              <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-                <UserPlus className="me-2 h-4 w-4" /> {t('users.addUser')}
-              </Button>
-            </div>
-          </div>
+        <CardHeader className="has-data-[slot=card-action]:grid-cols-1 md:has-data-[slot=card-action]:grid-cols-[1fr_auto]">
+          <CardTitle
+            level={2}
+            aria-label={t('users.title')}
+            className="flex items-center gap-2 text-sm font-medium"
+          >
+            {t('users.title')}
+            {data ? <Badge variant="secondary">{data.total}</Badge> : null}
+          </CardTitle>
+          <CardAction className="col-start-1 row-start-2 row-span-1 flex w-full flex-wrap items-center gap-2 justify-self-stretch md:col-start-2 md:row-start-1 md:row-span-2 md:w-auto md:justify-self-end">
+            <DataTableSearch
+              value={searchQuery}
+              onChange={(v) => { setSearchQuery(v); setPage(0); }}
+              placeholder={t('users.table.username') + ' / ' + t('users.table.email')}
+            />
+            <FilterSelect
+              label=""
+              ariaLabel={t('users.table.status')}
+              value={statusFilter}
+              onChange={(v) => { setStatusFilter(v); setPage(0); }}
+              options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportCsv}
+              disabled={isExporting}
+              aria-busy={isExporting || undefined}
+            >
+              {isExporting ? (
+                <Loader2 className="me-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="me-2 h-4 w-4" />
+              )}
+              {t('users.exportEmailsCsv')}
+            </Button>
+            <Button size="sm" onClick={() => setShowCreateDialog(true)}>
+              <UserPlus className="me-2 h-4 w-4" /> {t('users.addUser')}
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           <Table>

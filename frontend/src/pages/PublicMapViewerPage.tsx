@@ -96,7 +96,7 @@ export function PublicMapViewerPage() {
     const isAnonymous = !hasToken;
     return (
       <div className="app-surface-gradient flex flex-1 items-center justify-center px-6">
-        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">
+        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           <MapPinOff className="size-10 text-muted-foreground" />
           <div className="mt-4 space-y-2 text-center">
             <h1 className="text-2xl font-semibold text-foreground">

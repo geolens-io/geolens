@@ -21,7 +21,7 @@ function StatCell({ label, value, mono }: StatCellProps) {
       </div>
       <div
         className={cn(
-          'text-[15px] font-medium truncate',
+          'text-base font-medium truncate',
           mono && 'font-mono text-sm tracking-wide',
         )}
         title={value}
