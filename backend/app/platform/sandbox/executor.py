@@ -125,7 +125,7 @@ async def execute_safe(
                     _role = tenant_reader_role(tenant_id)
                     try:
                         await conn.execute(text(f"SET LOCAL ROLE {_role}"))
-                    except Exception as exc:
+                    except Exception as exc:  # broad: role binding must fail closed
                         # Falling back to the application role here can expose the
                         # shared legacy schema or any other tenant schema reachable
                         # by that broader login.  Multi-tenant role binding is a

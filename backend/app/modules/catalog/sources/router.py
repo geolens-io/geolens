@@ -301,7 +301,7 @@ async def discover_connector_resources_endpoint(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Connector discovery timed out",
         ) from exc
-    except Exception as exc:
+    except Exception as exc:  # broad: isolate untrusted connector extension failures
         logger.error(
             "Connector discovery failed",
             connector=connector_name,
@@ -381,7 +381,7 @@ async def dispatch_connector_ingest_endpoint(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Connector ingest dispatch timed out",
         ) from exc
-    except Exception as exc:
+    except Exception as exc:  # broad: isolate untrusted connector extension failures
         logger.error(
             "Connector ingest dispatch failed",
             connector=connector_name,

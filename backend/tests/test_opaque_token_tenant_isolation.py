@@ -31,6 +31,13 @@ pytestmark = [
 ]
 
 
+def _opaque_token_hash(raw_token: str) -> str:
+    """Match production lookup hashing for random, high-entropy tokens."""
+    # fix(#507): these identifiers are random opaque tokens, not passwords.
+    # codeql[py/weak-sensitive-data-hashing]
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
 def _api_key_request(raw_key: str) -> Request:
     return Request(
         {
@@ -97,7 +104,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 {
                     "id": api_key_id,
                     "user_id": ctx.user_a_id,
-                    "token_hash": hashlib.sha256(raw_api_key.encode()).hexdigest(),
+                    "token_hash": _opaque_token_hash(raw_api_key),
                 },
             )
             await conn.execute(
@@ -109,7 +116,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 {
                     "id": refresh_id,
                     "user_id": ctx.user_a_id,
-                    "token_hash": hashlib.sha256(raw_refresh.encode()).hexdigest(),
+                    "token_hash": _opaque_token_hash(raw_refresh),
                     "expires_at": now + timedelta(hours=1),
                 },
             )
@@ -122,7 +129,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 {
                     "id": verification_id,
                     "user_id": ctx.user_a_id,
-                    "token_hash": hashlib.sha256(raw_verification.encode()).hexdigest(),
+                    "token_hash": _opaque_token_hash(raw_verification),
                     "expires_at": now + timedelta(hours=1),
                 },
             )
@@ -149,7 +156,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 {
                     "id": share_id,
                     "map_id": map_id,
-                    "token_hash": hashlib.sha256(raw_share.encode()).hexdigest(),
+                    "token_hash": _opaque_token_hash(raw_share),
                     "user_id": ctx.user_a_id,
                     "expires_at": now + timedelta(hours=1),
                 },
