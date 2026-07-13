@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import uuid
-from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
@@ -18,7 +16,11 @@ from app.modules.auth.service import (
     AuthService,
     create_api_key_for_user,
 )
-from app.modules.auth.verification import redeem_verification_token
+from app.modules.auth.models import EmailVerificationToken, RefreshToken
+from app.modules.auth.verification import (
+    issue_verification_token,
+    redeem_verification_token,
+)
 from app.modules.catalog.maps.service_public import (
     _validate_share_token,
     create_share_token,
@@ -29,13 +31,6 @@ pytestmark = [
     pytest.mark.rls,
     pytest.mark.xdist_group("tenancy_global_state"),
 ]
-
-
-def _opaque_token_hash(raw_token: str) -> str:
-    """Match production lookup hashing for random, high-entropy tokens."""
-    # fix(#507): these identifiers are random opaque tokens, not passwords.
-    # codeql[py/weak-sensitive-data-hashing]
-    return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
 def _api_key_request(raw_key: str) -> Request:
@@ -55,16 +50,11 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
 ):
     """Wrong-host credentials neither resolve nor consume another tenant's row."""
     ctx = multi_tenant_rls
-    raw_api_key = f"gl_{uuid.uuid4().hex}"
-    raw_refresh = f"refresh_{uuid.uuid4().hex}"
-    raw_verification = f"verify_{uuid.uuid4().hex}"
-    raw_share = f"share_{uuid.uuid4().hex}"
-    api_key_id = uuid.uuid4()
-    refresh_id = uuid.uuid4()
-    verification_id = uuid.uuid4()
     map_id = uuid.uuid4()
-    share_id = uuid.uuid4()
-    now = datetime.now(UTC)
+    api_key_id: uuid.UUID | None = None
+    refresh_id: uuid.UUID | None = None
+    verification_id: uuid.UUID | None = None
+    share_id: uuid.UUID | None = None
 
     child_tables = (
         "api_keys",
@@ -78,7 +68,9 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
             await conn.execution_options(isolation_level="AUTOCOMMIT")
             for table in child_tables:
                 await conn.execute(
-                    sa.text(f"GRANT SELECT ON catalog.{table} TO geolens_reader")
+                    sa.text(
+                        f"GRANT SELECT, INSERT ON catalog.{table} TO geolens_reader"
+                    )
                 )
             await conn.execute(
                 sa.text(
@@ -88,51 +80,13 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
             )
             await conn.execute(
                 sa.text(
-                    "GRANT UPDATE ON catalog.email_verification_tokens, "
-                    "catalog.refresh_tokens, catalog.users TO geolens_reader"
+                    "GRANT UPDATE ON catalog.api_keys, "
+                    "catalog.email_verification_tokens, catalog.refresh_tokens, "
+                    "catalog.users TO geolens_reader"
                 )
             )
 
         async with engine.begin() as conn:
-            await conn.execute(
-                sa.text(
-                    "INSERT INTO catalog.api_keys "
-                    "(id, user_id, key_hash, name, is_active, created_at, last_used_at) "
-                    "VALUES (:id, :user_id, :token_hash, 'tenant probe', true, "
-                    "now(), now())"
-                ),
-                {
-                    "id": api_key_id,
-                    "user_id": ctx.user_a_id,
-                    "token_hash": _opaque_token_hash(raw_api_key),
-                },
-            )
-            await conn.execute(
-                sa.text(
-                    "INSERT INTO catalog.refresh_tokens "
-                    "(id, user_id, token_hash, expires_at, created_at, revoked) "
-                    "VALUES (:id, :user_id, :token_hash, :expires_at, now(), false)"
-                ),
-                {
-                    "id": refresh_id,
-                    "user_id": ctx.user_a_id,
-                    "token_hash": _opaque_token_hash(raw_refresh),
-                    "expires_at": now + timedelta(hours=1),
-                },
-            )
-            await conn.execute(
-                sa.text(
-                    "INSERT INTO catalog.email_verification_tokens "
-                    "(id, user_id, token_hash, expires_at, consumed_at, created_at) "
-                    "VALUES (:id, :user_id, :token_hash, :expires_at, NULL, now())"
-                ),
-                {
-                    "id": verification_id,
-                    "user_id": ctx.user_a_id,
-                    "token_hash": _opaque_token_hash(raw_verification),
-                    "expires_at": now + timedelta(hours=1),
-                },
-            )
             await conn.execute(
                 sa.text(
                     "INSERT INTO catalog.maps "
@@ -146,21 +100,42 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                     "tenant_id": ctx.tenant_a,
                 },
             )
-            await conn.execute(
-                sa.text(
-                    "INSERT INTO catalog.map_share_tokens "
-                    "(id, map_id, token_hash, token_hint, created_by, expires_at, "
-                    " is_active, created_at) VALUES (:id, :map_id, :token_hash, "
-                    " 'share-probe', :user_id, :expires_at, true, now())"
-                ),
-                {
-                    "id": share_id,
-                    "map_id": map_id,
-                    "token_hash": _opaque_token_hash(raw_share),
-                    "user_id": ctx.user_a_id,
-                    "expires_at": now + timedelta(hours=1),
-                },
+
+        # Seed every opaque credential through its production creation helper
+        # while tenant A is active. This keeps the generated token shape and the
+        # stored digest exactly aligned with runtime behavior without reproducing
+        # cryptographic implementation details in the regression test.
+        user_a_id = uuid.UUID(ctx.user_a_id)
+        async with ctx.tenant_session(ctx.tenant_a) as session:
+            api_key, raw_api_key = await create_api_key_for_user(
+                session,
+                user_a_id,
+                "tenant probe",
             )
+            api_key_id = api_key.id
+
+            auth_service = AuthService(session)
+            raw_refresh = auth_service.create_refresh_token(user_a_id, expire_days=1)
+            refresh = next(obj for obj in session.new if isinstance(obj, RefreshToken))
+            await session.flush()
+            refresh_id = refresh.id
+
+            raw_verification = await issue_verification_token(
+                session,
+                user_a_id,
+                expire_hours=1,
+            )
+            verification_id = await session.scalar(
+                sa.select(EmailVerificationToken.id)
+                .where(EmailVerificationToken.user_id == user_a_id)
+                .order_by(EmailVerificationToken.created_at.desc())
+                .limit(1)
+            )
+            assert verification_id is not None
+
+            share = await create_share_token(session, map_id, user_a_id)
+            share_id = share.id
+            raw_share = share._raw_token
 
         async with ctx.tenant_session(ctx.tenant_b) as session:
             assert (
@@ -218,34 +193,43 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
     finally:
         async with engine.connect() as conn:
             await conn.execution_options(isolation_level="AUTOCOMMIT")
-            await conn.execute(
-                sa.text("DELETE FROM catalog.map_share_tokens WHERE id = :id"),
-                {"id": share_id},
-            )
+            if share_id is not None:
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.map_share_tokens WHERE id = :id"),
+                    {"id": share_id},
+                )
             await conn.execute(
                 sa.text("DELETE FROM catalog.maps WHERE id = :id"), {"id": map_id}
             )
-            await conn.execute(
-                sa.text("DELETE FROM catalog.api_keys WHERE id = :id"),
-                {"id": api_key_id},
-            )
-            await conn.execute(
-                sa.text("DELETE FROM catalog.refresh_tokens WHERE id = :id"),
-                {"id": refresh_id},
-            )
-            await conn.execute(
-                sa.text("DELETE FROM catalog.email_verification_tokens WHERE id = :id"),
-                {"id": verification_id},
-            )
+            if api_key_id is not None:
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.api_keys WHERE id = :id"),
+                    {"id": api_key_id},
+                )
+            if refresh_id is not None:
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.refresh_tokens WHERE id = :id"),
+                    {"id": refresh_id},
+                )
+            if verification_id is not None:
+                await conn.execute(
+                    sa.text(
+                        "DELETE FROM catalog.email_verification_tokens WHERE id = :id"
+                    ),
+                    {"id": verification_id},
+                )
             await conn.execute(
                 sa.text(
-                    "REVOKE UPDATE ON catalog.email_verification_tokens, "
-                    "catalog.refresh_tokens, catalog.users FROM geolens_reader"
+                    "REVOKE UPDATE ON catalog.api_keys, "
+                    "catalog.email_verification_tokens, catalog.refresh_tokens, "
+                    "catalog.users FROM geolens_reader"
                 )
             )
             for table in child_tables:
                 await conn.execute(
-                    sa.text(f"REVOKE SELECT ON catalog.{table} FROM geolens_reader")
+                    sa.text(
+                        f"REVOKE SELECT, INSERT ON catalog.{table} FROM geolens_reader"
+                    )
                 )
             await conn.execute(
                 sa.text(
