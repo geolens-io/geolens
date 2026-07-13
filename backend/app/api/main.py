@@ -82,7 +82,12 @@ async def seed_roles() -> None:
         )
         for role_data in DEFAULT_ROLES:
             result = await session.execute(
-                select(Role).where(Role.name == role_data["name"])
+                # Select the scalar id, not the Role entity. Role.users uses
+                # select-in loading, and materializing a Role would therefore
+                # issue an unscoped catalog.users query during hosted startup.
+                # The runtime role is correctly subject to FORCE RLS, so that
+                # accidental query fails closed when no request tenant exists.
+                select(Role.id).where(Role.name == role_data["name"])
             )
             if result.scalar_one_or_none() is None:
                 session.add(Role(**role_data))
@@ -144,10 +149,10 @@ async def seed_initial_admin() -> None:
             await session.flush()
 
             role_result = await session.execute(
-                select(Role).where(Role.name == "admin")
+                select(Role.id).where(Role.name == "admin")
             )
-            admin_role = role_result.scalar_one()
-            session.add(UserRole(user_id=admin_user.id, role_id=admin_role.id))
+            admin_role_id = role_result.scalar_one()
+            session.add(UserRole(user_id=admin_user.id, role_id=admin_role_id))
 
             await session.commit()
             logger.info(
