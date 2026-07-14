@@ -444,9 +444,12 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     from unittest.mock import AsyncMock
 
     import app.core.db as db_module
+    import app.core.tenancy as tenancy
     import app.modules.audit.router as audit_router
+    from app.core.db.tenant_session import current_tenant_var
 
     actor_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
     streamed_rows = [
         SimpleNamespace(
             created_at=datetime.now(timezone.utc),
@@ -473,6 +476,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
             return None
 
     async def stream_rows(_session, **_filters):
+        assert current_tenant_var.get() == tenant_id
         for row in streamed_rows:
             yield row
 
@@ -480,6 +484,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
         request_events.append(event)
 
     async def record_outcome(event):
+        assert current_tenant_var.get() == tenant_id
         outcome_events.append(event)
 
     preflight_count = AsyncMock(side_effect=AssertionError("no preflight count"))
@@ -488,21 +493,33 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     monkeypatch.setattr(audit_router, "stream_audit_logs", stream_rows)
     monkeypatch.setattr(audit_router, "audit_emit", record_request)
     monkeypatch.setattr(audit_router, "audit_emit_durable", record_outcome)
+    monkeypatch.setattr(tenancy, "is_multi_tenant", lambda: True)
 
-    response = await audit_router.export_audit_logs(
-        format="json",
-        request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
-        user_id=None,
-        action=None,
-        resource_type=None,
-        resource_id=None,
-        date_from=None,
-        date_to=None,
-        search=None,
-        max_rows=100,
-        user=SimpleNamespace(id=actor_id),
-        db=RequestSession(),
-    )
+    prior_tenant_id = current_tenant_var.get()
+    request_token = current_tenant_var.set(tenant_id)
+    try:
+        response = await audit_router.export_audit_logs(
+            format="json",
+            request=SimpleNamespace(
+                client=SimpleNamespace(host="127.0.0.1"),
+                state=SimpleNamespace(tenant_id=tenant_id),
+            ),
+            user_id=None,
+            action=None,
+            resource_type=None,
+            resource_id=None,
+            date_from=None,
+            date_to=None,
+            search=None,
+            max_rows=100,
+            user=SimpleNamespace(id=actor_id),
+            db=RequestSession(),
+        )
+    finally:
+        # Match TenantContextMiddleware resetting the request context before
+        # Starlette begins iterating the response body.
+        current_tenant_var.reset(request_token)
+    assert current_tenant_var.get() == prior_tenant_id
 
     # Simulate a concurrent commit after the durable request event but before
     # the fresh streaming SELECT establishes its MVCC statement snapshot.
@@ -527,6 +544,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     assert outcome_events[0].details["outcome"] == "completed"
     assert outcome_events[0].details["selected_rows"] == 2
     assert outcome_events[0].resource_id == request_events[0].resource_id
+    assert current_tenant_var.get() == prior_tenant_id
 
 
 @pytest.mark.anyio

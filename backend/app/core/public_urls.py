@@ -55,6 +55,20 @@ def strip_api_suffix(api_url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
+def _configured_api_path() -> str:
+    """Return the deployment-wide API path without reusing its fleet origin."""
+    configured_api = normalize_public_url(
+        settings.public_api_url
+    ) or normalize_public_url(settings.public_base_url)
+    if configured_api:
+        return urlsplit(configured_api).path.rstrip("/")
+
+    configured_app = normalize_public_url(settings.public_app_url)
+    if configured_app:
+        return urlsplit(append_api_suffix(configured_app)).path.rstrip("/")
+    return ""
+
+
 def join_public_url(base_url: str, path: str) -> str:
     if not path.startswith("/"):
         path = "/" + path
@@ -305,13 +319,14 @@ async def get_public_urls(
                     "a tenant-specific callback or resource link."
                 )
             root_path = str(request.scope.get("root_path", "")).rstrip("/")
-            if root_path and (
-                not root_path.startswith("/") or "\\" in root_path or "//" in root_path
+            api_path = root_path or _configured_api_path()
+            if api_path and (
+                not api_path.startswith("/") or "\\" in api_path or "//" in api_path
             ):
                 raise PublicUrlNotConfiguredError(
-                    "The configured API root_path is not a safe absolute path"
+                    "The configured public API path is not a safe absolute path"
                 )
-            api_url = f"{tenant_origin}{root_path}" if root_path else tenant_origin
+            api_url = f"{tenant_origin}{api_path}" if api_path else tenant_origin
             return tenant_origin, api_url
         if for_external_use:
             raise PublicUrlNotConfiguredError(

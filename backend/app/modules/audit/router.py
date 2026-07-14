@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from app.core.db.tenant_session import tenant_job_context
 from app.modules.audit.schemas import (
     AuditLogListResponse,
     AuditLogResponse,
@@ -96,6 +97,7 @@ class _AuditExportStream:
     date_to: datetime | None
     search: str | None
     max_rows: int
+    tenant_id: str | None
 
     async def _record_outcome(self, outcome: str, selected_rows: int) -> None:
         details: dict[str, object] = {
@@ -108,41 +110,43 @@ class _AuditExportStream:
         # Shield terminal bookkeeping from level-triggered disconnect
         # cancellation, but cap it so a broken audit store cannot retain the
         # response task indefinitely.
-        with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
-            try:
-                await audit_emit_durable(
-                    AuditEvent(
-                        user_id=self.actor_id,
-                        action="audit.export",
-                        resource_type="audit_log",
-                        resource_id=self.export_id,
-                        details=details,
-                        ip_address=self.ip_address,
+        with tenant_job_context(self.tenant_id):
+            with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
+                try:
+                    await audit_emit_durable(
+                        AuditEvent(
+                            user_id=self.actor_id,
+                            action="audit.export",
+                            resource_type="audit_log",
+                            resource_id=self.export_id,
+                            details=details,
+                            ip_address=self.ip_address,
+                        )
                     )
-                )
-            except Exception:  # broad: response bytes may already have been sent
-                logger.exception(
-                    "Failed to persist audit export stream outcome",
-                    operation_id=str(self.export_id),
-                    outcome=outcome,
-                )
+                except Exception:  # broad: response bytes may already have been sent
+                    logger.exception(
+                        "Failed to persist audit export stream outcome",
+                        operation_id=str(self.export_id),
+                        outcome=outcome,
+                    )
 
     async def _logs(self):
         from app.core.db import async_session
 
-        async with async_session() as stream_db:
-            async for log in stream_audit_logs(
-                stream_db,
-                user_id=self.user_id,
-                action=self.action,
-                resource_type=self.resource_type,
-                resource_id=self.resource_id,
-                exclude_resource_id=self.export_id,
-                date_from=self.date_from,
-                date_to=self.date_to,
-                search=self.search,
-            ):
-                yield log
+        with tenant_job_context(self.tenant_id):
+            async with async_session() as stream_db:
+                async for log in stream_audit_logs(
+                    stream_db,
+                    user_id=self.user_id,
+                    action=self.action,
+                    resource_type=self.resource_type,
+                    resource_id=self.resource_id,
+                    exclude_resource_id=self.export_id,
+                    date_from=self.date_from,
+                    date_to=self.date_to,
+                    search=self.search,
+                ):
+                    yield log
 
     async def csv_generator(self) -> AsyncGenerator[str, None]:
         """Yield hardened CSV chunks and record the actual emitted row count."""
@@ -317,6 +321,7 @@ async def export_audit_logs(
     export_id = uuid.uuid4()
     actor_id = user.id
     ip_address = get_client_ip(request)
+    tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)
     filters = {
         "user_id": str(user_id) if user_id else None,
         "action": action,
@@ -360,6 +365,7 @@ async def export_audit_logs(
         date_to=date_to,
         search=search,
         max_rows=max_rows,
+        tenant_id=tenant_id,
     )
     if format == "csv":
         return StreamingResponse(
