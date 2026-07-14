@@ -330,6 +330,24 @@ async def test_embedding_presence_cache_is_tenant_scoped(
     assert await value_for(TENANT_B, False) is False
 
 
+@pytest.mark.anyio
+async def test_unscoped_embedding_presence_fails_closed_without_shared_cache(
+    multi_tenant,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    helpers = importlib.import_module("app.processing.embeddings.helpers")
+    helpers._has_embeddings_cache.clear()
+    resolve_model = AsyncMock(return_value="shared-model")
+    monkeypatch.setattr(helpers, "_resolve_embedding_model_name", resolve_model)
+    session = AsyncMock()
+
+    assert await helpers.has_embeddings(session) is False
+
+    resolve_model.assert_not_awaited()
+    session.execute.assert_not_awaited()
+    assert helpers._has_embeddings_cache == {}
+
+
 def test_sql_schema_cache_key_is_tenant_scoped(multi_tenant):
     from app.processing.ai.sql_generator import _schema_cache_key
 

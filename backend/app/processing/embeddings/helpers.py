@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
-from app.platform.cache import tenant_cache_key
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.processing.embeddings.models import RecordEmbedding
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -57,10 +57,15 @@ async def has_embeddings(session: AsyncSession) -> bool:
 
     Result is cached in-memory for 30 seconds, partitioned by the
     active embedding model name (PERF-10 / Phase 274) so a model
-    swap in admin Settings invalidates stale answers.
+    swap in admin Settings invalidates stale answers. Unscoped
+    multi-tenant requests fail closed before consulting either the
+    database or the process-wide cache.
     """
     global _has_embeddings_cache
     now = time.monotonic()
+
+    if not tenant_cache_context_available():
+        return False
 
     model_key = tenant_cache_key(await _resolve_embedding_model_name(session))
     entry = _has_embeddings_cache.get(model_key)
