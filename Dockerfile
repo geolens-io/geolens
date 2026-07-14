@@ -144,9 +144,12 @@ WORKDIR /app
 # Copy the resolved venv + code from the builder. No uv sync runs in runtime.
 COPY --from=backend-builder --chown=appuser:appgroup /app /app
 
-# Create writable directories used by the entrypoint.
-RUN mkdir -p /app/staging /home/appuser/.cache/uv && \
-    chown -R appuser:appgroup /app /app/staging /home/appuser
+# Create writable directories used by the entrypoint. The builder COPY already
+# owns /app; install only the runtime directories so this layer does not
+# recursively duplicate metadata for the full application tree.
+RUN install -d -o appuser -g appgroup \
+    /app/staging \
+    /home/appuser/.cache/uv
 
 # fix(#441): stamp the build commit for /health `build` reporting. publish.yml
 # passes it on release builds; local and dev builds leave it empty. Declared
@@ -186,9 +189,11 @@ CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 # ==============================================================================
 # Stage: backup — pg_dump 17 + SigV4-capable S3 client; self-contained backup
 # ==============================================================================
-# Base: official postgres:17 (Debian Bookworm, multi-arch: amd64 + arm64).
+# Base: official postgres:17 (Debian Bookworm, multi-arch: amd64 + arm64),
+# pinned by digest. Dependabot tracks Docker digest updates for this file.
 # db/Dockerfile uses postgis/postgis:17-3.5 which is amd64-ONLY — this stage
-# uses the plain postgres:17 base so publish.yml can build both arches (BKP-01).
+# uses the digest-pinned postgres:17 base so publish.yml can build both arches
+# (BKP-01).
 # PostGIS is NOT needed client-side: pg_dump streams the raw catalog over the
 # wire and custom-format dumps preserve PostGIS types without PostGIS libs.
 #
@@ -197,7 +202,7 @@ CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 # app image (frontend), never this postgres-based backup tool. Every image is
 # built with an explicit `target:` (publish.yml + docker-compose*.yml), so stage
 # order only governs that unqualified-build default — keep `backup` non-final.
-FROM postgres:17 AS backup
+FROM postgres:17@sha256:5f050f770b427fbd477edee6c3968a72e5c6be97e050a7e368b2b74a9494a285 AS backup
 
 LABEL org.opencontainers.image.title="geolens-backup"
 LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
@@ -278,14 +283,17 @@ USER root
 RUN apk upgrade --no-cache
 USER nginx
 
-COPY --from=frontend-build --chown=nginx:nginx /app/dist /usr/share/nginx/html
-COPY --from=frontend-build --chown=nginx:nginx /app/public/env-config.template.js /usr/share/nginx/html/env-config.template.js
+# Keep the built SPA immutable. The entrypoint copies it into /tmp at startup,
+# then writes the operator-specific runtime config there. This supports a
+# read-only production root filesystem without mutating image layers.
+COPY --from=frontend-build --chown=nginx:nginx /app/dist /opt/geolens/html
+COPY --from=frontend-build --chown=nginx:nginx /app/public/env-config.template.js /opt/geolens/html/env-config.template.js
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chmod=755 frontend/docker-entrypoint.sh /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/ || exit 1
 
 EXPOSE 8080

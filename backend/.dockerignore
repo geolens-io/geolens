@@ -2,6 +2,11 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 .venv/
 __pycache__
 *.pyc

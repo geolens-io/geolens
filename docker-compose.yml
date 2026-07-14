@@ -544,6 +544,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The postgres base declares PGDATA as a VOLUME. Override it with ephemeral
+    # tmpfs because this image only runs pg_dump; otherwise Docker creates an
+    # unused anonymous volume for every backup container.
+    tmpfs:
+      - /var/lib/postgresql/data:size=1m,mode=0700
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
