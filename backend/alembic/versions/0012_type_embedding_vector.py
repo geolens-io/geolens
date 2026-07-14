@@ -34,34 +34,63 @@ Revises: 0011_allow_generic_geometry_type
 Create Date: 2026-07-10
 """
 
+import os
 from typing import Sequence, Union
 
 from alembic import op
-
-from app.core.config import settings
 
 revision: str = "0012_type_embedding_vector"
 down_revision: Union[str, None] = "0011_allow_generic_geometry_type"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+_TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_ENV_VALUES = frozenset({"0", "false", "no", "off"})
+
+
+def _explicit_embedding_dims() -> int | None:
+    """Return an explicitly exported embedding dimension, if one exists.
+
+    Keep this parser migration-local: topology-only Alembic commands import every
+    revision module and must not need the mutable application Settings object.
+    """
+    raw = os.environ.get("EMBEDDING_DIMS")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        dims = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("EMBEDDING_DIMS must be an integer from 1 to 4096") from exc
+    if not 1 <= dims <= 4096:
+        raise RuntimeError("EMBEDDING_DIMS must be an integer from 1 to 4096")
+    return dims
+
+
+def _env_only_config_enabled() -> bool:
+    """Parse ENV_ONLY_CONFIG without importing application configuration."""
+    raw = os.environ.get("ENV_ONLY_CONFIG")
+    if raw is None or not raw.strip():
+        return False
+    normalized = raw.strip().lower()
+    if normalized in _TRUE_ENV_VALUES:
+        return True
+    if normalized in _FALSE_ENV_VALUES:
+        return False
+    raise RuntimeError(
+        "ENV_ONLY_CONFIG must be one of true/false, 1/0, yes/no, or on/off"
+    )
+
 
 def upgrade() -> None:
     # fix(#449, codex P2): honor the deployment's configured dimension, not a
     # hardcoded 1536, and let explicit config beat stale stored rows. Mirror
     # runtime resolution (persistent_config.py): ENV_ONLY_CONFIG ignores DB
-    # overrides. "Explicit" = the operator provided EMBEDDING_DIMS (env var or
-    # the project-root .env file Settings reads) — pydantic's model_fields_set
-    # distinguishes a deliberate EMBEDDING_DIMS=1536 from the untouched class
-    # default, which a value comparison cannot.
-    explicit = (
-        settings.embedding_dims
-        if "embedding_dims" in settings.model_fields_set
-        and settings.embedding_dims >= 1
-        else None
-    )
+    # overrides. Compose passes EMBEDDING_DIMS through only when the operator
+    # set it, so a deliberate EMBEDDING_DIMS=1536 remains distinguishable from
+    # the frozen fallback below.
+    explicit = _explicit_embedding_dims()
     explicit_env_dims = str(explicit) if explicit is not None else "NULL"
-    consult_db = "false" if settings.env_only_config else "true"
+    consult_db = "false" if _env_only_config_enabled() else "true"
     op.execute(
         f"""
         DO $$
