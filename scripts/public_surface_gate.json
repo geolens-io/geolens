@@ -166,5 +166,20 @@
       "reason": "Fresh installs generate a strong admin password and must not document admin/admin defaults."
     }
   ],
-  "allowlist": []
+  "allowlist": [
+    {
+      "id": "env-example-edition-enum-value",
+      "path": ".env.example",
+      "pattern_id": "enterprise_word",
+      "match": "enterprise",
+      "reason": "The canonical operator template must name the exact GEOLENS_EDITION enum value accepted by the runtime."
+    },
+    {
+      "id": "editions-fail-closed-enum-value",
+      "path": "EDITIONS.md",
+      "pattern_id": "enterprise_word",
+      "match": "enterprise",
+      "reason": "The sanctioned edition-boundary document must name the exact fail-closed GEOLENS_EDITION value operators configure."
+    }
+  ]
 }

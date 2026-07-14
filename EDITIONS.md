@@ -18,14 +18,14 @@ Optional paid support and add-ons for organizations that want them (support with
 
 The GeoLens name, logo, and brand assets are not covered by the software license. See [TRADEMARKS.md](TRADEMARKS.md). Third-party sample-data attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
 
-## Enterprise overlay deployment contract
+## Optional overlay deployment contract
 
 The base Compose files also provide an explicit, fail-closed handoff for an
-optional enterprise overlay image. This plumbing does not enable or download
+optional extension overlay image. This plumbing does not enable or download
 paid code; it only ensures a pre-baked overlay receives the same edition,
 tenancy, and signed-license inputs in the migration, API, and worker processes.
 
-- `GEOLENS_EDITION=enterprise` requires a loaded enterprise extension. The
+- `GEOLENS_EDITION=enterprise` requires a loaded extension. The
   application and Alembic refuse to continue when the overlay is absent.
 - `GEOLENS_TENANCY_MODE=multi_tenant` requires the overlay's tenant-isolation
   layer. The default is `single_tenant`.
