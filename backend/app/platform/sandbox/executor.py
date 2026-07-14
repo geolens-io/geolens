@@ -48,6 +48,10 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
         if table.db == "data":
             table.set("db", exp.to_identifier(physical_schema, quoted=True))
 
+    for column in statement.find_all(exp.Column):
+        if column.db == "data":
+            column.set("db", exp.to_identifier(physical_schema, quoted=True))
+
     return statement.sql(dialect="postgres")
 
 

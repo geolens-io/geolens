@@ -65,9 +65,9 @@ async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
         with patch.object(db_module, "engine", _mock_engine(executed)):
             await execute_safe(
                 MagicMock(),
-                "SELECT a.id FROM data.alpha AS a "
-                "JOIN data.beta AS b ON b.id = a.id "
-                "WHERE a.note = 'data.alpha'",
+                "SELECT data.alpha.id FROM data.alpha "
+                "JOIN data.beta ON data.beta.id = data.alpha.id "
+                "WHERE data.alpha.note = 'data.alpha'",
             )
     finally:
         current_tenant_var.reset(token)
@@ -77,8 +77,12 @@ async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     )
     assert f'"{_SCHEMA_A}".alpha' in query
     assert f'"{_SCHEMA_A}".beta' in query
+    assert f'"{_SCHEMA_A}".alpha.id' in query
+    assert f'"{_SCHEMA_A}".beta.id' in query
     assert "FROM data.alpha" not in query
     assert "JOIN data.beta" not in query
+    assert "data.alpha.id" not in query
+    assert "data.beta.id" not in query
     assert "'data.alpha'" in query
 
 
@@ -153,7 +157,8 @@ async def test_logical_data_query_reads_only_active_tenant_schema(monkeypatch):
                 token = current_tenant_var.set(tenant_id)
                 try:
                     result = await execute_safe(
-                        MagicMock(), f'SELECT marker FROM data."{table}"'
+                        MagicMock(),
+                        f'SELECT data."{table}".marker FROM data."{table}"',
                     )
                 finally:
                     current_tenant_var.reset(token)
