@@ -327,16 +327,21 @@ async def test_hosted_urls_use_middleware_validated_tenant_origin(
 
 
 @pytest.mark.anyio
-async def test_hosted_urls_preserve_configured_api_path_after_proxy_rewrite(
+async def test_hosted_urls_preserve_db_api_path_after_proxy_rewrite(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = "00000000-0000-0000-0000-0000000000a1"
-    loader = AsyncMock()
+    loader = AsyncMock(
+        return_value={
+            public_urls.PUBLIC_API_URL_KEY: "https://fleet.example.test/geolens/api"
+        }
+    )
     monkeypatch.setattr(public_urls.settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
     monkeypatch.setattr(
         public_urls.settings,
         "public_api_url",
-        "https://fleet.example.test/geolens/api",
+        "https://env.example.test/api",
         raising=False,
     )
     monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
@@ -353,7 +358,7 @@ async def test_hosted_urls_preserve_configured_api_path_after_proxy_rewrite(
 
     assert app_url == "https://tenant-a.example.test"
     assert api_url == "https://tenant-a.example.test/geolens/api"
-    loader.assert_not_awaited()
+    loader.assert_awaited_once()
 
 
 @pytest.mark.anyio
