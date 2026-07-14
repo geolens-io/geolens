@@ -137,6 +137,12 @@ def _drop_partial_indexes() -> None:
             op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS catalog."{index_name}"')
 
 
+def _release_guarded_ddl_locks() -> None:
+    """Commit quick DDL before the OAuth backfill starts."""
+    with op.get_context().autocommit_block():
+        op.execute("SELECT 1")
+
+
 def _install_oauth_boundary() -> None:
     """Install write guards before concurrent builds release table locks."""
     op.execute(f"DROP POLICY IF EXISTS {_POLICY} ON catalog.{_TABLE}")
@@ -207,9 +213,15 @@ def upgrade() -> None:
         "ALTER TABLE catalog.collections "
         f"DROP CONSTRAINT IF EXISTS {_COLLECTION_CONSTRAINT}"
     )
-    # The next concurrent build commits this prefix. IF NOT EXISTS keeps a
-    # lock-timeout or interrupted-index retry safe.
+    # IF NOT EXISTS keeps a lock-timeout or interrupted migration safe to retry
+    # after the guarded DDL transaction commits.
     op.execute(f"ALTER TABLE catalog.{_TABLE} ADD COLUMN IF NOT EXISTS tenant_id UUID")
+
+    # Protect writes before releasing the ADD COLUMN and constraint-drop locks.
+    # New links are then stamped and parent-validated while the backfill runs.
+    _install_oauth_boundary()
+    _release_guarded_ddl_locks()
+
     op.execute(
         """
         UPDATE catalog.oauth_accounts AS account
@@ -220,9 +232,7 @@ def upgrade() -> None:
         """
     )
 
-    # Entering the first index autocommit block commits this boundary. New
-    # OAuth links are then stamped and parent-validated throughout both builds.
-    _install_oauth_boundary()
+    # The online builds commit the backfill without holding strong table locks.
     for definition in _PARTIAL_INDEXES[2:]:
         _ensure_unique_index(*definition)
 

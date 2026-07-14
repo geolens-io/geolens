@@ -39,6 +39,12 @@ def test_control_plane_uniqueness_and_triggers_are_online_safe() -> None:
     assert "SET LOCAL lock_timeout = '5s'" in source
     assert "op.create_index" not in source
     assert upgrade.index("_install_oauth_boundary()") < upgrade.index(
+        "_release_guarded_ddl_locks()"
+    )
+    assert upgrade.index("_release_guarded_ddl_locks()") < upgrade.index(
+        "UPDATE catalog.oauth_accounts"
+    )
+    assert upgrade.index("UPDATE catalog.oauth_accounts") < upgrade.index(
         "for definition in _PARTIAL_INDEXES[2:]"
     )
 
@@ -54,5 +60,11 @@ def test_audit_and_ingest_indexes_are_online_and_resumable() -> None:
     assert "SET LOCAL lock_timeout = '5s'" in source
     assert "op.create_index" not in source
     assert upgrade.index("CREATE OR REPLACE FUNCTION") < upgrade.index(
+        "_release_guarded_ddl_locks()"
+    )
+    assert upgrade.index("_release_guarded_ddl_locks()") < upgrade.index(
+        "UPDATE catalog.audit_logs"
+    )
+    assert upgrade.index("UPDATE catalog.ingest_jobs") < upgrade.index(
         "for index_name, table in _TENANT_INDEXES"
     )

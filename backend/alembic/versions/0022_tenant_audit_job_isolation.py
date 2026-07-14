@@ -88,70 +88,20 @@ def _drop_tenant_indexes() -> None:
             op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS catalog."{index_name}"')
 
 
+def _release_guarded_ddl_locks() -> None:
+    """Commit quick DDL before the audit and job backfills start."""
+    with op.get_context().autocommit_block():
+        op.execute("SELECT 1")
+
+
 def upgrade() -> None:
     op.execute(_LOCK_TIMEOUT)
     for table in _TABLES:
-        # The first concurrent build commits this prefix. IF NOT EXISTS makes a
-        # lock-timeout or interrupted build safe to retry.
+        # IF NOT EXISTS makes a lock-timeout or interrupted migration safe to
+        # retry after the guarded DDL transaction commits.
         op.execute(
             f"ALTER TABLE catalog.{table} ADD COLUMN IF NOT EXISTS tenant_id UUID"
         )
-
-    # Actor-backed audit rows inherit the actor's tenant. Rows whose actor was
-    # already deleted, plus historical system rows, remain NULL and therefore
-    # fail closed when hosted RLS is enabled; there is no trustworthy tenant
-    # source from which to infer their ownership retroactively.
-    op.execute(
-        """
-        UPDATE catalog.audit_logs AS audit
-        SET tenant_id = actor.tenant_id
-        FROM catalog.users AS actor
-        WHERE actor.id = audit.user_id
-          AND audit.tenant_id IS DISTINCT FROM actor.tenant_id
-        """
-    )
-
-    # A job may have both a creator and a dataset. Abort rather than choosing a
-    # side if historical privileged writes linked parents from different
-    # tenants: silently adopting either key would preserve a cross-tenant row.
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1
-                FROM catalog.ingest_jobs AS job
-                JOIN catalog.users AS creator ON creator.id = job.created_by
-                JOIN catalog.datasets AS dataset ON dataset.id = job.dataset_id
-                WHERE creator.tenant_id IS DISTINCT FROM dataset.tenant_id
-            ) THEN
-                RAISE EXCEPTION
-                    'cannot tenantize ingest_jobs with mismatched creator and dataset tenants'
-                    USING ERRCODE = '42501';
-            END IF;
-        END;
-        $$
-        """
-    )
-    op.execute(
-        """
-        UPDATE catalog.ingest_jobs AS job
-        SET tenant_id = creator.tenant_id
-        FROM catalog.users AS creator
-        WHERE creator.id = job.created_by
-          AND job.tenant_id IS DISTINCT FROM creator.tenant_id
-        """
-    )
-    op.execute(
-        """
-        UPDATE catalog.ingest_jobs AS job
-        SET tenant_id = dataset.tenant_id
-        FROM catalog.datasets AS dataset
-        WHERE dataset.id = job.dataset_id
-          AND job.created_by IS NULL
-          AND job.tenant_id IS DISTINCT FROM dataset.tenant_id
-        """
-    )
 
     for table in _TABLES:
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{table} ON catalog.{table}")
@@ -286,8 +236,67 @@ def upgrade() -> None:
         f"FOR EACH ROW EXECUTE FUNCTION {_JOB_PARENT_FUNCTION}()"
     )
 
-    # Commit the tenant keys and write guards before releasing table locks.
-    # Inserts that race either online build are therefore stamped and checked.
+    # Release ADD COLUMN and CREATE TRIGGER locks before scanning either large
+    # table. The committed guards keep writes tenant-safe during the backfill.
+    _release_guarded_ddl_locks()
+
+    # Actor-backed audit rows inherit the actor's tenant. Rows whose actor was
+    # already deleted, plus historical system rows, remain NULL and therefore
+    # fail closed when hosted RLS is enabled; there is no trustworthy tenant
+    # source from which to infer their ownership retroactively.
+    op.execute(
+        """
+        UPDATE catalog.audit_logs AS audit
+        SET tenant_id = actor.tenant_id
+        FROM catalog.users AS actor
+        WHERE actor.id = audit.user_id
+          AND audit.tenant_id IS DISTINCT FROM actor.tenant_id
+        """
+    )
+
+    # A job may have both a creator and a dataset. Abort rather than choosing a
+    # side if historical privileged writes linked parents from different
+    # tenants: silently adopting either key would preserve a cross-tenant row.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM catalog.ingest_jobs AS job
+                JOIN catalog.users AS creator ON creator.id = job.created_by
+                JOIN catalog.datasets AS dataset ON dataset.id = job.dataset_id
+                WHERE creator.tenant_id IS DISTINCT FROM dataset.tenant_id
+            ) THEN
+                RAISE EXCEPTION
+                    'cannot tenantize ingest_jobs with mismatched creator and dataset tenants'
+                    USING ERRCODE = '42501';
+            END IF;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        UPDATE catalog.ingest_jobs AS job
+        SET tenant_id = creator.tenant_id
+        FROM catalog.users AS creator
+        WHERE creator.id = job.created_by
+          AND job.tenant_id IS DISTINCT FROM creator.tenant_id
+        """
+    )
+    op.execute(
+        """
+        UPDATE catalog.ingest_jobs AS job
+        SET tenant_id = dataset.tenant_id
+        FROM catalog.datasets AS dataset
+        WHERE dataset.id = job.dataset_id
+          AND job.created_by IS NULL
+          AND job.tenant_id IS DISTINCT FROM dataset.tenant_id
+        """
+    )
+
+    # Online index builds commit the backfill without holding strong DDL locks.
     for index_name, table in _TENANT_INDEXES:
         _ensure_tenant_index(index_name, table)
 
