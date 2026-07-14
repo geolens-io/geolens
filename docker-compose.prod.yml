@@ -160,7 +160,7 @@ services:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
@@ -395,8 +395,15 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    # The entrypoint materializes the immutable SPA in /tmp; nginx keeps its
+    # bounded raster cache on a dedicated writable volume.
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    volumes:
+      - frontend_cache:/var/cache/nginx
     environment:
       # The SPA calls relative /api (nginx proxies to api:8000), so a relative
       # base works for any host the stack is reached on. Override for a CDN.
@@ -433,6 +440,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The postgres base declares PGDATA as a VOLUME. Override it with ephemeral
+    # tmpfs because this image only runs pg_dump; otherwise Docker creates an
+    # unused anonymous volume for every backup container.
+    tmpfs:
+      - /var/lib/postgresql/data:size=1m,mode=0700
     volumes:
       # No ./scripts bind-mount in prod: the published geolens-backup image bakes
       # /scripts/backup-entrypoint.sh + restore.sh (BKP-01), so the prebuilt-prod
@@ -572,5 +584,6 @@ volumes:
   pgdata:
   upload_staging:
   backup_data:
+  frontend_cache:
   minio_data:
   valkey_data:
