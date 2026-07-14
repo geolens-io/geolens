@@ -49,6 +49,17 @@ class TestEnterpriseOverlayStartupCheck:
             with pytest.raises(RuntimeError):
                 check_enterprise_overlay_requested(loaded_extensions=[])
 
+    def test_raises_when_settings_loaded_edition_requests_enterprise(self, monkeypatch):
+        """A bare-metal .env edition request still enforces the overlay guard."""
+        from app.core import config as config_module
+        from app.core.edition import check_enterprise_overlay_requested
+
+        monkeypatch.delenv("GEOLENS_EDITION", raising=False)
+        monkeypatch.setattr(config_module.settings, "geolens_edition", "enterprise")
+
+        with pytest.raises(RuntimeError, match="enterprise"):
+            check_enterprise_overlay_requested(loaded_extensions=[])
+
     def test_silent_when_enterprise_requested_and_overlay_loaded(self):
         """GEOLENS_EDITION=enterprise + overlay extension present → no error."""
         from app.core.edition import check_enterprise_overlay_requested

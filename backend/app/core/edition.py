@@ -27,7 +27,15 @@ def _is_truthy(value: str | None) -> bool:
 
 def _requested_edition() -> str:
     """Return the normalized explicit edition, rejecting invalid operator input."""
-    value = os.environ.get("GEOLENS_EDITION", "").lower().strip()
+    raw_value = os.environ.get("GEOLENS_EDITION")
+    if raw_value is None:
+        # BaseSettings reads bare-metal .env files without exporting their
+        # values into os.environ. Fall back to the validated Settings value so
+        # the startup guards honor the same contract outside Compose.
+        from app.core.config import settings
+
+        raw_value = settings.geolens_edition
+    value = (raw_value or "").lower().strip()
     if value not in ("", "community", "enterprise"):
         raise RuntimeError(
             "GEOLENS_EDITION must be unset, 'community', or 'enterprise'. "
@@ -235,7 +243,12 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
 
     References: GUARD-01, TSEAM-03, T-1207-06
     """
-    mode_val = os.environ.get("GEOLENS_TENANCY_MODE", "").lower().strip()
+    raw_mode = os.environ.get("GEOLENS_TENANCY_MODE")
+    if raw_mode is None:
+        from app.core.config import settings
+
+        raw_mode = settings.geolens_tenancy_mode
+    mode_val = (raw_mode or "").lower().strip()
 
     if mode_val != "multi_tenant":
         # Not requesting multi_tenant — single_tenant default or not set.
