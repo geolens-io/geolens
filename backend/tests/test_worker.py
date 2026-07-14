@@ -291,6 +291,33 @@ async def test_main_bootstraps_before_recovering_stale_jobs():
 
 
 @pytest.mark.asyncio
+async def test_main_skips_stale_recovery_when_bootstrap_fails():
+    """A failed tenancy bootstrap must prevent an unscoped recovery sweep."""
+    from app.platform.jobs.worker import main
+
+    recover = AsyncMock()
+    bootstrap = AsyncMock(side_effect=RuntimeError("tenancy bootstrap failed"))
+    assert_ports = MagicMock()
+
+    with (
+        patch("app.platform.jobs.worker.recover_stale_jobs", recover),
+        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.ensure_staging_ready"),
+        patch("app.platform.jobs.worker.sweep_orphaned_exports"),
+        patch("app.platform.extensions.bootstrap.bootstrap", bootstrap),
+        patch(
+            "app.platform.extensions.bootstrap.assert_enterprise_ports_resolved",
+            assert_ports,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="tenancy bootstrap failed"):
+            await main()
+
+    recover.assert_not_awaited()
+    assert_ports.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_main_uses_shutdown_graceful_timeout():
     """main() should pass shutdown_graceful_timeout from settings.worker_shutdown_timeout.
 
