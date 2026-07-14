@@ -38,13 +38,14 @@ tests (``test_tenant_rls_migration.py``, ``test_email_verification_migration.py`
 test targets this migration's parent explicitly so newer heads cannot mask the
 constraint transition.
 
-Cross-repo deferred note
-------------------------
-The enterprise overlay ``e002`` recreates ``chk_oauth_providers_type`` as part of
-its own upgrade.  If ``e002`` runs AFTER this migration (i.e. on a deployment
-that applied 0010 first) its recreation will drop ``'github'``.  The overlay team
-should add ``'github'`` to ``e002``'s constraint literal in a follow-up.  This is
-out of scope for the OSS core here — flagged for the enterprise maintainers.
+Cross-repo compatibility contract
+---------------------------------
+Any overlay migration that recreates ``chk_oauth_providers_type`` must write the
+same full provider union as this migration.  The current enterprise ``e002``
+does so, which makes the final constraint independent of which branch writes it
+last.  Overlay-owned CI can exercise the real package against this core through
+``scripts/verify_overlay_migrations.py``; public core CI does not fetch private
+overlay source.
 
 Revision ID: 0010_oauth_github_provider_type
 Revises:     0009_email_verification

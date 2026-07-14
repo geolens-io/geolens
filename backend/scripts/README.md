@@ -3,6 +3,28 @@
 One-shot maintenance scripts for the GeoLens backend. Each script is
 meant to be run from `backend/` as the working directory.
 
+## Installed-overlay migration verification
+
+**Script:** `verify_overlay_migrations.py`
+
+Validates the current core migration chain against any real overlay already
+installed through the public `geolens.migrations` entry-point contract. It
+fails when no overlay is installed, runs `alembic upgrade heads`, proves every
+discovered core and overlay head landed, checks the co-owned OAuth/SAML schema,
+and finishes with `alembic check`.
+
+Run it from an overlay-owned CI job or a locally built image that already
+contains the overlay:
+
+```bash
+cd backend
+uv run --no-sync python scripts/verify_overlay_migrations.py
+```
+
+The verifier never imports or checks out a private package by name. Public core
+CI therefore self-tests the verifier with an in-repository fixture, while the
+private overlay's own CI supplies the real installed package and database.
+
 ## Alembic clean-DB upgrade test
 
 **Script:** `test_alembic_upgrade_clean_db.sh`
