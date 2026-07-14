@@ -80,6 +80,12 @@ Migration `0018` (`chk_ingest_jobs_status`) is deliberately left as a single
 is cheap and re-validating an already-released migration is unwarranted churn
 (finding CV-3).
 
+If existing rows need repair before validation, commit the idempotent `ADD ...
+NOT VALID` first, repair only changed rows in the restarted transaction, then
+enter a second `autocommit_block` for `VALIDATE`. Migration `0014` follows this
+pattern. The first commit makes the constraint enforce new writes before the
+repair begins; the second releases repair locks before the validation scan.
+
 ## Functional / expression indexes and `alembic check`
 
 `alembic check` must stay green (it is the drift gate). SQLAlchemy cannot

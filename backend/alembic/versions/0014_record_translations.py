@@ -17,44 +17,87 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "records",
-        "language",
-        existing_type=sa.String(length=10),
-        type_=sa.String(length=35),
-        existing_nullable=True,
-        schema="catalog",
-    )
-    # The legacy column had no format constraint. Canonicalize values that are
-    # structurally usable (EN -> en, pt_BR -> pt-BR) and use the documented
-    # English fallback for blank/free-form historical values before validating
-    # the table. This keeps upgrades safe for long-lived self-hosted catalogs.
+    # The DDL prefix commits independently so its brief ACCESS EXCLUSIVE lock is
+    # released before the data repair scans records. The conditional constraint
+    # add makes this prefix safe to retry if a later autocommit step is interrupted.
+    # NOT VALID skips the locked table scan but still constrains every new write.
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                """
+                DO $$
+                BEGIN
+                  ALTER TABLE catalog.records
+                    ALTER COLUMN language TYPE VARCHAR(35);
+
+                  IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conrelid = 'catalog.records'::regclass
+                      AND conname = 'chk_records_language_tag'
+                  ) THEN
+                    ALTER TABLE catalog.records
+                      ADD CONSTRAINT chk_records_language_tag
+                      CHECK (
+                        language IS NULL
+                        OR language ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$'
+                      ) NOT VALID;
+                  END IF;
+                END $$;
+                """
+            )
+        )
+
+    # Canonicalize only rows whose value actually changes. The scan can run for
+    # a large catalog, but it no longer rewrites every non-NULL row or runs while
+    # the DDL lock above is held.
     op.execute(
         sa.text(
             """
-            UPDATE catalog.records
-            SET language = CASE
-                WHEN btrim(replace(language, '_', '-'))
-                     ~* '^[a-z]{2,3}(-[a-z0-9]{2,8})*$'
-                THEN lower(split_part(btrim(replace(language, '_', '-')), '-', 1))
-                     || substring(
-                         btrim(replace(language, '_', '-'))
-                         FROM length(
-                             split_part(btrim(replace(language, '_', '-')), '-', 1)
-                         ) + 1
-                     )
-                ELSE 'en'
-            END
-            WHERE language IS NOT NULL
+            WITH normalized AS (
+              SELECT id,
+                     CASE
+                       WHEN btrim(replace(language, '_', '-'))
+                            ~* '^[a-z]{2,3}(-[a-z0-9]{2,8})*$'
+                       THEN lower(
+                              split_part(
+                                btrim(replace(language, '_', '-')), '-', 1
+                              )
+                            )
+                            || substring(
+                              btrim(replace(language, '_', '-'))
+                              FROM length(
+                                split_part(
+                                  btrim(replace(language, '_', '-')), '-', 1
+                                )
+                              ) + 1
+                            )
+                       ELSE 'en'
+                     END AS normalized_language
+              FROM catalog.records
+              WHERE language IS NOT NULL
+            )
+            UPDATE catalog.records AS records
+            SET language = normalized.normalized_language
+            FROM normalized
+            WHERE records.id = normalized.id
+              AND records.language IS DISTINCT FROM normalized.normalized_language
             """
         )
     )
-    op.create_check_constraint(
-        "chk_records_language_tag",
-        "records",
-        "language IS NULL OR language ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$'",
-        schema="catalog",
-    )
+
+    # Entering this block commits the targeted repair. PostgreSQL validates the
+    # already-enforced constraint under SHARE UPDATE EXCLUSIVE, which permits
+    # ordinary reads and writes. VALIDATE is a no-op on crash/retry once valid.
+    with op.get_context().autocommit_block():
+        op.execute(
+            sa.text(
+                """
+                ALTER TABLE catalog.records
+                  VALIDATE CONSTRAINT chk_records_language_tag
+                """
+            )
+        )
     op.create_table(
         "record_translations",
         sa.Column(
