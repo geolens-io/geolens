@@ -60,9 +60,10 @@ export function useImportConfig() {
   return useMutation<
     ImportResult,
     Error,
-    { data: ConfigImportRequest; mode: ImportMode }
+    { data: ConfigImportRequest; mode: ImportMode; previewToken?: string | null }
   >({
-    mutationFn: ({ data, mode }) => importConfig(data, mode),
+    mutationFn: ({ data, mode, previewToken }) =>
+      importConfig(data, mode, previewToken),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.authConfig.config });
@@ -76,6 +77,7 @@ export function useImportConfig() {
       if (result.oauth_created > 0) parts.push(i18n.t('configOps.providersCreated', { count: result.oauth_created }));
       if (result.oauth_updated > 0) parts.push(i18n.t('configOps.providersUpdated', { count: result.oauth_updated }));
       if (result.oauth_deleted > 0) parts.push(i18n.t('configOps.providersDeleted', { count: result.oauth_deleted }));
+      if (result.oauth_accounts_deleted > 0) parts.push(i18n.t('configOps.accountsDeleted', { count: result.oauth_accounts_deleted }));
       toast.success(parts.length > 0 ? parts.join(', ') : i18n.t('configOps.importComplete'));
     },
     onError: (err: Error) => {

@@ -19,6 +19,7 @@ def _get_kwargs(
     user_id: None | Unset | UUID = UNSET,
     action: None | str | Unset = UNSET,
     resource_type: None | str | Unset = UNSET,
+    resource_id: None | Unset | UUID = UNSET,
     date_from: datetime.datetime | None | Unset = UNSET,
     date_to: datetime.datetime | None | Unset = UNSET,
     search: None | str | Unset = UNSET,
@@ -50,6 +51,15 @@ def _get_kwargs(
     else:
         json_resource_type = resource_type
     params["resource_type"] = json_resource_type
+
+    json_resource_id: None | str | Unset
+    if isinstance(resource_id, Unset):
+        json_resource_id = UNSET
+    elif isinstance(resource_id, UUID):
+        json_resource_id = str(resource_id)
+    else:
+        json_resource_id = resource_id
+    params["resource_id"] = json_resource_id
 
     json_date_from: None | str | Unset
     if isinstance(date_from, Unset):
@@ -162,6 +172,7 @@ def sync_detailed(
     user_id: None | Unset | UUID = UNSET,
     action: None | str | Unset = UNSET,
     resource_type: None | str | Unset = UNSET,
+    resource_id: None | Unset | UUID = UNSET,
     date_from: datetime.datetime | None | Unset = UNSET,
     date_to: datetime.datetime | None | Unset = UNSET,
     search: None | str | Unset = UNSET,
@@ -176,6 +187,7 @@ def sync_detailed(
         user_id (None | Unset | UUID):
         action (None | str | Unset):
         resource_type (None | str | Unset):
+        resource_id (None | Unset | UUID):
         date_from (datetime.datetime | None | Unset):
         date_to (datetime.datetime | None | Unset):
         search (None | str | Unset):
@@ -194,6 +206,7 @@ def sync_detailed(
         user_id=user_id,
         action=action,
         resource_type=resource_type,
+        resource_id=resource_id,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -214,6 +227,7 @@ def sync(
     user_id: None | Unset | UUID = UNSET,
     action: None | str | Unset = UNSET,
     resource_type: None | str | Unset = UNSET,
+    resource_id: None | Unset | UUID = UNSET,
     date_from: datetime.datetime | None | Unset = UNSET,
     date_to: datetime.datetime | None | Unset = UNSET,
     search: None | str | Unset = UNSET,
@@ -228,6 +242,7 @@ def sync(
         user_id (None | Unset | UUID):
         action (None | str | Unset):
         resource_type (None | str | Unset):
+        resource_id (None | Unset | UUID):
         date_from (datetime.datetime | None | Unset):
         date_to (datetime.datetime | None | Unset):
         search (None | str | Unset):
@@ -247,6 +262,7 @@ def sync(
         user_id=user_id,
         action=action,
         resource_type=resource_type,
+        resource_id=resource_id,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -261,6 +277,7 @@ async def asyncio_detailed(
     user_id: None | Unset | UUID = UNSET,
     action: None | str | Unset = UNSET,
     resource_type: None | str | Unset = UNSET,
+    resource_id: None | Unset | UUID = UNSET,
     date_from: datetime.datetime | None | Unset = UNSET,
     date_to: datetime.datetime | None | Unset = UNSET,
     search: None | str | Unset = UNSET,
@@ -275,6 +292,7 @@ async def asyncio_detailed(
         user_id (None | Unset | UUID):
         action (None | str | Unset):
         resource_type (None | str | Unset):
+        resource_id (None | Unset | UUID):
         date_from (datetime.datetime | None | Unset):
         date_to (datetime.datetime | None | Unset):
         search (None | str | Unset):
@@ -293,6 +311,7 @@ async def asyncio_detailed(
         user_id=user_id,
         action=action,
         resource_type=resource_type,
+        resource_id=resource_id,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -311,6 +330,7 @@ async def asyncio(
     user_id: None | Unset | UUID = UNSET,
     action: None | str | Unset = UNSET,
     resource_type: None | str | Unset = UNSET,
+    resource_id: None | Unset | UUID = UNSET,
     date_from: datetime.datetime | None | Unset = UNSET,
     date_to: datetime.datetime | None | Unset = UNSET,
     search: None | str | Unset = UNSET,
@@ -325,6 +345,7 @@ async def asyncio(
         user_id (None | Unset | UUID):
         action (None | str | Unset):
         resource_type (None | str | Unset):
+        resource_id (None | Unset | UUID):
         date_from (datetime.datetime | None | Unset):
         date_to (datetime.datetime | None | Unset):
         search (None | str | Unset):
@@ -345,6 +366,7 @@ async def asyncio(
             user_id=user_id,
             action=action,
             resource_type=resource_type,
+            resource_id=resource_id,
             date_from=date_from,
             date_to=date_to,
             search=search,

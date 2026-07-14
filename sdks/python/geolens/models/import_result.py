@@ -25,6 +25,8 @@ class ImportResult:
         settings_applied (int): Number of settings successfully updated.
         settings_skipped (int): Number of settings skipped (no change, unknown key, or restricted key not writable by
             the current runtime).
+        oauth_accounts_deleted (int | Unset): Number of dependent OAuth account links cascade-deleted in overwrite mode.
+            Default: 0.
         settings_skipped_restricted (list[str] | Unset): Names of restricted setting keys that were skipped by the
             current runtime.
     """
@@ -34,6 +36,7 @@ class ImportResult:
     oauth_updated: int
     settings_applied: int
     settings_skipped: int
+    oauth_accounts_deleted: int | Unset = 0
     settings_skipped_restricted: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -47,6 +50,8 @@ class ImportResult:
         settings_applied = self.settings_applied
 
         settings_skipped = self.settings_skipped
+
+        oauth_accounts_deleted = self.oauth_accounts_deleted
 
         settings_skipped_restricted: list[str] | Unset = UNSET
         if not isinstance(self.settings_skipped_restricted, Unset):
@@ -63,6 +68,8 @@ class ImportResult:
                 "settings_skipped": settings_skipped,
             }
         )
+        if oauth_accounts_deleted is not UNSET:
+            field_dict["oauth_accounts_deleted"] = oauth_accounts_deleted
         if settings_skipped_restricted is not UNSET:
             field_dict["settings_skipped_restricted"] = settings_skipped_restricted
 
@@ -81,6 +88,8 @@ class ImportResult:
 
         settings_skipped = d.pop("settings_skipped")
 
+        oauth_accounts_deleted = d.pop("oauth_accounts_deleted", UNSET)
+
         settings_skipped_restricted = cast(
             list[str], d.pop("settings_skipped_restricted", UNSET)
         )
@@ -91,6 +100,7 @@ class ImportResult:
             oauth_updated=oauth_updated,
             settings_applied=settings_applied,
             settings_skipped=settings_skipped,
+            oauth_accounts_deleted=oauth_accounts_deleted,
             settings_skipped_restricted=settings_skipped_restricted,
         )
 

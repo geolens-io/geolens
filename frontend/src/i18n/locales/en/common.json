@@ -432,6 +432,7 @@
     "providersCreated": "{{count}} providers created",
     "providersUpdated": "{{count}} updated",
     "providersDeleted": "{{count}} deleted",
+    "accountsDeleted": "{{count}} linked OAuth accounts deleted",
     "page": {
       "title": "Config Operations",
       "description": "Export and import your instance configuration."
@@ -466,6 +467,7 @@
       "modeMerge": "Merge - update existing, add new",
       "modeOverwrite": "Overwrite - replace all",
       "overwriteWarning": "This will replace all existing settings and OAuth providers.",
+      "overwritePreviewRequired": "Run a new overwrite preview before applying this configuration.",
       "preview": "Preview Changes",
       "apply": "Apply Import",
       "settingsChanges": "Settings Changes",
@@ -476,9 +478,11 @@
       "oauthChanges": "OAuth Provider Changes",
       "slug": "Slug",
       "changedFields": "Changed Fields",
+      "linkedAccountsDeleted": "Linked accounts deleted",
+      "oauthAccountDeletionWarning": "Linked OAuth account deletions: {{count}}. Affected users may lose SSO access.",
       "noChanges": "No changes detected.",
       "success": "Import complete.",
-      "successDetail": "{{settingsApplied}} settings applied, {{settingsSkipped}} skipped. {{oauthCreated}} providers created, {{oauthUpdated}} updated, {{oauthDeleted}} deleted.",
+      "successDetail": "{{settingsApplied}} settings applied, {{settingsSkipped}} skipped. {{oauthCreated}} providers created, {{oauthUpdated}} updated, {{oauthDeleted}} deleted. {{oauthAccountsDeleted}} linked OAuth accounts deleted.",
       "confirmTitle": "Overwrite the entire configuration?",
       "confirmDescription": "This replaces every current setting and cannot be undone. Type {{keyword}} to confirm."
     }

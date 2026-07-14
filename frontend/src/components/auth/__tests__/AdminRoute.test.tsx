@@ -1,27 +1,34 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router';
-import { useAuthStore } from '@/stores/auth-store';
-import { AdminRoute } from '../AdminRoute';
-import type { UserResponse } from '@/types/api';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import {
+  AdminCapabilityRoute,
+  AdminIndexRoute,
+  AdminRoute,
+} from '../AdminRoute';
 
-function mockUser(roles: string[] = ['viewer']): UserResponse {
-  return {
-    id: '1',
-    username: 'testuser',
-    email: 'test@example.com',
-    is_active: true,
-    status: 'approved',
-    last_login_at: null,
-    created_at: '2025-01-01T00:00:00Z',
-    roles,
-  };
-}
+const permissionState = vi.hoisted(() => ({
+  manageUsers: false,
+  manageSettings: false,
+  isLoading: false,
+}));
 
-function renderWithRoutes(initialRoute = '/') {
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    can: (capability: string) =>
+      capability === 'manage_users'
+        ? permissionState.manageUsers
+        : capability === 'manage_settings' && permissionState.manageSettings,
+    isLoading: permissionState.isLoading,
+    permissions: {},
+  }),
+}));
+
+function renderAdminRoute(initialRoute = '/admin') {
   return render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <Routes>
-        <Route element={<AdminRoute />}>
+        <Route path="/" element={<div>App Home</div>} />
+        <Route path="/admin" element={<AdminRoute />}>
           <Route index element={<div>Admin Content</div>} />
         </Route>
       </Routes>
@@ -31,27 +38,98 @@ function renderWithRoutes(initialRoute = '/') {
 
 describe('AdminRoute', () => {
   beforeEach(() => {
-    useAuthStore.setState({ token: null, user: null });
+    permissionState.manageUsers = false;
+    permissionState.manageSettings = false;
+    permissionState.isLoading = false;
   });
 
-  it('shows 403 when user is not admin', () => {
-    useAuthStore.setState({ token: 'abc', user: mockUser(['viewer']) });
-    renderWithRoutes('/');
+  it('redirects a user with no admin capability to the application', () => {
+    renderAdminRoute();
 
-    expect(screen.getByText('403')).toBeInTheDocument();
+    expect(screen.getByText('App Home')).toBeInTheDocument();
+    expect(screen.queryByText('Admin Content')).not.toBeInTheDocument();
   });
 
-  it('renders child content for admin user', () => {
-    useAuthStore.setState({ token: 'abc', user: mockUser(['admin']) });
-    renderWithRoutes('/');
+  it('renders admin content for manage_users', () => {
+    permissionState.manageUsers = true;
+    renderAdminRoute();
 
     expect(screen.getByText('Admin Content')).toBeInTheDocument();
   });
 
-  it('shows 403 when user is editor but not admin', () => {
-    useAuthStore.setState({ token: 'abc', user: mockUser(['editor']) });
-    renderWithRoutes('/');
+  it('renders admin content for manage_settings', () => {
+    permissionState.manageSettings = true;
+    renderAdminRoute();
 
-    expect(screen.getByText('403')).toBeInTheDocument();
+    expect(screen.getByText('Admin Content')).toBeInTheDocument();
+  });
+});
+
+describe('AdminCapabilityRoute', () => {
+  function renderCapabilityRoute(capability: 'manage_users' | 'manage_settings') {
+    return render(
+      <MemoryRouter initialEntries={['/admin/target']}>
+        <Routes>
+          <Route path="/admin" element={<div>Admin Index</div>} />
+          <Route element={<AdminCapabilityRoute capability={capability} />}>
+            <Route path="/admin/target" element={<div>Capability Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    permissionState.manageUsers = false;
+    permissionState.manageSettings = false;
+    permissionState.isLoading = false;
+  });
+
+  it('renders the route when its specific capability is granted', () => {
+    permissionState.manageSettings = true;
+    renderCapabilityRoute('manage_settings');
+
+    expect(screen.getByText('Capability Content')).toBeInTheDocument();
+  });
+
+  it('redirects to the admin index when the specific capability is denied', () => {
+    permissionState.manageUsers = true;
+    renderCapabilityRoute('manage_settings');
+
+    expect(screen.getByText('Admin Index')).toBeInTheDocument();
+  });
+});
+
+describe('AdminIndexRoute', () => {
+  function renderIndex() {
+    return render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <Routes>
+          <Route path="/admin" element={<AdminIndexRoute />} />
+          <Route path="/admin/overview" element={<div>User Admin</div>} />
+          <Route path="/admin/audit" element={<div>Settings Admin</div>} />
+          <Route path="/" element={<div>App Home</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    permissionState.manageUsers = false;
+    permissionState.manageSettings = false;
+    permissionState.isLoading = false;
+  });
+
+  it('prefers the user-management overview when available', () => {
+    permissionState.manageUsers = true;
+    permissionState.manageSettings = true;
+    renderIndex();
+    expect(screen.getByText('User Admin')).toBeInTheDocument();
+  });
+
+  it('lands settings-only administrators on the audit page', () => {
+    permissionState.manageSettings = true;
+    renderIndex();
+    expect(screen.getByText('Settings Admin')).toBeInTheDocument();
   });
 });

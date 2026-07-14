@@ -143,6 +143,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Non-secret key identifier; null for legacy keys.",
+            "title": "Fingerprint"
+          },
           "id": {
             "description": "Unique API key identifier.",
             "format": "uuid",
@@ -183,6 +195,7 @@
           "id",
           "user_id",
           "name",
+          "fingerprint",
           "is_active",
           "created_at",
           "last_used_at"
@@ -725,6 +738,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "fingerprint": {
+            "description": "Non-secret key identifier (prefix and last four characters)",
+            "title": "Fingerprint",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -743,6 +761,7 @@
         "required": [
           "id",
           "key",
+          "fingerprint",
           "name",
           "created_at"
         ],
@@ -755,6 +774,18 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Non-secret key identifier; null for keys created before fingerprint support",
+            "title": "Fingerprint"
           },
           "id": {
             "format": "uuid",
@@ -785,6 +816,7 @@
         "required": [
           "id",
           "name",
+          "fingerprint",
           "is_active",
           "created_at",
           "last_used_at"
@@ -5514,6 +5546,18 @@
             "title": "Oauth Providers",
             "type": "object"
           },
+          "preview_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short-lived signed confirmation token required to apply an overwrite. Bound to the normalized payload, overwrite mode, and current configuration state.",
+            "title": "Preview Token"
+          },
           "settings": {
             "additionalProperties": true,
             "description": "Per-setting diff result keyed by setting name.",
@@ -6631,6 +6675,13 @@
       "ImportResult": {
         "description": "Summary of what was applied during an import.",
         "properties": {
+          "oauth_accounts_deleted": {
+            "default": 0,
+            "description": "Number of dependent OAuth account links cascade-deleted in overwrite mode.",
+            "minimum": 0.0,
+            "title": "Oauth Accounts Deleted",
+            "type": "integer"
+          },
           "oauth_created": {
             "description": "Number of new OAuth providers created.",
             "title": "Oauth Created",
@@ -15267,6 +15318,10 @@
       },
       "StaleCleanupResponse": {
         "properties": {
+          "local_files_reaped": {
+            "title": "Local Files Reaped",
+            "type": "integer"
+          },
           "pending_failed": {
             "title": "Pending Failed",
             "type": "integer"
@@ -15275,15 +15330,56 @@
             "title": "Running Failed",
             "type": "integer"
           },
+          "staged_cleanup_failures": {
+            "title": "Staged Cleanup Failures",
+            "type": "integer"
+          },
+          "staged_paths_considered": {
+            "title": "Staged Paths Considered",
+            "type": "integer"
+          },
+          "staged_paths_skipped": {
+            "title": "Staged Paths Skipped",
+            "type": "integer"
+          },
+          "storage_objects_reaped": {
+            "title": "Storage Objects Reaped",
+            "type": "integer"
+          },
+          "terminal_jobs_purged": {
+            "title": "Terminal Jobs Purged",
+            "type": "integer"
+          },
+          "total_affected": {
+            "title": "Total Affected",
+            "type": "integer"
+          },
           "total_cleaned": {
             "title": "Total Cleaned",
+            "type": "integer"
+          },
+          "vrt_assets_recovered": {
+            "title": "Vrt Assets Recovered",
+            "type": "integer"
+          },
+          "vrt_generations_failed": {
+            "title": "Vrt Generations Failed",
             "type": "integer"
           }
         },
         "required": [
           "pending_failed",
           "running_failed",
-          "total_cleaned"
+          "total_cleaned",
+          "vrt_assets_recovered",
+          "vrt_generations_failed",
+          "terminal_jobs_purged",
+          "staged_paths_considered",
+          "local_files_reaped",
+          "storage_objects_reaped",
+          "staged_paths_skipped",
+          "staged_cleanup_failures",
+          "total_affected"
         ],
         "title": "StaleCleanupResponse",
         "type": "object"
@@ -16059,7 +16155,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whether the user can log in. Set to false to deactivate.",
+            "description": "Legacy account-state toggle. False maps to 'deactivated' and true maps to 'active'. Prefer the explicit status field.",
             "title": "Is Active"
           },
           "role": {
@@ -16074,6 +16170,23 @@
             ],
             "description": "New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.",
             "title": "Role"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "suspended",
+                  "deactivated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explicit account lifecycle state. Pending registrations must use the approve/reject endpoints.",
+            "title": "Status"
           }
         },
         "title": "UserUpdate",
@@ -17584,6 +17697,23 @@
                 }
               ],
               "title": "Resource Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
             }
           },
           {
@@ -27449,6 +27579,24 @@
               ],
               "title": "Mode",
               "type": "string"
+            }
+          },
+          {
+            "description": "Signed token returned by the matching dry-run. Required for overwrite mode.",
+            "in": "header",
+            "name": "X-Config-Preview-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Signed token returned by the matching dry-run. Required for overwrite mode.",
+              "title": "X-Config-Preview-Token"
             }
           }
         ],

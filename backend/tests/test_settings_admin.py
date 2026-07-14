@@ -1,6 +1,7 @@
 """Integration tests for settings admin endpoints: bulk update, reset, OAuth CRUD."""
 
 import uuid
+from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
 
@@ -86,6 +87,120 @@ class TestResetSettings:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
+
+    async def test_later_unknown_key_does_not_partially_reset_batch(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """The complete reset batch is validated before any key is deleted."""
+        updated = await client.put(
+            "/settings/",
+            json={"settings": {"log_level": "DEBUG"}},
+            headers=admin_auth_header,
+        )
+        assert updated.status_code == 200
+        try:
+            reset = await client.post(
+                "/settings/reset/",
+                json={"keys": ["log_level", "nonexistent_key_xyz"]},
+                headers=admin_auth_header,
+            )
+            assert reset.status_code == 400
+
+            current = await client.get("/settings/all/", headers=admin_auth_header)
+            values = {
+                item["key"]: item["value"]
+                for items in current.json()["tabs"].values()
+                for item in items
+            }
+            assert values["log_level"] == "DEBUG"
+        finally:
+            await client.post(
+                "/settings/reset/",
+                json={"keys": ["log_level"]},
+                headers=admin_auth_header,
+            )
+
+    async def test_later_restricted_key_does_not_partially_reset_batch(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        community_edition,
+    ):
+        """Edition gating also runs for the whole batch before mutation."""
+        updated = await client.put(
+            "/settings/",
+            json={"settings": {"log_level": "DEBUG"}},
+            headers=admin_auth_header,
+        )
+        assert updated.status_code == 200
+        try:
+            reset = await client.post(
+                "/settings/reset/",
+                json={"keys": ["log_level", "branding.show_badge"]},
+                headers=admin_auth_header,
+            )
+            assert reset.status_code == 404
+
+            current = await client.get("/settings/all/", headers=admin_auth_header)
+            values = {
+                item["key"]: item["value"]
+                for items in current.json()["tabs"].values()
+                for item in items
+            }
+            assert values["log_level"] == "DEBUG"
+        finally:
+            await client.post(
+                "/settings/reset/",
+                json={"keys": ["log_level"]},
+                headers=admin_auth_header,
+            )
+
+    async def test_password_login_reset_cannot_remove_last_login_method(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+    ):
+        """A false runtime default cannot bypass the PUT/import SSO guard."""
+        from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
+
+        monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", False)
+        provider_lock = AsyncMock(return_value=[])
+        monkeypatch.setattr(
+            "app.modules.settings.router.oauth_service.lock_enabled_providers",
+            provider_lock,
+        )
+        enabled = await client.put(
+            "/settings/",
+            json={"settings": {"password_login_enabled": True}},
+            headers=admin_auth_header,
+        )
+        assert enabled.status_code == 200
+
+        reset = await client.post(
+            "/settings/reset/",
+            json={"keys": ["password_login_enabled"]},
+            headers=admin_auth_header,
+        )
+        assert reset.status_code == 422
+        assert "no SSO provider" in reset.json()["detail"]
+        provider_lock.assert_awaited_once()
+
+        current = await client.get("/settings/all/", headers=admin_auth_header)
+        values = {
+            item["key"]: item["value"]
+            for items in current.json()["tabs"].values()
+            for item in items
+        }
+        assert values["password_login_enabled"] is True
+
+        monkeypatch.setattr(PASSWORD_LOGIN_ENABLED, "_env_default_static", True)
+        cleanup = await client.post(
+            "/settings/reset/",
+            json={"keys": ["password_login_enabled"]},
+            headers=admin_auth_header,
+        )
+        assert cleanup.status_code == 200
 
     async def test_reset_requires_admin(
         self, client: AsyncClient, editor_auth_header: dict

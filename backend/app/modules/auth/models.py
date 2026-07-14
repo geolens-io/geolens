@@ -30,6 +30,10 @@ class User(Base):
             "auth_provider IN ('local', 'oidc', 'oauth')",
             name="chk_users_auth_provider",
         ),
+        CheckConstraint(
+            "is_active = (status = 'active')",
+            name="chk_users_status_active_consistency",
+        ),
         # Partial index: most user lookups don't need to scan pending rows; the
         # admin "pending users" view does, and benefits from this targeted index.
         Index(
@@ -108,7 +112,7 @@ class User(Base):
         String(20), server_default="active", nullable=False
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default="true"
+        Boolean, default=True, server_default="true", nullable=False
     )
     # SIGNUP-03 (Phase 1231): email verification flag. Set to True by
     # redeem_verification_token() when the user clicks the verification link.
@@ -182,6 +186,10 @@ class ApiKey(Base):
         ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     key_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    # Non-secret operator identifier. Existing keys pre-dating migration 0016
+    # remain NULL; new keys store an 8-character prefix plus last four so users
+    # can identify a credential without exposing the raw secret.
+    fingerprint: Mapped[str | None] = mapped_column(String(20), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"

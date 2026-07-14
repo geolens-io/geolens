@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Route, Navigate, Outlet } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminRoute } from '@/components/auth/AdminRoute';
+import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute } from '@/components/auth/AdminRoute';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -83,22 +83,26 @@ export const appRoutes = (
         <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} errorElement={<RouteErrorBoundary />} />
         </Route>
-        <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
-          <Route element={<AdminLayout />} errorElement={<RouteErrorBoundary />}>
-            <Route path="admin" element={<Navigate to="/admin/overview" replace />} />
-            <Route path="admin/overview" element={<AdminOverviewPage />} errorElement={<RouteErrorBoundary />} />
-            <Route path="admin/users" element={<AdminUsersPage />} errorElement={<RouteErrorBoundary />} />
-            <Route path="admin/jobs" element={<AdminJobsPage />} errorElement={<RouteErrorBoundary />} />
-            <Route path="admin/audit" element={<AdminAuditPage />} errorElement={<RouteErrorBoundary />} />
-            <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} errorElement={<RouteErrorBoundary />} />
-            <Route path="admin/saml" element={<AdminSamlPage />} errorElement={<RouteErrorBoundary />} />
+          <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
+            <Route element={<AdminLayout />} errorElement={<RouteErrorBoundary />}>
+            <Route path="admin" element={<AdminIndexRoute />} />
+            <Route element={<AdminCapabilityRoute capability="manage_users" />}>
+              <Route path="admin/overview" element={<AdminOverviewPage />} errorElement={<RouteErrorBoundary />} />
+              <Route path="admin/users" element={<AdminUsersPage />} errorElement={<RouteErrorBoundary />} />
+              <Route path="admin/jobs" element={<AdminJobsPage />} errorElement={<RouteErrorBoundary />} />
+              <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} errorElement={<RouteErrorBoundary />} />
+            </Route>
+            <Route element={<AdminCapabilityRoute capability="manage_settings" />}>
+              <Route path="admin/audit" element={<AdminAuditPage />} errorElement={<RouteErrorBoundary />} />
+              <Route path="admin/saml" element={<AdminSamlPage />} errorElement={<RouteErrorBoundary />} />
+              {/* Settings — each tab is its own route */}
+              <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
+              <Route path="admin/settings/:tab" element={<AdminSettingsPage />} errorElement={<RouteErrorBoundary />} />
+              <Route path="admin/config-ops" element={<AdminConfigOpsPage />} errorElement={<RouteErrorBoundary />} />
+            </Route>
             {/* Redirects from old routes */}
             <Route path="admin/share-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/embed-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
-            {/* Settings — each tab is its own route */}
-            <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
-            <Route path="admin/settings/:tab" element={<AdminSettingsPage />} errorElement={<RouteErrorBoundary />} />
-            <Route path="admin/config-ops" element={<AdminConfigOpsPage />} errorElement={<RouteErrorBoundary />} />
             {/* Redirects from old routes */}
             <Route path="admin/settings/infrastructure" element={<Navigate to="/admin/overview" replace />} />
             <Route path="admin/general" element={<Navigate to="/admin/settings/general" replace />} />

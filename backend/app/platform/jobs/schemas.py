@@ -115,3 +115,12 @@ class StaleCleanupResponse(BaseModel):
     pending_failed: int
     running_failed: int
     total_cleaned: int
+    vrt_assets_recovered: int
+    vrt_generations_failed: int
+    terminal_jobs_purged: int
+    staged_paths_considered: int
+    local_files_reaped: int
+    storage_objects_reaped: int
+    staged_paths_skipped: int
+    staged_cleanup_failures: int
+    total_affected: int

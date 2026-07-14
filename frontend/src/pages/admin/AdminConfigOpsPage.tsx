@@ -74,6 +74,8 @@ function actionBadgeVariant(action: string): 'default' | 'secondary' | 'destruct
     case 'create':
       return 'default';
     case 'delete':
+    case 'replace':
+    case 'reset':
       return 'destructive';
     default:
       return 'secondary';
@@ -228,6 +230,11 @@ function ImportSection() {
   const importMutation = useImportConfig();
 
   const pickingRef = useRef(false);
+  // React Query's mutation reset clears visible mutation state but does not
+  // cancel a request already on the wire. A monotonically increasing
+  // generation prevents an older file/mode preview callback from becoming the
+  // confirmation for newer input.
+  const previewGenerationRef = useRef(0);
 
   const openFilePicker = useCallback(() => {
     if (pickingRef.current) return;
@@ -239,16 +246,20 @@ function ImportSection() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     pickingRef.current = false;
+    const generation = ++previewGenerationRef.current;
+    dryRunMutation.reset();
     importMutation.reset();
     const file = e.target.files?.[0];
     if (!file) return;
 
     setParseError(null);
     setDryRunResult(null);
+    setFileData(null);
     setFileName(file.name);
 
     const reader = new FileReader();
     reader.onload = () => {
+      if (generation !== previewGenerationRef.current) return;
       try {
         const parsed = JSON.parse(reader.result as string);
         // Accept either a full export (with version/exported_at) or a plain import payload
@@ -272,25 +283,51 @@ function ImportSection() {
 
   function handlePreview() {
     if (!fileData) return;
+    const generation = ++previewGenerationRef.current;
+    const previewData = fileData;
+    const previewMode = mode;
+    setDryRunResult(null);
     dryRunMutation.mutate(
-      { data: fileData, mode },
-      { onSuccess: (result) => setDryRunResult(result) },
+      { data: previewData, mode: previewMode },
+      {
+        onSuccess: (result) => {
+          if (generation === previewGenerationRef.current) {
+            setDryRunResult(result);
+          }
+        },
+      },
     );
   }
 
   function runImport() {
     if (!fileData) return;
+    const previewToken = mode === 'overwrite' ? dryRunResult?.preview_token : null;
+    if (mode === 'overwrite' && !previewToken) return;
     importMutation.mutate(
-      { data: fileData, mode },
+      { data: fileData, mode, previewToken },
       {
         onSuccess: () => {
+          previewGenerationRef.current += 1;
           setDryRunResult(null);
           setFileData(null);
           setFileName(null);
           if (fileInputRef.current) fileInputRef.current.value = '';
         },
+        onError: () => {
+          if (mode === 'overwrite') setDryRunResult(null);
+        },
       },
     );
+  }
+
+  function handleModeChange(nextMode: ImportMode) {
+    previewGenerationRef.current += 1;
+    setMode(nextMode);
+    setDryRunResult(null);
+    setConfirmOpen(false);
+    setOverwriteConfirm('');
+    dryRunMutation.reset();
+    importMutation.reset();
   }
 
   // fix(#438): UX-17 — overwrite replaces the whole config and cannot be undone,
@@ -308,10 +345,16 @@ function ImportSection() {
 
   const hasChanges =
     dryRunResult &&
-    (dryRunResult.settings.changes.some((c) => c.action !== 'no_change') ||
-      dryRunResult.oauth_providers.changes.some((c) => c.action !== 'no_change'));
+    (dryRunResult.settings.changes.some((c) =>
+      ['update', 'reset'].includes(c.action),
+    ) ||
+      dryRunResult.oauth_providers.changes.some((c) =>
+        ['create', 'update', 'delete', 'replace'].includes(c.action),
+      ));
 
   const overwriteConfirmed = overwriteConfirm.trim() === OVERWRITE_KEYWORD;
+  const hasBoundOverwritePreview =
+    mode !== 'overwrite' || Boolean(dryRunResult?.preview_token);
 
   return (
     <>
@@ -364,7 +407,7 @@ function ImportSection() {
         {/* Mode selector */}
         <div className="space-y-2">
           <Label>{t('configOps.import.modeLabel')}</Label>
-          <Select value={mode} onValueChange={(v) => setMode(v as ImportMode)}>
+          <Select value={mode} onValueChange={(v) => handleModeChange(v as ImportMode)}>
             <SelectTrigger className="w-[260px]" aria-label={t('configOps.import.modeLabel')}>
               <SelectValue />
             </SelectTrigger>
@@ -403,7 +446,12 @@ function ImportSection() {
           </Button>
           <Button
             onClick={handleApply}
-            disabled={!dryRunResult || !hasChanges || importMutation.isPending}
+            disabled={
+              !dryRunResult ||
+              !hasChanges ||
+              !hasBoundOverwritePreview ||
+              importMutation.isPending
+            }
           >
             {importMutation.isPending && (
               <Loader2 className="h-4 w-4 animate-spin me-2" />
@@ -411,6 +459,12 @@ function ImportSection() {
             {t('configOps.import.apply')}
           </Button>
         </div>
+
+        {mode === 'overwrite' && dryRunResult && !hasBoundOverwritePreview && (
+          <p className="text-sm text-destructive" role="alert">
+            {t('configOps.import.overwritePreviewRequired')}
+          </p>
+        )}
 
         {/* Dry-run results */}
         {dryRunResult && (
@@ -458,12 +512,23 @@ function ImportSection() {
                 <h3 className="text-sm font-medium">
                   {t('configOps.import.oauthChanges')}
                 </h3>
+                {dryRunResult.oauth_providers.dependent_accounts_deleted > 0 && (
+                  <p
+                    className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+                    role="alert"
+                  >
+                    {t('configOps.import.oauthAccountDeletionWarning', {
+                      count: dryRunResult.oauth_providers.dependent_accounts_deleted,
+                    })}
+                  </p>
+                )}
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('configOps.import.slug')}</TableHead>
                       <TableHead>{t('configOps.import.action')}</TableHead>
                       <TableHead>{t('configOps.import.changedFields')}</TableHead>
+                      <TableHead>{t('configOps.import.linkedAccountsDeleted')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -477,6 +542,9 @@ function ImportSection() {
                         </TableCell>
                         <TableCell className="text-xs">
                           {c.changed_fields?.join(', ') || '-'}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {c.dependent_accounts_deleted}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -505,6 +573,7 @@ function ImportSection() {
                 oauthCreated: importMutation.data.oauth_created,
                 oauthUpdated: importMutation.data.oauth_updated,
                 oauthDeleted: importMutation.data.oauth_deleted,
+                oauthAccountsDeleted: importMutation.data.oauth_accounts_deleted,
               })}
             </span>
           </div>
