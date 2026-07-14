@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,7 +19,14 @@ from app.core.db import Base
 
 class Collection(Base):
     __tablename__ = "collections"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        Index(
+            "ix_collections_created_by",
+            "created_by",
+            postgresql_where=text("created_by IS NOT NULL"),
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -45,6 +53,11 @@ class CollectionDataset(Base):
     __table_args__ = (
         # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_collection_datasets_dataset_id", "dataset_id"),
+        Index(
+            "ix_collection_datasets_added_by",
+            "added_by",
+            postgresql_where=text("added_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 
@@ -69,6 +82,11 @@ class DatasetVersion(Base):
         UniqueConstraint("dataset_id", "version_number", name="uq_dataset_version"),
         # DBM-10 covering index added in migration 0001_baseline.
         Index("ix_dataset_versions_dataset_id", "dataset_id"),
+        Index(
+            "ix_dataset_versions_uploaded_by",
+            "uploaded_by",
+            postgresql_where=text("uploaded_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 
