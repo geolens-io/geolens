@@ -5,7 +5,6 @@ from typing import Literal
 
 from pydantic import (
     Field,
-    PostgresDsn,
     SecretStr,
     ValidationError,
     field_validator,
@@ -167,7 +166,7 @@ class Settings(BaseSettings):
     tile_signing_secret: SecretStr | None = None
     tile_cache_ttl: int = Field(default=300, ge=0)
 
-    database_url_override: PostgresDsn | None = None
+    database_url_override: str | None = None
     database_ssl_mode: Literal["disable", "prefer", "require", "verify-full"] = "prefer"
     database_ssl_ca_cert: str | None = None
     database_pool_pre_ping: bool = True
@@ -307,16 +306,42 @@ class Settings(BaseSettings):
 
     @field_validator("database_url_override", mode="after")
     @classmethod
-    def validate_database_url_override(
-        cls, v: PostgresDsn | None
-    ) -> PostgresDsn | None:
+    def validate_database_url_override(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        if not v.path or v.path == "/":
+
+        from urllib.parse import parse_qs, urlsplit
+
+        value = v.strip()
+        try:
+            parsed = urlsplit(value)
+            # Accessing .port validates both syntax and the 1-65535 range.
+            parsed.port
+        except ValueError:
+            raise ValueError("DATABASE_URL_OVERRIDE contains an invalid port") from None
+
+        allowed_schemes = {
+            "postgres",
+            "postgresql",
+            "postgresql+asyncpg",
+            "postgresql+psycopg",
+        }
+        if parsed.scheme not in allowed_schemes:
+            raise ValueError(
+                "DATABASE_URL_OVERRIDE must use a supported PostgreSQL scheme"
+            )
+        if not parsed.path or parsed.path == "/":
             raise ValueError("DATABASE_URL_OVERRIDE must include a database name")
-        if len(v.hosts()) != 1:
+
+        query_hosts = parse_qs(parsed.query, keep_blank_values=True).get("host", [])
+        if parsed.hostname and query_hosts:
+            raise ValueError(
+                "DATABASE_URL_OVERRIDE must not combine authority and query hosts"
+            )
+        hosts = [parsed.hostname] if parsed.hostname else query_hosts
+        if len(hosts) != 1 or not hosts[0] or "," in hosts[0]:
             raise ValueError("DATABASE_URL_OVERRIDE must contain exactly one host")
-        return v
+        return value
 
     @field_validator("dcat_contact_email", mode="after")
     @classmethod
@@ -559,8 +584,9 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = []
-            if parsed.hostname:
-                parts.append(f"host={parsed.hostname}")
+            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            if host:
+                parts.append(f"host={host}")
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
@@ -599,7 +625,7 @@ class Settings(BaseSettings):
     @property
     def ogr_connection_string(self) -> str:
         if self.database_url_override:
-            from urllib.parse import urlparse
+            from urllib.parse import parse_qs, urlparse
 
             raw = str(self.database_url_override)
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
@@ -610,8 +636,9 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = ["PG:"]
-            if parsed.hostname:
-                parts.append(f"host={parsed.hostname}")
+            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            if host:
+                parts.append(f"host={host}")
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":

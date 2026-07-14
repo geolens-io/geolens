@@ -1,5 +1,7 @@
 """Tests for config.py Settings class — DATABASE_URL override and connection properties."""
 
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 
 from app.core import config as config_module
@@ -67,6 +69,11 @@ class TestDatabaseUrlOverride:
             "postgresql://user:pass@host",
             "postgresql://user:pass@host/",
             "postgresql://user:pass@host-one,host-two/db",
+            "postgresql://user:pass@host/db?host=/var/run/postgresql",
+            "postgresql:///db?host=",
+            "postgresql:///db?host=/one&host=/two",
+            "postgresql://user:pass@host:not-a-port/db",
+            "postgresql://user:pass@host:65536/db",
         ],
     )
     def test_invalid_or_non_postgres_override_rejected(self, url):
@@ -80,10 +87,24 @@ class TestDatabaseUrlOverride:
             "postgresql://u:p@host/db",
             "postgresql+asyncpg://u:p@host/db",
             "postgresql+psycopg://u:p@host/db",
+            "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql",
+            "postgresql:///db?host=/cloudsql/project:region:instance",
         ],
     )
     def test_supported_postgres_schemes_accepted(self, url):
         assert _make_settings(database_url_override=url).database_url_override
+
+    def test_unix_socket_host_survives_async_url_normalization(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql&sslmode=disable"
+            )
+        )
+
+        parsed = urlsplit(s.database_url)
+        assert parsed.scheme == "postgresql+asyncpg"
+        assert parse_qs(parsed.query)["host"] == ["/var/run/postgresql"]
+        assert "sslmode" not in parse_qs(parsed.query)
 
     def test_boot_error_redacts_invalid_dsn_credentials(self, monkeypatch, capsys):
         for field, value in BASE_ENV.items():
@@ -115,6 +136,16 @@ class TestDatabaseUrlSync:
     def test_override_from_asyncpg_prefix(self):
         s = _make_settings(database_url_override="postgresql+asyncpg://u:p@host/db")
         assert s.database_url_sync.startswith("postgresql+psycopg://")
+
+    def test_unix_socket_host_survives_sync_url_normalization(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql"
+            )
+        )
+        parsed = urlsplit(s.database_url_sync)
+        assert parsed.scheme == "postgresql+psycopg"
+        assert parse_qs(parsed.query)["host"] == ["/var/run/postgresql"]
 
 
 class TestProcrastinateConninfo:
@@ -177,6 +208,14 @@ class TestProcrastinateConninfo:
         assert "statement_timeout=5000" in conninfo
         assert "search_path=catalog,public" in conninfo
 
+    def test_unix_socket_override_includes_query_host(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql"
+            )
+        )
+        assert "host=/var/run/postgresql" in s.procrastinate_conninfo
+
 
 class TestOgrConnectionString:
     """Test ogr_connection_string property."""
@@ -211,6 +250,14 @@ class TestOgrConnectionString:
             database_ssl_mode="prefer",
         )
         assert "sslmode" not in s.ogr_connection_string
+
+    def test_unix_socket_override_includes_query_host(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql"
+            )
+        )
+        assert "host=/var/run/postgresql" in s.ogr_connection_string
 
 
 class TestDatabaseConnectArgs:
