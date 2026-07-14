@@ -44,6 +44,11 @@ class Map(Base):
             postgresql_using="gin",
             postgresql_ops={"lower(coalesce(description, ''))": "gin_trgm_ops"},
         ),
+        Index(
+            "ix_maps_forked_from",
+            "forked_from",
+            postgresql_where=text("forked_from IS NOT NULL"),
+        ),
         # DBM-06 (Phase 271): Map.visibility composite index intentionally
         # NOT created. The RBAC list-public-maps query uses
         # `WHERE visibility = 'public' AND created_by = ?` and similar combos.
@@ -220,6 +225,11 @@ class MapShareToken(Base):
     __tablename__ = "map_share_tokens"
     __table_args__ = (
         UniqueConstraint("token_hash", name="uq_map_share_tokens_token_hash"),
+        Index(
+            "ix_map_share_tokens_created_by",
+            "created_by",
+            postgresql_where=text("created_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 

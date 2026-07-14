@@ -9,15 +9,14 @@ B: with EMBEDDING_DIMS=3072 (legal config, over pgvector's 2000-dim HNSW
    limit), the upgrade still exits 0, types the column vector(3072), and
    skips the index instead of failing (codex P1).
 C: with mixed-dimension rows (stale 1536-dim next to current 768-dim), the
-   configured dimension wins over max(stored) and only the stale row is
-   deleted (codex P2 round 4).
+   configured dimension wins over max(stored) and the regenerable cache is
+   cleared before the bounded-lock type transition.
 D: explicit config beats UNIFORM stale rows too — all-512-dim rows with
    EMBEDDING_DIMS=768 type the column vector(768) (codex P2 round 5).
 E: uniform stored rows beat only the built-in default — all-768-dim rows
-   with nothing configured keep their dimension and their rows.
+   with nothing configured select vector(768), then the cache is cleared.
 F: a deliberate EMBEDDING_DIMS=1536 (equal to the default) still counts as
-   explicit and beats uniform stale 768-dim rows (codex P2 round 7 —
-   detected via pydantic's model_fields_set, not a value comparison).
+   explicit and beats uniform stale 768-dim rows (codex P2 round 7).
 
 Notes
 -----
@@ -117,6 +116,18 @@ async def _hnsw_index_exists() -> bool:
         "AND indexname = 'ix_record_embeddings_hnsw'"
     )
     return bool(rows)
+
+
+async def _hnsw_index_is_valid() -> bool:
+    rows = await _fresh_query(
+        "SELECT idx.indisvalid AND idx.indisready "
+        "FROM pg_index AS idx "
+        "JOIN pg_class AS cls ON cls.oid = idx.indexrelid "
+        "JOIN pg_namespace AS ns ON ns.oid = cls.relnamespace "
+        "WHERE ns.nspname = 'catalog' "
+        "AND cls.relname = 'ix_record_embeddings_hnsw'"
+    )
+    return bool(rows and rows[0][0])
 
 
 def _enterprise_migrations_present() -> bool:
@@ -219,6 +230,7 @@ class TestEmbeddingVectorMigrationDims:
             assert r.returncode == 0, f"upgrade failed: {r.stderr}"
             assert await _embedding_column_type() == "vector(768)"
             assert await _hnsw_index_exists(), "HNSW should exist at 768 dims"
+            assert await _hnsw_index_is_valid(), "HNSW must be ready and valid"
         finally:
             await _restore_default_head()
 
@@ -255,7 +267,7 @@ class TestEmbeddingVectorMigrationDims:
             assert r.returncode == 0, f"upgrade failed: {r.stderr}"
             assert await _embedding_column_type() == "vector(768)"
             rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
-            assert rows[0][0] == 1, "only the stale 1536-dim row should be deleted"
+            assert rows[0][0] == 0, "the regenerable embedding cache must be cleared"
         finally:
             await _restore_default_head()
 
@@ -280,9 +292,7 @@ class TestEmbeddingVectorMigrationDims:
             await _restore_default_head()
 
     async def test_uniform_stored_rows_beat_builtin_default(self):
-        """Uniform stored rows with nothing configured anywhere keep their
-        dimension — a local 768-dim model on default config must not have its
-        working rows deleted in favor of the built-in 1536."""
+        """Uniform stored rows choose the dimension before the cache is cleared."""
         try:
             r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
             assert r.returncode == 0, f"downgrade failed: {r.stderr}"
@@ -296,14 +306,14 @@ class TestEmbeddingVectorMigrationDims:
             assert r.returncode == 0, f"upgrade failed: {r.stderr}"
             assert await _embedding_column_type() == "vector(768)"
             rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
-            assert rows[0][0] == 2, "agreeing rows must survive the retype"
+            assert rows[0][0] == 0, "the bounded-lock transition clears cached rows"
         finally:
             await _restore_default_head()
 
     async def test_explicit_default_value_still_beats_stored_rows(self):
         """fix(#449, codex P2 round 7): EMBEDDING_DIMS=1536 set deliberately
-        equals the class default, but presence (model_fields_set) makes it
-        explicit — it must beat uniform stale 768-dim rows."""
+        equals the frozen fallback, but the exported variable's presence makes
+        it explicit — it must beat uniform stale 768-dim rows."""
         try:
             r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
             assert r.returncode == 0, f"downgrade failed: {r.stderr}"
@@ -318,5 +328,25 @@ class TestEmbeddingVectorMigrationDims:
             assert await _embedding_column_type() == "vector(1536)"
             rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
             assert rows[0][0] == 0, "stale 768-dim rows should be deleted"
+        finally:
+            await _restore_default_head()
+
+    async def test_already_typed_column_resumes_at_concurrent_index_build(self):
+        """A retry after the committed type transition recreates only the index."""
+        try:
+            r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
+            assert r.returncode == 0, f"downgrade failed: {r.stderr}"
+            await _fresh_query("TRUNCATE catalog.record_embeddings")
+            await _fresh_query(
+                "ALTER TABLE catalog.record_embeddings "
+                "ALTER COLUMN embedding TYPE vector(768) "
+                "USING embedding::vector(768)"
+            )
+            await _fresh_query("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
+
+            r = _run_alembic("upgrade", "head")
+            assert r.returncode == 0, f"resumed upgrade failed: {r.stderr}"
+            assert await _embedding_column_type() == "vector(768)"
+            assert await _hnsw_index_is_valid()
         finally:
             await _restore_default_head()

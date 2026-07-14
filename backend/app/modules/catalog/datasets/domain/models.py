@@ -80,6 +80,16 @@ class Record(Base):
             "record_status",
             "created_by",
         ),
+        Index(
+            "ix_records_created_by",
+            "created_by",
+            postgresql_where=text("created_by IS NOT NULL"),
+        ),
+        Index(
+            "ix_records_updated_by",
+            "updated_by",
+            postgresql_where=text("updated_by IS NOT NULL"),
+        ),
         # Trigram GIN indexes added in migration 0010 (H-07) — declared on the
         # model so alembic check sees them; the migration is the source of truth
         # for the actual DDL (including the catalog.immutable_unaccent wrapper).

@@ -47,10 +47,10 @@ def upgrade() -> None:
     )
 
     # --- Verify required extensions (created by scripts/init-db.sh) ---
-    # NOTE: the 'vector' (pgvector) extension must be >= 0.5.0 -- migration 0011
+    # NOTE: the 'vector' (pgvector) extension must be >= 0.5.0 -- migration 0012
     # creates an HNSW index, which pgvector added in 0.5.0. Older pgvector fails
-    # at 0011 with 'access method "hnsw" does not exist'. The >= 0.5 requirement
-    # is documented (README / deployment) and enforced-by-failure at 0011.
+    # at 0012 with 'access method "hnsw" does not exist'. The >= 0.5 requirement
+    # is documented (README / deployment) and enforced-by-failure at 0012.
     for ext in ("postgis", "pg_trgm", "vector", "unaccent"):
         op.execute(
             f"DO $$ BEGIN "
@@ -1726,7 +1726,7 @@ def upgrade() -> None:
         "CREATE TRIGGER trg_records_updated_at BEFORE UPDATE ON catalog.records FOR EACH ROW EXECUTE FUNCTION catalog.set_updated_at()"
     )
 
-    # --- Conditional pgvector HNSW index (0011; skipped until the column is dimensioned) ---
+    # --- Conditional pgvector HNSW index (0012; skipped until the column is dimensioned) ---
     # Only build the HNSW index if the column has been dimensioned.
     # pgvector raises "column does not have dimensions" if typmod is -1.
     # Skipping in the virgin case is safe: rebuild_embedding_column will
