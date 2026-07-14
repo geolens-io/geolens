@@ -224,8 +224,8 @@ async def validate_dataset(
 @router.get("/{dataset_id}/maps/", response_model=MapListResponse)
 async def dataset_maps(
     dataset_id: uuid.UUID,
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user: Identity | None = Depends(get_optional_user),
 ) -> MapListResponse:

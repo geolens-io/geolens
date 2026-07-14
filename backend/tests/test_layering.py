@@ -960,17 +960,20 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 #     must update the overlay in lockstep.
 _ROUTER_LOC_CAPS: dict[str, int] = {
     # Tenant-owned media now crosses the shared logical-to-physical storage
-    # seam. Keep the ratchet exact after the three-line import expansion.
-    "backend/app/modules/catalog/maps/router.py": 1377,
+    # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
+    # aligned. Keep the ratchet exact after the import/decorator expansion.
+    "backend/app/modules/catalog/maps/router.py": 1385,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
-    # including collection IDs, plus response-header parity. Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1423,
+    # including collection IDs, plus response-header and documented 400 parity.
+    # Ratchet stays exact.
+    "backend/app/modules/catalog/search/router.py": 1427,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
-    # unassigned Collection and matching HTTP Link navigation.
-    "backend/app/standards/stac/router.py": 1584,
+    # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
+    # validated STAC item responses wire-compatible with serializer output.
+    "backend/app/standards/stac/router.py": 1626,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
-    "backend/app/processing/tiles/router.py": 2038,
+    "backend/app/processing/tiles/router.py": 2043,
 }
 
 

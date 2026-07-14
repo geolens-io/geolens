@@ -45,7 +45,7 @@ from app.modules.settings.schemas import (
     SettingsUpdateRequest,
     TileConfigResponse,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 from app.modules.settings.router_public import router as public_router
 
 # Phase 1229 Plan 03 — channel functions imported at module level so tests can
@@ -61,7 +61,6 @@ require_settings_admin = require_mode_permission(
 )
 
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
-router.include_router(public_router)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +213,6 @@ async def get_all_settings(
 @router.get(
     "/enterprise-tabs/",
     response_model=EnterpriseTabsResponse,
-    include_in_schema=False,
 )
 async def get_enterprise_only_tabs(
     _user: Identity = Depends(require_settings_admin),
@@ -432,7 +430,11 @@ async def get_api_key_status(
     response_model=DetectEmbeddingDimsResponse,
     include_in_schema=False,
 )
-@router.post("/detect-embedding-dims/", response_model=DetectEmbeddingDimsResponse)
+@router.post(
+    "/detect-embedding-dims/",
+    response_model=DetectEmbeddingDimsResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def detect_embedding_dims(
     _user: Identity = Depends(require_settings_admin),
     db: AsyncSession = Depends(get_db),
@@ -926,8 +928,10 @@ async def delete_oauth_provider(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get("/tile-config", response_model=TileConfigResponse, include_in_schema=False)
-@router.get("/tile-config/", response_model=TileConfigResponse)
+@public_router.get(
+    "/tile-config", response_model=TileConfigResponse, include_in_schema=False
+)
+@public_router.get("/tile-config/", response_model=TileConfigResponse)
 async def get_tile_config(
     request: Request,
     db: AsyncSession = Depends(get_db),

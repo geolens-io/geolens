@@ -8,6 +8,7 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.http_validation_error import HTTPValidationError
+from ...models.problem_detail import ProblemDetail
 from ...models.saved_search_list_response import SavedSearchListResponse
 from ...types import Unset
 
@@ -37,7 +38,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | SavedSearchListResponse | None:
+) -> HTTPValidationError | ProblemDetail | SavedSearchListResponse | None:
     if response.status_code == 200:
         response_200 = SavedSearchListResponse.from_dict(response.json())
 
@@ -48,6 +49,21 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -56,7 +72,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | SavedSearchListResponse]:
+) -> Response[HTTPValidationError | ProblemDetail | SavedSearchListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -70,7 +86,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> Response[HTTPValidationError | SavedSearchListResponse]:
+) -> Response[HTTPValidationError | ProblemDetail | SavedSearchListResponse]:
     """List Saved Searches Endpoint
 
      List saved searches for the authenticated user.
@@ -84,7 +100,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | SavedSearchListResponse]
+        Response[HTTPValidationError | ProblemDetail | SavedSearchListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -104,7 +120,7 @@ def sync(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> HTTPValidationError | SavedSearchListResponse | None:
+) -> HTTPValidationError | ProblemDetail | SavedSearchListResponse | None:
     """List Saved Searches Endpoint
 
      List saved searches for the authenticated user.
@@ -118,7 +134,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | SavedSearchListResponse
+        HTTPValidationError | ProblemDetail | SavedSearchListResponse
     """
 
     return sync_detailed(
@@ -133,7 +149,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> Response[HTTPValidationError | SavedSearchListResponse]:
+) -> Response[HTTPValidationError | ProblemDetail | SavedSearchListResponse]:
     """List Saved Searches Endpoint
 
      List saved searches for the authenticated user.
@@ -147,7 +163,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | SavedSearchListResponse]
+        Response[HTTPValidationError | ProblemDetail | SavedSearchListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -165,7 +181,7 @@ async def asyncio(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> HTTPValidationError | SavedSearchListResponse | None:
+) -> HTTPValidationError | ProblemDetail | SavedSearchListResponse | None:
     """List Saved Searches Endpoint
 
      List saved searches for the authenticated user.
@@ -179,7 +195,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | SavedSearchListResponse
+        HTTPValidationError | ProblemDetail | SavedSearchListResponse
     """
 
     return (

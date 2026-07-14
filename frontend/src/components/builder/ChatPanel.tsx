@@ -59,7 +59,9 @@ function classifyChatError(
   if (err instanceof ApiError && (err.status === 403 || err.status === 503)) {
     return { kind: 'banner', bannerKind: err.status === 403 ? 'forbidden' : 'unavailable' };
   }
-  if (err instanceof ApiError && (err.status === 401 || err.status === 502)) return { kind: 'inline' };
+  if (err instanceof ApiError && (err.status === 401 || err.status === 500 || err.status === 502)) {
+    return { kind: 'inline' };
+  }
   // StreamModelError: model errored mid-stream — nothing to retry, show inline.
   if (err instanceof StreamModelError) return { kind: 'inline' };
   return { kind: 'retry' };

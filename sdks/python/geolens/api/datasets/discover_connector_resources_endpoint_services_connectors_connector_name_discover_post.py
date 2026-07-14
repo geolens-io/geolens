@@ -73,6 +73,11 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
     if response.status_code == 500:
         response_500 = ProblemDetail.from_dict(response.json())
 
@@ -82,6 +87,11 @@ def _parse_response(
         response_502 = ProblemDetail.from_dict(response.json())
 
         return response_502
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
 
     if response.status_code == 504:
         response_504 = ProblemDetail.from_dict(response.json())

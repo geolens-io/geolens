@@ -21,6 +21,7 @@ from app.modules.catalog.search.schemas import (
     SavedSearchListResponse,
     SavedSearchResponse,
 )
+from app.standards.ogc.errors import NOT_FOUND_RESPONSE
 
 router = APIRouter(prefix="/saved")
 
@@ -62,7 +63,11 @@ async def list_saved_searches_endpoint(
     )
 
 
-@router.get("/{search_id}", response_model=SavedSearchResponse)
+@router.get(
+    "/{search_id}",
+    response_model=SavedSearchResponse,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def get_saved_search_endpoint(
     search_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -75,7 +80,11 @@ async def get_saved_search_endpoint(
     return SavedSearchResponse.model_validate(saved)
 
 
-@router.delete("/{search_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{search_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: NOT_FOUND_RESPONSE},
+)
 async def delete_saved_search_endpoint(
     search_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),

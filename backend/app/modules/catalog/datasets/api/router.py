@@ -38,7 +38,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     CreateEmptyDatasetRequest,
     DatasetDeleteRequest,
     DatasetListResponse,
-    DatasetMeta,
+    DatasetMetaUpdate,
     DatasetResponse,
 )
 from app.platform.cache import get_cache, tenant_cache_key
@@ -276,7 +276,7 @@ async def get_quicklook(
 @router.patch("/{dataset_id}", response_model=DatasetResponse)
 async def update_dataset_metadata(
     dataset_id: uuid.UUID,
-    meta: DatasetMeta,
+    meta: DatasetMetaUpdate,
     request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),

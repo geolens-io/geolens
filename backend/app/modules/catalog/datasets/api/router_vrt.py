@@ -328,12 +328,23 @@ async def get_vrt_status(
 async def list_vrt_generations(
     dataset_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    skip: int = Query(
+        0,
+        ge=0,
+        description="Number of generation records to skip.",
+    ),
+    offset: int | None = Query(
+        None,
+        ge=0,
+        deprecated=True,
+        description="Deprecated alias for skip; takes precedence when supplied.",
+    ),
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> VrtGenerationListResponse:
     """Return paginated generation history for a VRT dataset."""
     VrtGeneration = get_catalog_port().vrt_generation_orm_class()
+    pagination_offset = offset if offset is not None else skip
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
@@ -356,7 +367,7 @@ async def list_vrt_generations(
         .where(VrtGeneration.vrt_dataset_id == dataset_id)
         .order_by(VrtGeneration.created_at.desc())
         .limit(limit)
-        .offset(offset)
+        .offset(pagination_offset)
     )
     generations = [
         VrtGenerationItem(

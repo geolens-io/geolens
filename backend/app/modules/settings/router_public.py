@@ -25,7 +25,7 @@ from app.modules.settings.schemas import (
     MapDefaultsResponse,
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/settings", tags=["Admin"])
 
 
 def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
@@ -34,7 +34,7 @@ def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
 
 
 @router.get("/edition", response_model=EditionInfoResponse, include_in_schema=False)
-@router.get("/edition/", response_model=EditionInfoResponse, include_in_schema=False)
+@router.get("/edition/", response_model=EditionInfoResponse)
 async def edition_info() -> EditionInfoResponse:
     """Return runtime capability metadata. Public, no auth required."""
     from app.core.tenancy import TENANCY_MODE_SINGLE, is_multi_tenant

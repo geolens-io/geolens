@@ -279,7 +279,17 @@ async def export_audit_logs(
 async def get_column_ddl_feed(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    skip: int = Query(
+        0,
+        ge=0,
+        description="Number of audit entries to skip.",
+    ),
+    offset: int | None = Query(
+        None,
+        ge=0,
+        deprecated=True,
+        description="Deprecated alias for skip; takes precedence when supplied.",
+    ),
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnDdlFeedResponse:
@@ -314,9 +324,11 @@ async def get_column_ddl_feed(
     # consistent with the column-DDL write endpoints from Phase 1061 Plan 02.
     await port.check_dataset_access(db, dataset, dataset_id, user)
 
-    # Step 3: fetch DDL history
+    # Step 3: fetch DDL history. Preserve the old offset parameter while new
+    # clients converge on the repository-wide skip/limit convention.
+    pagination_offset = offset if offset is not None else skip
     rows, total = await query_column_ddl_history(
-        db, dataset_id, limit=limit, offset=offset
+        db, dataset_id, limit=limit, offset=pagination_offset
     )
 
     return ColumnDdlFeedResponse(
@@ -332,5 +344,5 @@ async def get_column_ddl_feed(
         ],
         total=total,
         limit=limit,
-        offset=offset,
+        offset=pagination_offset,
     )

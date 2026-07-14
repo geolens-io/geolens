@@ -83,7 +83,7 @@ from app.modules.embed_tokens.service import (
 from app.platform.storage.titiler_url import (
     resolve_current_storage_key as _map_asset_storage_key,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_WRITE
 from app.modules.catalog.maps._router_helpers import (
     _build_layer_response,
     _build_map_response,
@@ -871,7 +871,11 @@ async def duplicate_map_endpoint(
     )
 
 
-@router.put("/{map_id}/thumbnail/", status_code=status.HTTP_204_NO_CONTENT)
+@router.put(
+    "/{map_id}/thumbnail/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def upload_thumbnail(
     map_id: uuid.UUID,
     request: ThumbnailUploadRequest,
@@ -1010,7 +1014,11 @@ async def get_thumbnail(
 # ---------------------------------------------------------------------------
 
 
-@router.put("/{map_id}/og-image/", status_code=status.HTTP_204_NO_CONTENT)
+@router.put(
+    "/{map_id}/og-image/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={502: BAD_GATEWAY_RESPONSE},
+)
 async def upload_og_image(
     map_id: uuid.UUID,
     request: OgImageUploadRequest,

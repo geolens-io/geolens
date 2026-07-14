@@ -587,7 +587,13 @@ app = FastAPI(
 )
 
 from app.observability.health.schemas import HealthResponse  # noqa: E402
-from app.standards.ogc.errors import ProblemDetail, register_error_handlers  # noqa: E402
+from app.standards.ogc.errors import (  # noqa: E402
+    DATABASE_UNAVAILABLE_RESPONSE,
+    INTERNAL_SERVER_ERROR_RESPONSE,
+    ProblemDetail,
+    RATE_LIMIT_RESPONSE,
+    register_error_handlers,
+)
 
 register_error_handlers(app)
 
@@ -839,10 +845,164 @@ _add_trailing_slash_aliases(app)
 _fastapi_openapi = app.openapi
 
 
+def _dependency_uses(dependant, targets: set[object]) -> bool:
+    """Return whether a FastAPI dependency tree calls one of ``targets``."""
+    if dependant.call in targets:
+        return True
+    return any(_dependency_uses(child, targets) for child in dependant.dependencies)
+
+
+def _route_operation(schema: dict, route, method: str) -> dict | None:
+    """Resolve an APIRoute to its generated OpenAPI operation."""
+    return schema.get("paths", {}).get(route.path_format, {}).get(method.lower())
+
+
+def _normalize_security_contract(schema: dict) -> None:
+    """Publish every runtime credential form and anonymous-capable alternative."""
+    from fastapi.routing import APIRoute
+
+    from app.modules.auth.dependencies import get_optional_user
+
+    security_schemes = schema.setdefault("components", {}).setdefault(
+        "securitySchemes", {}
+    )
+    security_schemes["ApiKeyHeader"] = {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": "GeoLens API key. Preferred API-key transport.",
+    }
+    security_schemes["ApiKeyQuery"] = {
+        "type": "apiKey",
+        "in": "query",
+        "name": "api_key",
+        "description": "Legacy API-key query parameter; prefer X-Api-Key.",
+    }
+
+    # ``get_optional_user_no_security_schema`` deliberately keeps public STAC
+    # operations credential-aware at runtime without stamping authentication
+    # onto their generated clients. Only the normal optional dependency should
+    # gain the anonymous-or-credential security alternatives here.
+    optional_targets = {get_optional_user}
+    credential_alternatives = [
+        {"OAuth2PasswordBearer": []},
+        {"ApiKeyHeader": []},
+        {"ApiKeyQuery": []},
+    ]
+
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        optional_auth = _dependency_uses(route.dependant, optional_targets)
+        for method in route.methods or ():
+            operation = _route_operation(schema, route, method)
+            if operation is None:
+                continue
+            existing = operation.get("security", [])
+            has_bearer = any("OAuth2PasswordBearer" in item for item in existing)
+            if not optional_auth and not has_bearer:
+                continue
+
+            preserved = [
+                item
+                for item in existing
+                if not any(
+                    key in item
+                    for key in ("OAuth2PasswordBearer", "ApiKeyHeader", "ApiKeyQuery")
+                )
+            ]
+            operation["security"] = (
+                ([{}] if optional_auth else []) + credential_alternatives + preserved
+            )
+
+
+def _document_rate_limits(schema: dict) -> None:
+    """Attach the runtime SlowAPI 429 contract to every non-exempt operation."""
+    from fastapi.routing import APIRoute
+
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        endpoint_name = f"{route.endpoint.__module__}.{route.endpoint.__name__}"
+        # The limiter has a global default, so undecorated routes are limited too.
+        # Only explicit @limiter.exempt handlers bypass the middleware contract.
+        if endpoint_name in limiter._exempt_routes:
+            continue
+        for method in route.methods or ():
+            operation = _route_operation(schema, route, method)
+            if operation is not None:
+                operation.setdefault("responses", {}).setdefault(
+                    "429", RATE_LIMIT_RESPONSE
+                )
+
+
+def _document_global_failures(schema: dict) -> None:
+    """Document exception handlers that apply outside individual routers."""
+    from fastapi.routing import APIRoute
+
+    from app.core.dependencies import get_db
+
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        uses_database = _dependency_uses(route.dependant, {get_db})
+        for method in route.methods or ():
+            operation = _route_operation(schema, route, method)
+            if operation is None:
+                continue
+            responses = operation.setdefault("responses", {})
+            responses.setdefault("500", INTERNAL_SERVER_ERROR_RESPONSE)
+            if uses_database:
+                responses.setdefault("503", DATABASE_UNAVAILABLE_RESPONSE)
+
+
 def _standards_aware_openapi() -> dict:
     schema = _fastapi_openapi()
     if schema.get("x-geolens-standards-errors") == "400-problem-details":
         return schema
+
+    # Error responses reference ProblemDetail explicitly under the RFC 7807
+    # media type. Register the component here rather than using FastAPI's
+    # ``responses={..., "model": ...}`` shortcut, which also advertises an
+    # application/json body that the runtime never returns.
+    schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+    schemas["ProblemDetail"] = ProblemDetail.model_json_schema(
+        ref_template="#/components/schemas/{model}"
+    )
+
+    # SSE is framed text at the HTTP layer, while each ``data`` field carries
+    # one of these JSON payloads. The streaming operations reference the DTOs
+    # through a vendor extension, so register them explicitly without falsely
+    # advertising the whole response as application/json.
+    from app.processing.ai.schemas import (
+        SSEActionsEvent,
+        SSEChatDoneEvent,
+        SSEErrorEvent,
+        SSEMapDoneEvent,
+        SSETokenEvent,
+        SSEToolResultEvent,
+        SSEToolStartEvent,
+    )
+
+    for event_model in (
+        SSEActionsEvent,
+        SSEChatDoneEvent,
+        SSEErrorEvent,
+        SSEMapDoneEvent,
+        SSETokenEvent,
+        SSEToolResultEvent,
+        SSEToolStartEvent,
+    ):
+        event_schema = event_model.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
+        for definition_name, definition in event_schema.pop("$defs", {}).items():
+            schemas.setdefault(definition_name, definition)
+        schemas[event_model.__name__] = event_schema
+
+    _normalize_security_contract(schema)
+    _document_rate_limits(schema)
+    _document_global_failures(schema)
 
     for path, path_item in schema.get("paths", {}).items():
         if standards_api_path(path) is None:
@@ -910,7 +1070,17 @@ _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
 # never see DB/S3/cache internals — those are logged server-side and exposed only
 # on the authenticated admin view. (Kept as a comment, not a docstring, so the
 # rationale + finding ID stay out of the public OpenAPI description.)
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["Health"],
+    responses={
+        503: {
+            "description": "Health probes completed but one or more providers are degraded",
+            "model": HealthResponse,
+        }
+    },
+)
 @limiter.limit("60/minute")
 async def health(request: Request):
     """Health check endpoint for ALB, Docker, and Nginx."""

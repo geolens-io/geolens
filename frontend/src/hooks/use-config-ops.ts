@@ -1,7 +1,8 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { triggerDownload } from '@/lib/download';
+import { queryKeys } from '@/lib/query-keys';
 import {
   exportConfig,
   dryRunImport,
@@ -54,6 +55,8 @@ export function useValidateConnectivity() {
 }
 
 export function useImportConfig() {
+  const queryClient = useQueryClient();
+
   return useMutation<
     ImportResult,
     Error,
@@ -61,6 +64,12 @@ export function useImportConfig() {
   >({
     mutationFn: ({ data, mode }) => importConfig(data, mode),
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.authConfig.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.authConfig.oauthProviders });
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.maps.aiAvailability });
+
       const parts: string[] = [];
       if (result.settings_applied > 0) parts.push(i18n.t('configOps.settingsApplied', { count: result.settings_applied }));
       if (result.settings_skipped > 0) parts.push(i18n.t('configOps.skipped', { count: result.settings_skipped }));

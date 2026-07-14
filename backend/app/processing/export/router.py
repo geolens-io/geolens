@@ -24,8 +24,23 @@ from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import export_dataset, validate_where_clause
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
+from app.standards.ogc.errors import (
+    BAD_REQUEST_RESPONSE,
+    FORBIDDEN_RESPONSE,
+    NOT_FOUND_RESPONSE,
+    PAYLOAD_TOO_LARGE_RESPONSE,
+)
 
-router = APIRouter(prefix="/datasets", tags=["Datasets"])
+router = APIRouter(
+    prefix="/datasets",
+    tags=["Datasets"],
+    responses={
+        400: BAD_REQUEST_RESPONSE,
+        403: FORBIDDEN_RESPONSE,
+        404: NOT_FOUND_RESPONSE,
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+    },
+)
 
 # fix(#430 BA-08): ceiling for full-table exports (by feature count). An
 # unbounded ogr2ogr over the whole table writes an arbitrarily large temp file

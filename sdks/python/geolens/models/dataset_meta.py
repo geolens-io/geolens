@@ -20,29 +20,33 @@ T = TypeVar("T", bound="DatasetMeta")
 
 @_attrs_define
 class DatasetMeta:
-    """
-    Attributes:
-        access_constraints (None | str | Unset):
-        data_vintage_end (datetime.date | None | Unset): End of temporal coverage
-        data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
-        is_dem (bool | None | Unset): Flag raster as a Digital Elevation Model for terrain rendering
-        language (None | str | Unset): BCP 47 primary language tag, e.g. en, fr, or pt-BR
-        license_ (None | str | Unset):
-        lineage_summary (None | str | Unset): Free-text provenance / lineage statement
-        owner_org (None | str | Unset): Owning organization name
-        quality_statement (None | str | Unset):
-        record_status (None | str | Unset): Lifecycle status: draft, ready, published
-        sensitivity_classification (None | str | Unset): e.g. public, confidential, restricted
-        source_organization (None | str | Unset):
-        source_url (None | str | Unset): URL the data was originally fetched from
-        summary (None | str | Unset):
-        theme_category (list[str] | None | Unset): ISO topic category codes
-        tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null restores zoom defaults, []
-            emits geometry-only tiles, list emits those properties at any zoom.
-        title (None | str | Unset):
-        update_frequency (None | str | Unset): ISO maintenance frequency code
-        usage_constraints (None | str | Unset):
-        visibility (DatasetMetaVisibilityType0 | None | Unset): Access level: private, restricted, internal, or public
+    """Partial-update payload for dataset metadata.
+
+    The class name remains ``DatasetMeta`` for generated-SDK compatibility;
+    new backend call sites use the ``DatasetMetaUpdate`` alias below.
+
+        Attributes:
+            access_constraints (None | str | Unset):
+            data_vintage_end (datetime.date | None | Unset): End of temporal coverage
+            data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
+            is_dem (bool | None | Unset): Flag raster as a Digital Elevation Model for terrain rendering
+            language (None | str | Unset): BCP 47 primary language tag, e.g. en, fr, or pt-BR
+            license_ (None | str | Unset):
+            lineage_summary (None | str | Unset): Free-text provenance / lineage statement
+            owner_org (None | str | Unset): Owning organization name
+            quality_statement (None | str | Unset):
+            record_status (None | str | Unset): Lifecycle status: draft, ready, published
+            sensitivity_classification (None | str | Unset): e.g. public, confidential, restricted
+            source_organization (None | str | Unset):
+            source_url (None | str | Unset): URL the data was originally fetched from
+            summary (None | str | Unset):
+            theme_category (list[str] | None | Unset): ISO topic category codes
+            tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null restores zoom defaults, []
+                emits geometry-only tiles, list emits those properties at any zoom.
+            title (None | str | Unset):
+            update_frequency (None | str | Unset): ISO maintenance frequency code
+            usage_constraints (None | str | Unset):
+            visibility (DatasetMetaVisibilityType0 | None | Unset): Access level: private, restricted, internal, or public
     """
 
     access_constraints: None | str | Unset = UNSET

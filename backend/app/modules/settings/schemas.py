@@ -102,12 +102,18 @@ class MapDefaultsUpdate(BaseModel):
 
 class MapDefaultsResponse(BaseModel):
     center_lat: float = Field(
-        description="Currently configured initial center latitude."
+        ge=-90.0, le=90.0, description="Currently configured initial center latitude."
     )
     center_lng: float = Field(
-        description="Currently configured initial center longitude."
+        ge=-180.0,
+        le=180.0,
+        description="Currently configured initial center longitude.",
     )
-    zoom: float = Field(description="Currently configured initial zoom level.")
+    zoom: float = Field(
+        ge=0.0,
+        le=22.0,
+        description="Currently configured initial zoom level.",
+    )
 
 
 class TileConfigResponse(BaseModel):

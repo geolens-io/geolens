@@ -51,7 +51,7 @@ from app.core.persistent_config import (
     get_cached_login_rate_limit,
 )
 from app.modules.auth.domain_validation import is_email_allowed
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
@@ -257,7 +257,10 @@ async def refresh(
     include_in_schema=False,
 )
 @router.post(
-    "/register/", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
+    "/register/",
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={502: BAD_GATEWAY_RESPONSE},
 )
 @limiter.limit("5/minute")
 async def register(
