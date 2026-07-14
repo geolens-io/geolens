@@ -119,6 +119,9 @@ def test_migrate_service_receives_embedding_config(filename: str) -> None:
 
 def test_vector_transition_is_bounded_and_concurrent() -> None:
     source = _MIGRATION_PATH.read_text(encoding="utf-8")
+    lock_timeout = source.index("set_config('lock_timeout', '5s', true)")
+    truncate = source.index("TRUNCATE catalog.record_embeddings")
+    assert lock_timeout < truncate
     assert "TRUNCATE catalog.record_embeddings" in source
     assert "DELETE FROM catalog.record_embeddings" not in source
     assert "autocommit_block()" in source

@@ -180,7 +180,11 @@ def upgrade() -> None:
             -- ACCESS EXCLUSIVE lock the type change needs, but makes the locked
             -- work constant-size rather than rewriting/deleting O(rows). The
             -- index is built after this transaction commits, so the lock is
-            -- released before the potentially long HNSW scan.
+            -- released before the potentially long HNSW scan. Bound lock
+            -- acquisition as well as locked work: a busy deployment fails this
+            -- transaction after five seconds instead of leaving ACCESS EXCLUSIVE
+            -- queued ahead of new readers. Alembic can be retried unchanged.
+            PERFORM set_config('lock_timeout', '5s', true);
             TRUNCATE catalog.record_embeddings;
             RAISE NOTICE 'Cleared cached record embeddings for vector(%) transition; run the embedding backfill after upgrade.', dims;
 

@@ -48,6 +48,9 @@ Migration `0012_type_embedding_vector` deliberately truncates
 derived cache data, and clearing them keeps the type-change lock short even on a
 large catalog. The migration then commits that transition and builds HNSW with
 `CREATE INDEX CONCURRENTLY`; a retry repairs an invalid interrupted index.
+Strong-lock acquisition is capped at five seconds. If PostgreSQL reports a lock
+timeout, let the blocking transaction finish (or choose a quieter window) and
+rerun Alembic; the transition is unchanged and retry-safe.
 
 After the API starts with its embedding provider configured, an administrator
 should call `POST /admin/backfill-embeddings/` (or use the corresponding admin
@@ -85,6 +88,8 @@ NOT VALID` first, repair only changed rows in the restarted transaction, then
 enter a second `autocommit_block` for `VALIDATE`. Migration `0014` follows this
 pattern. The first commit makes the constraint enforce new writes before the
 repair begins; the second releases repair locks before the validation scan.
+Both DDL phases cap lock acquisition at five seconds and can be retried after a
+lock-timeout failure without manual schema repair.
 
 ## Functional / expression indexes and `alembic check`
 

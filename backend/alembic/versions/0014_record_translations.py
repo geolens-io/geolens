@@ -27,6 +27,9 @@ def upgrade() -> None:
                 """
                 DO $$
                 BEGIN
+                  -- Fail transactionally instead of leaving an ACCESS EXCLUSIVE
+                  -- request queued behind a long reader. The prefix is retry-safe.
+                  PERFORM set_config('lock_timeout', '5s', true);
                   ALTER TABLE catalog.records
                     ALTER COLUMN language TYPE VARCHAR(35);
 
@@ -93,8 +96,14 @@ def upgrade() -> None:
         op.execute(
             sa.text(
                 """
-                ALTER TABLE catalog.records
-                  VALIDATE CONSTRAINT chk_records_language_tag
+                DO $$
+                BEGIN
+                  -- VALIDATE takes SHARE UPDATE EXCLUSIVE. Bound acquisition so
+                  -- concurrent maintenance cannot stall the migration forever.
+                  PERFORM set_config('lock_timeout', '5s', true);
+                  ALTER TABLE catalog.records
+                    VALIDATE CONSTRAINT chk_records_language_tag;
+                END $$;
                 """
             )
         )

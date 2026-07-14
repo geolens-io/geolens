@@ -94,6 +94,7 @@ def test_upgrade_uses_committed_not_valid_then_targeted_validate() -> None:
     validate = upgrade.index("VALIDATE CONSTRAINT")
 
     assert upgrade.count("autocommit_block()") == 2
+    assert upgrade.count("set_config('lock_timeout', '5s', true)") == 2
     assert not_valid < targeted_update < validate
     assert "op.create_check_constraint" not in upgrade
 
