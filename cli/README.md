@@ -23,3 +23,16 @@ geolens export stac <dataset-id> -o cities.stac.json
 For a one-command quickstart, run `geolens publish examples/manifests/first-catalog/city-parks.geojson` against a running stack. See the full walkthrough at [docs.getgeolens.com](https://docs.getgeolens.com/).
 
 The CLI consumes the [`geolens`](https://pypi.org/project/geolens/) Python SDK package. Manifest apply posts to the generated `POST /ingest/manifest/apply` contract through the SDK-owned client transport rather than a hand-rolled HTTP client.
+
+## Environment variables
+
+The CLI normally stores its active instance through `geolens login` and keeps
+tokens in the OS keyring. Ephemeral CI jobs can avoid persistent state with:
+
+| Variable | Purpose |
+|---|---|
+| `GEOLENS_INSTANCE` | GeoLens instance URL. The CLI normalizes the URL and appends `/api` when needed. An explicit `--instance` option takes precedence. |
+| `GEOLENS_TOKEN` | Bearer token used instead of the keyring/credentials file. Treat it as a secret and inject it from the CI secret store. |
+
+For load-test and seed-script variables, use the documented Tooling / Load
+Tests section in the repository's `.env.example`.

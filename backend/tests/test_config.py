@@ -1,7 +1,10 @@
 """Tests for config.py Settings class — DATABASE_URL override and connection properties."""
 
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 
+from app.core import config as config_module
 from app.core.config import Settings
 
 # Settings constructor kwargs (lowercase field names).
@@ -49,6 +52,12 @@ class TestDatabaseUrlOverride:
         s = _make_settings(database_url_override="postgres://u:p@host:5432/db")
         assert s.database_url.startswith("postgresql+asyncpg://")
 
+    def test_override_normalizes_psycopg_scheme_for_async_engine(self):
+        s = _make_settings(
+            database_url_override="postgresql+psycopg://u:p@host:5432/db"
+        )
+        assert s.database_url.startswith("postgresql+asyncpg://")
+
     def test_override_preserves_non_ssl_query_params(self):
         s = _make_settings(
             database_url_override="postgresql://u:p@host/db?application_name=geolens&sslmode=require"
@@ -56,6 +65,67 @@ class TestDatabaseUrlOverride:
         url = s.database_url
         assert "sslmode" not in url
         assert "application_name=geolens" in url
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "not-a-postgres-url",
+            "mysql://user:pass@host/db",
+            "postgresql:///missing-host",
+            "postgresql://user:pass@host",
+            "postgresql://user:pass@host/",
+            "postgresql://user:pass@host-one,host-two/db",
+            "postgresql://user:pass@host/db?host=/var/run/postgresql",
+            "postgresql:///db?host=",
+            "postgresql:///db?host=/one&host=/two",
+            "postgresql://user:pass@host:not-a-port/db",
+            "postgresql://user:pass@host:65536/db",
+        ],
+    )
+    def test_invalid_or_non_postgres_override_rejected(self, url):
+        with pytest.raises(Exception):
+            _make_settings(database_url_override=url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "postgres://u:p@host/db",
+            "postgresql://u:p@host/db",
+            "postgresql+asyncpg://u:p@host/db",
+            "postgresql+psycopg://u:p@host/db",
+            "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql",
+            "postgresql:///db?host=/cloudsql/project:region:instance",
+        ],
+    )
+    def test_supported_postgres_schemes_accepted(self, url):
+        assert _make_settings(database_url_override=url).database_url_override
+
+    def test_unix_socket_host_survives_async_url_normalization(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql&sslmode=disable"
+            )
+        )
+
+        parsed = urlsplit(s.database_url)
+        assert parsed.scheme == "postgresql+asyncpg"
+        assert parse_qs(parsed.query)["host"] == ["/var/run/postgresql"]
+        assert "sslmode" not in parse_qs(parsed.query)
+
+    def test_boot_error_redacts_invalid_dsn_credentials(self, monkeypatch, capsys):
+        for field, value in BASE_ENV.items():
+            monkeypatch.setenv(field.upper(), value)
+        monkeypatch.setenv(
+            "DATABASE_URL_OVERRIDE",
+            "mysql://user:must-not-appear@host/database",
+        )
+
+        with pytest.raises(SystemExit):
+            config_module._create_settings()
+
+        stderr = capsys.readouterr().err
+        assert "DATABASE_URL_OVERRIDE" in stderr
+        assert "must-not-appear" not in stderr
 
 
 class TestDatabaseUrlSync:
@@ -72,6 +142,16 @@ class TestDatabaseUrlSync:
     def test_override_from_asyncpg_prefix(self):
         s = _make_settings(database_url_override="postgresql+asyncpg://u:p@host/db")
         assert s.database_url_sync.startswith("postgresql+psycopg://")
+
+    def test_unix_socket_host_survives_sync_url_normalization(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql"
+            )
+        )
+        parsed = urlsplit(s.database_url_sync)
+        assert parsed.scheme == "postgresql+psycopg"
+        assert parse_qs(parsed.query)["host"] == ["/var/run/postgresql"]
 
 
 class TestProcrastinateConninfo:
@@ -134,6 +214,14 @@ class TestProcrastinateConninfo:
         assert "statement_timeout=5000" in conninfo
         assert "search_path=catalog,public" in conninfo
 
+    def test_unix_socket_override_includes_query_host(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql"
+            )
+        )
+        assert "host=/var/run/postgresql" in s.procrastinate_conninfo
+
 
 class TestOgrConnectionString:
     """Test ogr_connection_string property."""
@@ -168,6 +256,14 @@ class TestOgrConnectionString:
             database_ssl_mode="prefer",
         )
         assert "sslmode" not in s.ogr_connection_string
+
+    def test_unix_socket_override_includes_query_host(self):
+        s = _make_settings(
+            database_url_override=(
+                "postgresql+asyncpg://u:p@/db?host=/var/run/postgresql"
+            )
+        )
+        assert "host=/var/run/postgresql" in s.ogr_connection_string
 
 
 class TestDatabaseConnectArgs:
@@ -245,6 +341,80 @@ class TestConditionalValidation:
         s = _make_settings(storage_provider="local")
         assert s.storage_provider == "local"
 
+    def test_tile_pool_min_must_not_exceed_max(self):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(tile_pool_min_size=11, tile_pool_max_size=10)
+        assert "TILE_POOL_MIN_SIZE" in str(exc_info.value)
+
+
+class TestSettingsConstraints:
+    """Invalid enum and numeric configuration must fail during Settings parsing."""
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("jwt_algorithm", "none"),
+            ("geolens_edition", "enterpise"),
+            ("storage_provider", "typo"),
+            ("database_ssl_mode", "typo"),
+            ("s3_addressing_style", "typo"),
+        ],
+    )
+    def test_invalid_enum_rejected(self, field, value):
+        with pytest.raises(Exception):
+            _make_settings(**{field: value})
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("postgres_port", 0),
+            ("postgres_port", 65536),
+            ("access_token_expire_minutes", 0),
+            ("refresh_token_expire_days", 0),
+            ("password_min_length", 7),
+            ("upload_max_size_mb", 0),
+            ("presigned_multipart_threshold_mb", 0),
+            ("embedding_dims", 0),
+            ("embedding_dims", 4097),
+            ("worker_shutdown_timeout", 0),
+            ("worker_concurrency", 0),
+            ("db_pool_size", 0),
+            ("db_max_overflow", -2),
+            ("db_pool_timeout", 0),
+            ("db_pool_recycle", -2),
+            ("tile_pool_min_size", 0),
+            ("tile_pool_max_size", 0),
+            ("ingest_http_timeout_seconds", 0),
+            ("ingest_jobs_retention_days", -1),
+            ("smtp_port", 0),
+            ("smtp_port", 65536),
+        ],
+    )
+    def test_out_of_range_numeric_value_rejected(self, field, value):
+        with pytest.raises(Exception):
+            _make_settings(**{field: value})
+
+    def test_documented_zero_and_negative_sentinels_remain_supported(self):
+        s = _make_settings(
+            tile_cache_ttl=0,
+            ingest_jobs_retention_days=0,
+            db_max_overflow=-1,
+            db_pool_recycle=-1,
+        )
+        assert s.tile_cache_ttl == 0
+        assert s.ingest_jobs_retention_days == 0
+        assert s.db_max_overflow == -1
+        assert s.db_pool_recycle == -1
+
+    def test_worker_queues_are_trimmed_and_normalized(self):
+        s = _make_settings(worker_queues=" priority, ingest ,raster ")
+        assert s.worker_queues == "priority,ingest,raster"
+
+    @pytest.mark.parametrize("queues", ["", " , ", "ingest,ingest"])
+    def test_empty_or_duplicate_worker_queues_rejected(self, queues):
+        with pytest.raises(Exception):
+            _make_settings(worker_queues=queues)
+
 
 class TestEmptyStringToNone:
     """Test that empty string env vars become None."""
@@ -261,9 +431,22 @@ class TestEmptyStringToNone:
         s = _make_settings(database_url_override="")
         assert s.database_url_override is None
 
+    def test_empty_geolens_edition_uses_auto_detection(self):
+        s = _make_settings(geolens_edition="")
+        assert s.geolens_edition is None
+
+    def test_geolens_edition_is_normalized_case_insensitively(self):
+        s = _make_settings(geolens_edition=" Enterprise ")
+        assert s.geolens_edition == "enterprise"
+
     def test_nonempty_redis_url_preserved(self):
         s = _make_settings(redis_url="redis://localhost:6379/0")
         assert s.redis_url == "redis://localhost:6379/0"
+
+    def test_empty_notification_secrets_become_none(self):
+        s = _make_settings(smtp_password="", notification_webhook_secret=" ")
+        assert s.smtp_password is None
+        assert s.notification_webhook_secret is None
 
 
 class TestExternalPooler:

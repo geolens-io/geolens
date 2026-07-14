@@ -7,6 +7,11 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **Database SSL modes now fail closed.** Undocumented `allow` and `verify-ca`
+  values no longer boot; use `prefer` or `verify-full` before upgrading.
+
 ## [1.4.6] - 2026-07-12
 
 ### Added

@@ -179,6 +179,19 @@ class TestGuard01EditionHalf:
             with pytest.raises(RuntimeError, match="GEOLENS_TENANCY_MODE=multi_tenant"):
                 check_tenancy_mode_supported(loaded_extensions=[])
 
+    def test_settings_loaded_multi_tenant_without_overlay_raises(self, monkeypatch):
+        """A bare-metal .env tenancy request still enforces the overlay guard."""
+        from app.core import config as config_module
+        from app.core.edition import check_tenancy_mode_supported
+
+        monkeypatch.delenv("GEOLENS_TENANCY_MODE", raising=False)
+        monkeypatch.setattr(
+            config_module.settings, "geolens_tenancy_mode", "multi_tenant"
+        )
+
+        with pytest.raises(RuntimeError, match="GEOLENS_TENANCY_MODE=multi_tenant"):
+            check_tenancy_mode_supported(loaded_extensions=[])
+
     def test_multi_tenant_with_overlay_does_not_raise(self):
         """check_tenancy_mode_supported is silent when mode=multi_tenant and an overlay is loaded."""
         from app.core.edition import check_tenancy_mode_supported

@@ -3,7 +3,13 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,21 +48,21 @@ class Settings(BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
     postgres_host: str = "localhost"
-    postgres_port: int = 5432
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_db: str = "geolens"
     postgres_db_test: str = "geolens_test"
 
     jwt_secret_key: SecretStr
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 15
-    refresh_token_expire_days: int = 7
+    jwt_algorithm: Literal["HS256"] = "HS256"
+    access_token_expire_minutes: int = Field(default=15, gt=0)
+    refresh_token_expire_days: int = Field(default=7, gt=0)
 
     # SEC-S16 (Phase 1062-01): password complexity policy.
     # PASSWORD_MIN_LENGTH controls the minimum character count (default 12).
     # PASSWORD_REQUIRE_CLASSES controls how many of the four character classes
     # (lowercase, uppercase, digit, symbol) must be present (default 3).
     # Operators can relax both in dev/test via environment variables.
-    password_min_length: int = 12
+    password_min_length: int = Field(default=12, ge=8)
     password_require_classes: int = Field(default=3, ge=1, le=4)
     geolens_admin_username: str
     geolens_admin_password: SecretStr
@@ -70,12 +76,12 @@ class Settings(BaseSettings):
     demo_mode: bool = False
 
     cors_allowed_origins: str = ""
-    upload_max_size_mb: int = 500
+    upload_max_size_mb: int = Field(default=500, gt=0)
     upload_staging_dir: str = "/app/staging"
     upload_allowed_extensions: str = (
         ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls"
     )
-    presigned_multipart_threshold_mb: int = 100
+    presigned_multipart_threshold_mb: int = Field(default=100, gt=0)
     procrastinate_schema: str = "catalog"
 
     public_app_url: str | None = None
@@ -97,6 +103,11 @@ class Settings(BaseSettings):
     #   unset (None)  -> fall back to LOG_JSON for backward compatibility
     # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
     environment: Literal["development", "production"] | None = None
+
+    # Explicit edition request. None preserves extension auto-detection, while
+    # invalid values fail during Settings construction instead of silently
+    # falling back to community behavior.
+    geolens_edition: Literal["community", "enterprise"] | None = None
 
     # TSEAM-03 (Phase 1207-02): orthogonal tenancy MODE axis.
     # Edition stays binary (community|enterprise); mode controls the tenancy
@@ -121,17 +132,17 @@ class Settings(BaseSettings):
     openai_base_url: str | None = None
 
     embedding_model: str = "text-embedding-3-small"
-    embedding_dims: int = 1536
+    embedding_dims: int = Field(default=1536, ge=1, le=4096)
     embedding_base_url: str | None = None
 
-    storage_provider: str = "local"
+    storage_provider: Literal["local", "s3", "azure"] = "local"
     s3_endpoint: str | None = None
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: SecretStr | None = None
     s3_region: str = "us-east-1"
     s3_allow_http: bool = False
-    s3_addressing_style: str = "auto"
+    s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
 
     # Azure Blob Storage (STOR-01 / Phase 1210)
     azure_storage_container: str | None = None
@@ -158,20 +169,20 @@ class Settings(BaseSettings):
     redis_url: str | None = None
     cdn_base_url: str | None = None
     tile_signing_secret: SecretStr | None = None
-    tile_cache_ttl: int = 300
+    tile_cache_ttl: int = Field(default=300, ge=0)
 
     database_url_override: str | None = None
-    database_ssl_mode: str = "prefer"
+    database_ssl_mode: Literal["disable", "prefer", "require", "verify-full"] = "prefer"
     database_ssl_ca_cert: str | None = None
     database_pool_pre_ping: bool = True
 
     # CONF-03 (Phase 277 / M-38): replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
-    worker_shutdown_timeout: int = 30
+    worker_shutdown_timeout: int = Field(default=30, gt=0)
 
     # fix(#448): Procrastinate parallel job slots per worker process. The
     # implicit default of 1 head-of-line-blocked every queued upload behind a
     # long COG conversion. 2-3 suits multi-core hosts; keep 1 on 2-vCPU boxes.
-    worker_concurrency: int = 1
+    worker_concurrency: int = Field(default=1, ge=1)
     # fix(#448): queues this worker listens to. Lets a deployment run a second
     # worker service dedicated to e.g. WORKER_QUEUES=raster so long raster jobs
     # never stall vector ingests.
@@ -183,18 +194,19 @@ class Settings(BaseSettings):
     env_only_config: bool = False
 
     db_use_external_pooler: bool = False
-    db_pool_size: int = 10
-    db_max_overflow: int = 3  # DBM-04 (Phase 271): connection-budget headroom
-    db_pool_timeout: int = 30
-    db_pool_recycle: int = 1800
+    db_pool_size: int = Field(default=10, ge=1)
+    # SQLAlchemy uses -1 for unlimited overflow / disabled recycling.
+    db_max_overflow: int = Field(default=3, ge=-1)
+    db_pool_timeout: int = Field(default=30, gt=0)
+    db_pool_recycle: int = Field(default=1800, ge=-1)
 
-    tile_pool_min_size: int = 2
-    tile_pool_max_size: int = 10
+    tile_pool_min_size: int = Field(default=2, ge=1)
+    tile_pool_max_size: int = Field(default=10, ge=1)
 
     # SEED-02 (Phase 1054): GDAL_HTTP_TIMEOUT for ogr2ogr service ingest, raised
     # from the 120s hardcoded default that timed out 50% of AGO layers in M001-7n8vpc.
     # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
-    ingest_http_timeout_seconds: int = 300
+    ingest_http_timeout_seconds: int = Field(default=300, gt=0)
 
     # fix(#434): finished ingest_jobs rows previously lived forever, so the
     # admin Jobs page accumulated stale test junk with no cleanup affordance.
@@ -202,7 +214,7 @@ class Settings(BaseSettings):
     # days are purged by the 5-minute lifespan sweeper, except each dataset's
     # most recent complete job (it backs /jobs/by-dataset warning metadata).
     # 0 disables the purge (keep history forever).
-    ingest_jobs_retention_days: int = 30
+    ingest_jobs_retention_days: int = Field(default=30, ge=0)
 
     # ---------------------------------------------------------------------------
     # Outbound Notification channels (Phase 1229 NOTIF-02 / NOTIF-03 / NOTIF-05)
@@ -225,7 +237,7 @@ class Settings(BaseSettings):
     # SMTP channel (NOTIF-02): configure with SMTP_HOST + SMTP_USERNAME +
     # SMTP_PASSWORD + SMTP_FROM_ADDRESS to send email notifications.
     smtp_host: str | None = None
-    smtp_port: int = 587
+    smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     smtp_from_address: str | None = None
@@ -279,8 +291,10 @@ class Settings(BaseSettings):
         # Phase 1229 notification str | None fields — blank env values normalize to None
         "smtp_host",
         "smtp_username",
+        "smtp_password",
         "smtp_from_address",
         "notification_webhook_url",
+        "notification_webhook_secret",
         # Phase 1230 EVENT-05 recipient field — blank env value normalizes to None
         "notification_admin_email",
         # fix(#441): compose passes ENVIRONMENT through as "${ENVIRONMENT:-}",
@@ -294,6 +308,53 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("geolens_edition", mode="before")
+    @classmethod
+    def normalize_geolens_edition(cls, v: str | None) -> str | None:
+        if not isinstance(v, str):
+            return v
+        value = v.strip().lower()
+        return value or None
+
+    @field_validator("database_url_override", mode="after")
+    @classmethod
+    def validate_database_url_override(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+
+        from urllib.parse import parse_qs, urlsplit
+
+        value = v.strip()
+        try:
+            parsed = urlsplit(value)
+            # Accessing .port validates both syntax and the 1-65535 range.
+            parsed.port
+        except ValueError:
+            raise ValueError("DATABASE_URL_OVERRIDE contains an invalid port") from None
+
+        allowed_schemes = {
+            "postgres",
+            "postgresql",
+            "postgresql+asyncpg",
+            "postgresql+psycopg",
+        }
+        if parsed.scheme not in allowed_schemes:
+            raise ValueError(
+                "DATABASE_URL_OVERRIDE must use a supported PostgreSQL scheme"
+            )
+        if not parsed.path or parsed.path == "/":
+            raise ValueError("DATABASE_URL_OVERRIDE must include a database name")
+
+        query_hosts = parse_qs(parsed.query, keep_blank_values=True).get("host", [])
+        if parsed.hostname and query_hosts:
+            raise ValueError(
+                "DATABASE_URL_OVERRIDE must not combine authority and query hosts"
+            )
+        hosts = [parsed.hostname] if parsed.hostname else query_hosts
+        if len(hosts) != 1 or not hosts[0] or "," in hosts[0]:
+            raise ValueError("DATABASE_URL_OVERRIDE must contain exactly one host")
+        return value
 
     @field_validator("dcat_contact_email", mode="after")
     @classmethod
@@ -337,6 +398,16 @@ class Settings(BaseSettings):
             raise ValueError(f"LOG_LEVEL must be one of {sorted(allowed)}, got {v!r}")
         return upper
 
+    @field_validator("worker_queues", mode="after")
+    @classmethod
+    def validate_worker_queues(cls, v: str) -> str:
+        queues = [queue.strip() for queue in v.split(",") if queue.strip()]
+        if not queues:
+            raise ValueError("WORKER_QUEUES must contain at least one queue name")
+        if len(queues) != len(set(queues)):
+            raise ValueError("WORKER_QUEUES must not contain duplicate queue names")
+        return ",".join(queues)
+
     @model_validator(mode="after")
     def validate_provider_settings(self) -> "Settings":
         if self.storage_provider == "s3":
@@ -366,6 +437,11 @@ class Settings(BaseSettings):
         if self.database_ssl_mode == "verify-full" and not self.database_ssl_ca_cert:
             raise ValueError(
                 "DATABASE_SSL_MODE=verify-full requires DATABASE_SSL_CA_CERT"
+            )
+
+        if self.tile_pool_min_size > self.tile_pool_max_size:
+            raise ValueError(
+                "TILE_POOL_MIN_SIZE must be less than or equal to TILE_POOL_MAX_SIZE"
             )
 
         return self
@@ -440,7 +516,9 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         if self.database_url_override:
             url = self.database_url_override
-            if url.startswith("postgresql://"):
+            if url.startswith("postgresql+psycopg://"):
+                url = url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+            elif url.startswith("postgresql://"):
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
@@ -521,8 +599,9 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = []
-            if parsed.hostname:
-                parts.append(f"host={parsed.hostname}")
+            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            if host:
+                parts.append(f"host={host}")
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
@@ -561,7 +640,7 @@ class Settings(BaseSettings):
     @property
     def ogr_connection_string(self) -> str:
         if self.database_url_override:
-            from urllib.parse import urlparse
+            from urllib.parse import parse_qs, urlparse
 
             raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
@@ -572,8 +651,9 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = ["PG:"]
-            if parsed.hostname:
-                parts.append(f"host={parsed.hostname}")
+            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            if host:
+                parts.append(f"host={host}")
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
@@ -613,6 +693,13 @@ def _create_settings() -> Settings:
                 missing.append(field_name.upper())
             elif error["type"] == "value_error":
                 value_errors.append(error["msg"])
+            else:
+                # Literal, URL, and numeric-bound failures use dedicated
+                # Pydantic error types. Report only the field and safe message;
+                # re-raising ValidationError would echo secret-bearing inputs
+                # such as DATABASE_URL_OVERRIDE in the traceback.
+                field_name = str(error["loc"][0]).upper()
+                value_errors.append(f"{field_name}: {error['msg']}")
         if missing:
             print(
                 f"\nFATAL: Required environment variables not set: "
