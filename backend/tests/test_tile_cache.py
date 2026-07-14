@@ -1,6 +1,8 @@
 """Tests for TileCacheProvider and pool settings externalization."""
 
 import gzip
+import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
@@ -260,6 +262,73 @@ def test_settings_tile_pool_max_size_env_override(monkeypatch):
 # --- H-10: tile pool drops privileges to geolens_reader ---
 
 
+def test_parse_dsn_uses_dedicated_tile_url(monkeypatch):
+    from app.processing.tiles import pool as pool_module
+
+    monkeypatch.setattr(
+        pool_module,
+        "settings",
+        SimpleNamespace(
+            tile_database_url="postgresql+asyncpg://tile:secret@db/geolens"
+        ),
+    )
+
+    assert pool_module._parse_dsn() == "postgresql://tile:secret@db/geolens"
+
+
+def test_multi_tenant_tile_pool_requires_explicit_override(monkeypatch):
+    from app.processing.tiles import pool as pool_module
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    monkeypatch.setattr(
+        pool_module,
+        "settings",
+        SimpleNamespace(
+            tile_database_url_override=None,
+            tile_database_url="postgresql+asyncpg://app:secret@db/geolens",
+            database_url="postgresql+asyncpg://app:secret@db/geolens",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="TILE_DATABASE_URL_OVERRIDE is required"):
+        pool_module._validate_tile_database_isolation()
+
+
+def test_multi_tenant_tile_pool_rejects_runtime_login_reuse(monkeypatch):
+    from app.processing.tiles import pool as pool_module
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    monkeypatch.setattr(
+        pool_module,
+        "settings",
+        SimpleNamespace(
+            tile_database_url_override="postgresql://app:other@db/geolens",
+            tile_database_url="postgresql+asyncpg://app:other@db/geolens",
+            database_url="postgresql+asyncpg://app:secret@db/geolens",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="dedicated Postgres login"):
+        pool_module._validate_tile_database_isolation()
+
+
+def test_multi_tenant_tile_pool_accepts_distinct_login(monkeypatch):
+    from app.processing.tiles import pool as pool_module
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    monkeypatch.setattr(
+        pool_module,
+        "settings",
+        SimpleNamespace(
+            tile_database_url_override="postgresql://tile:secret@db/geolens",
+            tile_database_url="postgresql+asyncpg://tile:secret@db/geolens",
+            database_url="postgresql+asyncpg://app:secret@db/geolens",
+        ),
+    )
+
+    pool_module._validate_tile_database_isolation()
+
+
 @pytest.mark.asyncio
 async def test_setup_tile_connection_issues_set_role():
     """_setup_tile_connection runs ``SET ROLE geolens_reader`` on every fresh
@@ -312,45 +381,207 @@ async def test_init_tile_pool_passes_setup_callback(monkeypatch):
         pool_module._tile_pool = None
 
     assert captured_kwargs.get("setup") is pool_module._setup_tile_connection
+    assert captured_kwargs.get("init") is pool_module._init_tile_connection
+
+
+def _tile_role_row(**overrides):
+    row = {
+        "login_name": "geolens_tile",
+        "effective_name": "geolens_tile",
+        "is_superuser": False,
+        "bypasses_rls": False,
+        "creates_roles": False,
+        "creates_databases": False,
+        "replicates": False,
+        "can_assume_powerful_role": False,
+        "has_forbidden_membership": False,
+        "can_assume_catalog_table_owner": False,
+        "can_assume_tenant_schema_owner": False,
+        "can_create_in_protected_schema": False,
+        "has_tile_gateway": True,
+    }
+    row.update(overrides)
+    return row
 
 
 @pytest.mark.asyncio
-async def test_invalidate_table_purges_tenant_prefixed_keys(tile_cache):
-    """fix(#394) VT-08: multi_tenant keys are `tile:{tid}:{table}:...` — the
-    invalidation must purge those alongside the bare single-tenant keys."""
+async def test_live_tile_role_guard_accepts_only_gateway_member(monkeypatch):
+    from app.processing.tiles.pool import _assert_multi_tenant_tile_role
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _tile_role_row()
+    await _assert_multi_tenant_tile_role(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "unsafe_field",
+    [
+        "is_superuser",
+        "bypasses_rls",
+        "creates_roles",
+        "creates_databases",
+        "replicates",
+        "can_assume_powerful_role",
+        "has_forbidden_membership",
+        "can_assume_catalog_table_owner",
+        "can_assume_tenant_schema_owner",
+        "can_create_in_protected_schema",
+    ],
+)
+async def test_tile_role_guard_rejects_each_privilege_path(monkeypatch, unsafe_field):
+    from app.processing.tiles.pool import _assert_multi_tenant_tile_role
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _tile_role_row(**{unsafe_field: True})
+    with pytest.raises(RuntimeError, match="least-privilege LOGIN"):
+        await _assert_multi_tenant_tile_role(conn)
+
+
+@pytest.mark.asyncio
+async def test_tile_role_guard_rejects_missing_tile_gateway(monkeypatch):
+    from app.processing.tiles.pool import _assert_multi_tenant_tile_role
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    conn = AsyncMock()
+    conn.fetchrow.return_value = _tile_role_row(has_tile_gateway=False)
+    with pytest.raises(RuntimeError, match="geolens_tile_gateway"):
+        await _assert_multi_tenant_tile_role(conn)
+
+
+@pytest.mark.asyncio
+async def test_tile_role_guard_rejects_live_superuser_session(monkeypatch):
+    """A renamed/distinct superuser cannot pass the live DSN validation."""
+    import asyncpg
+
+    from app.core.config import settings
+    from app.processing.tiles.pool import _assert_multi_tenant_tile_role
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(dsn)
+    try:
+        if not await conn.fetchval(
+            "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+        ):
+            pytest.skip("Live negative requires the test database superuser")
+        with pytest.raises(RuntimeError, match="least-privilege LOGIN"):
+            await _assert_multi_tenant_tile_role(conn)
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_tile_role_guard_rejects_live_tenant_schema_owner(monkeypatch):
+    """Gateway membership cannot make a tile login safe if it owns data."""
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    from app.core.config import settings
+    from app.processing.tiles.pool import _assert_multi_tenant_tile_role
+
+    suffix = uuid.uuid4().hex
+    login = f"oc_tile_owner_{suffix[:12]}"
+    password = f"OcTileOwner{suffix}"
+    schema = f"data_t_{uuid.uuid4().hex[:8]}_0000_0000_0000_000000000000"
+    gateway = "geolens_tile_gateway"
+    admin_dsn = settings.test_database_url.replace(
+        "postgresql+asyncpg://", "postgresql://"
+    )
+    admin = await asyncpg.connect(admin_dsn)
+    tile_conn = None
+    gateway_created = False
+    try:
+        if not await admin.fetchval(
+            "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+        ):
+            pytest.skip("Live ownership regression requires the test DB superuser")
+        if not await admin.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", gateway
+        ):
+            await admin.execute(
+                f"CREATE ROLE {gateway} NOLOGIN NOSUPERUSER NOCREATEDB "
+                "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+            )
+            gateway_created = True
+        await admin.execute(
+            f"CREATE ROLE {login} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            f"NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '{password}'"
+        )
+        await admin.execute(f"GRANT {gateway} TO {login} WITH INHERIT FALSE, SET TRUE")
+        await admin.execute(f"CREATE SCHEMA {schema} AUTHORIZATION {login}")
+
+        login_dsn = (
+            make_url(settings.test_database_url)
+            .set(username=login, password=password, drivername="postgresql")
+            .render_as_string(hide_password=False)
+        )
+        tile_conn = await asyncpg.connect(login_dsn)
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+        with pytest.raises(RuntimeError, match="protected-object ownership"):
+            await _assert_multi_tenant_tile_role(tile_conn)
+    finally:
+        if tile_conn is not None:
+            await tile_conn.close()
+        await admin.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+        await admin.execute(f"DROP ROLE IF EXISTS {login}")
+        if gateway_created:
+            await admin.execute(f"DROP ROLE IF EXISTS {gateway}")
+        await admin.close()
+
+
+@pytest.mark.asyncio
+async def test_invalidate_table_purges_only_active_tenant_keys(tile_cache, monkeypatch):
+    """A tenant mutation must not evict a peer's same-named tile cache."""
+    from app.core.config import settings
+    from app.core.db.tenant_session import current_tenant_var
+
+    tenant_a = "11111111-2222-3333-4444-555555555555"
+    tenant_b = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
     data = gzip.compress(b"tile")
     await tile_cache.set("target", 1, 0, 0, data, ttl=60)
-    await tile_cache.set(
-        "11111111-2222-3333-4444-555555555555:target", 1, 0, 0, data, ttl=60
-    )
+    await tile_cache.set(f"{tenant_a}:target", 1, 0, 0, data, ttl=60)
+    await tile_cache.set(f"{tenant_b}:target", 1, 0, 0, data, ttl=60)
     await tile_cache.set("other", 1, 0, 0, data, ttl=60)
 
-    await tile_cache.invalidate_table("target")
+    token = current_tenant_var.set(tenant_a)
+    try:
+        await tile_cache.invalidate_table("target")
+    finally:
+        current_tenant_var.reset(token)
 
-    assert await tile_cache.get("target", 1, 0, 0) is None
-    assert (
-        await tile_cache.get("11111111-2222-3333-4444-555555555555:target", 1, 0, 0)
-        is None
-    )
+    assert await tile_cache.get(f"{tenant_a}:target", 1, 0, 0) is None
+    assert await tile_cache.get(f"{tenant_b}:target", 1, 0, 0) == data
+    assert await tile_cache.get("target", 1, 0, 0) == data
     assert await tile_cache.get("other", 1, 0, 0) == data
 
 
 @pytest.mark.asyncio
-async def test_in_memory_invalidate_table_purges_tenant_prefixed_keys():
-    """fix(#394) VT-08: same contract for the InMemory fallback provider."""
+async def test_in_memory_invalidate_table_is_tenant_scoped(monkeypatch):
+    """The in-memory fallback applies the same active-tenant boundary."""
+    from app.core.config import settings
+    from app.core.db.tenant_session import current_tenant_var
     from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 
+    tenant_a = "11111111-2222-3333-4444-555555555555"
+    tenant_b = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
     cache = InMemoryTileCacheProvider(max_entries=10)
     await cache.set("target", 1, 0, 0, b"a", ttl=60)
-    await cache.set(
-        "11111111-2222-3333-4444-555555555555:target", 1, 0, 0, b"b", ttl=60
-    )
+    await cache.set(f"{tenant_a}:target", 1, 0, 0, b"b", ttl=60)
+    await cache.set(f"{tenant_b}:target", 1, 0, 0, b"d", ttl=60)
     await cache.set("other", 1, 0, 0, b"c", ttl=60)
 
-    await cache.invalidate_table("target")
+    token = current_tenant_var.set(tenant_a)
+    try:
+        await cache.invalidate_table("target")
+    finally:
+        current_tenant_var.reset(token)
 
-    assert await cache.get("target", 1, 0, 0) is None
-    assert (
-        await cache.get("11111111-2222-3333-4444-555555555555:target", 1, 0, 0) is None
-    )
+    assert await cache.get(f"{tenant_a}:target", 1, 0, 0) is None
+    assert await cache.get(f"{tenant_b}:target", 1, 0, 0) == b"d"
+    assert await cache.get("target", 1, 0, 0) == b"a"
     assert await cache.get("other", 1, 0, 0) == b"c"

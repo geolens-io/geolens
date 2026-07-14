@@ -127,6 +127,8 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         cache.set = AsyncMock()
         cache.delete = AsyncMock()
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
+        membership = AsyncMock(return_value=True)
+        monkeypatch.setattr(embed_service, "map_contains_dataset", membership)
 
         request = _make_request(origin="http://localhost:3000", client_host="127.0.0.1")
 
@@ -137,6 +139,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
             request=request,
         )
         assert result is True
+        membership.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_unlisted_origin_from_loopback_peer_still_rejected(self, monkeypatch):

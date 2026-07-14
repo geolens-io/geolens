@@ -44,11 +44,11 @@ class TestExtensionApiVersionConstant:
             f"EXTENSION_API_VERSION must be int, got {type(EXTENSION_API_VERSION)}"
         )
 
-    def test_version_is_positive(self):
-        """EXTENSION_API_VERSION >= 1 (version-0 is the legacy/unset sentinel)."""
+    def test_version_matches_required_connector_contract(self):
+        """v2 covers the required connector discovery/dispatch methods."""
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION >= 1
+        assert EXTENSION_API_VERSION == 2
 
 
 class TestCheckExtensionApiVersion:
@@ -253,3 +253,51 @@ class TestLoadExtensionsVersionEnforcement:
         from app.platform.extensions import _extensions
 
         assert "broken_import_ext" not in _extensions
+
+    def test_invalid_extension_load_priority_fails_loudly(self):
+        from app.platform.extensions import load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
+
+        ep = MagicMock()
+        ep.name = "invalid_priority_ext"
+        loader = MagicMock()
+        loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
+        loader.EXTENSION_LOAD_PRIORITY = "last"
+        ep.load.return_value = loader
+
+        with patch("app.platform.extensions.entry_points", return_value=[ep]):
+            with pytest.raises(RuntimeError, match="EXTENSION_LOAD_PRIORITY"):
+                load_extensions()
+
+    def test_extension_priority_beats_discovery_order(self):
+        from app.platform.extensions import load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
+
+        calls: list[str] = []
+
+        def foundation(_registry: dict) -> None:
+            calls.append("foundation")
+
+        foundation.EXTENSION_API_VERSION = EXTENSION_API_VERSION  # type: ignore[attr-defined]
+        foundation.EXTENSION_LOAD_PRIORITY = 10  # type: ignore[attr-defined]
+
+        def wrapper(_registry: dict) -> None:
+            calls.append("wrapper")
+
+        wrapper.EXTENSION_API_VERSION = EXTENSION_API_VERSION  # type: ignore[attr-defined]
+        wrapper.EXTENSION_LOAD_PRIORITY = 20  # type: ignore[attr-defined]
+
+        wrapper_ep = MagicMock()
+        wrapper_ep.name = "wrapper"
+        wrapper_ep.load.return_value = wrapper
+        foundation_ep = MagicMock()
+        foundation_ep.name = "foundation"
+        foundation_ep.load.return_value = foundation
+
+        with patch(
+            "app.platform.extensions.entry_points",
+            return_value=[wrapper_ep, foundation_ep],
+        ):
+            load_extensions()
+
+        assert calls == ["foundation", "wrapper"]

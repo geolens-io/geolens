@@ -11,6 +11,7 @@ Requirements:
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
@@ -528,6 +529,25 @@ class TestMapLayerDatasetVisibilityLeak:
         assert resp.status_code == 200, resp.text
         assert f"geolens-{ds.id}" not in resp.json()["sources"], (
             "private dataset source with replayable signed tile URL leaked anonymously"
+        )
+
+    async def test_style_json_fails_closed_without_multi_tenant_context(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Hosted style export never falls back to the Community MVT layer."""
+        map_id, _ = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="public"
+        )
+
+        with patch(
+            "app.modules.catalog.maps.router_sharing.is_multi_tenant",
+            return_value=True,
+        ):
+            response = await client.get(f"/maps/{map_id}/style.json")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == (
+            "Tenant context is required for map style export"
         )
 
     async def test_anon_keeps_public_dataset_layer(

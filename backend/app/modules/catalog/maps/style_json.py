@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-import uuid
-from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
-
-from pydantic import ValidationError
 
 from app.modules.catalog.maps.filter_grammar import (
     FilterValidationError,
@@ -18,17 +14,30 @@ from app.modules.catalog.maps.filter_grammar import (
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import (
     BUILDER_SNAKE_TO_CAMEL_KEYS,
-    BasemapConfig,
-    LEGACY_BUILDER_PAINT_KEYS,
-    MapLayerInput,
     MapLayerResponse,
-    MapStyleImportSummary,
-    MapStyleImportWarning,
+)
+from app.modules.catalog.maps.style_import import (
+    DEFAULT_ARROW_BASE_SIZE,
+    GEOLENS_SPRITE_ID,
+    STYLE_VERSION,
+    ImportedStyleMap,
+    parse_maplibre_style_import,
+)
+from app.modules.catalog.maps.style_sanitizers import (
+    builder_style_config as _builder_style_config,
+    clamp_number as _clamp_number,
+    clean_basemap_config as _clean_basemap_config,
+    clean_label_metadata as _clean_label_metadata,
+    clean_layout as _clean_layout,
+    clean_paint as _clean_paint,
+    clean_style_metadata as _clean_style_metadata,
+    finite_number as _finite_number,
 )
 from app.platform.extensions import get_catalog_port
+from app.core.tenancy import tenant_bound_scope
 
-STYLE_VERSION = 8
-GEOLENS_SPRITE_ID = "geolens"
+__all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
+
 SPRITE_URL = "/maps/sprites/geolens"
 GLYPHS_URL = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"
 # builder-audit #338 STYLE-07 / DRY-06: GeoLens default fill/stroke palette and the
@@ -40,7 +49,6 @@ DEFAULT_FILL_COLOR = "#3b82f6"
 DEFAULT_STROKE_COLOR = "#1d4ed8"
 DEFAULT_OUTLINE_WIDTH = 1
 DEFAULT_ARROW_ICON = "arrow-right"
-DEFAULT_ARROW_BASE_SIZE = 14
 DEFAULT_ARROW_SPACING = 80
 DEFAULT_EXTRUSION_MIN_ZOOM = 14
 EXTRUSION_OPACITY_CAP = 0.85
@@ -53,52 +61,9 @@ COLOR_RELIEF_ELEV_MIN = 0
 COLOR_RELIEF_ELEV_MAX = 4000
 COLOR_RELIEF_STOP_COUNT = 7
 CLUSTER_GEOJSON_FEATURE_LIMIT = 5000
-LABEL_FONT_STACK = [
-    "Noto Sans Regular",
-]
+LABEL_FONT_STACK = ["Noto Sans Regular"]
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
-_LABEL_METADATA_KEYS = {
-    "column",
-    "fontSize",
-    "textColor",
-    "haloColor",
-    "haloWidth",
-    "minZoom",
-    "maxZoom",
-    "placement",
-    "textAnchor",
-    "textOpacity",
-    "textOffset",
-    "allowOverlap",
-}
-_STYLE_METADATA_KEYS = {
-    "mode",
-    "column",
-    "ramp",
-    "classCount",
-    "method",
-    "categories",
-    "breaks",
-    "colors",
-    "target",
-    "sizes",
-    "render_mode",
-    "symbol",
-    "builder",
-    # builder-audit #338 SPEC-03: round-trippable legend/ramp/render-mode UI state that
-    # was previously dropped on the style-JSON export/import path (legend titles,
-    # reversed-ramp flag, [min,max] size range, and saved heatmap/circle paint used
-    # to restore a prior render mode). These already round-trip through the open
-    # DB dict; they must also survive build -> parse via metadata.geolens.
-    "legendLabel",
-    "reversed",
-    "sizeRange",
-    "sizeLabel",
-    "colorLabel",
-    "heatmapPaint",
-    "savedCirclePaint",
-}
 _HILLSHADE_PAINT_KEYS = {
     "hillshade-illumination-direction",
     "hillshade-illumination-anchor",
@@ -110,204 +75,13 @@ _HILLSHADE_PAINT_KEYS = {
 # Source types that can render `line-gradient` paint. MapLibre requires the source
 # to also be constructed with `lineMetrics: true` (set by `build_maplibre_style`).
 _LINE_GRADIENT_SOURCE_TYPES = {"vector", "geojson"}
-_SYMBOL_METADATA_KEYS = {
-    "iconImage",
-    "iconSize",
-    "iconRotation",
-    "iconAnchor",
-    "iconOffset",
-    "categoryColumn",
-    "categories",
-}
-# builder-audit #338 STYLE-01: the snake_case->camelCase builder alias table used on
-# export is NOT redefined here. It is imported from schemas as the single-source
-# `BUILDER_SNAKE_TO_CAMEL_KEYS`, which is derived programmatically as the exact
-# inverse of the authoritative `_BUILDER_CAMEL_TO_SNAKE_KEYS` storage map (and is
-# therefore exhaustive — it includes the `folder_group_*` keys the old
-# hand-written `_BUILDER_KEY_ALIASES` table was missing, which previously leaked
-# snake_case into exported style.json metadata). Add a builder key in schemas ONCE
-# and both directions stay in sync.
 _BUILDER_KEY_ALIASES = BUILDER_SNAKE_TO_CAMEL_KEYS
-
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ImportedStyleMap:
-    """Normalized import payload ready for the maps service layer."""
-
-    name: str
-    description: str | None
-    center_lng: float | None = None
-    center_lat: float | None = None
-    zoom: float | None = None
-    bearing: float | None = None
-    pitch: float | None = None
-    basemap_style: str | None = None
-    layers: list[MapLayerInput] = field(default_factory=list)
-    summary: MapStyleImportSummary = field(default_factory=MapStyleImportSummary)
-    terrain_config: dict | None = None
-    basemap_config: dict | None = None
-    # builder-audit #338 SPEC-07: preserve GL root `light`/`transition` blocks across the
-    # import path so a spec-conformant consumer's lighting/fade state is not silently
-    # dropped. There is no dedicated Map column for these yet, so they are captured
-    # here for callers/round-trip preservation rather than re-emitted from storage.
-    light: dict | None = None
-    transition: dict | None = None
 
 
 def _safe_id(value: str) -> str:
     safe = _SAFE_ID_RE.sub("-", value).strip("-")
     return safe or "layer"
-
-
-def _clean_paint(paint: dict[str, Any] | None) -> dict[str, Any]:
-    """Return MapLibre paint without known/private GeoLens builder keys.
-
-    NOTE — `line-gradient` is intentionally NOT filtered here (Phase 255
-    GRAD engine contract): `line-gradient` paint is part of the public MapLibre
-    style surface and must round-trip through export/import without modification.
-    See `_layer_uses_line_gradient` and `_drop_unsupported_line_gradient` in this
-    module for the source-type-aware emission path. Do NOT add `line-gradient`
-    to LEGACY_BUILDER_PAINT_KEYS in schemas.py — doing so breaks GRAD-05/06.
-    """
-
-    clean: dict[str, Any] = {}
-    for key, value in dict(paint or {}).items():
-        if key in LEGACY_BUILDER_PAINT_KEYS or str(key).startswith("_"):
-            continue
-        clean[key] = value
-    return clean
-
-
-def _clean_layout(layout: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in dict(layout or {}).items()
-        if not str(key).startswith("_") and key != "line-dasharray"
-    }
-
-
-def _clean_label_metadata(label_config: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(label_config, dict):
-        return None
-    clean = {
-        key: value
-        for key, value in label_config.items()
-        if key in _LABEL_METADATA_KEYS and not str(key).startswith("_")
-    }
-    return clean or None
-
-
-def _clean_symbol_metadata(symbol: Any) -> dict[str, Any] | None:
-    if not isinstance(symbol, dict):
-        return None
-    clean: dict[str, Any] = {}
-    for key, value in symbol.items():
-        if key not in _SYMBOL_METADATA_KEYS or str(key).startswith("_"):
-            continue
-        if key == "categories" and isinstance(value, list):
-            categories: list[dict[str, Any]] = []
-            for entry in value:
-                if not isinstance(entry, dict):
-                    continue
-                categories.append(
-                    {
-                        entry_key: entry[entry_key]
-                        for entry_key in ("value", "icon")
-                        if entry_key in entry
-                    }
-                )
-            clean[key] = categories
-        else:
-            clean[key] = value
-    return clean or None
-
-
-def _clean_builder_block(value: dict[str, Any]) -> dict[str, Any]:
-    """Allow-list builder sub-keys but strip underscore-prefixed private flags."""
-    cleaned: dict[str, Any] = {}
-    for sub_key, sub_value in value.items():
-        if isinstance(sub_key, str) and sub_key.startswith("_"):
-            continue
-        key = _BUILDER_KEY_ALIASES.get(sub_key, sub_key)
-        if sub_key in _BUILDER_KEY_ALIASES and key in cleaned:
-            continue
-        cleaned[key] = sub_value
-    return cleaned
-
-
-def _clean_style_metadata(style_config: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(style_config, dict):
-        return None
-    clean: dict[str, Any] = {}
-    for key, value in style_config.items():
-        if key not in _STYLE_METADATA_KEYS or str(key).startswith("_"):
-            continue
-        if key == "symbol":
-            symbol = _clean_symbol_metadata(value)
-            if symbol:
-                clean[key] = symbol
-            continue
-        if key == "builder":
-            if isinstance(value, dict):
-                builder = _clean_builder_block(value)
-                if builder:
-                    clean[key] = builder
-            continue
-        clean[key] = value
-    return clean or None
-
-
-def _builder_style_config(style_config: dict[str, Any] | None) -> dict[str, Any]:
-    builder = (style_config or {}).get("builder")
-    return _clean_builder_block(builder) if isinstance(builder, dict) else {}
-
-
-def _clean_basemap_config(
-    value: Any, *, lenient: bool = False
-) -> dict[str, Any] | None:
-    """Validate stored basemap_config metadata.
-
-    builder-audit #338 STYLE-04: the export/read path passes ``lenient=True`` so a
-    stored basemap_config containing a key the running backend's ``BasemapConfig``
-    no longer knows about (forward-compat write then rollback, or an out-of-band
-    write) does NOT raise and 500 ``GET /maps/{id}/style.json``. In lenient mode
-    unknown keys are dropped and a still-invalid config degrades to ``None``
-    instead of hard-failing the whole style document. The import path keeps the
-    strict behavior (it is already wrapped in try/except at the router boundary).
-    """
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        if lenient:
-            return None
-        raise ValueError("basemap_config must be an object")
-    try:
-        return BasemapConfig.model_validate(value).model_dump(mode="json")
-    except ValidationError as exc:
-        if not lenient:
-            raise ValueError("Invalid basemap_config metadata") from exc
-        # Drop unknown keys (forward/rollback schema skew) and retry once.
-        known = {k: v for k, v in value.items() if k in BasemapConfig.model_fields}
-        try:
-            return BasemapConfig.model_validate(known).model_dump(mode="json")
-        except ValidationError:
-            logger.warning(
-                "Dropping malformed stored basemap_config on style export "
-                "(degrading to None rather than 500)"
-            )
-            return None
-
-
-def _finite_number(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
-
-
-def _clamp_number(value: float, minimum: float, maximum: float) -> float:
-    return min(max(value, minimum), maximum)
 
 
 def _extrusion_height_expression(height_column: str, height_scale: float) -> list[Any]:
@@ -319,35 +93,6 @@ def _extrusion_height_expression(height_column: str, height_scale: float) -> lis
     if height_scale == 1:
         return base_expression
     return ["*", base_expression, height_scale]
-
-
-def _extrusion_column_from_expression(value: Any) -> tuple[str | None, float | None]:
-    height_scale: float | None = None
-    height_expr = value
-    if isinstance(value, list) and len(value) == 3 and value[0] == "*":
-        left, right = value[1], value[2]
-        if isinstance(right, (int, float)) and not isinstance(right, bool):
-            height_expr = left
-            height_scale = float(right)
-        elif isinstance(left, (int, float)) and not isinstance(left, bool):
-            height_expr = right
-            height_scale = float(left)
-
-    # Canonical export shape: ["coalesce", ["to-number", ["get", <column>], 0], 0]
-    if (
-        isinstance(height_expr, list)
-        and len(height_expr) >= 2
-        and height_expr[0] == "coalesce"
-        and isinstance(height_expr[1], list)
-        and len(height_expr[1]) >= 2
-        and height_expr[1][0] == "to-number"
-        and isinstance(height_expr[1][1], list)
-        and len(height_expr[1][1]) == 2
-        and height_expr[1][1][0] == "get"
-        and isinstance(height_expr[1][1][1], str)
-    ):
-        return height_expr[1][1][1], height_scale
-    return None, None
 
 
 def _layer_uses_line_gradient(layer: MapLayerResponse) -> bool:
@@ -502,7 +247,9 @@ def _geometry_layer_type(
     return "fill"
 
 
-def _mvt_source_layer(layer: MapLayerResponse) -> str:
+def _mvt_source_layer(
+    layer: MapLayerResponse, mvt_source_layer_prefix: str = "data"
+) -> str:
     """Return the MVT ``source-layer`` name for a GeoLens vector layer.
 
     builder-audit #338 P1-01: the runtime client (``map-sync.ts``) names the vector
@@ -514,7 +261,7 @@ def _mvt_source_layer(layer: MapLayerResponse) -> str:
     the raw ``dataset_table_name`` as the scope, and the served layer is the
     ``data.``-prefixed name — keep both in lockstep here.
     """
-    return f"data.{layer.dataset_table_name}"
+    return f"{mvt_source_layer_prefix}.{layer.dataset_table_name}"
 
 
 def _source_type_for_layer(layer: MapLayerResponse) -> str:
@@ -617,14 +364,13 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
     port = get_catalog_port()
     exp = port.round_tile_expiry()
+    scope = tenant_bound_scope(layer.dataset_table_name)
     params: dict[str, Any] = {
-        "sig": port.generate_tile_signature(layer.dataset_table_name, exp),
+        "sig": port.generate_tile_signature(scope, exp),
         "exp": exp,
-        "scope": layer.dataset_table_name,
+        "scope": scope,
     }
-    # builder-audit #338 P1-02/P1-03: opt the referenced attribute columns into the tile
-    # so data-driven styling, labels, heatmap weights, 3D heights, and filter refs
-    # evaluate against real data at z<10. Stable, sorted to keep the URL determinate.
+    # Include the stable attribute projection needed by data-driven styles at z<10.
     cols = _data_driven_columns_for_layer(layer)
     if cols:
         params["cols"] = ",".join(cols)
@@ -794,22 +540,6 @@ def _sprite_icon_id(icon: Any) -> Any:
     return icon
 
 
-def _stored_icon_id(icon: Any) -> Any:
-    if isinstance(icon, str) and icon.startswith(f"{GEOLENS_SPRITE_ID}:"):
-        return icon.split(":", 1)[1]
-    if isinstance(icon, list):
-        if len(icon) >= 4 and icon[0] == "match":
-            result = [icon[0], icon[1]]
-            for index in range(2, len(icon) - 1, 2):
-                result.append(icon[index])
-                if index + 1 < len(icon) - 1:
-                    result.append(_stored_icon_id(icon[index + 1]))
-            result.append(_stored_icon_id(icon[-1]))
-            return result
-        return icon
-    return icon
-
-
 def _layer_metadata(layer: MapLayerResponse) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "geolens": {
@@ -837,6 +567,7 @@ def _fill_companion_layers(
     layer: MapLayerResponse,
     source_id: str,
     layer_id: str,
+    mvt_source_layer_prefix: str = "data",
 ) -> list[dict[str, Any]]:
     builder = _builder_style_config(layer.style_config)
     paint = dict(layer.paint or {})
@@ -860,7 +591,7 @@ def _fill_companion_layers(
             "id": f"{layer_id}-outline",
             "type": "line",
             "source": source_id,
-            "source-layer": _mvt_source_layer(layer),
+            "source-layer": _mvt_source_layer(layer, mvt_source_layer_prefix),
             "metadata": {
                 "geolens": {
                     "companion": "outline",
@@ -896,7 +627,7 @@ def _fill_companion_layers(
             "id": f"{layer_id}-extrusion",
             "type": "fill-extrusion",
             "source": source_id,
-            "source-layer": _mvt_source_layer(layer),
+            "source-layer": _mvt_source_layer(layer, mvt_source_layer_prefix),
             "metadata": {
                 "geolens": {
                     "companion": "extrusion",
@@ -928,6 +659,7 @@ def _line_arrow_companion_layer(
     layer_id: str,
     style_config: dict,
     paint: dict,
+    mvt_source_layer_prefix: str = "data",
 ) -> dict[str, Any] | None:
     if style_config.get("render_mode") != "arrow":
         return None
@@ -940,7 +672,7 @@ def _line_arrow_companion_layer(
         "id": f"{layer_id}-arrow",
         "type": "symbol",
         "source": source_id,
-        "source-layer": _mvt_source_layer(layer),
+        "source-layer": _mvt_source_layer(layer, mvt_source_layer_prefix),
         "metadata": {
             "geolens": {
                 "companion": "arrow",
@@ -1140,6 +872,7 @@ def _color_relief_companion_layer(
 def _style_layer_for_map_layer(
     layer: MapLayerResponse,
     source_id: str,
+    mvt_source_layer_prefix: str = "data",
 ) -> list[dict[str, Any]]:
     style_config = layer.style_config or {}
     # Codex P2 (#338): a DEM saved in "terrain" render mode is mesh-only — the
@@ -1183,7 +916,7 @@ def _style_layer_for_map_layer(
         "raster",
         "hillshade",
     }:
-        base["source-layer"] = _mvt_source_layer(layer)
+        base["source-layer"] = _mvt_source_layer(layer, mvt_source_layer_prefix)
     if layer.filter:
         base["filter"] = layer.filter
     if not layer.visible:
@@ -1198,7 +931,9 @@ def _style_layer_for_map_layer(
         builder = _builder_style_config(style_config)
         if builder.get("strokeDisabled") or (layer.paint or {}).get("_stroke-disabled"):
             base["paint"] = {**base["paint"], "fill-outline-color": "rgba(0,0,0,0)"}
-        above_companions.extend(_fill_companion_layers(layer, source_id, layer_id))
+        above_companions.extend(
+            _fill_companion_layers(layer, source_id, layer_id, mvt_source_layer_prefix)
+        )
     elif layer_type == "line":
         arrow_layer = _line_arrow_companion_layer(
             layer,
@@ -1206,6 +941,7 @@ def _style_layer_for_map_layer(
             layer_id,
             style_config,
             paint,
+            mvt_source_layer_prefix,
         )
         if arrow_layer:
             above_companions.append(arrow_layer)
@@ -1234,7 +970,7 @@ def _style_layer_for_map_layer(
             "id": f"{layer_id}-label",
             "type": "symbol",
             "source": source_id,
-            "source-layer": _mvt_source_layer(layer),
+            "source-layer": _mvt_source_layer(layer, mvt_source_layer_prefix),
             "metadata": {
                 "geolens": {
                     "companion": "label",
@@ -1508,7 +1244,10 @@ def _validate_emitted_style(style: dict[str, Any]) -> None:
 
 
 def build_maplibre_style(
-    map_obj: Map, layers: list[MapLayerResponse]
+    map_obj: Map,
+    layers: list[MapLayerResponse],
+    *,
+    mvt_source_layer_prefix: str = "data",
 ) -> dict[str, Any]:
     """Build a complete MapLibre style document from saved map data."""
 
@@ -1520,7 +1259,9 @@ def build_maplibre_style(
             sources[source_id] = _source_for_layer(layer)
         else:
             _append_cluster_source_metadata(sources[source_id], layer)
-        style_layers.extend(_style_layer_for_map_layer(layer, source_id))
+        style_layers.extend(
+            _style_layer_for_map_layer(layer, source_id, mvt_source_layer_prefix)
+        )
 
     # Set lineMetrics: true on vector sources whose layers need line-gradient rendering.
     # Per D-01 detection rule, "needs" means paint['line-gradient'] OR builder.lineGradient.
@@ -1647,362 +1388,3 @@ def build_maplibre_style(
     # wrong-surface property cannot be emitted in the MapLibre style JSON.
     _validate_emitted_style(style)
     return style
-
-
-def _source_dataset_id(source: dict[str, Any]) -> uuid.UUID | None:
-    metadata = source.get("metadata")
-    geolens = metadata.get("geolens") if isinstance(metadata, dict) else None
-    raw = geolens.get("dataset_id") if isinstance(geolens, dict) else None
-    if not raw:
-        return None
-    try:
-        return uuid.UUID(str(raw))
-    except ValueError:
-        return None
-
-
-def _metadata_dict(layer: dict[str, Any]) -> dict[str, Any]:
-    metadata = layer.get("metadata")
-    geolens = metadata.get("geolens") if isinstance(metadata, dict) else None
-    return geolens if isinstance(geolens, dict) else {}
-
-
-def _style_config_from_import(style_layer: dict[str, Any]) -> dict[str, Any] | None:
-    geolens = _metadata_dict(style_layer)
-    style_config = geolens.get("style_config")
-    if isinstance(style_config, dict):
-        clean_style_config = _clean_style_metadata(style_config)
-        if clean_style_config:
-            return clean_style_config
-    if style_layer.get("type") == "symbol":
-        layout = (
-            style_layer.get("layout")
-            if isinstance(style_layer.get("layout"), dict)
-            else {}
-        )
-        symbol: dict[str, Any] = {
-            "iconImage": _stored_icon_id(layout.get("icon-image")),
-            "iconSize": layout.get("icon-size"),
-            "iconRotation": layout.get("icon-rotate"),
-            "iconAnchor": layout.get("icon-anchor"),
-            "iconOffset": layout.get("icon-offset"),
-        }
-        symbol = {key: value for key, value in symbol.items() if value is not None}
-        return (
-            {"render_mode": "symbol", "symbol": symbol}
-            if symbol
-            else {"render_mode": "symbol"}
-        )
-    if style_layer.get("type") == "heatmap":
-        return {"render_mode": "heatmap"}
-    return None
-
-
-def _label_config_from_import(style_layer: dict[str, Any]) -> dict[str, Any] | None:
-    geolens = _metadata_dict(style_layer)
-    label_config = geolens.get("label_config")
-    if isinstance(label_config, dict):
-        clean_label_config = _clean_label_metadata(label_config)
-        if clean_label_config:
-            return clean_label_config
-    layout = (
-        style_layer.get("layout") if isinstance(style_layer.get("layout"), dict) else {}
-    )
-    text_field = layout.get("text-field")
-    if isinstance(text_field, list) and len(text_field) == 2 and text_field[0] == "get":
-        return {"column": text_field[1]}
-    return None
-
-
-def _builder_from_outline_companion(
-    companion: dict[str, Any],
-    style_config: dict[str, Any],
-    builder: dict[str, Any],
-) -> None:
-    paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
-    layout = (
-        companion.get("layout") if isinstance(companion.get("layout"), dict) else {}
-    )
-    line_color = paint.get("line-color")
-    if isinstance(line_color, str) and "outlineColor" not in builder:
-        builder["outlineColor"] = line_color
-    line_width = paint.get("line-width")
-    if isinstance(line_width, (int, float)) and "outlineWidth" not in builder:
-        builder["outlineWidth"] = line_width
-    if layout.get("visibility") == "none" and "strokeDisabled" not in builder:
-        builder["strokeDisabled"] = True
-
-
-def _builder_from_extrusion_companion(
-    companion: dict[str, Any],
-    style_config: dict[str, Any],
-    builder: dict[str, Any],
-) -> None:
-    paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
-    column, height_scale = _extrusion_column_from_expression(
-        paint.get("fill-extrusion-height")
-    )
-    if column and "heightColumn" not in builder:
-        builder["heightColumn"] = column
-    if height_scale is not None and "heightScale" not in builder:
-        builder["heightScale"] = height_scale
-    minzoom = _finite_number(companion.get("minzoom"))
-    if minzoom is not None and "extrusionMinZoom" not in builder:
-        builder["extrusionMinZoom"] = minzoom
-    opacity = _finite_number(paint.get("fill-extrusion-opacity"))
-    if opacity is not None and "extrusionOpacity" not in builder:
-        builder["extrusionOpacity"] = opacity
-
-
-def _builder_from_arrow_companion(
-    companion: dict[str, Any],
-    style_config: dict[str, Any],
-    builder: dict[str, Any],
-) -> None:
-    # An arrow companion implies the primary line was authored in arrow render mode.
-    style_config["render_mode"] = "arrow"
-    layout = (
-        companion.get("layout") if isinstance(companion.get("layout"), dict) else {}
-    )
-    paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
-    arrow_color = paint.get("icon-color") or paint.get("text-color")
-    if isinstance(arrow_color, str) and "arrowColor" not in builder:
-        builder["arrowColor"] = arrow_color
-    icon_size = _finite_number(layout.get("icon-size"))
-    arrow_size = (
-        icon_size * DEFAULT_ARROW_BASE_SIZE
-        if icon_size is not None
-        else _finite_number(layout.get("text-size"))
-    )
-    if arrow_size is not None and "arrowSize" not in builder:
-        builder["arrowSize"] = arrow_size
-    arrow_spacing = _finite_number(layout.get("symbol-spacing"))
-    if arrow_spacing is not None and "arrowSpacing" not in builder:
-        builder["arrowSpacing"] = arrow_spacing
-
-
-def _builder_from_color_relief_companion(
-    companion: dict[str, Any],
-    style_config: dict[str, Any],
-    builder: dict[str, Any],
-) -> None:
-    # builder-audit #338 P1-06: reconstruct the DEM hypsometric-tint builder flags from
-    # the color-relief companion (the ramp name is carried in companion metadata).
-    if "hypso_enabled" not in builder and "hypsoEnabled" not in builder:
-        builder["hypso_enabled"] = True
-    geolens = _metadata_dict(companion)
-    ramp = geolens.get("ramp")
-    if (
-        isinstance(ramp, str)
-        and ramp
-        and "hypso_ramp" not in builder
-        and "hypsoRamp" not in builder
-    ):
-        builder["hypso_ramp"] = ramp
-
-
-# builder-audit #338 STYLE-02: per-companion-type parse registry. Paired with the emit
-# helpers above (`_fill_companion_layers` / `_line_arrow_companion_layer` /
-# `_color_relief_companion_layer`), this keeps export and import for each builder
-# companion type discoverable together and makes adding a type a single entry rather
-# than threading a new collection bucket plus reconstruction branch by hand. The
-# `label` companion is handled separately because it reconstructs `label_config`
-# rather than the builder block.
-_BUILDER_COMPANION_PARSERS = {
-    "outline": _builder_from_outline_companion,
-    "extrusion": _builder_from_extrusion_companion,
-    "arrow": _builder_from_arrow_companion,
-    "color-relief": _builder_from_color_relief_companion,
-}
-
-
-def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
-    """Normalize a MapLibre style document into GeoLens map/layer inputs."""
-
-    if style.get("version") != STYLE_VERSION:
-        raise ValueError("Only MapLibre style version 8 documents are supported")
-    raw_sources = style.get("sources")
-    raw_layers = style.get("layers")
-    if not isinstance(raw_sources, dict) or not isinstance(raw_layers, list):
-        raise ValueError("Style JSON must include sources and layers")
-
-    summary = MapStyleImportSummary()
-    matched_sources: dict[str, uuid.UUID] = {}
-    for source_id, source in raw_sources.items():
-        if not isinstance(source, dict):
-            continue
-        dataset_id = _source_dataset_id(source)
-        if dataset_id is None:
-            summary.sources_unsupported += 1
-            summary.warnings.append(
-                MapStyleImportWarning(
-                    code="unsupported_source",
-                    message="Source has no GeoLens dataset metadata and was not imported.",
-                    source_id=str(source_id),
-                )
-            )
-            continue
-        matched_sources[str(source_id)] = dataset_id
-        summary.sources_matched += 1
-
-    imported_layers: list[MapLayerInput] = []
-    # builder-audit #338 STYLE-02: one companion bucket keyed by parent layer id, then by
-    # companion type — instead of N parallel dicts that must each be remembered when
-    # a new companion type is added.
-    companions_by_parent: dict[str, dict[str, dict[str, Any]]] = {}
-    primary_layers: list[dict[str, Any]] = []
-    for style_layer in raw_layers:
-        if not isinstance(style_layer, dict):
-            continue
-        geolens = _metadata_dict(style_layer)
-        companion = geolens.get("companion")
-        parent_layer_id = geolens.get("parent_layer_id")
-        if companion and parent_layer_id:
-            companions_by_parent.setdefault(str(parent_layer_id), {})[
-                str(companion)
-            ] = style_layer
-            continue
-        primary_layers.append(style_layer)
-
-    for index, style_layer in enumerate(primary_layers):
-        source_id = style_layer.get("source")
-        dataset_id = matched_sources.get(str(source_id))
-        if dataset_id is None:
-            summary.layers_skipped += 1
-            summary.warnings.append(
-                MapStyleImportWarning(
-                    code="skipped_layer",
-                    message="Layer source could not be matched to a GeoLens dataset.",
-                    source_id=str(source_id) if source_id is not None else None,
-                    layer_id=str(style_layer.get("id"))
-                    if style_layer.get("id")
-                    else None,
-                )
-            )
-            continue
-
-        geolens = _metadata_dict(style_layer)
-        label_config = _label_config_from_import(style_layer)
-        parent_id = geolens.get("layer_id")
-        layer_companions = (
-            companions_by_parent.get(str(parent_id), {}) if parent_id else {}
-        )
-        label_companion = layer_companions.get("label")
-        if label_companion and label_config is None:
-            label_config = _label_config_from_import(label_companion)
-        style_config = _style_config_from_import(style_layer)
-        builder_companions = {
-            name: companion
-            for name, companion in layer_companions.items()
-            if name in _BUILDER_COMPANION_PARSERS
-        }
-        if builder_companions:
-            style_config = dict(style_config) if isinstance(style_config, dict) else {}
-            builder = (
-                dict(style_config.get("builder"))
-                if isinstance(style_config.get("builder"), dict)
-                else {}
-            )
-            for name, parse in _BUILDER_COMPANION_PARSERS.items():
-                companion = builder_companions.get(name)
-                if companion is not None:
-                    parse(companion, style_config, builder)
-            if builder:
-                style_config["builder"] = builder
-            if not style_config:
-                style_config = None
-        layer_input = MapLayerInput(
-            dataset_id=dataset_id,
-            sort_order=int(geolens.get("sort_order", index)),
-            visible=((style_layer.get("layout") or {}).get("visibility") != "none")
-            if isinstance(style_layer.get("layout"), dict)
-            else True,
-            opacity=float(geolens.get("opacity", 1) or 1),
-            paint=_clean_paint(
-                style_layer.get("paint")
-                if isinstance(style_layer.get("paint"), dict)
-                else {}
-            ),
-            layout=_clean_layout(
-                style_layer.get("layout")
-                if isinstance(style_layer.get("layout"), dict)
-                else {}
-            ),
-            display_name=geolens.get("display_name") or style_layer.get("id"),
-            filter=style_layer.get("filter")
-            if isinstance(style_layer.get("filter"), list)
-            else None,
-            label_config=label_config,
-            style_config=style_config,
-            layer_type=geolens.get("layer_type")
-            if geolens.get("layer_type")
-            in {"vector_geolens", "raster_geolens", "geojson"}
-            else None,
-            show_in_legend=bool(geolens.get("show_in_legend", True)),
-        )
-        imported_layers.append(layer_input)
-        summary.layers_imported += 1
-
-    terrain_config: dict[str, Any] | None = None
-    raw_terrain = style.get("terrain")
-    if isinstance(raw_terrain, dict):
-        terrain_source = raw_terrain.get("source")
-        dataset_id = (
-            matched_sources.get(str(terrain_source)) if terrain_source else None
-        )
-        if dataset_id is not None:
-            try:
-                exaggeration = float(raw_terrain.get("exaggeration", 1.0))
-            except (TypeError, ValueError):
-                exaggeration = 1.0
-            terrain_config = {
-                "enabled": True,
-                "source_dataset_id": str(dataset_id),
-                "exaggeration": exaggeration,
-            }
-
-    center = style.get("center")
-    metadata = style.get("metadata") if isinstance(style.get("metadata"), dict) else {}
-    geolens_meta = (
-        metadata.get("geolens") if isinstance(metadata.get("geolens"), dict) else {}
-    )
-    if terrain_config is None:
-        meta_terrain = geolens_meta.get("terrain_config")
-        if (
-            isinstance(meta_terrain, dict)
-            and meta_terrain.get("enabled")
-            and meta_terrain.get("source_dataset_id")
-        ):
-            try:
-                exaggeration = float(meta_terrain.get("exaggeration", 1.0))
-            except (TypeError, ValueError):
-                exaggeration = 1.0
-            terrain_config = {
-                "enabled": True,
-                "source_dataset_id": str(meta_terrain["source_dataset_id"]),
-                "exaggeration": exaggeration,
-            }
-    basemap_config = _clean_basemap_config(geolens_meta.get("basemap_config"))
-    return ImportedStyleMap(
-        name=str(style.get("name") or "Imported style"),
-        description=geolens_meta.get("description"),
-        center_lng=center[0] if isinstance(center, list) and len(center) >= 2 else None,
-        center_lat=center[1] if isinstance(center, list) and len(center) >= 2 else None,
-        zoom=style.get("zoom") if isinstance(style.get("zoom"), (int, float)) else None,
-        bearing=style.get("bearing")
-        if isinstance(style.get("bearing"), (int, float))
-        else None,
-        pitch=style.get("pitch")
-        if isinstance(style.get("pitch"), (int, float))
-        else None,
-        basemap_style=geolens_meta.get("basemap_style"),
-        layers=imported_layers,
-        summary=summary,
-        terrain_config=terrain_config,
-        basemap_config=basemap_config,
-        # builder-audit #338 SPEC-07: preserve GL root light/transition across import.
-        light=style.get("light") if isinstance(style.get("light"), dict) else None,
-        transition=style.get("transition")
-        if isinstance(style.get("transition"), dict)
-        else None,
-    )

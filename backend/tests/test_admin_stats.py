@@ -9,6 +9,9 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import uuid
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from httpx import AsyncClient
 
@@ -51,14 +54,61 @@ async def test_stats_returns_storage(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """total_storage_bytes is an integer or None."""
+    """A migrated healthy deployment returns an exact integer storage total."""
     resp = await client.get("/admin/stats/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "total_storage_bytes" in data
-    assert data["total_storage_bytes"] is None or isinstance(
-        data["total_storage_bytes"], int
-    )
+    assert isinstance(data["total_storage_bytes"], int)
+
+
+@pytest.mark.anyio
+async def test_hosted_storage_query_separates_catalog_and_tenant_data_roles(
+    monkeypatch,
+):
+    """Catalog discovery and physical size lookup must be separate statements."""
+    import app.core.tenancy as tenancy
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.admin.service import _get_total_storage_bytes
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    tenant_id = str(uuid.uuid4())
+    monkeypatch.setattr(tenancy, "is_multi_tenant", lambda: True)
+    expected_schema = tenant_data_schema(tenant_id)
+
+    catalog_result = MagicMock()
+    catalog_result.scalars.return_value.all.return_value = ["roads"]
+    storage_result = MagicMock()
+    storage_result.scalar_one.return_value = 4096
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=[catalog_result, storage_result])
+    nested = MagicMock()
+    nested.__aenter__ = AsyncMock(return_value=nested)
+    nested.__aexit__ = AsyncMock(return_value=False)
+    db.begin_nested.return_value = nested
+
+    token = current_tenant_var.set(tenant_id)
+    try:
+        total = await _get_total_storage_bytes(db, Dataset)
+    finally:
+        current_tenant_var.reset(token)
+
+    assert total == 4096
+    assert db.execute.await_count == 2
+    catalog_statement = db.execute.await_args_list[0].args[0]
+    storage_statement = db.execute.await_args_list[1].args[0]
+    catalog_sql = str(catalog_statement)
+    storage_sql = str(storage_statement)
+    assert "catalog.datasets" in catalog_sql
+    assert expected_schema not in catalog_sql
+    assert "catalog.datasets" not in storage_sql
+    assert "unnest" in storage_sql
+    assert storage_statement.compile().params == {
+        "schema": expected_schema,
+        "table_names": ["roads"],
+    }
 
 
 @pytest.mark.anyio

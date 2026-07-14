@@ -15,8 +15,7 @@ from app.modules.admin.schemas import (
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
-from app.modules.catalog._ilike import escape_ilike
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.core.text import escape_ilike
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -33,6 +32,35 @@ class PendingUserMutationError(ValueError):
 
 class PendingUserTransitionConflict(ValueError):
     """Raised when a pending-user decision has already been made."""
+
+
+async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int:
+    """Measure visible dataset tables without mixing catalog and data roles.
+
+    In hosted mode, catalog rows are visible to the runtime role through RLS,
+    while physical table metadata is visible only after the statement hook
+    selects the active tenant's reader role. Keeping those operations in two
+    statements lets each execute under its least-privilege role.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    data_schema = tenant_data_schema(current_tenant_var.get())
+    table_result = await db.execute(select(dataset_model.table_name))
+    table_names = list(table_result.scalars().all())
+    if not table_names:
+        return 0
+
+    async with db.begin_nested():
+        result = await db.execute(
+            text(
+                "SELECT COALESCE(SUM(pg_total_relation_size("
+                "  to_regclass(format('%I.%I', :schema, names.table_name))"
+                ")), 0) "
+                "FROM unnest(CAST(:table_names AS text[])) AS names(table_name)"
+            ).bindparams(schema=data_schema, table_names=table_names)
+        )
+        return result.scalar_one()
 
 
 class AdminService:
@@ -53,8 +81,8 @@ class AdminService:
         result = await self.db.execute(
             select(func.count(func.distinct(UserRole.user_id)))
             .select_from(UserRole)
-            .join(Role, UserRole.role_id == Role.id)
             .join(User, UserRole.user_id == User.id)
+            .join(Role, UserRole.role_id == Role.id)
             .where(
                 Role.name == "admin",
                 UserRole.user_id != exclude_user_id,
@@ -438,6 +466,7 @@ class AdminService:
             pattern = func.concat(
                 "%", func.catalog.immutable_unaccent(escape_ilike(search).lower()), "%"
             )
+
             filters.append(
                 func.lower(func.catalog.immutable_unaccent(User.username)).like(
                     pattern, escape="\\"
@@ -625,15 +654,16 @@ class AdminService:
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics."""
         try:
-            total_result = await self.db.execute(
-                text("SELECT COUNT(*) FROM catalog.records")
+            result = await self.db.execute(
+                text(
+                    "SELECT COUNT(DISTINCT visible_record.id) AS total_records, "
+                    "COUNT(DISTINCT embedding.record_id) AS embedded_records "
+                    "FROM catalog.records AS visible_record "
+                    "LEFT JOIN catalog.record_embeddings AS embedding "
+                    "ON embedding.record_id = visible_record.id"
+                )
             )
-            total_records = total_result.scalar_one()
-
-            embedded_result = await self.db.execute(
-                text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
-            )
-            embedded_records = embedded_result.scalar_one()
+            total_records, embedded_records = result.one()
         except Exception:  # broad: pgvector table may be missing or DB unavailable; degrade to zeros for admin UI
             logger.warning("Failed to query embedding stats", exc_info=True)
             return EmbeddingStatsResponse(
@@ -657,6 +687,11 @@ class AdminService:
     async def get_catalog_stats(self) -> CatalogStatsResponse:
         """Return catalog statistics: counts, storage, breakdowns."""
         db = self.db
+        from app.platform.extensions import get_processing_port
+
+        port = get_processing_port()
+        Dataset = port.get_dataset_orm_class()
+        Record = port.get_record_orm_class()
 
         # Total datasets
         result = await db.execute(select(func.count()).select_from(Dataset))
@@ -674,18 +709,7 @@ class AdminService:
         # Storage usage
         total_storage_bytes: int | None = None
         try:
-            async with db.begin_nested():
-                result = await db.execute(
-                    text(
-                        "SELECT COALESCE(SUM(pg_total_relation_size('data.' || d.table_name)), 0) "
-                        "FROM catalog.datasets d "
-                        "WHERE EXISTS ("
-                        "  SELECT 1 FROM information_schema.tables t "
-                        "  WHERE t.table_schema = 'data' AND t.table_name = d.table_name"
-                        ")"
-                    )
-                )
-                total_storage_bytes = result.scalar_one()
+            total_storage_bytes = await _get_total_storage_bytes(db, Dataset)
         except Exception:  # broad: pg_total_relation_size can fail on missing data.* tables; degrade to None
             logger.warning("Failed to compute storage usage", exc_info=True)
             total_storage_bytes = None

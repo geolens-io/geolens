@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.share_token_request_expires_in_days_type_0 import (
+    check_share_token_request_expires_in_days_type_0,
+)
+from ..models.share_token_request_expires_in_days_type_0 import (
+    ShareTokenRequestExpiresInDaysType0,
+)
 from dateutil.parser import isoparse
 from typing import cast
 import datetime
@@ -22,9 +28,12 @@ class ShareTokenRequest:
     Attributes:
         expires_at (datetime.datetime | None | Unset): Expiration timestamp; must carry a UTC offset. Null creates a
             non-expiring share link. A custom expiration requires advanced sharing controls.
+        expires_in_days (None | ShareTokenRequestExpiresInDaysType0 | Unset): Server-calculated expiration preset
+            available in every edition. Choose 1, 7, 30, or 90 days.
     """
 
     expires_at: datetime.datetime | None | Unset = UNSET
+    expires_in_days: None | ShareTokenRequestExpiresInDaysType0 | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -36,11 +45,21 @@ class ShareTokenRequest:
         else:
             expires_at = self.expires_at
 
+        expires_in_days: int | None | Unset
+        if isinstance(self.expires_in_days, Unset):
+            expires_in_days = UNSET
+        elif isinstance(self.expires_in_days, int):
+            expires_in_days = self.expires_in_days
+        else:
+            expires_in_days = self.expires_in_days
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
+        if expires_in_days is not UNSET:
+            field_dict["expires_in_days"] = expires_in_days
 
         return field_dict
 
@@ -65,8 +84,30 @@ class ShareTokenRequest:
 
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
+        def _parse_expires_in_days(
+            data: object,
+        ) -> None | ShareTokenRequestExpiresInDaysType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, int):
+                    raise TypeError()
+                expires_in_days_type_0 = (
+                    check_share_token_request_expires_in_days_type_0(data)
+                )
+
+                return expires_in_days_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ShareTokenRequestExpiresInDaysType0 | Unset, data)
+
+        expires_in_days = _parse_expires_in_days(d.pop("expires_in_days", UNSET))
+
         share_token_request = cls(
             expires_at=expires_at,
+            expires_in_days=expires_in_days,
         )
 
         share_token_request.additional_properties = d

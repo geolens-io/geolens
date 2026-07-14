@@ -42,7 +42,7 @@ log = structlog.get_logger()
 RECOVERY_LOCK_KEY = 224_001
 
 
-async def recover_stale_jobs() -> None:
+async def _recover_stale_jobs_for_current_scope() -> None:
     """Mark stale jobs as failed using an advisory lock + heartbeat lease.
 
     Running workers renew ``heartbeat_at``. Recovery falls back to
@@ -168,6 +168,45 @@ async def recover_stale_jobs() -> None:
             )
 
 
+async def _registered_tenant_ids_for_recovery() -> list[str]:
+    """Read the global tenant registry without touching an RLS child table."""
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        result = await session.execute(
+            text("SELECT id FROM catalog.tenants ORDER BY id")
+        )
+        return [str(tenant_id) for tenant_id in result.scalars()]
+
+
+async def recover_stale_jobs() -> None:
+    """Recover stale jobs once globally or once per hosted tenant.
+
+    The historical single-tenant path remains one direct recovery call. In
+    hosted mode ``ingest_jobs`` is FORCE-RLS protected, so each recovery must
+    run with an active tenant GUC. A failure is isolated to that tenant and is
+    logged before recovery continues for the rest of the fleet.
+    """
+    from app.core.db.tenant_session import tenant_job_context
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant():
+        await _recover_stale_jobs_for_current_scope()
+        return
+
+    for tenant_id in await _registered_tenant_ids_for_recovery():
+        try:
+            with tenant_job_context(tenant_id):
+                await _recover_stale_jobs_for_current_scope()
+        except Exception as exc:  # broad: startup recovery continues per tenant
+            log.warning(
+                "Stale job recovery failed for tenant",
+                tenant_id=tenant_id,
+                error=str(exc),
+                exc_info=True,
+            )
+
+
 async def run_health_server() -> None:
     """Run the worker health server on port 8001."""
     config = uvicorn.Config(
@@ -181,7 +220,7 @@ async def run_health_server() -> None:
 
 
 async def main() -> None:
-    """Worker entrypoint: recovery, init, health server, metrics, worker loop."""
+    """Worker entrypoint: init, recovery, health server, metrics, worker loop."""
     # Import all ORM models so the SQLAlchemy mapper registry is complete
     # before any task or relationship tries to resolve string references.
     import app.modules.auth.models  # noqa: F401
@@ -201,10 +240,7 @@ async def main() -> None:
 
     await assert_schema_in_sync()
 
-    # 1. Recover stale jobs from previous crash
-    await recover_stale_jobs()
-
-    # 2. Ensure staging directories exist
+    # 1. Ensure staging directories exist
     ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(Path(settings.upload_staging_dir) / "exports")
 
@@ -217,7 +253,7 @@ async def main() -> None:
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     sweep_orphaned_exports(exports_dir)
 
-    # 3. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
+    # 2. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
     # overlay requested, init edition, init storage + S3 health probe, init cache.
     # bootstrap(app=None) = worker mode: skips router include and billing dispatch
     # (both require a FastAPI app object). Runs BEFORE run_worker_async so all
@@ -235,6 +271,11 @@ async def main() -> None:
     # every expected single-slot port must be a non-Default implementation.
     # Fails loud (RuntimeError) rather than silently running community ports.
     assert_enterprise_ports_resolved()
+
+    # 3. fix(#507): recover only after bootstrap has applied tenancy RLS.
+    # Tenant-scoped recovery relies on FORCE RLS and the tenant GUC; running it
+    # before bootstrap could let an unqualified startup sweep cross tenants.
+    await recover_stale_jobs()
 
     # 4. Start health server as background task
     health_task = asyncio.create_task(run_health_server())

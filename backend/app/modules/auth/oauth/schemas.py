@@ -48,6 +48,7 @@ SAML_PROVIDER_FIELDS = (
     "sp_entity_id",
 )
 SAML_PROVIDER_ERROR = "SAML SSO is not enabled for this deployment"
+IDP_MAPPING_ERROR = "Group-based role mapping requires the enterprise overlay"
 
 
 class OAuthProviderCreate(BaseModel):
@@ -200,16 +201,12 @@ class OAuthProviderCreate(BaseModel):
         """
         if not is_enterprise():
             if self.group_claim is not None:
-                raise ValueError(
-                    "Group-based role mapping requires the enterprise overlay"
-                )
+                raise ValueError(IDP_MAPPING_ERROR)
             if (
                 isinstance(self.group_role_mapping, dict)
                 and len(self.group_role_mapping) > 0
             ):
-                raise ValueError(
-                    "Group-based role mapping requires the enterprise overlay"
-                )
+                raise ValueError(IDP_MAPPING_ERROR)
         return self
 
 
@@ -332,16 +329,12 @@ class OAuthProviderUpdate(BaseModel):
         """
         if not is_enterprise():
             if self.group_claim is not None:
-                raise ValueError(
-                    "Group-based role mapping requires the enterprise overlay"
-                )
+                raise ValueError(IDP_MAPPING_ERROR)
             if (
                 isinstance(self.group_role_mapping, dict)
                 and len(self.group_role_mapping) > 0
             ):
-                raise ValueError(
-                    "Group-based role mapping requires the enterprise overlay"
-                )
+                raise ValueError(IDP_MAPPING_ERROR)
         return self
 
 

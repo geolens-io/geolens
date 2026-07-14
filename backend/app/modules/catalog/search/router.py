@@ -2,10 +2,9 @@
 
 import asyncio
 import json
-import time
 import uuid
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlencode
 
@@ -18,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.platform.extensions import get_catalog_port
-from app.modules.auth.dependencies import get_current_active_user, get_optional_user
+from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access_or_anonymous,
@@ -31,13 +30,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.core.dependencies import get_db
-from app.modules.catalog.search.saved import (
-    create_saved_search,
-    delete_saved_search,
-    get_saved_search,
-    list_saved_searches,
-)
-from app.modules.catalog.features.service import parse_bbox
+from app.modules.catalog.search.router_saved import router as saved_search_router
 from app.standards.ogc.filtering import (
     build_queryables_response,
     build_record_schema_response,
@@ -47,11 +40,7 @@ from app.standards.ogc.utils import (
     link_header_value,
     parse_accept_languages,
 )
-from app.standards.ogc.errors import (
-    BAD_REQUEST_RESPONSE,
-    ERROR_RESPONSES_PUBLIC,
-    NOT_FOUND_RESPONSE,
-)
+from app.standards.ogc.errors import BAD_REQUEST_RESPONSE, ERROR_RESPONSES_PUBLIC
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
@@ -60,9 +49,10 @@ from app.modules.catalog.search.schemas import (
     OGCCollectionsResponse,
     OGCFeatureCollectionResponse,
     OGCRecordLink,
-    SavedSearchCreate,
-    SavedSearchListResponse,
-    SavedSearchResponse,
+)
+from app.modules.catalog.search.query_params import (
+    SearchQueryParams,
+    parse_spatial_params,
 )
 from app.modules.catalog.search import cache as search_cache
 from app.modules.catalog.search.records_protocol import (
@@ -88,47 +78,8 @@ from app.core.persistent_config import (
     get_cached_semantic_search_rate_limit,
 )
 from app.modules.auth.router import limiter
-from pydantic import BaseModel as _BaseModel
 
 logger = structlog.stdlib.get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Shared spatial param parsing
-# ---------------------------------------------------------------------------
-
-
-def _parse_spatial_params(
-    geometry: str | None, bbox: str | None
-) -> tuple[str | None, list[float] | None]:
-    """Parse and validate geometry GeoJSON and bbox query params.
-
-    Geometry takes precedence over bbox when both are provided.
-    """
-    geometry_geojson: str | None = None
-    if geometry:
-        try:
-            parsed = json.loads(geometry)
-            if "type" not in parsed or "coordinates" not in parsed:
-                raise ValueError("missing type or coordinates")
-            geometry_geojson = geometry
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid geometry GeoJSON: {e}",
-            )
-
-    bbox_parsed: list[float] | None = None
-    if bbox and not geometry_geojson:
-        try:
-            bbox_parsed = parse_bbox(bbox)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid bbox: {e}",
-            )
-
-    return geometry_geojson, bbox_parsed
 
 
 # ---------------------------------------------------------------------------
@@ -191,177 +142,6 @@ async def _build_raster_assets(
     # Drop the internal generation_id from the public response (kept only for the join above).
     meta.pop("current_generation_id", None)
     return meta
-
-
-# ---------------------------------------------------------------------------
-# Search query params — injectable via Depends() to eliminate parameter sprawl
-# ---------------------------------------------------------------------------
-
-
-# Allowed values for record_type / sort_by query params (A2 validation). Kept in
-# sync with the Record.record_type CHECK constraint (models.py) and the sort
-# branches in service_datasets._resolve_sort_order.
-_ALLOWED_RECORD_TYPES = {
-    "vector_dataset",
-    "raster_dataset",
-    "vrt_dataset",
-    "map",
-    "service",
-    "collection",
-    "table",
-}
-_ALLOWED_SORT_BY = {"relevance", "date_added", "name", "title", "last_updated"}
-
-
-class SearchQueryParams(_BaseModel):
-    """Query parameters for the search endpoints, injectable via FastAPI Depends().
-
-    Handles raw HTTP query params; use :meth:`to_filters` to convert into the
-    service-layer ``SearchFilters`` dataclass (which expects pre-parsed bbox
-    and geometry_geojson).
-    """
-
-    q: str | None = Query(None, max_length=1000, description="Full-text search query")
-    bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy")
-    keywords: list[str] | None = Query(None, description="Filter by keywords")
-    geometry_type: str | None = Query(None, description="Filter by geometry type")
-    srid: int | None = Query(None, description="Filter by SRID")
-    source_organization: str | None = Query(
-        None, description="Filter by source organization"
-    )
-    record_type: str | None = Query(
-        None, description="Filter by record type (vector_dataset, raster_dataset)"
-    )
-    date_from: date | None = Query(None, description="Filter created_at >=")
-    date_to: date | None = Query(None, description="Filter created_at <=")
-    vintage_start: date | None = Query(None, description="Filter data_vintage_start >=")
-    vintage_end: date | None = Query(None, description="Filter data_vintage_end <=")
-    sort_by: str = Query(
-        "relevance",
-        description="Sort: relevance, date_added, name, last_updated",
-    )
-    sort_desc: bool | None = Query(None, description="Sort direction override")
-    offset: int = Query(0, ge=0, description="Pagination offset")
-    limit: int = Query(10, ge=1, le=200, description="Page size")
-    cql2_filter: str | None = Query(
-        None,
-        max_length=10000,
-        alias="filter",
-        validation_alias="filter",
-        description="CQL2 filter expression",
-    )
-    cql2_filter_lang: str = Query(
-        "cql2-text",
-        alias="filter-lang",
-        validation_alias="filter-lang",
-        description="Filter language: cql2-text or cql2-json",
-    )
-    datetime_param: str | None = Query(
-        None,
-        alias="datetime",
-        validation_alias="datetime",
-        description="OGC datetime interval: instant, start/end, ../end, start/..",
-    )
-    exclude_synthetic: bool = Query(True, description="Exclude synthetic/test datasets")
-    spatial_predicate: Literal["intersects", "within"] = Query(
-        "intersects", description="Spatial predicate: intersects or within"
-    )
-    geometry: str | None = Query(
-        None, max_length=50000, description="GeoJSON geometry for spatial filter"
-    )
-    collection_id: uuid.UUID | None = Query(
-        None, description="Filter by collection membership"
-    )
-
-    model_config = {"extra": "ignore", "populate_by_name": True}
-
-    def to_filters(self) -> SearchFilters:
-        """Convert raw query params into a service-layer SearchFilters."""
-        # fix(#315 follow-up, A2): reject unknown record_type / sort_by with a 400
-        # instead of silently returning a 200 (bogus record_type -> empty result;
-        # bogus sort_by -> silent created_at fallback). Validated here (the single
-        # conversion chokepoint for both the native and OGC search endpoints)
-        # rather than via a Pydantic field_validator, which FastAPI surfaces as an
-        # unhandled error instead of a clean 4xx on Depends() query-param models.
-        if (
-            self.record_type is not None
-            and self.record_type not in _ALLOWED_RECORD_TYPES
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"record_type must be one of: {sorted(_ALLOWED_RECORD_TYPES)}",
-            )
-        if self.sort_by not in _ALLOWED_SORT_BY:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"sort_by must be one of: {sorted(_ALLOWED_SORT_BY)}",
-            )
-        geometry_geojson, bbox_parsed = _parse_spatial_params(self.geometry, self.bbox)
-        return SearchFilters(
-            q=self.q,
-            bbox=bbox_parsed,
-            keywords=self.keywords,
-            geometry_type=self.geometry_type,
-            srid=self.srid,
-            source_organization=self.source_organization,
-            record_type=self.record_type,
-            date_from=self.date_from,
-            date_to=self.date_to,
-            vintage_start=self.vintage_start,
-            vintage_end=self.vintage_end,
-            sort_by=self.sort_by,
-            sort_desc=self.sort_desc,
-            skip=self.offset,
-            limit=self.limit,
-            cql2_filter=self.cql2_filter,
-            cql2_filter_lang=self.cql2_filter_lang,
-            datetime_param=self.datetime_param,
-            exclude_synthetic=self.exclude_synthetic,
-            spatial_predicate=self.spatial_predicate,
-            geometry_geojson=geometry_geojson,
-            collection_id=self.collection_id,
-        )
-
-    def active_pagination_params(self) -> dict[str, str | list[str]]:
-        """Build a dict of non-default query params for pagination URLs."""
-        params: dict[str, str | list[str]] = {}
-        if self.q:
-            params["q"] = self.q
-        if self.geometry:
-            params["geometry"] = self.geometry
-        if self.bbox:
-            params["bbox"] = self.bbox
-        if self.keywords:
-            params["keywords"] = self.keywords
-        if self.geometry_type:
-            params["geometry_type"] = self.geometry_type
-        if self.srid is not None:
-            params["srid"] = str(self.srid)
-        if self.source_organization:
-            params["source_organization"] = self.source_organization
-        if self.record_type:
-            params["record_type"] = self.record_type
-        if self.collection_id:
-            params["collection_id"] = str(self.collection_id)
-        if self.date_from is not None:
-            params["date_from"] = self.date_from.isoformat()
-        if self.date_to is not None:
-            params["date_to"] = self.date_to.isoformat()
-        if self.vintage_start is not None:
-            params["vintage_start"] = self.vintage_start.isoformat()
-        if self.vintage_end is not None:
-            params["vintage_end"] = self.vintage_end.isoformat()
-        if self.sort_by != "relevance":
-            params["sort_by"] = self.sort_by
-        if self.datetime_param:
-            params["datetime"] = self.datetime_param
-        if not self.exclude_synthetic:
-            params["exclude_synthetic"] = "false"
-        if self.cql2_filter:
-            params["filter"] = self.cql2_filter
-        if self.cql2_filter_lang != "cql2-text":
-            params["filter-lang"] = self.cql2_filter_lang
-        return params
 
 
 # ---------------------------------------------------------------------------
@@ -608,6 +388,7 @@ async def _handle_search(
 # ---------------------------------------------------------------------------
 
 search_router = APIRouter(prefix="/search", tags=["Search"])
+search_router.include_router(saved_search_router)
 
 
 def _semantic_search_rate_limit(_request: Request | None = None) -> str:
@@ -656,7 +437,7 @@ async def search_facets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> FacetCountResponse:
     """Return record_type facet counts for the given filters."""
-    geometry_geojson, bbox_parsed = _parse_spatial_params(geometry, bbox)
+    geometry_geojson, bbox_parsed = parse_spatial_params(geometry, bbox)
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -746,95 +527,6 @@ async def search_datasets_endpoint(
 
 
 # ---------------------------------------------------------------------------
-# Saved searches endpoints
-# ---------------------------------------------------------------------------
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /facets above.
-@search_router.post(
-    "/saved",
-    response_model=SavedSearchResponse,
-    status_code=status.HTTP_201_CREATED,
-    include_in_schema=False,
-)
-@search_router.post(
-    "/saved/",
-    response_model=SavedSearchResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_saved_search_endpoint(
-    body: SavedSearchCreate,
-    user: Identity = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> SavedSearchResponse:
-    """Save a search query with a name for later reuse."""
-    saved = await create_saved_search(db, user.id, body.name, body.params)
-    await db.commit()
-    await db.refresh(saved)
-    return SavedSearchResponse.model_validate(saved)
-
-
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /facets above.
-@search_router.get(
-    "/saved", response_model=SavedSearchListResponse, include_in_schema=False
-)
-@search_router.get("/saved/", response_model=SavedSearchListResponse)
-async def list_saved_searches_endpoint(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    user: Identity = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> SavedSearchListResponse:
-    """List saved searches for the authenticated user."""
-    searches, total = await list_saved_searches(db, user.id, skip=skip, limit=limit)
-    return SavedSearchListResponse(
-        searches=[SavedSearchResponse.model_validate(s) for s in searches],
-        total=total,
-    )
-
-
-@search_router.get(
-    "/saved/{search_id}",
-    response_model=SavedSearchResponse,
-    responses={404: NOT_FOUND_RESPONSE},
-)
-async def get_saved_search_endpoint(
-    search_id: uuid.UUID,
-    user: Identity = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> SavedSearchResponse:
-    """Get a single saved search by ID."""
-    saved = await get_saved_search(db, search_id, user.id)
-    if saved is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Saved search not found",
-        )
-    return SavedSearchResponse.model_validate(saved)
-
-
-@search_router.delete(
-    "/saved/{search_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    responses={404: NOT_FOUND_RESPONSE},
-)
-async def delete_saved_search_endpoint(
-    search_id: uuid.UUID,
-    user: Identity = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> Response:
-    """Delete a saved search."""
-    deleted = await delete_saved_search(db, search_id, user.id)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Saved search not found",
-        )
-    await db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------------------------------------------------------------------------
 # OGC Collections router
 # ---------------------------------------------------------------------------
 
@@ -845,13 +537,7 @@ collections_router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------------
-# TTL cache for collection metadata aggregates
-# ---------------------------------------------------------------------------
-
-_COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
-_COLLECTION_META_TTL = 60  # seconds
-_COLLECTION_META_MAX_SIZE = 200
+_COLLECTION_META_CACHE = search_cache._COLLECTION_META_CACHE
 
 
 async def _build_collection_metadata(
@@ -864,15 +550,13 @@ async def _build_collection_metadata(
     Results are cached for 60 seconds keyed by user-id (or 'anon') to avoid
     redundant aggregate queries on every request.
     """
-    cache_key = str(user.id) if user is not None else "anon"
-    cached = _COLLECTION_META_CACHE.get(cache_key)
+    cache_key = search_cache.collection_metadata_cache_key(
+        str(user.id) if user is not None else "anon"
+    )
+    cached = search_cache.get_collection_metadata_cached(cache_key)
     if cached is not None:
-        ts, data = cached
-        if time.monotonic() - ts < _COLLECTION_META_TTL:
-            # Re-stamp links with current public_api_url (may differ per request)
-            data = dict(data)
-            data["links"] = _build_collection_links(public_api_url)
-            return data
+        cached["links"] = _build_collection_links(public_api_url)
+        return cached
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -1000,13 +684,7 @@ async def _build_collection_metadata(
     if summaries:
         collection["summaries"] = summaries
 
-    # Store in cache — evict oldest entries if over max size
-    _COLLECTION_META_CACHE[cache_key] = (time.monotonic(), collection)
-    if len(_COLLECTION_META_CACHE) > _COLLECTION_META_MAX_SIZE:
-        oldest_key = min(
-            _COLLECTION_META_CACHE, key=lambda k: _COLLECTION_META_CACHE[k][0]
-        )
-        _COLLECTION_META_CACHE.pop(oldest_key, None)
+    search_cache.set_collection_metadata_cached(cache_key, collection)
 
     return collection
 

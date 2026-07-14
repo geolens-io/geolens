@@ -13,7 +13,7 @@ class DefaultBrandingExtension:
 
 
 class DefaultAuditExtension:
-    """Default audit: no additional export formats."""
+    """Community advertises no overlay-owned audit formats."""
 
     def get_export_formats(self) -> list[str]:
         return []
@@ -265,6 +265,37 @@ class DefaultConnectorExtension:
         del db, connector_name, credential_id
         return None
 
+    async def discover_resources(self, db, connector_name, credential_ref, config):  # type: ignore[no-untyped-def]
+        del db, credential_ref, config
+        raise ValueError(f"Unknown connector: {connector_name}")
+
+    async def dispatch_ingest(
+        self,
+        db,
+        connector_name,
+        credential_ref,
+        resource_id,
+        config,
+        user_id,
+    ):  # type: ignore[no-untyped-def]
+        del db, credential_ref, resource_id, config, user_id
+        raise ValueError(f"Unknown connector: {connector_name}")
+
+
+class DefaultDataServingExtension:
+    """Community default: no preparation, concurrency, or cache override."""
+
+    async def prepare_table_for_read(self, *, table_name, tenant_id):  # type: ignore[no-untyped-def]
+        del table_name, tenant_id
+        return None
+
+    def get_tile_concurrency_limiter(self, tenant_id):  # type: ignore[no-untyped-def]
+        del tenant_id
+        return None
+
+    def get_tile_cache_control(self) -> None:
+        return None
+
 
 class DefaultProcessingPort:
     """Community-edition default: delegates every call to app.modules.catalog.*
@@ -441,22 +472,31 @@ class DefaultProcessingPort:
     async def get_catalog_vocabulary(self, session):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
-        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
 
-        stmt = select(RecordKeyword.keyword).distinct()
+        # RecordKeyword is not itself tenant-scoped. Join through Record so the
+        # database's Record RLS policy constrains the vocabulary to the active
+        # tenant in hosted mode; with RLS disabled this is byte-for-byte the
+        # same result set as the historical single-tenant query.
+        stmt = (
+            select(RecordKeyword.keyword)
+            .join(Record, RecordKeyword.record_id == Record.id)
+            .distinct()
+        )
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
 
     async def get_keywords_for_records(self, session, record_ids):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
-        from app.modules.catalog.datasets.domain.models import RecordKeyword
+        from app.modules.catalog.datasets.domain.models import Record, RecordKeyword
 
         if not record_ids:
             return []
 
         stmt = (
             select(RecordKeyword.keyword)
+            .join(Record, RecordKeyword.record_id == Record.id)
             .where(RecordKeyword.record_id.in_(record_ids))
             .distinct()
         )
@@ -704,15 +744,33 @@ class DefaultCatalogPort:
     def visibility_default(self) -> str:
         return "private"
 
-    async def compute_quality_score(self, session, table_name, column_info, dataset):  # type: ignore[no-untyped-def]
+    @staticmethod
+    def _data_plane_target(schema=None, role=None):  # type: ignore[no-untyped-def]
+        """Resolve omitted identifiers from the active request/job tenant."""
+        from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
+        from app.core.db.tenant_session import current_tenant_var
+
+        tenant_id = current_tenant_var.get()
+        return (
+            schema if schema is not None else tenant_data_schema(tenant_id),
+            role if role is not None else tenant_reader_role(tenant_id),
+        )
+
+    async def compute_quality_score(
+        self, session, table_name, column_info, dataset, *, schema=None
+    ):  # type: ignore[no-untyped-def]
         from app.processing.ingest.metadata import compute_quality_score
 
-        return await compute_quality_score(session, table_name, column_info, dataset)
+        schema, _role = self._data_plane_target(schema)
+        return await compute_quality_score(
+            session, table_name, column_info, dataset, schema=schema
+        )
 
-    def quote_table(self, table_name):  # type: ignore[no-untyped-def]
+    def quote_table(self, table_name, *, schema=None):  # type: ignore[no-untyped-def]
         from app.processing.ingest.metadata import _qtable
 
-        return _qtable(table_name)
+        schema, _role = self._data_plane_target(schema)
+        return _qtable(table_name, schema=schema)
 
     async def generate_table_name(self, title, session):  # type: ignore[no-untyped-def]
         from app.processing.ingest.service import generate_table_name
@@ -813,20 +871,23 @@ class DefaultCatalogPort:
 
         return _validate_table_name(table_name)
 
-    async def add_4326_column(self, session, table_name, source_srid):  # type: ignore[no-untyped-def]
+    async def add_4326_column(self, session, table_name, source_srid, *, schema=None):  # type: ignore[no-untyped-def]
         from app.processing.ingest.metadata import add_4326_column
 
-        return await add_4326_column(session, table_name, source_srid)
+        schema, _role = self._data_plane_target(schema)
+        return await add_4326_column(session, table_name, source_srid, schema=schema)
 
-    async def grant_reader_access(self, session, table_name):  # type: ignore[no-untyped-def]
+    async def grant_reader_access(self, session, table_name, *, schema=None, role=None):  # type: ignore[no-untyped-def]
         from app.processing.ingest.metadata import grant_reader_access
 
-        return await grant_reader_access(session, table_name)
+        schema, role = self._data_plane_target(schema, role)
+        return await grant_reader_access(session, table_name, schema=schema, role=role)
 
-    async def get_column_info(self, session, table_name):  # type: ignore[no-untyped-def]
+    async def get_column_info(self, session, table_name, *, schema=None):  # type: ignore[no-untyped-def]
         from app.processing.ingest.metadata import get_column_info
 
-        return await get_column_info(session, table_name)
+        schema, _role = self._data_plane_target(schema)
+        return await get_column_info(session, table_name, schema=schema)
 
     async def generate_attribute_metadata(
         self,

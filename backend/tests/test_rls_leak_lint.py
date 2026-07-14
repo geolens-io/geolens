@@ -333,7 +333,7 @@ class TestNoPollutionAfterHarnessDisable:
         )
 
     async def test_rls_flags_disabled_in_single_tenant_mode(self):
-        """Sanity: relforcerowsecurity=False for all 6 tables after any harness tests.
+        """Sanity: FORCE RLS is off on the full boundary after harness tests.
 
         Runs in the default single_tenant mode (no harness fixture).  Verifies
         that the shared test DB is clean — catches leaked FORCE RLS from a
@@ -356,7 +356,10 @@ class TestNoPollutionAfterHarnessDisable:
                                 'catalog.datasets'::regclass,
                                 'catalog.maps'::regclass,
                                 'catalog.collections'::regclass,
-                                'catalog.embed_tokens'::regclass
+                                'catalog.embed_tokens'::regclass,
+                                'catalog.oauth_accounts'::regclass,
+                                'catalog.audit_logs'::regclass,
+                                'catalog.ingest_jobs'::regclass
                             ]
                         )
                         ORDER BY relname
@@ -367,11 +370,11 @@ class TestNoPollutionAfterHarnessDisable:
         finally:
             await engine.dispose()
 
-        assert len(state) == 6, f"Expected 6 tables in pg_class, got {len(state)}"
+        assert len(state) == 9, f"Expected 9 tables in pg_class, got {len(state)}"
         leaked = [f"{r[0]}: rls={r[1]}, force={r[2]}" for r in state if r[1] or r[2]]
         assert not leaked, (
             f"T-1208-09 FAIL: RLS is still active on the test DB after harness tests.\n"
             f"  Tables with RLS on: {leaked}\n"
-            f"  The harness try/finally teardown must disable RLS on ALL 6 tables.\n"
+            f"  The harness try/finally teardown must disable the full RLS boundary.\n"
             f"  Check _disable_rls_autocommit() in multi_tenant_harness.py."
         )

@@ -114,6 +114,22 @@ def resolve_storage_key(asset_uri: str, *, tenant_id: str | None = None) -> str:
     return f"tenants/{tenant_id}/{asset_uri}" if tenant_id else asset_uri
 
 
+def resolve_current_storage_key(asset_uri: str) -> str:
+    """Resolve a logical key for the active request or worker tenant.
+
+    Storage-facing code that operates on a catalog/job-owned logical key must
+    use this helper rather than reading ``current_tenant_var`` independently.
+    In multi-tenant mode the missing-context case fails closed through
+    :func:`resolve_storage_key`; in single-tenant mode the logical key is
+    returned byte-for-byte even if a stray context value is present.
+    """
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    tenant_id = current_tenant_var.get() if is_multi_tenant() else None
+    return resolve_storage_key(asset_uri, tenant_id=tenant_id)
+
+
 def resolve_open_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
     """Resolve a logical asset_uri to a GDAL-open-able VSI path.
 

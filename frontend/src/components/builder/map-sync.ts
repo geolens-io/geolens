@@ -211,6 +211,8 @@ export interface SyncOptions {
    *  layers after the standard reorder pass. When 'bottom' (default + legacy),
    *  the standard reorder pipeline already produces data-above-basemap. */
   basemapPosition?: 'top' | 'bottom';
+  /** Physical schema prefix emitted in MVT payload layer names. */
+  mvtSourceLayerPrefix?: string | null;
 }
 
 /** Convert a MapLayerResponse (builder context) to a SyncLayerInput. */
@@ -1168,7 +1170,10 @@ export function syncLayersToMap(
       const sourceId = getSourceIdForLayer(layer, prefix);
       const layerId = prefixed('layer', layer.id, prefix);
       // builder-audit #338 P1-01: one MVT source-layer-name helper shared with tile signing.
-      const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
+      const sourceLayer = getMvtSourceLayerName(
+        layer.dataset_table_name,
+        options?.mvtSourceLayerPrefix,
+      );
       const token = tokenMap.get(layer.dataset_id) ?? null;
 
       const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {

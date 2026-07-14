@@ -9,10 +9,11 @@ import jwt
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.tenancy import is_multi_tenant
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.providers.local import hash_password
-from app.core.config import settings
 
 
 class AuthService:
@@ -46,19 +47,33 @@ class AuthService:
         """
         minutes = expire_minutes or settings.access_token_expire_minutes
         now = datetime.now(UTC)
+        multi_tenant = is_multi_tenant()
 
         # Load token_version for this user so we can embed it in the JWT.
         # Using a column-only select avoids a redundant full-row read when the
         # User row was already loaded by the caller (e.g. the login handler),
         # but it is a safe extra query — correctness over micro-optimisation.
-        result = await self.db.execute(
-            select(User.token_version).where(User.id == identity.user_id)
-        )
+        if multi_tenant:
+            result = await self.db.execute(
+                select(User.token_version, User.tenant_id).where(
+                    User.id == identity.user_id
+                )
+            )
+            row = result.one_or_none()
+            _raw_version = row.token_version if row is not None else None
+            tenant_id = row.tenant_id if row is not None else None
+        else:
+            # Preserve the single-tenant query and token payload exactly. The
+            # tenancy axis must remain inert for Community/self-hosted installs.
+            result = await self.db.execute(
+                select(User.token_version).where(User.id == identity.user_id)
+            )
+            _raw_version = result.scalar_one_or_none()
+            tenant_id = None
         # WR-04: use an explicit None check rather than `or 1` so a DB row with
         # token_version=0 is not silently coerced to 1. In normal operation
         # token_version starts at 1 (migration server_default="1"), so 0 is
         # unreachable — but explicit intent is clearer than relying on falsiness.
-        _raw_version = result.scalar_one_or_none()
         token_version: int = _raw_version if _raw_version is not None else 1
 
         payload = {
@@ -69,6 +84,12 @@ class AuthService:
             "exp": now + timedelta(minutes=minutes),
             "iat": now,
         }
+        if multi_tenant:
+            if tenant_id is None:
+                raise ValueError(
+                    "Cannot issue a multi-tenant access token without a tenant id"
+                )
+            payload["tid"] = str(tenant_id)
         return jwt.encode(
             payload,
             settings.jwt_secret_key.get_secret_value(),
@@ -80,6 +101,8 @@ class AuthService:
         identity: AuthenticatedIdentity,
         dataset_id: uuid.UUID,
         expire_seconds: int = 120,
+        *,
+        tenant_id: uuid.UUID | None = None,
     ) -> str:
         """Create a download-scoped JWT for a single dataset.
 
@@ -104,6 +127,12 @@ class AuthService:
             "exp": now + timedelta(seconds=ttl),
             "iat": now,
         }
+        if is_multi_tenant():
+            if tenant_id is None:
+                raise ValueError(
+                    "Cannot issue a multi-tenant download token without a tenant id"
+                )
+            payload["tid"] = str(tenant_id)
         return jwt.encode(
             payload,
             settings.jwt_secret_key.get_secret_value(),
@@ -150,7 +179,9 @@ class AuthService:
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
-            select(RefreshToken).where(
+            select(RefreshToken)
+            .join(User, RefreshToken.user_id == User.id)
+            .where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
@@ -182,7 +213,9 @@ class AuthService:
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
-            select(RefreshToken).where(
+            select(RefreshToken)
+            .join(User, RefreshToken.user_id == User.id)
+            .where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
@@ -215,7 +248,8 @@ class AuthService:
 
         await self.db.execute(
             delete(RefreshToken).where(
-                RefreshToken.expires_at < datetime.now(UTC) - timedelta(days=1)
+                RefreshToken.expires_at < datetime.now(UTC) - timedelta(days=1),
+                RefreshToken.user_id.in_(select(User.id)),
             )
         )
 
@@ -245,27 +279,26 @@ class AuthService:
         await self.db.execute(
             update(RefreshToken)
             .where(
-                RefreshToken.user_id == user_id,
+                RefreshToken.user_id.in_(select(User.id).where(User.id == user_id)),
                 RefreshToken.revoked == False,  # noqa: E712
             )
             .values(revoked=True)
         )
 
         # 2. Atomically increment token_version so prior access JWTs are rejected.
-        await self.db.execute(
+        version_result = await self.db.execute(
             update(User)
             .where(User.id == user_id)
             .values(token_version=User.token_version + 1)
+            .returning(User.token_version)
         )
+        new_version = version_result.scalar_one_or_none()
+        if new_version is None:
+            raise ValueError("User not found")
 
         if commit:
             await self.db.commit()
-
-        # 3. Re-select the new version so callers can log or return it.
-        result = await self.db.execute(
-            select(User.token_version).where(User.id == user_id)
-        )
-        return result.scalar_one()
+        return new_version
 
     async def revoke_all_refresh_tokens(self, user_id: uuid.UUID) -> int:
         """Backward-compatible alias for revoke_all_tokens.
@@ -346,6 +379,10 @@ class AuthService:
 # ------------------------------------------------------------------
 
 
+class ApiKeyTargetUserNotFoundError(LookupError):
+    """The target user is absent from the caller's RLS-visible scope."""
+
+
 async def create_api_key_for_user(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -356,11 +393,15 @@ async def create_api_key_for_user(
     The raw key is only available at creation time. Flushes but does
     NOT commit — caller controls the transaction.
     """
+    visible_user_id = await db.scalar(select(User.id).where(User.id == user_id))
+    if visible_user_id is None:
+        raise ApiKeyTargetUserNotFoundError("User not found")
+
     raw_key = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     fingerprint = f"{raw_key[:8]}…{raw_key[-4:]}"
     api_key = ApiKey(
-        user_id=user_id,
+        user_id=visible_user_id,
         key_hash=key_hash,
         fingerprint=fingerprint,
         name=name,

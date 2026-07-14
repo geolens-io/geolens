@@ -19,7 +19,7 @@ function fakeMap() {
 
 function addedLayers(map: MaplibreMap) {
   return (map.addLayer as ReturnType<typeof vi.fn>).mock.calls.map(
-    (c) => c[0] as { id: string; type: string; filter?: unknown },
+    (c) => c[0] as { id: string; type: string; filter?: unknown; 'source-layer'?: string },
   );
 }
 
@@ -75,5 +75,34 @@ describe('useMapLayers generic-geometry rendering (fix #430 codex r21)', () => {
       'vector-fill',
       'vector-outline',
     ]);
+  });
+
+  it('waits for an async tenant prefix before installing immutable source-layer names', () => {
+    const map = fakeMap();
+    const mapRef = { current: map };
+    const { rerender } = renderHook(
+      ({ ready, prefix }: { ready: boolean; prefix?: string | null }) =>
+        useMapLayers({
+          tableName: 'roads',
+          geometryType: 'LINESTRING',
+          tileToken: null,
+          mapRef,
+          mvtSourceLayerReady: ready,
+          mvtSourceLayerPrefix: prefix,
+        }),
+      { initialProps: { ready: false, prefix: undefined as string | null | undefined } },
+    );
+
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.addLayer).not.toHaveBeenCalled();
+
+    rerender({ ready: false, prefix: null });
+    expect(map.addSource).not.toHaveBeenCalled();
+
+    rerender({ ready: true, prefix: 'tenant_acme' });
+
+    expect(map.addSource).toHaveBeenCalledOnce();
+    expect(addedLayers(map)).toHaveLength(1);
+    expect(addedLayers(map)[0]?.['source-layer']).toBe('tenant_acme.roads');
   });
 });

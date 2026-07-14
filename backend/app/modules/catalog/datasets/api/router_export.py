@@ -57,6 +57,7 @@ from app.modules.catalog.datasets.domain.models import (
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
 from app.core.db.tenant_session import current_tenant_var
+from app.core.tenancy import is_multi_tenant
 from app.core.public_urls import get_public_api_url
 from app.platform.extensions import get_catalog_port
 from app.platform.storage import get_storage
@@ -279,7 +280,7 @@ async def get_dcat_catalog(
     """DCAT 3 JSON-LD catalog feed. Respects dataset visibility."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     preferred_languages = parse_accept_languages(request)
     catalog = catalog_to_dcat(
         datasets,
@@ -309,13 +310,14 @@ async def get_dcat_catalog(
 )
 @router.get("/dcat/validation/", response_class=JSONResponse)
 async def validate_dcat3_catalog(
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Validate the visible W3C DCAT 3 catalog feed."""
     datasets = await _get_visible_dcat_datasets(db, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     catalog = catalog_to_dcat(datasets, base_url)
     report = validate_dcat3(catalog, "Catalog")
     report.update(
@@ -337,6 +339,7 @@ async def validate_dcat3_catalog(
     responses={503: SERVICE_UNAVAILABLE_RESPONSE},
 )
 async def get_dcat_us3_catalog(
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
     limit: int = _FEED_LIMIT_Q,
@@ -345,7 +348,7 @@ async def get_dcat_us3_catalog(
     """DCAT-US Schema v3.0 catalog feed. Respects dataset visibility."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     catalog = catalog_to_dcat_us3(
         datasets,
         base_url,
@@ -375,13 +378,14 @@ async def get_dcat_us3_catalog(
 )
 @router.get("/dcat-us/3.0/validation/", response_class=JSONResponse)
 async def validate_dcat_us3_catalog(
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Validate the visible DCAT-US Schema v3.0 catalog feed."""
     datasets = await _get_visible_dcat_datasets(db, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     catalog = catalog_to_dcat_us3(
         datasets,
         base_url,
@@ -400,6 +404,7 @@ async def validate_dcat_us3_catalog(
 @router.get("/geodcat-ap", response_class=JSONResponse, include_in_schema=False)
 @router.get("/geodcat-ap/", response_class=JSONResponse)
 async def get_geodcat_ap_catalog(
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
     limit: int = _FEED_LIMIT_Q,
@@ -408,7 +413,7 @@ async def get_geodcat_ap_catalog(
     """GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     catalog = catalog_to_geodcat_ap(datasets, base_url)
     completeness = _catalog_completeness(
         datasets,
@@ -431,13 +436,14 @@ async def get_geodcat_ap_catalog(
 )
 @router.get("/geodcat-ap/validation/", response_class=JSONResponse)
 async def validate_geodcat_ap_catalog(
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Validate the visible GeoDCAT-AP 2.0.0 catalog feed."""
     datasets = await _get_visible_dcat_datasets(db, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     catalog = catalog_to_geodcat_ap(datasets, base_url)
     report = validate_geodcat_ap(catalog, "Catalog")
     report.update(
@@ -459,6 +465,7 @@ async def validate_geodcat_ap_catalog(
 )
 @router.get("/{dataset_id}/dcat/validation/", response_class=JSONResponse)
 async def validate_dcat3_record(
+    request: Request,
     dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -466,7 +473,7 @@ async def validate_dcat3_record(
     """Validate a single dataset as W3C DCAT 3."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     dcat = record_to_dcat(dataset, base_url)
     report = validate_dcat3(dcat, "Dataset")
     fallback_fields = dcat_fallback_fields(dataset)
@@ -490,7 +497,7 @@ async def get_dcat_record(
     """DCAT 3 JSON-LD for a single dataset."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     preferred_languages = parse_accept_languages(request)
     dcat = record_to_dcat(
         dataset,
@@ -515,6 +522,7 @@ async def get_dcat_record(
 )
 @router.get("/{dataset_id}/dcat-us/3.0/validation/", response_class=JSONResponse)
 async def validate_dcat_us3_record(
+    request: Request,
     dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -522,7 +530,7 @@ async def validate_dcat_us3_record(
     """Validate a single dataset as DCAT-US Schema v3.0."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     dcat = record_to_dcat_us3(
         dataset,
         base_url,
@@ -549,6 +557,7 @@ async def validate_dcat_us3_record(
     responses={503: SERVICE_UNAVAILABLE_RESPONSE},
 )
 async def get_dcat_us3_record(
+    request: Request,
     dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -556,7 +565,7 @@ async def get_dcat_us3_record(
     """DCAT-US Schema v3.0 JSON-LD for a single dataset."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     dcat = record_to_dcat_us3(
         dataset,
         base_url,
@@ -582,6 +591,7 @@ async def get_dcat_us3_record(
 )
 @router.get("/{dataset_id}/geodcat-ap/validation/", response_class=JSONResponse)
 async def validate_geodcat_ap_record(
+    request: Request,
     dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -589,7 +599,7 @@ async def validate_geodcat_ap_record(
     """Validate a single dataset as GeoDCAT-AP 2.0.0."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     geodcat = record_to_geodcat_ap(dataset, base_url)
     report = validate_geodcat_ap(geodcat, "Dataset")
     fallback_fields = geodcat_ap_fallback_fields(dataset)
@@ -608,6 +618,7 @@ async def validate_geodcat_ap_record(
 )
 @router.get("/{dataset_id}/geodcat-ap/", response_class=JSONResponse)
 async def get_geodcat_ap_record(
+    request: Request,
     dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -615,7 +626,7 @@ async def get_geodcat_ap_record(
     """GeoDCAT-AP 2.0.0 JSON-LD for a single dataset."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db)
+    base_url = await get_public_api_url(db, request=request)
     geodcat = record_to_geodcat_ap(dataset, base_url)
     fallback_fields = geodcat_ap_fallback_fields(dataset)
 
@@ -684,6 +695,21 @@ async def _resolve_download_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired download token",
             )
+
+        if is_multi_tenant():
+            try:
+                token_tenant_id = uuid.UUID(str(payload.get("tid")))
+                active_tenant_id = uuid.UUID(current_tenant_var.get() or "")
+            except (ValueError, TypeError, AttributeError):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired download token",
+                )
+            if token_tenant_id != active_tenant_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired download token",
+                )
 
         # Per SEC-04: enforce typ='download' on the query-param lane.
         if payload.get("typ") != "download":

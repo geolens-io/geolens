@@ -2,7 +2,7 @@
 
 Covers (no DB / no asyncpg pool):
   - MVT-07: continuous simplification-tolerance schedule across the z5->z6 boundary.
-  - MVT-01: the MVT source-layer name stays schema-qualified (deferred cloud fix).
+  - MVT-01: the MVT source-layer name stays schema-qualified for client parity.
   - MVT-09: the table-name regex has a single shared definition.
   - MVT-04: ETag generation + conditional-request (If-None-Match -> 304) helpers.
 """
@@ -78,12 +78,10 @@ def test_tile_query_uses_single_continuous_simplify_basis():
 # MVT-01: the source-layer name stays schema-qualified.
 #
 # builder-audit #338 MVT-01 flagged that the multi_tenant MVT layer name
-# (data_t_<tid>.table) diverges from the client's hardcoded data.table. In
-# single_tenant (the only OSS-deployable mode) schema=="data", so the emitted
-# layer name is already "data.table" and the client matches. The multi_tenant
-# divergence is a deferred cloud-overlay concern whose fix belongs on the client
-# (derive source-layer from the schema-qualified name) — the dormant-tenancy
-# isolation guard (DP-02 / T1G) requires the server to keep schema qualification.
+# (data_t_<tid>.table) diverged from the client's hardcoded data.table. The
+# tile-config contract now gives clients the resolved physical prefix while tile
+# signing retains its logical data.table route. This server regression keeps the
+# emitted layer schema-qualified, as the dormant-tenancy isolation guard requires.
 # ---------------------------------------------------------------------------
 
 

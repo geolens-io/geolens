@@ -202,7 +202,7 @@ fi
 # -----------------------------------------------------------------------
 # Run alembic upgrade head from backend/
 # -----------------------------------------------------------------------
-echo "==> Running 'alembic upgrade head' against the throwaway DB..."
+echo "==> Running migration boundary/backfill smoke against the throwaway DB..."
 cd "${BACKEND_DIR}"
 
 # Export the URL in the shape backend/app/core/config.py honors (DATABASE_URL_OVERRIDE
@@ -256,8 +256,24 @@ export PYTHONPATH=.
 # `prefer` default and a Postgres server that may legitimately offer SSL.
 export PGSSLMODE=disable
 
+TENANT_ID="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+TENANT_SUFFIX="aaaaaaaa_aaaa_aaaa_aaaa_aaaaaaaaaaaa"
+TENANT_SCHEMA="data_t_${TENANT_SUFFIX}"
+TENANT_READER="geolens_reader_t_${TENANT_SUFFIX}"
+TENANT_WRITER="geolens_writer_t_${TENANT_SUFFIX}"
+
+# Stop immediately before 0019, then create the shape of a legacy tenant whose
+# table and sequence are owned by the old shared database login. The 0019
+# upgrade must adopt both objects into the per-tenant writer role.
 alembic_rc=0
-uv run --no-dev alembic upgrade head || alembic_rc=$?
+uv run --no-dev alembic upgrade 0018_tenant_insert_stamping || alembic_rc=$?
+if [ "${alembic_rc}" -eq 0 ]; then
+  docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
+    -U "${PG_USER}" -d "${PG_DB}" -c \
+    "INSERT INTO catalog.tenants (id, slug, name) VALUES ('${TENANT_ID}', 'legacy-owner-smoke', 'Legacy Owner Smoke'); CREATE SCHEMA ${TENANT_SCHEMA}; CREATE ROLE ${TENANT_READER} NOLOGIN; CREATE TABLE ${TENANT_SCHEMA}.legacy_features (id bigint PRIMARY KEY, name text); CREATE SEQUENCE ${TENANT_SCHEMA}.legacy_sequence; GRANT USAGE ON SCHEMA ${TENANT_SCHEMA} TO ${TENANT_READER}; GRANT SELECT ON ALL TABLES IN SCHEMA ${TENANT_SCHEMA} TO ${TENANT_READER}; ALTER DEFAULT PRIVILEGES IN SCHEMA ${TENANT_SCHEMA} GRANT SELECT ON TABLES TO ${TENANT_READER};" \
+    >/dev/null
+  uv run --no-dev alembic upgrade head || alembic_rc=$?
+fi
 
 if [ "${alembic_rc}" -ne 0 ]; then
   echo ""
@@ -267,6 +283,44 @@ if [ "${alembic_rc}" -ne 0 ]; then
   docker logs "${CONTAINER_NAME}" 2>&1 | tail -100 >&2
   exit "${alembic_rc}"
 fi
+
+owner_check="$(docker exec "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" -tAc \
+  "SELECT bool_and(owner_role.rolname = '${TENANT_WRITER}') FROM pg_class AS relation JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner WHERE namespace.nspname = '${TENANT_SCHEMA}' AND relation.relkind IN ('r', 'p', 'v', 'm', 'f', 'S');")"
+if [ "${owner_check}" != "t" ]; then
+  echo "FAIL: 0019 did not transfer every legacy tenant table/sequence to ${TENANT_WRITER}" >&2
+  exit 1
+fi
+
+# Model the exact deployed login grants. The runtime/tile login -> fixed
+# gateway edge must be SET-capable, while the fixed gateway -> tenant role edge
+# remains non-inherited and SET-only. Prove both writer and reader paths live.
+docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
+  -U "${PG_USER}" -d "${PG_DB}" -c \
+  "CREATE ROLE geolens_oc_api_cycle LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; CREATE ROLE geolens_oc_tile_cycle LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT geolens_tenant_control TO geolens_oc_api_cycle WITH INHERIT TRUE, SET FALSE; GRANT geolens_tenant_writer TO geolens_oc_api_cycle WITH INHERIT FALSE, SET TRUE; GRANT geolens_tenant_sandbox TO geolens_oc_api_cycle WITH INHERIT FALSE, SET TRUE; GRANT geolens_tile_gateway TO geolens_oc_tile_cycle WITH INHERIT FALSE, SET TRUE;" \
+  >/dev/null
+
+api_writer_role="$(docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
+  -U "${PG_USER}" -d "${PG_DB}" -qAtc \
+  "SET SESSION AUTHORIZATION geolens_oc_api_cycle; BEGIN; SET LOCAL ROLE ${TENANT_WRITER}; SELECT current_user; ROLLBACK;")"
+api_reader_role="$(docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
+  -U "${PG_USER}" -d "${PG_DB}" -qAtc \
+  "SET SESSION AUTHORIZATION geolens_oc_api_cycle; BEGIN; SET LOCAL ROLE ${TENANT_READER}; SELECT current_user; ROLLBACK;")"
+tile_reader_role="$(docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
+  -U "${PG_USER}" -d "${PG_DB}" -qAtc \
+  "SET SESSION AUTHORIZATION geolens_oc_tile_cycle; BEGIN; SET LOCAL ROLE ${TENANT_READER}; SELECT current_user; ROLLBACK;")"
+if [ "${api_writer_role}" != "${TENANT_WRITER}" ] \
+   || [ "${api_reader_role}" != "${TENANT_READER}" ] \
+   || [ "${tile_reader_role}" != "${TENANT_READER}" ]; then
+  echo "FAIL: deployed SET-only gateway chain cannot assume the tenant role" >&2
+  exit 1
+fi
+
+# 0019 intentionally retains cluster roles and operator-managed login grants.
+# A real downgrade/re-upgrade must therefore validate and accept those safe
+# members rather than treating them as reserved-name collisions.
+echo "==> Running 0019 downgrade -> re-upgrade with deployed memberships..."
+uv run --no-dev alembic downgrade 0018_tenant_insert_stamping
+uv run --no-dev alembic upgrade head
 
 # -----------------------------------------------------------------------
 # Drift gate: the freshly-upgraded schema must match the ORM models. This

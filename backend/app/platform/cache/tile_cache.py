@@ -62,6 +62,20 @@ def _safe_label(table: str) -> str:
     return table if _SAFE_TABLE_RE.match(table) else "_other"
 
 
+def _invalidation_table_segment(table: str) -> str:
+    """Return the exact cache-table segment visible to this tenant context."""
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant():
+        return table
+    tenant_id = current_tenant_var.get()
+    tenant_data_schema(tenant_id)
+    assert tenant_id is not None
+    return f"{tenant_id.lower()}:{table}"
+
+
 class TileCacheProvider:
     """Binary tile cache backed by Redis.
 
@@ -117,24 +131,23 @@ class TileCacheProvider:
     async def invalidate_table(self, table: str) -> None:
         """Delete all cached tiles for a table. Silent on failure.
 
-        fix(#394) VT-08: in multi_tenant the tile router prefixes the cache
-        key's table segment with the tenant id (``tile:{tid}:{table}:...``,
-        DP-02 Phase 1209-CR-01), so the bare ``tile:{table}:*`` pattern missed
-        those entries. Scan both shapes; over-matching a same-named suffix
-        segment only deletes cache entries, which is harmless.
+        In multi-tenant mode the tile router prefixes the table segment with
+        the tenant UUID. Invalidation uses that exact active-tenant prefix;
+        scanning ``tile:*:{table}:*`` would let one tenant evict every other
+        tenant's same-named dataset and create a noisy-neighbor channel.
         """
-        patterns = (f"tile:{table}:*", f"tile:*:{table}:*")
         try:
-            for pattern in patterns:
-                cursor = 0
-                while True:
-                    cursor, keys = await self._client.scan(
-                        cursor=cursor, match=pattern, count=500
-                    )
-                    if keys:
-                        await self._client.delete(*keys)
-                    if cursor == 0:
-                        break
+            scoped_table = _invalidation_table_segment(table)
+            pattern = f"tile:{scoped_table}:*"
+            cursor = 0
+            while True:
+                cursor, keys = await self._client.scan(
+                    cursor=cursor, match=pattern, count=500
+                )
+                if keys:
+                    await self._client.delete(*keys)
+                if cursor == 0:
+                    break
             logger.info("tile_cache_invalidated", table=table)
         except Exception:  # broad: redis SCAN/DELETE can throw varied pool/timeout errors; invalidation is non-fatal
             logger.warning("tile_cache_invalidate_failed", table=table, exc_info=True)
@@ -201,12 +214,12 @@ class InMemoryTileCacheProvider:
     async def invalidate_table(self, table: str) -> None:
         """Delete all cached tiles for a table.
 
-        fix(#394) VT-08: a single ``:{table}:`` containment check covers both
-        the single-tenant key (``tile:{table}:...`` — the ``tile:`` prefix ends
-        in a colon) and the tenant-prefixed key (``tile:{tid}:{table}:...``).
+        Hosted invalidation is restricted to the active tenant's exact prefix;
+        single-tenant deployments retain the historical bare-table shape.
         """
-        segment = f":{table}:"
-        keys = [k for k in self._cache if segment in k]
+        scoped_table = _invalidation_table_segment(table)
+        prefix = f"tile:{scoped_table}:"
+        keys = [key for key in self._cache if key.startswith(prefix)]
         for k in keys:
             self._cache.pop(k, None)
         logger.info("tile_cache_invalidated", table=table)

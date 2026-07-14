@@ -254,11 +254,8 @@ class TestAssertEnterprisePortsResolved:
         # Cloud-only ports must not be demanded under bare enterprise.
         assert "processing_port" not in msg and "catalog_port" not in msg
         assert "entitlement" not in msg
-        # Remediation points at the enterprise overlay, NOT the cloud overlay.
-        assert (
-            "INSTALL_ENTERPRISE_OVERLAY" in msg
-            or 'INSTALL_OVERLAYS="/enterprise"' in msg
-        )
+        # Remediation points at the enterprise image, NOT the cloud overlay.
+        assert "enterprise overlay's immutable image" in msg
         assert "/cloud" not in msg
 
     def test_raises_on_multi_tenant_missing_cloud_ports(self):
@@ -275,9 +272,8 @@ class TestAssertEnterprisePortsResolved:
         msg = str(exc_info.value)
         assert "processing_port" in msg
         assert "catalog_port" in msg
-        # Cloud-port failure must send the operator to the CLOUD overlay build,
-        # not INSTALL_ENTERPRISE_OVERLAY=1 (which bakes /enterprise only).
-        assert 'INSTALL_OVERLAYS="/enterprise /cloud"' in msg
+        # Cloud-port failure must send the operator to the CLOUD image build.
+        assert "cloud overlay image" in msg
 
     def test_raises_on_multi_tenant_missing_entitlement_port(self):
         """multi_tenant with processing/catalog resolved but entitlement still
@@ -324,7 +320,48 @@ class TestAssertEnterprisePortsResolved:
 
         msg = str(exc_info.value)
         assert "entitlement" in msg
-        assert 'INSTALL_OVERLAYS="/enterprise /cloud"' in msg
+        assert "cloud overlay image" in msg
+
+    def test_raises_on_multi_tenant_missing_data_serving_port(self):
+        """Cloud cannot boot while cold-tier/fairness hooks are no-ops."""
+        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
+
+        _set_edition("enterprise")
+
+        class _Resolved: ...
+
+        with (
+            patch(
+                "app.platform.extensions.get_processing_port",
+                return_value=_Resolved(),
+            ),
+            patch("app.platform.extensions.get_catalog_port", return_value=_Resolved()),
+            patch(
+                "app.platform.extensions.get_entitlement_port",
+                return_value=_Resolved(),
+            ),
+            patch(
+                "app.platform.extensions.get_permission_extension",
+                return_value=_Resolved(),
+            ),
+            patch(
+                "app.platform.extensions.get_identity_extension",
+                return_value=_Resolved(),
+            ),
+            patch(
+                "app.platform.extensions.get_workflow_extension",
+                return_value=_Resolved(),
+            ),
+            patch(
+                "app.platform.extensions.bootstrap.is_multi_tenant",
+                return_value=True,
+            ),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                assert_enterprise_ports_resolved()
+
+        assert "data_serving" in str(exc_info.value)
+        assert "cloud overlay image" in str(exc_info.value)
 
     def test_licensed_enterprise_without_env_var_is_checked(self):
         """License-key activation is asserted from the RESOLVED edition, not the

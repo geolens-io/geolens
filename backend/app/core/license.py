@@ -1,43 +1,22 @@
-"""Signed offline license verification (entitlement layer).
+"""Verify signed GeoLens Enterprise licenses without a network request.
 
-The community/enterprise edition is currently decided by ``GEOLENS_EDITION`` or
-the mere presence of a loaded extension (see :mod:`app.core.edition`), which is
-an honor-system boundary: anyone who installs the overlay or sets one env var
-unlocks every paid feature. This module adds the real entitlement check — a
-cryptographically **signed, offline** license token.
+The token is an Ed25519 JWT with an Enterprise edition, a license ID, and a
+maintenance end date. A valid token grants perpetual use of the installed
+version. The maintenance date controls access to updates and support, not
+whether the application keeps running. Tokens issued before this contract used
+``exp`` for the same date; the verifier accepts that signed claim as a legacy
+maintenance date so upgrades do not invalidate an installed license.
 
-Design:
+The verifier trusts only the public key bundled at
+``app/core/license_public_key.pem``. The private signing key stays with the
+vendor. Operators cannot replace the verifier key through environment
+configuration. Verification works offline and allows a small amount of clock
+skew for issued-at and not-before claims.
 
-- The token is an EdDSA (Ed25519) JWT carrying ``edition`` + ``exp`` (+ optional
-  ``customer``, ``seats``, ``features``, ``license_id``, ``aud``).
-- It is verified against the **bundled, immutable** Ed25519 public key at
-  ``app/core/license_public_key.pem``. The matching **private** signing key
-  never ships — it lives only with the vendor's minting tooling
-  (``scripts/license_tool.py``). Shipping the public key in the (soon
-  Apache-2.0) core is safe — that is the point of asymmetric signatures.
-- The verifier key is deliberately **NOT** environment-configurable. The party
-  that supplies the license token (the operator) must not also be able to
-  choose the key it is checked against — otherwise they could mint their own
-  enterprise token against their own key and the entitlement check is moot
-  (it would just re-create the env-only bypass it is meant to close).
-- Verification is fully **offline** — no phone-home — so it works air-gapped,
-  with a small ``leeway`` to tolerate clock skew between signer and verifier.
-- It is **graceful**: a missing / malformed / expired / forged token, or a
-  missing bundled key, yields ``None`` (→ community). It never raises into the
-  app lifespan.
-
-Inputs (all optional; absence → no license → community):
-
-- ``GEOLENS_LICENSE_KEY``      — the signed license token (preferred), or
-- ``GEOLENS_LICENSE_FILE``     — path to a file containing the token.
-- ``GEOLENS_LICENSE_AUDIENCE`` — optional deployment identifier. When set, the
-  token's ``aud`` claim MUST match it, binding a license to this deployment so a
-  token issued for one customer cannot be replayed on another.
-
-This module owns verification only; :mod:`app.core.edition` owns the policy of
-how a verified (or absent) license maps to the running edition, including the
-**runtime** re-check of ``expires_at`` (a token valid at startup must stop
-unlocking enterprise once it expires, without a restart).
+Set ``GEOLENS_LICENSE_KEY`` to the token or ``GEOLENS_LICENSE_FILE`` to a file
+that contains it. ``GEOLENS_LICENSE_AUDIENCE`` can bind a license to one
+deployment. Missing, malformed, forged, or mismatched tokens yield ``None`` so
+the caller can use the Community edition.
 """
 
 from __future__ import annotations
@@ -63,20 +42,20 @@ _ALGORITHM = "EdDSA"
 _TRUSTED_PUBLIC_KEY_PATH = Path(__file__).with_name("license_public_key.pem")
 
 # Tolerate modest clock skew between the signer and the verifying host for the
-# time-based claims (exp / nbf / iat). Small relative to a multi-month license.
+# time-based claims such as nbf and iat.
 _LEEWAY_SECONDS = 300
 
 
 @dataclass(frozen=True)
 class LicenseInfo:
-    """A verified, non-expired enterprise license."""
+    """A verified Enterprise license for the installed version."""
 
     edition: str
-    expires_at: datetime | None = None
+    maintenance_until: datetime
+    license_id: str
     customer: str | None = None
     seats: int | None = None
     features: tuple[str, ...] = ()
-    license_id: str | None = None
     claims: dict = field(default_factory=dict)
 
 
@@ -129,15 +108,14 @@ def verify_license_token(
 ) -> LicenseInfo | None:
     """Verify a token against the public key. Return LicenseInfo or None.
 
-    Returns None (never raises) for any verification failure: bad signature,
-    expired, immature, missing required claims, wrong algorithm, audience
-    mismatch, or a non-enterprise edition claim. ``exp`` and ``edition`` are
-    always required. When ``audience`` is given, ``aud`` is required and must
-    match (binds the license to this deployment); otherwise ``aud`` is not
-    checked. ``_LEEWAY_SECONDS`` of clock skew is tolerated.
+    Returns None for a bad signature, an immature token, missing claims, a
+    wrong algorithm, an audience mismatch, or a non-Enterprise edition.
+    ``edition`` and ``license_id`` are required. New tokens carry
+    ``maintenance_until``. A legacy signed ``exp`` claim is accepted as the
+    maintenance date, but it does not expire the installed version.
     """
-    required = ["exp", "edition"]
-    options: dict = {"require": required}
+    required = ["edition", "license_id"]
+    options: dict = {"require": required, "verify_exp": False}
     decode_kwargs: dict = {"algorithms": [_ALGORITHM], "leeway": _LEEWAY_SECONDS}
     if audience:
         decode_kwargs["audience"] = audience
@@ -162,20 +140,35 @@ def verify_license_token(
         )
         return None
 
-    exp = claims.get("exp")
-    expires_at = (
-        datetime.fromtimestamp(exp, tz=UTC) if isinstance(exp, (int, float)) else None
+    maintenance_timestamp = (
+        claims.get("maintenance_until")
+        if "maintenance_until" in claims
+        else claims.get("exp")
     )
+    if isinstance(maintenance_timestamp, bool) or not isinstance(
+        maintenance_timestamp, (int, float)
+    ):
+        logger.warning("License token has no valid maintenance timestamp")
+        return None
+    try:
+        maintenance_until = datetime.fromtimestamp(maintenance_timestamp, tz=UTC)
+    except (OSError, OverflowError, ValueError):
+        logger.warning("License token maintenance_until is outside the valid range")
+        return None
+    license_id = claims.get("license_id")
+    if not isinstance(license_id, str) or not license_id.strip():
+        logger.warning("License token license_id is empty")
+        return None
     seats = claims.get("seats")
     features = claims.get("features") or ()
 
     return LicenseInfo(
         edition="enterprise",
-        expires_at=expires_at,
+        maintenance_until=maintenance_until,
         customer=claims.get("customer") or claims.get("sub"),
         seats=int(seats) if isinstance(seats, (int, float)) else None,
         features=tuple(features) if isinstance(features, (list, tuple)) else (),
-        license_id=claims.get("license_id") or claims.get("jti"),
+        license_id=license_id.strip(),
         claims=claims,
     )
 
@@ -183,9 +176,8 @@ def verify_license_token(
 def load_license() -> LicenseInfo | None:
     """Load + verify the license from the environment. None if absent/invalid.
 
-    Fully graceful: any problem (no token, no bundled key, bad signature,
-    expired, audience mismatch) returns None so the caller falls back to
-    community. Never raises.
+    Any problem with the token or bundled key returns None so the caller can
+    use Community. This function never raises.
     """
     token = _load_token()
     if not token:
@@ -207,7 +199,7 @@ def load_license() -> LicenseInfo | None:
         logger.info(
             "Enterprise license verified",
             customer=info.customer,
-            expires_at=info.expires_at.isoformat() if info.expires_at else None,
+            maintenance_until=info.maintenance_until.isoformat(),
             license_id=info.license_id,
         )
     return info

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db.models import AppSetting
+from app.core.tenancy import is_multi_tenant
 
 PUBLIC_APP_URL_KEY = "public_app_url"
 PUBLIC_API_URL_KEY = "public_api_url"
@@ -52,6 +53,24 @@ def strip_api_suffix(api_url: str) -> str:
     if path.endswith("/api"):
         path = path[: -len("/api")]
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def _configured_api_path(
+    app_url: str | None,
+    api_url: str | None,
+    legacy_api_url: str | None,
+) -> str:
+    """Return the configured API path without reusing its fleet origin."""
+    configured_api = normalize_public_url(api_url) or normalize_public_url(
+        legacy_api_url
+    )
+    if configured_api:
+        return urlsplit(configured_api).path.rstrip("/")
+
+    configured_app = normalize_public_url(app_url)
+    if configured_app:
+        return urlsplit(append_api_suffix(configured_app)).path.rstrip("/")
+    return ""
 
 
 def join_public_url(base_url: str, path: str) -> str:
@@ -291,20 +310,82 @@ async def get_public_urls(
 ) -> tuple[str, str]:
     """Resolve (app_url, api_url) tuple. See :func:`resolve_public_api_url`
     for H-27 ``for_external_use`` semantics."""
-    overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
+    fleet_urls_only = False
+    overrides: dict[str, str | None] | None = None
+    if is_multi_tenant() and request is not None:
+        tenant_id = getattr(request.state, "tenant_id", None)
+        tenant_origin = normalize_public_url(
+            getattr(request.state, "tenant_public_origin", None)
+        )
+        if tenant_id is not None and tenant_origin is not None:
+            root_path = str(request.scope.get("root_path", "")).rstrip("/")
+            if root_path:
+                api_path = root_path
+            else:
+                # fix(#507): a proxy rewrite can clear root_path. Read the same
+                # DB or environment configuration used by the fleet fallback.
+                overrides = (
+                    {} if _is_env_only() else await _load_public_url_overrides(db)
+                )
+                api_path = _configured_api_path(
+                    overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
+                    overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
+                    overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
+                )
+            if api_path and (
+                not api_path.startswith("/") or "\\" in api_path or "//" in api_path
+            ):
+                raise PublicUrlNotConfiguredError(
+                    "The configured public API path is not a safe absolute path"
+                )
+            api_url = f"{tenant_origin}{api_path}" if api_path else tenant_origin
+            return tenant_origin, api_url
+        # fix(#507): JWT-scoped requests on a trusted service host have no
+        # tenant origin. Internal response links may use the fleet URLs below,
+        # but external callbacks must remain tenant-bound.
+        if tenant_id is not None and for_external_use:
+            raise PublicUrlNotConfiguredError(
+                "Hosted tenant URLs require a middleware-validated tenant host; "
+                "the fleet-wide PUBLIC_APP_URL / PUBLIC_API_URL cannot represent "
+                "a tenant-specific callback or resource link."
+            )
+        if tenant_id is not None:
+            fleet_urls_only = True
+        if for_external_use:
+            raise PublicUrlNotConfiguredError(
+                "Hosted external-use URLs require a resolved tenant host."
+            )
+
+    if overrides is None:
+        overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
+
+    app_setting = overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url)
+    api_setting = overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url)
+    legacy_api_setting = overrides.get(
+        LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url
+    )
+    if fleet_urls_only and not any(
+        normalize_public_url(value)
+        for value in (app_setting, api_setting, legacy_api_setting)
+    ):
+        raise PublicUrlNotConfiguredError(
+            "Hosted service-host response links require a fleet-wide "
+            "PUBLIC_APP_URL or PUBLIC_API_URL setting."
+        )
+    resolver_request = None if fleet_urls_only else request
 
     app_url = resolve_public_app_url(
-        overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
-        overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
-        overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
-        request=request,
+        app_setting,
+        api_setting,
+        legacy_api_setting,
+        request=resolver_request,
         for_external_use=for_external_use,
     )
     api_url = resolve_public_api_url(
-        overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
-        overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
-        overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
-        request=request,
+        app_setting,
+        api_setting,
+        legacy_api_setting,
+        request=resolver_request,
         for_external_use=for_external_use,
     )
     return app_url, api_url

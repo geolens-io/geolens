@@ -28,6 +28,7 @@ import {
   listMapIcons,
   uploadMapIcon,
 } from '@/api/maps';
+import type { ShareExpirationInput } from '@/api/maps';
 import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
@@ -276,8 +277,8 @@ export function usePublishMap() {
 export function useUpdateShareToken() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ mapId, expiresAt }: { mapId: string; expiresAt: string | null }) =>
-      updateShareTokenExpiration(mapId, expiresAt),
+    mutationFn: ({ mapId, ...expiration }: { mapId: string } & ShareExpirationInput) =>
+      updateShareTokenExpiration(mapId, expiration),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
@@ -288,8 +289,8 @@ export function useUpdateShareToken() {
 export function useCreateShareToken() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ mapId, expiresAt }: { mapId: string; expiresAt?: string }) =>
-      createShareToken(mapId, expiresAt),
+    mutationFn: ({ mapId, ...expiration }: { mapId: string } & ShareExpirationInput) =>
+      createShareToken(mapId, expiration),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },

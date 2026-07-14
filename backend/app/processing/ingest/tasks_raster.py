@@ -6,7 +6,8 @@ from typing import Any
 
 import structlog
 
-from app.core.db.tenant_session import tenant_task
+from app.core.db.tenant_session import current_tenant_var, tenant_task
+from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
     claim_ingest_job_attempt,
@@ -16,6 +17,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
+from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.processing.raster.cog import (
     _scratch_dir,
     check_and_prepare_cog,
@@ -260,6 +262,24 @@ def _build_dataset_asset_rows(
         },
     ]
     return rows
+
+
+def _resolve_managed_raster_storage_keys(
+    cog_key: str,
+    quicklook_256_key: str,
+    quicklook_512_key: str,
+) -> tuple[str, str, str]:
+    """Resolve logical raster asset keys for the active tenant.
+
+    The returned keys are provider-facing. Catalog ``asset_uri`` fields retain
+    the logical inputs. Hosted workers fail closed when their tenant context
+    is absent; single-tenant workers receive each input byte-for-byte.
+    """
+    return (
+        resolve_current_storage_key(cog_key),
+        resolve_current_storage_key(quicklook_256_key),
+        resolve_current_storage_key(quicklook_512_key),
+    )
 
 
 async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> None:
@@ -638,23 +658,18 @@ async def ingest_raster(
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
 
-            # CR-02 (Phase 1210): in multi_tenant mode the serve path
-            # (raster_auth_check / resolve_open_path) prepends
-            # tenants/{tenant_id}/ to the logical key when building the
-            # /vsiaz/ or /vsis3/ path.  Ingest must store at the SAME
-            # prefixed key so stored key == served key.
-            # In single_tenant mode tenant_id=None → prefix="" → keys unchanged
-            # (byte-identical with pre-1210 behaviour).
-            from app.core.db.tenant_session import current_tenant_var
-            from app.core.tenancy import is_multi_tenant
-
-            _ingest_tenant_id = current_tenant_var.get() if is_multi_tenant() else None
-            _tenant_prefix = (
-                f"tenants/{_ingest_tenant_id}/" if _ingest_tenant_id else ""
+            # Resolve every managed key through the same fail-closed seam used
+            # by serve/delete/presign paths. The ORM fields below deliberately
+            # retain the logical keys.
+            (
+                _storage_cog_key,
+                _storage_ql256_key,
+                _storage_ql512_key,
+            ) = _resolve_managed_raster_storage_keys(
+                cog_key,
+                ql256_key,
+                ql512_key,
             )
-            _storage_cog_key = f"{_tenant_prefix}{cog_key}"
-            _storage_ql256_key = f"{_tenant_prefix}{ql256_key}"
-            _storage_ql512_key = f"{_tenant_prefix}{ql512_key}"
 
             # GAP-017: record each key right after its put so the failure
             # path can delete exactly what was written (and nothing more).
@@ -762,11 +777,12 @@ async def ingest_raster(
             await defer_embedding(dataset)
 
             # METER-01 (Phase 1213-02): emit raster ingest billable event through
-            # the billing-import-free seam.  _ingest_tenant_id is already resolved
-            # above (line ~557) for the storage prefix — reuse it here.
-            # event_id = job_id so task retries stay idempotent at the DB layer.
+            # the billing-import-free seam. Resolve the optional billing
+            # dimension separately from provider keys; event_id = job_id keeps
+            # task retries idempotent at the DB layer.
+            billing_tenant_id = current_tenant_var.get() if is_multi_tenant() else None
             await _emit_billing_event(
-                str(_ingest_tenant_id) if _ingest_tenant_id else None,
+                str(billing_tenant_id) if billing_tenant_id else None,
                 "ingest_jobs",
                 event_id=job_id,
             )

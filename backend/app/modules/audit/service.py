@@ -12,7 +12,7 @@ from app.platform.audit import (
     audit_emit,
 )  # re-exported for ergonomic single-import
 from app.modules.audit.models import AuditLog
-from app.modules.catalog._ilike import escape_ilike
+from app.core.text import escape_ilike
 
 __all__ = [
     "AuditEvent",

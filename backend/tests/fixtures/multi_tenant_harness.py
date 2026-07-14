@@ -26,7 +26,7 @@ Design notes
 ------------
 - ``GEOLENS_TENANCY_MODE=multi_tenant`` is set via ``monkeypatch.setenv`` +
   config reload so ``is_multi_tenant()`` returns True for the test body.
-- ``apply_tenancy_rls(conn)`` enables + FORCEs RLS on all 6 tables over an
+- ``apply_tenancy_rls(conn)`` enables + FORCEs RLS on the full boundary over an
   AUTOCOMMIT connection (DDL visible immediately to subsequent connections).
 - Two tenant UUIDs (tenant_a, tenant_b) are seeded into ``catalog.users`` so
   the leak-lint and gate tests have real rows to check against.
@@ -61,13 +61,16 @@ from sqlalchemy.pool import NullPool
 # Constants
 # ---------------------------------------------------------------------------
 
-_SIX_TABLES = [
+_RLS_TABLES = [
     "users",
     "records",
     "datasets",
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
 
@@ -87,7 +90,7 @@ def _reload_settings():
 
 
 async def _enable_rls_autocommit(db_url: str) -> None:
-    """Enable + FORCE RLS on all 6 tables via an AUTOCOMMIT connection.
+    """Enable + FORCE RLS on the full boundary via an AUTOCOMMIT connection.
 
     Also grants ``USAGE`` on the ``catalog`` schema to ``geolens_reader`` so
     the leak-lint probe can issue ``SET LOCAL ROLE geolens_reader`` and run
@@ -114,7 +117,7 @@ async def _enable_rls_autocommit(db_url: str) -> None:
             # RLS-scoped result the test asserts). On the per-worker TEST DB conftest
             # only grants geolens_reader on the `data` schema, not `catalog`; on CI's
             # `postgres` it's also absent — so the harness must grant it itself.
-            for table in _SIX_TABLES:
+            for table in _RLS_TABLES:
                 await conn.execute(
                     sa.text(f"GRANT SELECT ON catalog.{table} TO geolens_reader")
                 )
@@ -124,7 +127,7 @@ async def _enable_rls_autocommit(db_url: str) -> None:
 
 
 async def _disable_rls_autocommit(db_url: str) -> None:
-    """Disable + un-FORCE RLS on all 6 tables via an AUTOCOMMIT connection.
+    """Disable + un-FORCE RLS on the full boundary via an AUTOCOMMIT connection.
 
     This is the load-bearing teardown — it must run even on test failure.
     Also revokes the ``catalog`` schema USAGE that _enable_rls_autocommit
@@ -134,7 +137,7 @@ async def _disable_rls_autocommit(db_url: str) -> None:
     try:
         async with engine.connect() as conn:
             await conn.execution_options(isolation_level="AUTOCOMMIT")
-            for table in _SIX_TABLES:
+            for table in _RLS_TABLES:
                 await conn.execute(
                     sa.text(f"ALTER TABLE catalog.{table} NO FORCE ROW LEVEL SECURITY")
                 )
@@ -142,7 +145,7 @@ async def _disable_rls_autocommit(db_url: str) -> None:
                     sa.text(f"ALTER TABLE catalog.{table} DISABLE ROW LEVEL SECURITY")
                 )
             # Revoke the table SELECT + USAGE grants added in setup — restore state.
-            for table in _SIX_TABLES:
+            for table in _RLS_TABLES:
                 await conn.execute(
                     sa.text(f"REVOKE SELECT ON catalog.{table} FROM geolens_reader")
                 )
@@ -301,11 +304,11 @@ async def multi_tenant_rls(monkeypatch) -> AsyncGenerator[MultiTenantContext, No
          is_multi_tenant() returns True.
       2. Seed two user rows (one per tenant) BEFORE enabling RLS, on an
          AUTOCOMMIT connection so the rows are committed immediately.
-      3. Enable + FORCE RLS on all 6 tables (AUTOCOMMIT DDL).
+      3. Enable + FORCE RLS on the full boundary (AUTOCOMMIT DDL).
       4. Build a session factory with the tenant GUC hook installed and
          yield a MultiTenantContext to the test body.
       5. In try/finally teardown:
-         a. Disable + un-FORCE RLS on all 6 tables (AUTOCOMMIT DDL).
+         a. Disable + un-FORCE RLS on the full boundary (AUTOCOMMIT DDL).
          b. Delete the seeded user rows (AUTOCOMMIT, after RLS is off).
          c. Restore GEOLENS_TENANCY_MODE to single_tenant + reload config.
 

@@ -1,7 +1,7 @@
 """ISO-03 mode-aware RLS drift gate (Phase 1208-03).
 
 Reflects ``pg_policies`` + ``pg_class.relrowsecurity/relforcerowsecurity`` for
-the 6 tenant-shared control-plane tables and compares the live state to the
+the tenant-shared control-plane boundary and compares the live state to the
 checked-in ``rls_snapshot.json``.  Fails CI if:
 
   - A policy is missing (operator dropped it).
@@ -45,16 +45,19 @@ from sqlalchemy.pool import NullPool
 
 _SNAPSHOT_PATH = Path(__file__).parent / "rls_snapshot.json"
 
-_SIX_TABLES = [
+_RLS_TABLES = [
     "users",
     "records",
     "datasets",
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
-_POLICY_NAMES = [f"tenant_isolation_{t}" for t in _SIX_TABLES]
+_POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
 
 
 def _load_snapshot() -> dict:
@@ -67,7 +70,7 @@ def _load_snapshot() -> dict:
 
 
 async def _reflect_policies(db_url: str) -> list[dict]:
-    """Reflect pg_policies for the 6 tables from the live DB."""
+    """Reflect pg_policies for the complete boundary from the live DB."""
     engine = create_async_engine(db_url, poolclass=NullPool)
     try:
         async with engine.connect() as conn:
@@ -97,7 +100,7 @@ async def _reflect_policies(db_url: str) -> list[dict]:
 
 
 async def _reflect_rls_flags(db_url: str) -> dict[str, dict[str, bool]]:
-    """Reflect relrowsecurity + relforcerowsecurity for the 6 tables."""
+    """Reflect relrowsecurity + relforcerowsecurity for the complete boundary."""
     engine = create_async_engine(db_url, poolclass=NullPool)
     try:
         async with engine.connect() as conn:
@@ -113,7 +116,10 @@ async def _reflect_rls_flags(db_url: str) -> dict[str, dict[str, bool]]:
                             'catalog.datasets'::regclass,
                             'catalog.maps'::regclass,
                             'catalog.collections'::regclass,
-                            'catalog.embed_tokens'::regclass
+                            'catalog.embed_tokens'::regclass,
+                            'catalog.oauth_accounts'::regclass,
+                            'catalog.audit_logs'::regclass,
+                            'catalog.ingest_jobs'::regclass
                         ]
                     )
                     ORDER BY relname
@@ -146,10 +152,11 @@ def _assert_policies_match_snapshot(
         f"ISO-03 DRIFT: Policies missing from pg_policies — dropped or never created?\n"
         f"  Missing: {sorted(missing)}\n"
         f"  Present: {sorted(live_names)}\n"
-        f"  Expected all 6 from 0006_tenant_rls migration."
+        f"  Expected the complete boundary from the core tenant migrations."
     )
-    assert len(live_policies) == 6, (
-        f"Expected exactly 6 policies, got {len(live_policies)}: {live_names}"
+    assert len(live_policies) == len(_RLS_TABLES), (
+        f"Expected exactly {len(_RLS_TABLES)} policies, got "
+        f"{len(live_policies)}: {live_names}"
     )
 
     for policy in live_policies:
@@ -246,7 +253,7 @@ class TestSingleTenantSnapshot:
     """In the default single_tenant test mode: 6 policies exist, RLS disabled."""
 
     async def test_six_policies_present(self):
-        """All 6 tenant_isolation_* policies exist in pg_policies."""
+        """Every reviewed tenant_isolation_* policy exists in pg_policies."""
         from app.core.config import settings
 
         live = await _reflect_policies(settings.database_url)
@@ -280,11 +287,11 @@ class TestSingleTenantSnapshot:
         """rls_snapshot.json parses cleanly and has expected keys."""
         snap = _load_snapshot()
         assert snap["version"] == 1
-        assert len(snap["policies"]) == 6
+        assert len(snap["policies"]) == len(_RLS_TABLES)
         assert "single_tenant" in snap["rls_flags"]
         assert "multi_tenant" in snap["rls_flags"]
-        assert len(snap["rls_flags"]["single_tenant"]) == 6
-        assert len(snap["rls_flags"]["multi_tenant"]) == 6
+        assert len(snap["rls_flags"]["single_tenant"]) == len(_RLS_TABLES)
+        assert len(snap["rls_flags"]["multi_tenant"]) == len(_RLS_TABLES)
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +304,7 @@ class TestMultiTenantSnapshot:
     """After apply_tenancy_rls: relrowsecurity=True + relforcerowsecurity=True."""
 
     async def test_rls_force_enabled_multi_tenant(self, multi_tenant_rls):
-        """In multi_tenant (harness), all 6 tables have FORCE RLS enabled."""
+        """In multi_tenant, the full boundary has FORCE RLS enabled."""
         live_flags = await _reflect_rls_flags(multi_tenant_rls.db_url)
         snap = _load_snapshot()
         _assert_rls_flags_match_snapshot(live_flags, snap, "multi_tenant")
@@ -364,7 +371,7 @@ class TestDriftGateSelfTest:
         # Simulate RLS accidentally disabled on one table.
         live_flags = {
             t: {"relrowsecurity": True, "relforcerowsecurity": True}
-            for t in _SIX_TABLES
+            for t in _RLS_TABLES
         }
         live_flags["users"]["relforcerowsecurity"] = False
 
@@ -377,7 +384,7 @@ class TestDriftGateSelfTest:
         # Simulate RLS accidentally left on (would block all single_tenant queries).
         live_flags = {
             t: {"relrowsecurity": False, "relforcerowsecurity": False}
-            for t in _SIX_TABLES
+            for t in _RLS_TABLES
         }
         live_flags["datasets"]["relrowsecurity"] = True
 

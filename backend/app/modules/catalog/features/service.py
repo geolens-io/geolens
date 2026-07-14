@@ -340,12 +340,16 @@ async def _geom_column_is_generic(session: AsyncSession, table_name: str) -> boo
     (layers/service.py) also labels its datasets 'created' while building
     CONCRETELY typed columns that need typed validation + ST_Multi promotion.
     """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
     result = await session.execute(
         text(
             "SELECT type FROM geometry_columns "
-            "WHERE f_table_schema = 'data' AND f_table_name = :t "
+            "WHERE f_table_schema = :schema AND f_table_name = :t "
             "AND f_geometry_column = 'geom'"
-        ).bindparams(t=table_name)
+        ).bindparams(schema=schema, t=table_name)
     )
     col_type = result.scalar_one_or_none()
     return col_type is not None and col_type.strip().upper() == "GEOMETRY"

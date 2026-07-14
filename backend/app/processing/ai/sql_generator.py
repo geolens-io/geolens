@@ -14,6 +14,7 @@ import uuid as _uuid
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.token_usage import record_token_usage
@@ -62,7 +63,7 @@ def _schema_cache_key(
         parts.append(f"{layer.dataset_table_name}|{layer.geometry_type}|{col_sig}")
     raw = "\n".join(sorted(parts))
     content_hash = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
-    map_key = str(map_id) if map_id is not None else "__no_map__"
+    map_key = tenant_cache_key(str(map_id) if map_id is not None else "__no_map__")
     return (map_key, content_hash)
 
 

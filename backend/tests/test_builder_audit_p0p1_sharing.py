@@ -6,10 +6,9 @@ non-public. These tests exercise the wiring end-to-end at the HTTP endpoint
 level (the embed-token revocation primitive itself is covered in
 ``test_embed_revocation_by_map.py``).
 
-P1-14: the backend share create/update endpoints must reject a custom
-``expires_at`` in Community with the same advanced-sharing error taxonomy embed
-tokens use, while Enterprise accepts a future expiration. The basic Community
-share/revoke flow (no custom expiry) must remain unchanged.
+P1-14: the backend share create/update endpoints reject a custom ``expires_at``
+in Community with the same advanced-sharing error taxonomy embed tokens use.
+Community accepts fixed expiration presets, and Enterprise accepts a custom date.
 
 STYLE-06: the table-driven history-emission loop in ``update_map_endpoint`` must
 still emit one event per changed field
@@ -338,6 +337,41 @@ class TestP114ShareExpirationEdition:
             f"/maps/{map_obj.id}/share/", headers=admin_auth_header
         )
         assert revoke.status_code == 204, revoke.text
+
+    async def test_community_fixed_expiration_preset_succeeds(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        clean_tables,
+        community_edition,
+    ):
+        uid = await get_user_id(test_db_session, settings.geolens_admin_username)
+        _ds, map_obj, _layer = await _public_map_with_layer(
+            test_db_session, created_by=uid
+        )
+
+        resp = await client.post(
+            f"/maps/{map_obj.id}/share/",
+            json={"expires_in_days": 7},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        expires_at = datetime.fromisoformat(resp.json()["expires_at"])
+        remaining = expires_at - datetime.now(timezone.utc)
+        assert timedelta(days=6, hours=23) < remaining <= timedelta(days=7)
+
+        updated = await client.patch(
+            f"/maps/{map_obj.id}/share/",
+            json={"expires_in_days": 30},
+            headers=admin_auth_header,
+        )
+
+        assert updated.status_code == 200, updated.text
+        updated_expires_at = datetime.fromisoformat(updated.json()["expires_at"])
+        updated_remaining = updated_expires_at - datetime.now(timezone.utc)
+        assert timedelta(days=29, hours=23) < updated_remaining <= timedelta(days=30)
 
     async def test_enterprise_accepts_future_expiration(
         self,

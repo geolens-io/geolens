@@ -203,6 +203,69 @@ def build_pg_conn_str() -> str:
     return settings.ogr_connection_string
 
 
+def _tenant_subprocess_env(
+    schema: str,
+    *,
+    writer: bool,
+    base_env: dict[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Bind a libpq/GDAL connection to the active tenant's SET-only role.
+
+    ogr2ogr opens its own PostgreSQL connection, outside SQLAlchemy's statement
+    hooks. ``PGOPTIONS`` is therefore the equivalent connection-time binder.
+    In single-tenant mode this returns ``base_env`` unchanged so the legacy
+    subprocess environment remains byte-for-byte compatible.
+    """
+    from app.core.db.tenant_schema import (
+        tenant_data_schema,
+        tenant_reader_role,
+        tenant_writer_role,
+    )
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant():
+        return base_env
+
+    tenant_id = current_tenant_var.get()
+    if tenant_id is None:
+        raise RuntimeError("ogr2ogr tenant access requires an active tenant context")
+
+    expected_schema = tenant_data_schema(tenant_id)
+    if schema != expected_schema:
+        raise RuntimeError(
+            "ogr2ogr target schema does not match the active tenant: "
+            f"expected {expected_schema!r}, got {schema!r}"
+        )
+
+    role = tenant_writer_role(tenant_id) if writer else tenant_reader_role(tenant_id)
+    env = dict(os.environ if base_env is None else base_env)
+    existing_options = env.get("PGOPTIONS", "").strip()
+    role_option = f"-c role={role}"
+    env["PGOPTIONS"] = (
+        f"{existing_options} {role_option}" if existing_options else role_option
+    )
+    return env
+
+
+def _tenant_writer_subprocess_env(
+    schema: str,
+    *,
+    base_env: dict[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Bind an independent ogr2ogr connection to a tenant writer role."""
+    return _tenant_subprocess_env(schema, writer=True, base_env=base_env)
+
+
+def _tenant_reader_subprocess_env(
+    schema: str,
+    *,
+    base_env: dict[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Bind an independent ogr2ogr connection to a tenant reader role."""
+    return _tenant_subprocess_env(schema, writer=False, base_env=base_env)
+
+
 def _resolve_source_path(file_path: str) -> str:
     """Wrap file path with /vsizip/ if it is a zip file."""
     if file_path.endswith(".zip"):
@@ -584,10 +647,13 @@ async def run_ogr2ogr(
     # service-URL sibling `run_ogr2ogr_service` (below) DOES set
     # GDAL_HTTP_FOLLOWLOCATION=NO because it issues real HTTP requests.
     # See Phase 1061 Plan 04 SUMMARY for the SEC-S04 redirect-bypass closure.
+    # In multi-tenant mode PGOPTIONS also selects the active tenant's writer
+    # role for this independently opened libpq connection.
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=_tenant_writer_subprocess_env(schema),
     )
     stdout, stderr = await _communicate_with_timeout(
         proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
@@ -728,7 +794,11 @@ async def run_ogr2ogr_service(
     # token. The tempfile is unlinked in the finally block below.
     header_file_path: str | None = None
     try:
-        env = {**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"}
+        env = _tenant_writer_subprocess_env(
+            schema,
+            base_env={**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"},
+        )
+        assert env is not None  # base_env is always returned in single-tenant mode
         if token and service_type in ("wfs", "ogcapi_features"):
             safe_token = _sanitize_authorization_token(
                 token

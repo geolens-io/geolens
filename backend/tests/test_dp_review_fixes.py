@@ -71,18 +71,19 @@ class TestTileCacheKeyTenantScoped:
         src = inspect.getsource(tile_router)
 
         # CR-01: the vector tile endpoint must compute a tenant-prefixed key
-        assert (
-            "_tile_tid = current_tenant_var.get() if is_multi_tenant() else None" in src
-        ), "CR-01: vector tile endpoint missing tenant_tid lookup for cache key"
+        assert "_tile_tid = _require_tile_tenant_context()" in src, (
+            "CR-01: vector tile endpoint missing fail-closed tenant lookup "
+            "for cache key"
+        )
         assert '_tile_cache_key = f"{_tile_tid}:{table_name}"' in src or (
             "_tile_cache_key" in src and "table_name}" in src
         ), "CR-01: vector tile endpoint missing _tile_cache_key with tenant prefix"
 
         # CR-01: the cluster tile endpoint must compute a tenant-prefixed key
-        assert (
-            "_cluster_tid = current_tenant_var.get() if is_multi_tenant() else None"
-            in src
-        ), "CR-01: cluster tile endpoint missing tenant_tid lookup for cache key"
+        assert "_cluster_tid = _require_tile_tenant_context()" in src, (
+            "CR-01: cluster tile endpoint missing fail-closed tenant lookup "
+            "for cache key"
+        )
         assert "_cluster_tenant_prefix" in src, (
             "CR-01: cluster tile endpoint missing _cluster_tenant_prefix variable"
         )
@@ -97,15 +98,10 @@ class TestTileCacheKeyTenantScoped:
         )
 
         from app.processing.tiles import router as tile_router
-        import inspect
 
-        src = inspect.getsource(tile_router)
-
-        # The conditional must evaluate to bare table_name when tid is None
-        # (is_multi_tenant() returns False → _tile_tid is None → no prefix)
-        assert (
-            "_tile_tid = current_tenant_var.get() if is_multi_tenant() else None" in src
-        ), "CR-01: single_tenant path must evaluate _tile_tid as None"
+        # The central resolver preserves the single-tenant None sentinel, which
+        # keeps the downstream cache-key expression on its bare table-name path.
+        assert tile_router._require_tile_tenant_context() is None
 
     @pytest.mark.asyncio
     async def test_two_tenants_same_table_name_separate_cache_entries(

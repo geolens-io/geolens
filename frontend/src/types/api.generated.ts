@@ -114,6 +114,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/audit-logs/export/{format}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Audit Logs
+         * @description Export up to 100,000 audit log rows as CSV or JSON.
+         */
+        get: operations["export_audit_logs_admin_audit_logs_export__format__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/backfill-embeddings/": {
         parameters: {
             query?: never;
@@ -980,6 +1000,11 @@ export interface paths {
         /**
          * Refresh
          * @description Exchange a valid refresh token for a new access + refresh token pair.
+         *
+         *     Multi-tenant clients must call this endpoint on their tenant host. Refresh
+         *     tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+         *     binds the database transaction from that same-origin host before the user
+         *     row is resolved and the next tenant-bound access token is minted.
          */
         post: operations["refresh_auth_refresh__post"];
         delete?: never;
@@ -3586,7 +3611,7 @@ export interface paths {
          * Update Map Share Token Endpoint
          * @description Update expiration on an existing share token. Owner or admin only.
          *
-         *     Null clears expiration.
+         *     A fixed-day preset is available in every edition. Null clears expiration.
          */
         patch: operations["update_map_share_token_endpoint_maps__map_id__share__patch"];
         trace?: never;
@@ -3925,6 +3950,69 @@ export interface paths {
          * @description Delete a saved search.
          */
         delete: operations["delete_saved_search_endpoint_search_saved__search_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/services/connectors/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Connectors Endpoint
+         * @description List persistent connectors supplied by an installed overlay.
+         *
+         *     Community's no-op extension returns an empty list; one-shot WFS, OGC API,
+         *     ArcGIS, and STAC imports remain on their existing free endpoints.
+         */
+        get: operations["list_connectors_endpoint_services_connectors__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/services/connectors/{connector_name}/discover/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discover Connector Resources Endpoint
+         * @description Validate connector config and discover non-secret source resources.
+         */
+        post: operations["discover_connector_resources_endpoint_services_connectors__connector_name__discover__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/services/connectors/{connector_name}/ingest/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dispatch Connector Ingest Endpoint
+         * @description Dispatch an overlay-owned ingest and return its opaque job id.
+         */
+        post: operations["dispatch_connector_ingest_endpoint_services_connectors__connector_name__ingest__post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6373,6 +6461,93 @@ export interface components {
             };
             /** @description Object storage probe result. */
             storage: components["schemas"]["ServiceProbeResult"];
+        };
+        /**
+         * ConnectorDefinitionResponse
+         * @description Public, non-secret connector capabilities advertised by an overlay.
+         */
+        ConnectorDefinitionResponse: {
+            /** Config Schema */
+            config_schema: {
+                [key: string]: unknown;
+            };
+            /** Display Name */
+            display_name: string;
+            /** Name */
+            name: string;
+            /**
+             * Supports Credentials
+             * @default false
+             */
+            supports_credentials: boolean;
+            /**
+             * Supports Scheduled Sync
+             * @default false
+             */
+            supports_scheduled_sync: boolean;
+        };
+        /** ConnectorDiscoverRequest */
+        ConnectorDiscoverRequest: {
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** Credential Id */
+            credential_id?: string | null;
+        };
+        /** ConnectorDiscoverResponse */
+        ConnectorDiscoverResponse: {
+            /** Resources */
+            resources: components["schemas"]["ConnectorResourceResponse"][];
+        };
+        /** ConnectorIngestRequest */
+        ConnectorIngestRequest: {
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** Credential Id */
+            credential_id?: string | null;
+            /**
+             * Resource Id
+             * @description API-safe opaque handle returned by connector discovery.
+             */
+            resource_id: string;
+        };
+        /** ConnectorIngestResponse */
+        ConnectorIngestResponse: {
+            /**
+             * Job Id
+             * @description API-safe opaque handle for the dispatched ingest job.
+             */
+            job_id: string;
+            /**
+             * Status
+             * @default queued
+             * @constant
+             */
+            status: "queued";
+        };
+        /** ConnectorListResponse */
+        ConnectorListResponse: {
+            /** Connectors */
+            connectors: components["schemas"]["ConnectorDefinitionResponse"][];
+        };
+        /** ConnectorResourceResponse */
+        ConnectorResourceResponse: {
+            /**
+             * Id
+             * @description API-safe opaque resource handle. This is never a provider URL, signed locator, or credential.
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
         };
         /** ContactCreate */
         ContactCreate: {
@@ -10665,6 +10840,11 @@ export interface components {
              * @description Expiration timestamp; must carry a UTC offset. Null creates a non-expiring share link. A custom expiration requires advanced sharing controls.
              */
             expires_at?: string | null;
+            /**
+             * Expires In Days
+             * @description Server-calculated expiration preset available in every edition. Choose 1, 7, 30, or 90 days.
+             */
+            expires_in_days?: (1 | 7 | 30 | 90) | null;
         };
         /** ShareTokenResponse */
         ShareTokenResponse: {
@@ -11705,6 +11885,12 @@ export interface components {
              * @description CDN origin URL for tile delivery, if configured.
              */
             cdn_base_url?: string | null;
+            /**
+             * Mvt Source Layer Prefix
+             * @description Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.
+             * @default data
+             */
+            mvt_source_layer_prefix: string | null;
             /**
              * Public Api Url
              * @description Externally-reachable API base URL used in OGC self-links.
@@ -12827,6 +13013,109 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AuditLogListResponse"];
                 };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    export_audit_logs_admin_audit_logs_export__format__get: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+                action?: string | null;
+                resource_type?: string | null;
+                resource_id?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+                search?: string | null;
+                max_rows?: number;
+            };
+            header?: never;
+            path: {
+                format: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
@@ -33416,6 +33705,363 @@ export interface operations {
             };
             /** @description Service unavailable — the database could not serve the request */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_connectors_endpoint_services_connectors__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorListResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    discover_connector_resources_endpoint_services_connectors__connector_name__discover__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorDiscoverRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorDiscoverResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — connector provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Gateway timeout — connector provider timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    dispatch_connector_ingest_endpoint_services_connectors__connector_name__ingest__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorIngestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorIngestResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — connector provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Gateway timeout — connector provider timed out */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -447,10 +447,11 @@ async def reset_attribute(
         return attr
 
     try:
+        table_ref = port.quote_table(table_name)
         result = await session.execute(
             text(
                 f"SELECT DISTINCT {col_name}::text AS val "
-                f"FROM (SELECT {col_name} FROM data.{table_name} "
+                f"FROM (SELECT {col_name} FROM {table_ref} "
                 f"WHERE {col_name} IS NOT NULL LIMIT 1000) sub LIMIT 10"
             )
         )

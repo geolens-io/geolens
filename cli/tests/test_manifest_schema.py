@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,17 @@ def test_schema_resource_loads() -> None:
 
     assert schema["title"] == "GeoLens Manifest v1"
     assert schema["properties"]["manifest_version"]["const"] == "1"
+
+
+def test_schema_is_a_packaged_cli_resource_with_stable_identity() -> None:
+    resource = files("geolens_cli.manifest.schemas").joinpath(
+        "geolens-manifest-v1.schema.json"
+    )
+
+    assert resource.is_file()
+    assert manifest_schema()["$id"] == (
+        "https://schemas.getgeolens.com/geolens-manifest/v1/schema.json"
+    )
 
 
 def test_minimal_manifest_validates() -> None:
@@ -144,9 +156,7 @@ def test_manifest_source_type_requires_matching_extension(
     source_type: str, uri: str
 ) -> None:
     document = _minimal_manifest()
-    document["datasets"][0]["sources"][0].update(
-        {"type": source_type, "uri": uri}
-    )
+    document["datasets"][0]["sources"][0].update({"type": source_type, "uri": uri})
 
     assert ("$.datasets[0].sources[0].uri", "pattern") in _error_pairs(document)
 

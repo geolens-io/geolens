@@ -14,6 +14,7 @@ Security tests (BLOCKING):
 """
 
 import base64
+import re
 import uuid
 from io import BytesIO
 
@@ -135,6 +136,14 @@ async def _create_share_token(
     resp = await client.post(f"/maps/{map_id}/share/", headers=headers)
     assert resp.status_code == 200, f"Share failed: {resp.text}"
     return resp.json()["token"]
+
+
+def _extract_og_image_url(body: str) -> str:
+    match = re.search(r'property="og:image"\s+content="([^"]+)"', body) or re.search(
+        r'content="([^"]+)"\s+property="og:image"', body
+    )
+    assert match, f"og:image meta not found in:\n{body}"
+    return match.group(1)
 
 
 # ---------------------------------------------------------------------------
@@ -316,13 +325,7 @@ class TestCardRoute:
 
         body = resp.text
         # Find the og:image meta tag content value — must start with http
-        import re
-
-        og_image_match = re.search(
-            r'property="og:image"\s+content="([^"]+)"', body
-        ) or re.search(r'content="([^"]+)"\s+property="og:image"', body)
-        assert og_image_match, f"og:image meta not found in:\n{body}"
-        image_url = og_image_match.group(1)
+        image_url = _extract_og_image_url(body)
         assert image_url.startswith("http"), (
             f"og:image must be absolute URL, got: {image_url!r}"
         )
@@ -409,10 +412,32 @@ class TestCardRoute:
             f"Expected 404 for revoked token, got {resp.status_code}: {resp.text}"
         )
 
-    async def test_card_route_uses_og_image_uri_when_set(
-        self, client: AsyncClient, admin_auth_header: dict
+    @pytest.mark.parametrize(
+        ("api_base", "expected_prefix"),
+        [
+            ("https://api.example.test", "https://api.example.test/maps/"),
+            (
+                "https://tenant.example.test/api",
+                "https://tenant.example.test/api/maps/",
+            ),
+        ],
+        ids=["single-tenant-api-root", "hosted-tenant-api-root"],
+    )
+    async def test_card_route_uses_exact_api_root_for_og_image(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch: pytest.MonkeyPatch,
+        api_base: str,
+        expected_prefix: str,
     ) -> None:
-        """Card route og:image points to /og-image/ when og_image_uri is set."""
+        """API paths neither omit nor duplicate the configured /api root."""
+        from app.modules.catalog.maps import sharing
+
+        async def _api_url(*_args, **_kwargs) -> str:
+            return api_base
+
+        monkeypatch.setattr(sharing, "get_public_api_url", _api_url)
         map_data = await _create_map(
             client, admin_auth_header, name="OG Image Map", visibility="public"
         )
@@ -429,15 +454,25 @@ class TestCardRoute:
         resp = await client.get(f"/maps/shared/{token}/card")
         assert resp.status_code == 200
 
-        body = resp.text
-        assert "og-image" in body, (
-            f"Expected og-image path in card body when og_image_uri set; body:\n{body}"
+        image_url = _extract_og_image_url(resp.text)
+        assert image_url == (f"{expected_prefix}{map_id}/og-image/"), (
+            f"unexpected card image URL: {image_url}"
         )
+        assert "/api/api/" not in image_url
 
     async def test_card_route_uses_thumbnail_when_no_og_image(
-        self, client: AsyncClient, admin_auth_header: dict
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Card route og:image falls back to /thumbnail/ when only thumbnail_uri set."""
+        from app.modules.catalog.maps import sharing
+
+        async def _api_url(*_args, **_kwargs) -> str:
+            return "https://tenant.example.test/api"
+
+        monkeypatch.setattr(sharing, "get_public_api_url", _api_url)
         map_data = await _create_map(
             client,
             admin_auth_header,
@@ -457,15 +492,23 @@ class TestCardRoute:
         resp = await client.get(f"/maps/shared/{token}/card")
         assert resp.status_code == 200
 
-        body = resp.text
-        assert "thumbnail" in body, (
-            f"Expected thumbnail fallback in card body; body:\n{body}"
+        assert _extract_og_image_url(resp.text) == (
+            f"https://tenant.example.test/api/maps/{map_id}/thumbnail/"
         )
 
     async def test_card_route_uses_site_fallback_when_no_images(
-        self, client: AsyncClient, admin_auth_header: dict
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Card route og:image falls back to /og-image.png when no images set."""
+        from app.modules.catalog.maps import sharing
+
+        async def _app_url(*_args, **_kwargs) -> str:
+            return "https://tenant.example.test"
+
+        monkeypatch.setattr(sharing, "get_public_app_url", _app_url)
         map_data = await _create_map(
             client, admin_auth_header, name="No Image Map", visibility="public"
         )
@@ -475,9 +518,8 @@ class TestCardRoute:
         resp = await client.get(f"/maps/shared/{token}/card")
         assert resp.status_code == 200
 
-        body = resp.text
-        assert "og-image.png" in body, (
-            f"Expected /og-image.png fallback in card body; body:\n{body}"
+        assert _extract_og_image_url(resp.text) == (
+            "https://tenant.example.test/og-image.png"
         )
 
     async def test_card_route_viewer_redirect_present(

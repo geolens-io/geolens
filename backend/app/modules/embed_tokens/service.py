@@ -12,16 +12,34 @@ from starlette.requests import Request
 
 from app.core.edition import is_enterprise
 from app.core.tenancy import is_multi_tenant
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
-from app.modules.catalog._ilike import escape_ilike
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import (
     ADVANCED_SHARING_ERROR,
     _normalize_origin,
 )
-from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.sharing import (
+    find_map_ids_by_name,
+    get_map_embed_scope,
+    get_map_names,
+    map_contains_dataset,
+)
+from app.platform.extensions import get_processing_port
 
 logger = structlog.stdlib.get_logger(__name__)
+
+
+def _embed_token_cache_key(token_hash: str) -> str:
+    """Return the active tenant's validation-cache key.
+
+    A token presented through the wrong hosted tenant must not populate a
+    fleet-global negative entry that can deny the token's rightful tenant.
+    ``tenant_cache_key`` preserves the historical key byte-for-byte in
+    single-tenant mode and fails closed without a hosted tenant context.
+    """
+    return tenant_cache_key(f"embed_token:{token_hash}")
+
 
 # BUG-028: urlparse(...).hostname strips IPv6 brackets, so the loopback literal
 # stored here must be the UNBRACKETED form '::1' to match what
@@ -166,7 +184,7 @@ async def create_embed_token(
         try:
             cache = get_cache()
             for h in revoked_hashes:
-                await cache.delete(f"embed_token:{h}")
+                await cache.delete(_embed_token_cache_key(h))
         except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
             logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -176,10 +194,10 @@ async def create_embed_token(
     token_hint = "et_..." + raw_token[-8:]
 
     # Snapshot dataset_ids from map layers
-    result = await db.execute(
-        select(MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+    map_scope = await get_map_embed_scope(db, map_id)
+    dataset_ids = (
+        [str(dataset_id) for dataset_id in map_scope.dataset_ids] if map_scope else []
     )
-    dataset_ids = [str(row[0]) for row in result.all()]
 
     if not dataset_ids:
         raise ValueError("Map has no layers to scope")
@@ -187,8 +205,7 @@ async def create_embed_token(
     # EMBED-01 (Phase 1212): stamp tenant_id from Map.tenant_id — derived
     # server-side, NEVER from a client header or function argument.
     # Inert (None) in single_tenant so behavior is byte-identical.
-    map_tenant_result = await db.execute(select(Map.tenant_id).where(Map.id == map_id))
-    map_tenant_id = map_tenant_result.scalar_one_or_none()
+    map_tenant_id = map_scope.tenant_id if map_scope else None
     token_tenant_id = map_tenant_id if is_multi_tenant() else None
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
@@ -246,7 +263,7 @@ async def revoke_embed_token(
     # Best-effort cache invalidation
     try:
         cache = get_cache()
-        await cache.delete(f"embed_token:{token.token_hash}")
+        await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -292,7 +309,7 @@ async def revoke_embed_tokens_by_map(
     try:
         cache = get_cache()
         for token in tokens:
-            await cache.delete(f"embed_token:{token.token_hash}")
+            await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -315,10 +332,12 @@ async def revoke_embed_tokens_for_dropped_datasets(
     also purges the Redis positive cache). Pure additions/reorders that keep every
     scoped dataset present do not revoke anything. Returns the number revoked.
     """
-    current = await db.execute(
-        select(MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+    map_scope = await get_map_embed_scope(db, map_id)
+    current_ids = (
+        {str(dataset_id) for dataset_id in map_scope.dataset_ids}
+        if map_scope is not None
+        else set()
     )
-    current_ids = {str(did) for did in current.scalars().all()}
 
     result = await db.execute(
         select(EmbedToken).where(
@@ -360,7 +379,7 @@ async def update_embed_token(
     # Invalidate cache so changes take effect immediately
     try:
         cache = get_cache()
-        await cache.delete(f"embed_token:{token.token_hash}")
+        await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
@@ -437,8 +456,14 @@ async def validate_embed_token_access(
     Checks allowed_origins when domain-locking is enabled.
     Tracks usage on cache miss with explicit commit.
     """
+    # Hosted validation is meaningful only inside a verified tenant request or
+    # worker context.  Return a generic denial instead of letting cache-key
+    # construction raise, so an unscoped host cannot become an error oracle.
+    if is_multi_tenant() and not tenant_cache_context_available():
+        return False
+
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    cache_key = f"embed_token:{token_hash}"
+    cache_key = _embed_token_cache_key(token_hash)
 
     cache = get_cache()
     token: EmbedToken | None = None
@@ -550,12 +575,8 @@ async def validate_embed_token_access(
             token_tenant = uuid.UUID(raw_tid) if raw_tid else None
 
         # Resolve dataset's tenant via a fresh query (no re-mint, no cache).
-        from app.modules.catalog.datasets.domain.models import Dataset
-
-        ds_tenant_result = await db.execute(
-            select(Dataset.tenant_id).where(Dataset.id == dataset_id)
-        )
-        dataset_tenant = ds_tenant_result.scalar_one_or_none()
+        dataset = await get_processing_port().get_dataset(db, dataset_id)
+        dataset_tenant = getattr(dataset, "tenant_id", None) if dataset else None
 
         # CR-01 (Phase 1212): fail-closed guard — legacy tokens (pre-EMBED-01,
         # NULL tenant_id) and NULL-tenant datasets are denied in multi_tenant mode.
@@ -584,15 +605,7 @@ async def validate_embed_token_access(
         live_map_id = uuid.UUID(raw_map_id) if raw_map_id else None
     if live_map_id is None:
         return False
-    membership = await db.execute(
-        select(MapLayer.id)
-        .where(
-            MapLayer.map_id == live_map_id,
-            MapLayer.dataset_id == dataset_id,
-        )
-        .limit(1)
-    )
-    if membership.scalar_one_or_none() is None:
+    if not await map_contains_dataset(db, live_map_id, dataset_id):
         return False
 
     if token is not None:
@@ -626,19 +639,19 @@ async def list_admin_embed_tokens(
     Returns list of (EmbedToken, map_name, creator_username) tuples and total count.
     """
     from app.modules.auth.models import User
-    from app.modules.catalog.maps.models import Map
 
     now = datetime.now(timezone.utc)
 
-    base = (
-        select(
-            EmbedToken,
-            Map.name.label("map_name"),
-            User.username.label("creator_username"),
-        )
-        .outerjoin(Map, EmbedToken.map_id == Map.id)
-        .outerjoin(User, EmbedToken.created_by == User.id)
-    )
+    matching_map_ids: set[uuid.UUID] | None = None
+    if map_search:
+        matching_map_ids = await find_map_ids_by_name(db, map_search)
+        if not matching_map_ids:
+            return [], 0
+
+    base = select(
+        EmbedToken,
+        User.username.label("creator_username"),
+    ).outerjoin(User, EmbedToken.created_by == User.id)
 
     # Apply filters
     if map_id:
@@ -649,14 +662,8 @@ async def list_admin_embed_tokens(
     if tenant_id is not None:
         base = base.where(EmbedToken.tenant_id == tenant_id)
 
-    if map_search:
-        # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name));
-        # a bare ILIKE emits `name ~~* pattern` which the planner cannot match.
-        base = base.where(
-            func.lower(Map.name).like(
-                f"%{escape_ilike(map_search)}%".lower(), escape="\\"
-            )
-        )
+    if matching_map_ids is not None:
+        base = base.where(EmbedToken.map_id.in_(matching_map_ids))
 
     if creator:
         base = base.where(User.username == creator)
@@ -682,7 +689,12 @@ async def list_admin_embed_tokens(
     result = await db.execute(
         base.order_by(EmbedToken.created_at.desc()).offset(skip).limit(limit)
     )
-    rows = result.all()
+    token_rows = result.all()
+    map_names = await get_map_names(db, {row[0].map_id for row in token_rows})
+    rows = [
+        (token, map_names.get(token.map_id), creator_username)
+        for token, creator_username in token_rows
+    ]
 
     return rows, total
 
@@ -717,7 +729,7 @@ async def bulk_revoke_embed_tokens(
     try:
         cache = get_cache()
         for token in tokens:
-            await cache.delete(f"embed_token:{token.token_hash}")
+            await cache.delete(_embed_token_cache_key(token.token_hash))
     except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 

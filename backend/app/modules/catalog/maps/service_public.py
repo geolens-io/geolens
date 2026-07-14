@@ -9,20 +9,22 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.edition import is_enterprise
 from app.core.identity import Identity
+from app.core.text import escape_ilike
 from app.modules.auth.models import User
-from app.modules.catalog._ilike import escape_ilike
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
+from app.modules.catalog.maps.sharing_policy import (
+    ShareExpirationPresetDays,
+    resolve_share_expiration as _resolve_share_expiration,
+)
 from app.modules.catalog.maps.service_crud import get_map
 from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
 )
 from app.modules.embed_tokens.models import EmbedToken
-from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.platform.extensions import get_catalog_port
 
@@ -87,36 +89,33 @@ async def find_public_maps_using_dataset(
     return [row[0] for row in result.all()]
 
 
-def _reject_custom_expiration_in_community(expires_at: datetime | None) -> None:
-    """Enforce the advanced-sharing edition boundary at the service entry points.
-
-    fix(#435): only the two route handlers called `is_enterprise()` before invoking
-    these services, so a bulk-import path, overlay, or test helper could persist an
-    Enterprise-only expiration on a Community deployment. `None` remains valid, which
-    keeps basic create/revoke working and lets Community clear an expiration that an
-    Enterprise license previously set.
-    """
-    if expires_at is not None and not is_enterprise():
-        raise ValueError(ADVANCED_SHARING_ERROR)
-
-
 async def create_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,
     created_by: uuid.UUID,
     expires_at: datetime | None = None,
+    expires_in_days: ShareExpirationPresetDays | int | None = None,
 ) -> MapShareToken:
     """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
-    _reject_custom_expiration_in_community(expires_at)
+    resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
+    visible_map_id = await session.scalar(select(Map.id).where(Map.id == map_id))
+    visible_creator_id = await session.scalar(
+        select(User.id).where(User.id == created_by)
+    )
+    if visible_map_id is None or visible_creator_id is None:
+        raise ValueError("Map not found")
+
     # Check for existing token
     existing = await session.execute(
-        select(MapShareToken).where(MapShareToken.map_id == map_id)
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(MapShareToken.map_id == visible_map_id)
     )
     token_obj = existing.scalar_one_or_none()
     if token_obj is not None:
         # Update expiration if caller provided one
-        if expires_at is not None:
-            token_obj.expires_at = expires_at
+        if expires_at is not None or expires_in_days is not None:
+            token_obj.expires_at = resolved_expiration
         # Re-activate if previously revoked
         if not token_obj.is_active:
             token_obj.is_active = True
@@ -131,11 +130,11 @@ async def create_share_token(
     # 32 bytes per SEC-10
     raw_token = secrets.token_urlsafe(32)
     token_obj = MapShareToken(
-        map_id=map_id,
+        map_id=visible_map_id,
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         token_hint=raw_token[:8],
-        created_by=created_by,
-        expires_at=expires_at,
+        created_by=visible_creator_id,
+        expires_at=resolved_expiration,
     )
     token_obj._raw_token = raw_token  # transient, not persisted
     session.add(token_obj)
@@ -147,11 +146,14 @@ async def update_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,
     expires_at: datetime | None,
+    expires_in_days: ShareExpirationPresetDays | int | None = None,
 ) -> MapShareToken | None:
     """Update expiration on the active share token for a map. Returns None if no active token."""
-    _reject_custom_expiration_in_community(expires_at)
+    resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
     result = await session.execute(
-        select(MapShareToken).where(
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(
             MapShareToken.map_id == map_id,
             MapShareToken.is_active.is_(True),
         )
@@ -159,7 +161,7 @@ async def update_share_token(
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
         return None
-    token_obj.expires_at = expires_at
+    token_obj.expires_at = resolved_expiration
     return token_obj
 
 
@@ -169,7 +171,9 @@ async def get_active_share_token(
 ) -> MapShareToken | None:
     """Return the active share token for a map, or None if no active token exists."""
     result = await session.execute(
-        select(MapShareToken).where(
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(
             MapShareToken.map_id == map_id,
             MapShareToken.is_active.is_(True),
         )
@@ -188,7 +192,9 @@ async def _validate_share_token(
     """
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.token_hash == token_hash)
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(MapShareToken.token_hash == token_hash)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
@@ -605,7 +611,9 @@ async def revoke_share_token(
 ) -> MapShareToken | None:
     """Soft-revoke a share token by setting is_active=False. Returns token if found, None otherwise."""
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.id == token_id)
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(MapShareToken.id == token_id)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
@@ -697,7 +705,9 @@ async def revoke_share_token_by_map(
 ) -> bool:
     """Revoke all share tokens for a map. Returns True if any were revoked."""
     result = await session.execute(
-        select(MapShareToken).where(
+        select(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+        .where(
             MapShareToken.map_id == map_id,
             MapShareToken.is_active.is_(True),
         )

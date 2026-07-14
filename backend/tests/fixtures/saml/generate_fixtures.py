@@ -159,7 +159,11 @@ def _b64(xml_bytes: bytes | str) -> bytes:
     return base64.b64encode(xml_bytes)
 
 
-def _build_signed_response_xml(server: Server) -> str:
+def _build_signed_response_xml(
+    server: Server,
+    *,
+    in_response_to: str = "id-fixture-request-001",
+) -> str:
     """Build a signed SAMLResponse XML targeting our fixture SP."""
     # pysaml2's create_authn_response signs the assertion when sign_assertion=True.
     # We bypass the SP-metadata requirement by passing the SP entityID via
@@ -171,7 +175,7 @@ def _build_signed_response_xml(server: Server) -> str:
     )
     response = server.create_authn_response(
         identity=USER_ATTRS,
-        in_response_to="id-fixture-request-001",
+        in_response_to=in_response_to,
         destination=ACS_URL,
         sp_entity_id=SP_ENTITY_ID,
         name_id=name_id,
@@ -189,7 +193,11 @@ def _build_signed_response_xml(server: Server) -> str:
     return response
 
 
-def _build_unsigned_response_xml(server: Server) -> str:
+def _build_unsigned_response_xml(
+    server: Server,
+    *,
+    in_response_to: str = "id-fixture-request-002",
+) -> str:
     name_id = NameID(
         format=NAMEID_FORMAT_PERSISTENT,
         sp_name_qualifier=SP_ENTITY_ID,
@@ -197,7 +205,7 @@ def _build_unsigned_response_xml(server: Server) -> str:
     )
     response = server.create_authn_response(
         identity=USER_ATTRS,
-        in_response_to="id-fixture-request-002",
+        in_response_to=in_response_to,
         destination=ACS_URL,
         sp_entity_id=SP_ENTITY_ID,
         name_id=name_id,

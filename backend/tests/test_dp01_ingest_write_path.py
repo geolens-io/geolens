@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 import unittest.mock
+import uuid
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
@@ -175,6 +177,134 @@ class TestGrantReaderAccessSignature:
         assert f'"{_SCHEMA_A}"."ds_abc"' in sql
         assert _ROLE_A in sql
         assert "GRANT SELECT" in sql.upper()
+
+
+class TestInteractiveCreateTenantRouting:
+    """Interactive table creation must use the active physical tenant schema."""
+
+    @staticmethod
+    def _force_multi_tenant(monkeypatch):
+        import app.core.tenancy as tenancy
+
+        monkeypatch.setattr(tenancy, "is_multi_tenant", lambda: True)
+
+    def test_default_catalog_port_quotes_active_tenant_schema(self, monkeypatch):
+        from app.core.db.tenant_session import current_tenant_var
+        from app.platform.extensions.defaults import DefaultCatalogPort
+
+        self._force_multi_tenant(monkeypatch)
+        token = current_tenant_var.set(_TENANT_A)
+        try:
+            table_ref = DefaultCatalogPort().quote_table("tenant_feature_table")
+        finally:
+            current_tenant_var.reset(token)
+
+        assert table_ref == f'"{_SCHEMA_A}"."tenant_feature_table"'
+
+    @pytest.mark.asyncio
+    async def test_empty_dataset_ddl_and_grant_are_tenant_scoped(self, monkeypatch):
+        from app.core.db.tenant_session import current_tenant_var
+        from app.modules.catalog.datasets.domain import service_create
+
+        self._force_multi_tenant(monkeypatch)
+        session = unittest.mock.AsyncMock()
+        port = unittest.mock.Mock()
+        port.generate_table_name = unittest.mock.AsyncMock(
+            return_value=("tenant_empty_layer", None)
+        )
+        port.grant_reader_access = unittest.mock.AsyncMock()
+        dataset = object()
+        monkeypatch.setattr(service_create, "get_catalog_port", lambda: port)
+        create_dataset = unittest.mock.AsyncMock(return_value=dataset)
+        monkeypatch.setattr(service_create, "create_dataset", create_dataset)
+
+        request = SimpleNamespace(
+            title="Tenant empty layer",
+            columns=[SimpleNamespace(name="marker", type="text")],
+        )
+        user = SimpleNamespace(id=uuid.uuid4())
+        token = current_tenant_var.set(_TENANT_A)
+        try:
+            result = await service_create.create_empty_dataset(session, request, user)
+        finally:
+            current_tenant_var.reset(token)
+
+        assert result is dataset
+        ddl = str(session.execute.await_args_list[0].args[0])
+        assert f'CREATE TABLE "{_SCHEMA_A}"."tenant_empty_layer"' in ddl
+        assert 'CREATE TABLE "data".' not in ddl
+        port.grant_reader_access.assert_awaited_once_with(
+            session,
+            "tenant_empty_layer",
+            schema=_SCHEMA_A,
+            role=_ROLE_A,
+        )
+
+    @pytest.mark.asyncio
+    async def test_layer_creation_passes_tenant_schema_to_every_data_helper(
+        self, monkeypatch
+    ):
+        from app.core.db.tenant_session import current_tenant_var
+        from app.modules.catalog.layers import service as layer_service
+
+        self._force_multi_tenant(monkeypatch)
+        session = unittest.mock.AsyncMock()
+        port = unittest.mock.Mock()
+        port.generate_table_name = unittest.mock.AsyncMock(
+            return_value=("tenant_geometry_layer", None)
+        )
+        port.quote_table.return_value = f'"{_SCHEMA_A}"."tenant_geometry_layer"'
+        port.add_4326_column = unittest.mock.AsyncMock()
+        port.grant_reader_access = unittest.mock.AsyncMock()
+        port.get_column_info = unittest.mock.AsyncMock(return_value=[])
+        port.compute_quality_score = unittest.mock.AsyncMock(
+            return_value={"overall": 100}
+        )
+        monkeypatch.setattr(layer_service, "get_catalog_port", lambda: port)
+        dataset = SimpleNamespace(quality_detail=None)
+        monkeypatch.setattr(
+            layer_service,
+            "create_dataset",
+            unittest.mock.AsyncMock(return_value=dataset),
+        )
+
+        token = current_tenant_var.set(_TENANT_A)
+        try:
+            result = await layer_service.create_layer(
+                session,
+                "Tenant geometry layer",
+                "POINT",
+                uuid.uuid4(),
+            )
+        finally:
+            current_tenant_var.reset(token)
+
+        assert result is dataset
+        ddl = str(session.execute.await_args_list[0].args[0])
+        assert f'CREATE TABLE "{_SCHEMA_A}"."tenant_geometry_layer"' in ddl
+        assert "CREATE TABLE data." not in ddl
+        port.quote_table.assert_called_once_with(
+            "tenant_geometry_layer", schema=_SCHEMA_A
+        )
+        port.add_4326_column.assert_awaited_once_with(
+            session, "tenant_geometry_layer", 4326, schema=_SCHEMA_A
+        )
+        port.grant_reader_access.assert_awaited_once_with(
+            session,
+            "tenant_geometry_layer",
+            schema=_SCHEMA_A,
+            role=_ROLE_A,
+        )
+        port.get_column_info.assert_awaited_once_with(
+            session, "tenant_geometry_layer", schema=_SCHEMA_A
+        )
+        port.compute_quality_score.assert_awaited_once_with(
+            session,
+            "tenant_geometry_layer",
+            [],
+            dataset,
+            schema=_SCHEMA_A,
+        )
 
 
 # ===========================================================================

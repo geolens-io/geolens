@@ -24,7 +24,9 @@ from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
 from app.core.db import async_session, engine
+from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
+from app.core.tenancy import is_multi_tenant
 from app.core.runtime.staging import ensure_staging_ready, sweep_orphaned_exports
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
@@ -80,7 +82,12 @@ async def seed_roles() -> None:
         )
         for role_data in DEFAULT_ROLES:
             result = await session.execute(
-                select(Role).where(Role.name == role_data["name"])
+                # Select the scalar id, not the Role entity. Role.users uses
+                # select-in loading, and materializing a Role would therefore
+                # issue an unscoped catalog.users query during hosted startup.
+                # The runtime role is correctly subject to FORCE RLS, so that
+                # accidental query fails closed when no request tenant exists.
+                select(Role.id).where(Role.name == role_data["name"])
             )
             if result.scalar_one_or_none() is None:
                 session.add(Role(**role_data))
@@ -142,15 +149,103 @@ async def seed_initial_admin() -> None:
             await session.flush()
 
             role_result = await session.execute(
-                select(Role).where(Role.name == "admin")
+                select(Role.id).where(Role.name == "admin")
             )
-            admin_role = role_result.scalar_one()
-            session.add(UserRole(user_id=admin_user.id, role_id=admin_role.id))
+            admin_role_id = role_result.scalar_one()
+            session.add(UserRole(user_id=admin_user.id, role_id=admin_role_id))
 
             await session.commit()
             logger.info(
                 "Initial admin user created: %s", settings.geolens_admin_username
             )
+
+
+async def seed_bootstrap_identity() -> None:
+    """Seed global RBAC roles and, only for single-tenant installs, an admin.
+
+    A multi-tenant admin must be created through the Cloud signup transaction,
+    after that transaction provisions and binds its tenant.  A global NULL-
+    tenant user is both unusable and rejected by FORCE RLS.
+    """
+    await seed_roles()
+    if is_multi_tenant():
+        logger.info("Skipping global initial-admin seed in multi-tenant mode")
+        return
+    await seed_initial_admin()
+
+
+async def sweep_stale_jobs_once(
+    *, detailed: bool = False
+) -> tuple[int, int] | dict[str, int]:
+    """Run one stale-ingest sweep without issuing an unscoped hosted query.
+
+    Single-tenant mode preserves the historical one-session, one-call path.
+    Hosted mode reads the unprotected tenant registry, then gives every tenant
+    a fresh transaction under ``tenant_job_context`` so FORCE RLS scopes all
+    ``ingest_jobs`` reads and writes. Recovery is best-effort per tenant: one
+    broken tenant must not prevent the remaining tenants from being swept.
+    """
+    from app.platform.jobs.router import fail_stale_jobs
+
+    if not is_multi_tenant():
+        async with async_session() as session:
+            if detailed:
+                outcome = await fail_stale_jobs(session, detailed=True)
+                return outcome.as_dict()
+            return await fail_stale_jobs(session)
+
+    async with async_session() as registry_session:
+        tenant_ids = list(
+            (
+                await registry_session.execute(
+                    text("SELECT id FROM catalog.tenants ORDER BY id")
+                )
+            ).scalars()
+        )
+
+    pending_total = 0
+    running_total = 0
+    detail_totals: dict[str, int] = dict.fromkeys(
+        (
+            "pending_failed",
+            "running_failed",
+            "total_cleaned",
+            "vrt_assets_recovered",
+            "vrt_generations_failed",
+            "terminal_jobs_purged",
+            "staged_paths_considered",
+            "local_files_reaped",
+            "storage_objects_reaped",
+            "staged_paths_skipped",
+            "staged_cleanup_failures",
+            "total_affected",
+        ),
+        0,
+    )
+    for tenant_id in tenant_ids:
+        try:
+            with tenant_job_context(str(tenant_id)):
+                async with async_session() as session:
+                    if detailed:
+                        outcome = await fail_stale_jobs(session, detailed=True)
+                    else:
+                        pending_failed, running_failed = await fail_stale_jobs(session)
+            if detailed:
+                for key, value in outcome.as_dict().items():
+                    detail_totals[key] = detail_totals.get(key, 0) + value
+            else:
+                pending_total += pending_failed
+                running_total += running_failed
+        except Exception as exc:  # broad: fleet sweep continues tenant-by-tenant
+            logger.warning(
+                "Stale jobs sweep failed for tenant",
+                tenant_id=str(tenant_id),
+                error=str(exc),
+                exc_info=True,
+            )
+    if detailed:
+        return detail_totals
+    return pending_total, running_total
 
 
 @asynccontextmanager
@@ -184,8 +279,7 @@ async def lifespan(app: FastAPI):
 
     await assert_schema_in_sync()
 
-    await seed_roles()
-    await seed_initial_admin()
+    await seed_bootstrap_identity()
 
     # SEC-08 / M-72: surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
@@ -227,15 +321,11 @@ async def lifespan(app: FastAPI):
         client polls it after the worker dies — the on-poll fail-fast logic
         in get_job_status only catches it when a user revisits the page.
         """
-        from app.core.db import async_session
-        from app.platform.jobs.router import fail_stale_jobs
-
         sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
         while True:
             try:
                 await asyncio.sleep(300)  # 5 minutes
-                async with async_session() as session:
-                    pending_failed, running_failed = await fail_stale_jobs(session)
+                pending_failed, running_failed = await sweep_stale_jobs_once()
                 if pending_failed or running_failed:
                     sweeper_log.info(
                         "Failed stale jobs",
@@ -1104,4 +1194,11 @@ async def health(request: Request):
     )
 
 
-__all__ = ["app", "health", "lifespan", "seed_initial_admin", "seed_roles"]
+__all__ = [
+    "app",
+    "health",
+    "lifespan",
+    "seed_bootstrap_identity",
+    "seed_initial_admin",
+    "seed_roles",
+]

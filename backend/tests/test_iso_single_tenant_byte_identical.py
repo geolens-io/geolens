@@ -3,10 +3,10 @@
 Proves that in single_tenant (the test default):
 
   (a) ``is_multi_tenant()`` is False — single_tenant is the default in the test env.
-  (b) RLS is NOT enabled on any of the 6 tenant-shared catalog tables:
+  (b) RLS is NOT enabled on any tenant-shared catalog table:
       relrowsecurity=False AND relforcerowsecurity=False.  The 0006_tenant_rls
       migration creates policies but does NOT enable/force RLS.
-  (c) Representative catalog reads against each of the 6 tables do NOT return
+  (c) Representative catalog reads against each boundary table do NOT return
       0 rows due to an unset-GUC fail-closed policy — RLS did NOT leak into
       single_tenant.  Each table is queried with ``LIMIT 1``; the test asserts
       the query executes without error (rows or empty due to no seed data, NOT
@@ -32,13 +32,16 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SIX_TABLES = [
+_RLS_TABLES = [
     "users",
     "records",
     "datasets",
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
 
@@ -85,12 +88,12 @@ class TestIsSingleTenantByDefault:
 
 
 # ---------------------------------------------------------------------------
-# (b) RLS disabled on all 6 tables
+# (b) RLS disabled on the complete boundary
 # ---------------------------------------------------------------------------
 
 
 class TestRlsDisabledInSingleTenant:
-    """relrowsecurity AND relforcerowsecurity are False on all 6 catalog tables.
+    """relrowsecurity and relforcerowsecurity are false on the full boundary.
 
     The 0006_tenant_rls migration creates RLS policies but does NOT enable or
     force RLS — that happens only at runtime via apply_tenancy_rls() in
@@ -110,13 +113,17 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.datasets'::regclass,
                 'catalog.maps'::regclass,
                 'catalog.collections'::regclass,
-                'catalog.embed_tokens'::regclass
+                'catalog.embed_tokens'::regclass,
+                'catalog.oauth_accounts'::regclass,
+                'catalog.audit_logs'::regclass,
+                'catalog.ingest_jobs'::regclass
             ])
             ORDER BY relname
             """
         )
-        assert len(rows) == 6, (
-            f"Expected 6 tables in pg_class, got {len(rows)}: {[r[0] for r in rows]}"
+        assert len(rows) == len(_RLS_TABLES), (
+            f"Expected {len(_RLS_TABLES)} tables in pg_class, got "
+            f"{len(rows)}: {[r[0] for r in rows]}"
         )
         failed = [r[0] for r in rows if r[1] is not False]
         assert not failed, (
@@ -138,12 +145,15 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.datasets'::regclass,
                 'catalog.maps'::regclass,
                 'catalog.collections'::regclass,
-                'catalog.embed_tokens'::regclass
+                'catalog.embed_tokens'::regclass,
+                'catalog.oauth_accounts'::regclass,
+                'catalog.audit_logs'::regclass,
+                'catalog.ingest_jobs'::regclass
             ])
             ORDER BY relname
             """
         )
-        assert len(rows) == 6
+        assert len(rows) == len(_RLS_TABLES)
         failed = [r[0] for r in rows if r[2] is not False]
         assert not failed, (
             f"relforcerowsecurity=True on {failed} in single_tenant — "
@@ -252,6 +262,30 @@ class TestCatalogReadsNotBlockedByRls:
         assert normal == bypass, (
             f"catalog.embed_tokens: normal count={normal} != bypass count={bypass}.  "
             "RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_oauth_accounts_read_not_blocked(self):
+        """OAuth link reads remain unchanged when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("oauth_accounts")
+        assert normal == bypass, (
+            f"catalog.oauth_accounts: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_audit_logs_read_not_blocked(self):
+        """Audit history remains globally readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("audit_logs")
+        assert normal == bypass, (
+            f"catalog.audit_logs: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_ingest_jobs_read_not_blocked(self):
+        """Ingest jobs retain their single-tenant query behavior."""
+        normal, bypass = await self._table_row_counts("ingest_jobs")
+        assert normal == bypass, (
+            f"catalog.ingest_jobs: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
         )
 
 

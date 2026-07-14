@@ -16,6 +16,7 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
+    require_mode_permission,
     require_permission,
 )
 from app.processing.ingest.schemas import UploadResponse
@@ -28,6 +29,7 @@ from app.platform.jobs.schemas import (
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
+from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
 
 log = structlog.get_logger()
@@ -100,6 +102,8 @@ async def _reap_committed_staged_paths(
     outcome: StaleCleanupOutcome,
 ) -> StaleCleanupOutcome:
     """Delete staging artifacts only after their job-row purge is durable."""
+    from app.core.tenancy import is_multi_tenant
+
     local_files_reaped = 0
     storage_objects_reaped = 0
     staged_paths_skipped = 0
@@ -108,6 +112,15 @@ async def _reap_committed_staged_paths(
 
     for file_path in outcome._staged_paths:
         try:
+            if is_multi_tenant() and file_path.startswith("staging/"):
+                # Hosted jobs store logical keys. Resolve the active tenant's
+                # provider namespace before deleting the staged object.
+                from app.platform.storage import get_storage
+
+                await get_storage().delete(resolve_current_storage_key(file_path))
+                storage_objects_reaped += 1
+                continue
+
             local = Path(file_path).resolve()
             if local.exists():
                 if local.is_relative_to(staging_root):
@@ -121,7 +134,7 @@ async def _reap_committed_staged_paths(
                 # same-bucket keys through this column.
                 from app.platform.storage import get_storage
 
-                await get_storage().delete(file_path)
+                await get_storage().delete(resolve_current_storage_key(file_path))
                 storage_objects_reaped += 1
             else:
                 staged_paths_skipped += 1
@@ -178,6 +191,18 @@ async def sweep_stale_vrt_assets(
 
     now = datetime.now(timezone.utc)
 
+    generation_scope = []
+    asset_scope = []
+    from app.core.tenancy import is_multi_tenant
+
+    if is_multi_tenant():
+        # Function-local import preserves the platform/catalog module boundary.
+        # The subqueries are RLS-visible and fail closed without a tenant GUC.
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        generation_scope.append(VrtGeneration.vrt_dataset_id.in_(select(Dataset.id)))
+        asset_scope.append(RasterAsset.dataset_id.in_(select(Dataset.id)))
+
     # --- 1. Find stale regenerating RasterAssets ---
     # A VRT asset is stale when:
     #   - status = 'regenerating'
@@ -192,6 +217,7 @@ async def sweep_stale_vrt_assets(
     stale_gen_result = await db.execute(
         update(VrtGeneration)
         .where(
+            *generation_scope,
             VrtGeneration.status.in_(["pending", "running"]),
             func.coalesce(VrtGeneration.heartbeat_at, VrtGeneration.started_at)
             < stale_cutoff,
@@ -212,6 +238,7 @@ async def sweep_stale_vrt_assets(
     stale_asset_result = await db.execute(
         update(RasterAsset)
         .where(
+            *asset_scope,
             RasterAsset.status == "regenerating",
             RasterAsset.current_generation_id.in_(stale_generation_ids),
         )
@@ -483,7 +510,11 @@ async def _can_access_another_users_job(
 @router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
 async def cleanup_stale_jobs(
     request: Request,
-    user: Identity = Depends(require_permission("manage_users")),
+    user: Identity = Depends(
+        require_mode_permission(
+            single_tenant="manage_users", multi_tenant="manage_tenants"
+        )
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> StaleCleanupResponse:
     """Fail all stale jobs: pending >1h or running >1h.
@@ -494,6 +525,8 @@ async def cleanup_stale_jobs(
     sweeper, so this endpoint is only needed if you need cleanup faster than
     that interval.
     """
+    from app.core.tenancy import is_multi_tenant
+
     # Deferred by design to preserve the platform -> modules layer boundary.
     from app.modules.audit.service import AuditEvent, audit_emit, audit_emit_durable
 
@@ -516,8 +549,20 @@ async def cleanup_stale_jobs(
     await db.commit()
 
     try:
-        outcome = await fail_stale_jobs(db, commit=False, detailed=True)
-        database_details = outcome.as_dict()
+        multi_tenant = is_multi_tenant()
+        if multi_tenant:
+            # FORCE RLS makes a request session visible only to its current
+            # tenant. The lifecycle helper opens a scoped transaction for
+            # every tenant and reaps each tenant's staged objects in context.
+            from app.api.main import sweep_stale_jobs_once
+
+            fleet_details = await sweep_stale_jobs_once(detailed=True)
+            if not isinstance(fleet_details, dict):
+                raise TypeError("Detailed fleet cleanup returned no details")
+            database_details = fleet_details
+        else:
+            outcome = await fail_stale_jobs(db, commit=False, detailed=True)
+            database_details = outcome.as_dict()
         await audit_emit(
             db,
             AuditEvent(
@@ -533,12 +578,15 @@ async def cleanup_stale_jobs(
                 ip_address=ip_address,
             ),
         )
-        # Commit database mutations plus a durable phase marker before touching
-        # local/S3 artifacts. A later failure can leak a staging object, but it
-        # cannot roll the job row back after destroying its only retry input.
+        # In single-tenant mode, commit database mutations plus a durable phase
+        # marker before touching local/S3 artifacts. The fleet helper applies
+        # that ordering inside each tenant-scoped transaction.
         await db.commit()
-        outcome = await _reap_committed_staged_paths(outcome)
-        details = outcome.as_dict()
+        if multi_tenant:
+            details = database_details
+        else:
+            outcome = await _reap_committed_staged_paths(outcome)
+            details = outcome.as_dict()
     except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()
         # Cleanup failures can embed local paths or storage keys in exception
@@ -710,7 +758,10 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
     if not job.file_path:
         return False, "The source is no longer available. Start the import again."
 
-    if Path(job.file_path).exists():
+    from app.core.tenancy import is_multi_tenant
+
+    candidate = Path(job.file_path)
+    if candidate.exists() and (candidate.is_absolute() or not is_multi_tenant()):
         return True, None
     if job.file_path.startswith("/"):
         return False, "Staging file no longer available. Please re-upload."
@@ -718,7 +769,12 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
     try:
         from app.platform.storage import get_storage
 
-        if await get_storage().exists(job.file_path):
+        physical_file_path = (
+            resolve_current_storage_key(job.file_path)
+            if job.file_path.startswith("staging/")
+            else job.file_path
+        )
+        if await get_storage().exists(physical_file_path):
             return True, None
     except (
         Exception

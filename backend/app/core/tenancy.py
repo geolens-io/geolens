@@ -36,3 +36,24 @@ def is_multi_tenant() -> bool:
     from app.core.config import settings
 
     return settings.geolens_tenancy_mode == TENANCY_MODE_MULTI
+
+
+def tenant_bound_scope(resource: str) -> str:
+    """Bind a signed resource scope to the active hosted tenant.
+
+    Community/single-tenant callers receive the original resource string
+    byte-for-byte. Hosted callers must have an explicit request or worker
+    tenant; silently minting a legacy unbound scope would make the signature
+    unusable at best and replayable across tenant hosts at worst.
+    """
+    if not is_multi_tenant():
+        return resource
+
+    from app.core.db.tenant_session import current_tenant_var
+
+    tenant_id = current_tenant_var.get()
+    if tenant_id is None:
+        raise RuntimeError(
+            "Tenant context is required for a tenant-bound resource scope"
+        )
+    return f"{tenant_id}:{resource}"

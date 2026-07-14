@@ -41,8 +41,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-#: First pinned version — increment when any Protocol or registry contract changes.
-EXTENSION_API_VERSION: int = 1
+#: v2 adds required ConnectorExtension discovery/dispatch methods and makes the
+#: existing ``connectors`` registry key conflict-guarded as a single slot.
+EXTENSION_API_VERSION: int = 2
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

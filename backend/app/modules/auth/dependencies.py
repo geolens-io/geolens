@@ -68,7 +68,9 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
         return None
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     result = await db.execute(
-        select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
+        select(ApiKey)
+        .join(User, ApiKey.user_id == User.id)
+        .where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
     )
     api_key_obj = result.scalar_one_or_none()
     if api_key_obj is None:
@@ -90,7 +92,12 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
         api_key_id = api_key_obj.id
         async with async_session() as side_session:
             await side_session.execute(
-                update(ApiKey).where(ApiKey.id == api_key_id).values(last_used_at=now)
+                update(ApiKey)
+                .where(
+                    ApiKey.id == api_key_id,
+                    ApiKey.user_id.in_(select(User.id)),
+                )
+                .values(last_used_at=now)
             )
             await side_session.commit()
         api_key_obj.last_used_at = now
@@ -390,3 +397,27 @@ def require_permission(*capabilities: str):
         return current_user
 
     return _permission_checker
+
+
+def require_mode_permission(*, single_tenant: str, multi_tenant: str):
+    """Require different capabilities for self-hosted and hosted operation.
+
+    Some control-plane resources are deployment-global by design. A
+    self-hosted admin may manage them with the ordinary domain capability, but
+    a hosted tenant admin must not mutate or inspect fleet-wide state. Hosted
+    access therefore requires an explicitly provisioned fleet capability.
+    """
+    single_checker = require_permission(single_tenant)
+    multi_checker = require_permission(multi_tenant)
+
+    async def _mode_permission_checker(
+        request: Request,
+        current_user: Annotated[Identity, Depends(get_current_active_user)],
+        db: AsyncSession = Depends(get_db),
+    ) -> Identity:
+        from app.core.tenancy import is_multi_tenant
+
+        checker = multi_checker if is_multi_tenant() else single_checker
+        return await checker(request=request, current_user=current_user, db=db)
+
+    return _mode_permission_checker

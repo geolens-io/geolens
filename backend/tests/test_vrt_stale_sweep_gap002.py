@@ -13,6 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +571,8 @@ async def test_sweep_stale_vrt_assets_returns_count():
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=1)
 
-    result = await sweep_stale_vrt_assets(mock_session, cutoff)
+    with patch("app.core.tenancy.is_multi_tenant", return_value=True):
+        result = await sweep_stale_vrt_assets(mock_session, cutoff)
 
     # Returns (assets_recovered, gens_failed) both ≥ 0
     assert isinstance(result, tuple)
@@ -580,3 +584,164 @@ async def test_sweep_stale_vrt_assets_returns_count():
     statements = [str(call.args[0]) for call in mock_session.execute.await_args_list]
     assert "UPDATE catalog.vrt_generations" in statements[0]
     assert "UPDATE catalog.raster_assets" in statements[1]
+    assert (
+        "vrt_generations.vrt_dataset_id IN (SELECT catalog.datasets.id" in statements[0]
+    )
+    assert "raster_assets.dataset_id IN (SELECT catalog.datasets.id" in statements[1]
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_vrt_assets_preserves_single_tenant_sql_shape():
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    gen_result = MagicMock()
+    gen_result.scalars.return_value = []
+    asset_result = MagicMock()
+    asset_result.scalars.return_value = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=[gen_result, asset_result])
+
+    await sweep_stale_vrt_assets(
+        session,
+        datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+
+    statements = [str(call.args[0]) for call in session.execute.await_args_list]
+    assert "SELECT catalog.datasets.id" not in statements[0]
+    assert "SELECT catalog.datasets.id" not in statements[1]
+
+
+@pytest.mark.rls
+async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
+    multi_tenant_rls,
+):
+    """The tenant loop scopes both VRT UPDATEs through RLS-visible datasets."""
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+
+    ctx = multi_tenant_rls
+    record_a, record_b = uuid4(), uuid4()
+    dataset_a, dataset_b = uuid4(), uuid4()
+    generation_a, generation_b = uuid4(), uuid4()
+    asset_a, asset_b = uuid4(), uuid4()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    old_started_at = cutoff - timedelta(hours=1)
+    engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                sa.text(
+                    "GRANT SELECT, UPDATE ON catalog.vrt_generations, "
+                    "catalog.raster_assets TO geolens_reader"
+                )
+            )
+            for record_id, dataset_id, tenant_id, suffix in (
+                (record_a, dataset_a, ctx.tenant_a, "a"),
+                (record_b, dataset_b, ctx.tenant_b, "b"),
+            ):
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.records "
+                        "(id, title, visibility, record_status, record_type, "
+                        " tenant_id, created_at, updated_at) "
+                        "VALUES (:id, :title, 'private', 'draft', 'vrt_dataset', "
+                        " :tenant_id, now(), now())"
+                    ),
+                    {
+                        "id": record_id,
+                        "title": f"tenant VRT {suffix}",
+                        "tenant_id": tenant_id,
+                    },
+                )
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.datasets "
+                        "(id, record_id, table_name, tenant_id) "
+                        "VALUES (:id, :record_id, :table_name, :tenant_id)"
+                    ),
+                    {
+                        "id": dataset_id,
+                        "record_id": record_id,
+                        "table_name": f"tenant_vrt_{suffix}_{uuid4().hex[:8]}",
+                        "tenant_id": tenant_id,
+                    },
+                )
+
+            for generation_id, dataset_id in (
+                (generation_a, dataset_a),
+                (generation_b, dataset_b),
+            ):
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.vrt_generations "
+                        "(id, vrt_dataset_id, status, started_at, created_at) "
+                        "VALUES (:id, :dataset_id, 'running', :started_at, now())"
+                    ),
+                    {
+                        "id": generation_id,
+                        "dataset_id": dataset_id,
+                        "started_at": old_started_at,
+                    },
+                )
+
+            for asset_id, dataset_id, generation_id, suffix in (
+                (asset_a, dataset_a, generation_a, "a"),
+                (asset_b, dataset_b, generation_b, "b"),
+            ):
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.raster_assets "
+                        "(id, dataset_id, asset_uri, storage_backend, status, "
+                        " current_generation_id, created_at) "
+                        "VALUES (:id, :dataset_id, :uri, 'local', 'regenerating', "
+                        " :generation_id, now())"
+                    ),
+                    {
+                        "id": asset_id,
+                        "dataset_id": dataset_id,
+                        "uri": f"/tmp/tenant-{suffix}.vrt",
+                        "generation_id": generation_id,
+                    },
+                )
+
+        async with ctx.tenant_session(ctx.tenant_a) as session:
+            assert await sweep_stale_vrt_assets(session, cutoff) == (1, 1)
+
+        async with engine.connect() as conn:
+            generations = dict(
+                (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT id, status FROM catalog.vrt_generations "
+                            "WHERE id = ANY(:ids)"
+                        ),
+                        {"ids": [generation_a, generation_b]},
+                    )
+                ).all()
+            )
+            assets = dict(
+                (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT id, status FROM catalog.raster_assets "
+                            "WHERE id = ANY(:ids)"
+                        ),
+                        {"ids": [asset_a, asset_b]},
+                    )
+                ).all()
+            )
+        assert generations == {generation_a: "failed", generation_b: "running"}
+        assert assets == {asset_a: "failed", asset_b: "regenerating"}
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                sa.text("DELETE FROM catalog.records WHERE id = ANY(:ids)"),
+                {"ids": [record_a, record_b]},
+            )
+            await conn.execute(
+                sa.text(
+                    "REVOKE SELECT, UPDATE ON catalog.vrt_generations, "
+                    "catalog.raster_assets FROM geolens_reader"
+                )
+            )
+        await engine.dispose()

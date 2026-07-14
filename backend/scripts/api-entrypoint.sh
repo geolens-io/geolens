@@ -49,10 +49,9 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 # edition; GEOLENS_EDITION=enterprise will now trigger a loud startup failure
 # (RuntimeError) rather than a silent OSS fallback.
 #
-# The architecturally correct path for production Enterprise deployments is to
-# pre-bake the overlay into the image at BUILD TIME using:
-#   docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...
-# (see ARG INSTALL_ENTERPRISE_OVERLAY in Dockerfile)
+# Production paid deployments use the overlay repository's immutable image
+# build, which installs its locked wheel at build time into the completed core
+# runtime. The public Dockerfile does not copy private packages.
 #
 # This block is retained for dev/CI scenarios where the container runs without
 # read_only (e.g. `docker compose up` for local development with a mounted
@@ -63,7 +62,7 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."
     uv add --editable "${ENTERPRISE_PATH}" --no-dev 2>&1 || {
         echo "WARNING: Enterprise package install failed. Under read_only rootfs this is expected." >&2
-        echo "Use the build-time bake path (ARG INSTALL_ENTERPRISE_OVERLAY in Dockerfile) for production." >&2
+        echo "Use the overlay repository's immutable image build for production." >&2
     }
     # Re-own cache after root install so appuser can access it later
     if [ "$(id -u)" -eq 0 ]; then
@@ -71,8 +70,13 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     fi
 fi
 
-# Run database migrations (idempotent — safe to run on every startup)
-# The dedicated migrate service runs first; this is a fail-closed safety net.
+# Run database migrations (idempotent — safe to run on every startup).
+# The dedicated migrate service normally runs first; this default-on step is a
+# fail-closed safety net for deployments that start the API directly. A
+# deployment with a dedicated, ordered migrate service may explicitly set
+# GEOLENS_API_RUN_MIGRATIONS=false so the least-privilege API login never tries
+# to execute DDL. Any value other than the exact strings "true" and "false" is
+# rejected: a typo must never silently disable the safety net.
 #
 # MIG-01: `alembic upgrade heads` is idempotent — re-running against an
 # already-migrated DB is a no-op that exits 0. So a NON-zero exit is a REAL
@@ -81,22 +85,33 @@ fi
 # migration silently serves a broken schema. Refuse to start instead: print
 # a clear FATAL to stderr and exit with the migration's return code (we never
 # reach the uvicorn exec below).
-echo "Running database migrations..."
-migration_rc=0
-if [ "$(id -u)" -eq 0 ]; then
-    setpriv --reuid="${APP_UID}" --regid="${APP_GID}" --clear-groups \
-        uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
-else
-    uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
-fi
-if [ "${migration_rc}" -ne 0 ]; then
-    echo "FATAL: database migrations failed (rc=${migration_rc}); refusing to start." >&2
-    echo "       'alembic upgrade heads' is idempotent, so a non-zero exit is a real" >&2
-    echo "       error (failed/partial migration, unreachable DB, or broken chain) —" >&2
-    echo "       not an already-applied no-op. Check the migrate service logs and the" >&2
-    echo "       DB connectivity before retrying." >&2
-    exit "${migration_rc}"
-fi
+case "${GEOLENS_API_RUN_MIGRATIONS:-true}" in
+    true)
+        echo "Running database migrations..."
+        migration_rc=0
+        if [ "$(id -u)" -eq 0 ]; then
+            setpriv --reuid="${APP_UID}" --regid="${APP_GID}" --clear-groups \
+                uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
+        else
+            uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
+        fi
+        if [ "${migration_rc}" -ne 0 ]; then
+            echo "FATAL: database migrations failed (rc=${migration_rc}); refusing to start." >&2
+            echo "       'alembic upgrade heads' is idempotent, so a non-zero exit is a real" >&2
+            echo "       error (failed/partial migration, unreachable DB, or broken chain) —" >&2
+            echo "       not an already-applied no-op. Check the migrate service logs and the" >&2
+            echo "       DB connectivity before retrying." >&2
+            exit "${migration_rc}"
+        fi
+        ;;
+    false)
+        echo "Skipping API entrypoint migrations (GEOLENS_API_RUN_MIGRATIONS=false)."
+        ;;
+    *)
+        echo "FATAL: GEOLENS_API_RUN_MIGRATIONS must be exactly 'true' or 'false'; refusing to start." >&2
+        exit 64
+        ;;
+esac
 
 if [ "$#" -eq 0 ]; then
     set -- sh -c "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000"

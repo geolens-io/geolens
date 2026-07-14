@@ -35,6 +35,7 @@ from __future__ import annotations
 import base64
 import sys
 import uuid
+import zlib
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -107,12 +108,34 @@ def saml_idp_cert_pem(saml_response_dir) -> str:
     return FIXTURE_CERT_PEM
 
 
+@pytest.fixture
+def saml_idp_server(saml_overlay_registered, saml_response_dir):
+    """Build an IdP simulator for black-box ACS flows.
+
+    The overlay registration dependency ensures Community-only test runs skip
+    before importing the optional SAML tooling. Responses are generated per
+    login request so correlation and replay coverage stays at the public HTTP
+    boundary.
+    """
+    del saml_overlay_registered
+
+    from tests.fixtures.saml import generate_fixtures
+
+    cert_path = saml_response_dir / "idp_cert.pem"
+    key_path = saml_response_dir / "idp_key.pem"
+    if not cert_path.exists() or not key_path.exists():
+        pytest.fail("dynamic SAML fixture keypair is unavailable")
+
+    metadata_dir = saml_response_dir / "dynamic_sp_metadata"
+    metadata_dir.mkdir(exist_ok=True)
+    metadata_path = generate_fixtures._write_sp_metadata(metadata_dir)
+    return generate_fixtures._make_server(metadata_path, cert_path, key_path)
+
+
 FIXTURE_IDP_ENTITY_ID = "https://fixture-idp.geolens.test/idp"
 FIXTURE_SP_ENTITY_ID = "https://geolens.test/auth/saml/fixture"
 FIXTURE_SLUG = "fixture"
 FIXTURE_NAMEID = "user@example.com"
-# Embedded in the fixtures' InResponseTo attribute (see generate_fixtures.py).
-FIXTURE_REQUEST_ID = "id-fixture-request-001"
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +211,51 @@ def _load_fixture_b64(name: str, response_dir: Path) -> str:
         return regenerated.read_text().strip()
     template = FIXTURE_DIR / f"{name}.template"
     return template.read_text().strip()
+
+
+async def _start_saml_login(
+    client,
+) -> tuple[str, str]:
+    """Start the public SAML login flow and return request id plus relay state."""
+    response = await client.get(
+        f"/auth/saml/{FIXTURE_SLUG}/login",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302, response.text
+    query = parse_qs(urlparse(response.headers["location"]).query)
+    relay_state = query["RelayState"][0]
+
+    compressed = base64.b64decode(query["SAMLRequest"][0])
+    request_xml = zlib.decompress(compressed, -15)
+
+    from defusedxml import ElementTree as ET
+
+    request_id = ET.fromstring(request_xml).attrib["ID"]
+    return request_id, relay_state
+
+
+def _build_saml_response_b64(server, request_id: str, *, kind: str) -> str:
+    """Build a response for the request created by the public login route."""
+    from tests.fixtures.saml import generate_fixtures
+
+    if kind == "unsigned":
+        xml = generate_fixtures._build_unsigned_response_xml(
+            server,
+            in_response_to=request_id,
+        )
+    else:
+        xml = generate_fixtures._build_signed_response_xml(
+            server,
+            in_response_to=request_id,
+        )
+        if kind == "expired":
+            xml = generate_fixtures._force_expired(xml)
+        elif kind == "xsw":
+            xml = generate_fixtures._build_xsw_attack_xml(xml)
+        elif kind != "signed":
+            raise AssertionError(f"unknown SAML fixture kind: {kind}")
+    return generate_fixtures._b64(xml).decode()
 
 
 def test_load_fixture_b64_falls_back_to_template(tmp_path):
@@ -271,7 +339,7 @@ async def _cleanup_saml_providers(test_db_session):
 
 
 @pytest.fixture
-def saml_router_mounted(saml_overlay_registered):
+async def saml_router_mounted(saml_overlay_registered, client):
     """Compose the registry fixture with FastAPI route mounting/unmounting AND
     edition initialization.
 
@@ -281,22 +349,19 @@ def saml_router_mounted(saml_overlay_registered):
     initialize edition manually so ``require_enterprise`` returns True
     while this test runs.
     """
+    del client  # Initializes the patched DB/session factory used by the router.
+
     import app.core.edition as edition_mod
+    import app.core.public_urls as public_urls_mod
+    from app.api.main import app
     from geolens_enterprise.auth.saml import router as saml_router_mod
-    from geolens_enterprise.auth.saml.replay import replay_cache
 
-    _mount_saml_router(saml_overlay_registered)
     saved_info = edition_mod._info
-    edition_mod.init_edition(["enterprise"])
-
-    # Reset module-level singletons so test order does not affect outcomes.
-    saved_outstanding = dict(saml_router_mod._outstanding_requests)
-    saved_replay = dict(replay_cache._seen)
-    saml_router_mod._outstanding_requests.clear()
-    replay_cache._seen.clear()
-    # Pre-populate the outstanding map so the fixtures (whose InResponseTo
-    # attribute is FIXTURE_REQUEST_ID) are treated as solicited responses.
-    saml_router_mod._outstanding_requests[FIXTURE_REQUEST_ID] = FIXTURE_SLUG
+    saved_get_api_url = public_urls_mod.get_public_api_url
+    saved_get_app_url = public_urls_mod.get_public_app_url
+    router_was_mounted = any(
+        getattr(route, "path", "").startswith("/auth/saml") for route in app.routes
+    )
 
     # Patch get_public_api_url so the ACS URL the SAML router builds matches
     # the fixture's hardcoded Destination attribute. The fixtures were
@@ -304,28 +369,36 @@ def saml_router_mounted(saml_overlay_registered):
     # saml/fixture/acs"; pysaml2 enforces Destination-vs-ACS match
     # ("destination ... not in return addresses ..."). In production the
     # API public URL is admin-configured; in tests we make it the fixture URL.
-    import app.core.public_urls as public_urls_mod
-
-    saved_get_api_url = public_urls_mod.get_public_api_url
-
-    async def _fixture_api_url(db, request=None):  # type: ignore[no-untyped-def]
+    async def _fixture_public_url(  # type: ignore[no-untyped-def]
+        db,
+        *,
+        request=None,
+        for_external_use,
+    ):
+        del db, request
+        assert for_external_use is True
         return "https://geolens.test"
 
-    public_urls_mod.get_public_api_url = _fixture_api_url
-    # The SAML router imported the symbol, so patch the imported binding too.
-    saml_router_mod.get_public_api_url = _fixture_api_url
-
     try:
+        _mount_saml_router(saml_overlay_registered)
+        edition_mod.init_edition(["enterprise"])
+        public_urls_mod.get_public_api_url = _fixture_public_url
+        public_urls_mod.get_public_app_url = _fixture_public_url
+        # The SAML router imported both symbols, so patch its bindings too.
+        # Requiring the production keyword-only external-use flag pins the
+        # host-header trust boundary while supplying a fixed trusted origin.
+        saml_router_mod.get_public_api_url = _fixture_public_url
+        saml_router_mod.get_public_app_url = _fixture_public_url
+
         yield saml_overlay_registered
     finally:
         edition_mod._info = saved_info
-        saml_router_mod._outstanding_requests.clear()
-        saml_router_mod._outstanding_requests.update(saved_outstanding)
-        replay_cache._seen.clear()
-        replay_cache._seen.update(saved_replay)
         public_urls_mod.get_public_api_url = saved_get_api_url
+        public_urls_mod.get_public_app_url = saved_get_app_url
         saml_router_mod.get_public_api_url = saved_get_api_url
-        _unmount_saml_router()
+        saml_router_mod.get_public_app_url = saved_get_app_url
+        if not router_was_mounted:
+            _unmount_saml_router()
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +444,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
     saml_idp_cert_pem,
 ):
     """SAML-11: signed assertion JIT-provisions user + issues JWT + redirects.
@@ -382,11 +455,16 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     UNIQUE-constraint collision.
     """
     await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
-    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="signed",
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
         follow_redirects=False,
     )
     assert resp.status_code == 302, (
@@ -422,7 +500,7 @@ async def test_saml_acs_rejects_invalid_signature(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
 ):
     """SAML-11: tampered/wrong-signature assertion produces an error redirect.
 
@@ -431,11 +509,16 @@ async def test_saml_acs_rejects_invalid_signature(
     convenient stand-in for a generic invalid-signature scenario.
     """
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_expired.xml.b64", saml_response_dir)
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="expired",
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -454,17 +537,23 @@ async def test_saml_acs_rejects_unsigned(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
 ):
     """SAML-11: unsigned assertion is rejected (want_assertions_signed=True)."""
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64(
-        "idp_response_unsigned.xml.b64", saml_response_dir
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="unsigned",
     )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={
+            "SAMLResponse": saml_response,
+            "RelayState": relay_state,
+        },
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -477,19 +566,25 @@ async def test_saml_acs_rejects_expired_assertion(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
+    saml_idp_cert_pem,
 ):
     """SAML-11 / Pitfall 4: expired assertion is rejected.
 
     The ``expired`` fixture has IssueInstant/NotBefore/NotOnOrAfter rewritten
     to 2020 dates -- well past any reasonable accepted_time_diff (60s).
     """
-    await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_expired.xml.b64", saml_response_dir)
+    await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="expired",
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -497,27 +592,27 @@ async def test_saml_acs_rejects_expired_assertion(
     assert "token=" not in resp.headers["location"]
 
 
-async def test_saml_acs_rejects_replayed_assertion(
+async def test_saml_acs_rejects_reused_payload(
     client,
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """SAML-11 / Pitfall 5: same assertion submitted twice is rejected on the
-    second attempt by ReplayCache. The fixture's outstanding-request entry
-    is also re-tracked between submissions so the second failure is
-    attributable to ReplayCache rather than the consumed reqid."""
-    from geolens_enterprise.auth.saml import router as saml_router_mod
-
+    """SAML-11 / Pitfall 5: an ACS payload and relay state are single-use."""
     await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
-    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="signed",
+    )
 
     # First submission succeeds.
     resp1 = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
         follow_redirects=False,
     )
     assert resp1.status_code == 302
@@ -525,20 +620,18 @@ async def test_saml_acs_rejects_replayed_assertion(
         f"first POST should succeed: {resp1.headers['location']}"
     )
 
-    # Re-track the reqid (consumed by the first call) so the second call's
-    # rejection is attributable to ReplayCache, not pysaml2's
-    # solicited-only check on the now-missing outstanding entry.
-    saml_router_mod._outstanding_requests[FIXTURE_REQUEST_ID] = FIXTURE_SLUG
-
-    # Second submission of the same assertion is rejected.
+    # Reusing the identical public callback payload must fail after first use.
     resp2 = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={
+            "SAMLResponse": saml_response,
+            "RelayState": relay_state,
+        },
         follow_redirects=False,
     )
     assert resp2.status_code == 302
     assert "error=" in resp2.headers["location"], (
-        f"second (replayed) POST should fail: {resp2.headers['location']}"
+        f"second (reused) POST should fail: {resp2.headers['location']}"
     )
     assert "token=" not in resp2.headers["location"]
 
@@ -548,7 +641,8 @@ async def test_saml_acs_rejects_xsw_attack(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
+    saml_idp_cert_pem,
 ):
     """SAML-11 / Pitfall 2: XML Signature Wrapping attack is rejected.
 
@@ -557,12 +651,17 @@ async def test_saml_acs_rejects_xsw_attack(
     xmlsec1 reject this shape -- the test asserts the response is an error
     redirect, not a happy-path 302 with a JWT for the attacker subject.
     """
-    await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_xsw.xml.b64", saml_response_dir)
+    await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="xsw",
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -596,7 +695,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
     saml_idp_cert_pem,
 ):
     """Pitfall 8 / D-15: post-ACS redirect URL must include ?source=saml so
@@ -605,36 +704,36 @@ async def test_saml_acs_redirect_includes_source_query_param(
     Verified against both happy-path and error redirect to confirm the
     query param is consistently present.
     """
-    from geolens_enterprise.auth.saml import router as saml_router_mod
-
     await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
 
     # Happy path.
+    happy_request_id, happy_relay_state = await _start_saml_login(client)
     happy = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
         data={
-            "SAMLResponse": _load_fixture_b64(
-                "idp_response_signed.xml.b64", saml_response_dir
-            )
+            "SAMLResponse": _build_saml_response_b64(
+                saml_idp_server,
+                happy_request_id,
+                kind="signed",
+            ),
+            "RelayState": happy_relay_state,
         },
         follow_redirects=False,
     )
     happy_qs = parse_qs(urlparse(happy.headers["location"]).query)
     assert happy_qs.get("source") == ["saml"], happy.headers["location"]
 
-    # Reset reqid + replay cache for the second call (different fixture so
-    # different assertion id, but the unsigned fixture also uses
-    # FIXTURE_REQUEST_ID via the _outstanding map shape).
-    saml_router_mod._outstanding_requests[FIXTURE_REQUEST_ID] = FIXTURE_SLUG
-    saml_router_mod._outstanding_requests["id-fixture-request-002"] = FIXTURE_SLUG
-
     # Error path.
+    error_request_id, error_relay_state = await _start_saml_login(client)
     err = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
         data={
-            "SAMLResponse": _load_fixture_b64(
-                "idp_response_unsigned.xml.b64", saml_response_dir
-            )
+            "SAMLResponse": _build_saml_response_b64(
+                saml_idp_server,
+                error_request_id,
+                kind="unsigned",
+            ),
+            "RelayState": error_relay_state,
         },
         follow_redirects=False,
     )
@@ -968,7 +1067,7 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
     test_db_session,
     saml_router_mounted,
     _cleanup_saml_providers,
-    saml_response_dir,
+    saml_idp_server,
     saml_idp_cert_pem,
 ):
     """SAML-12 / SC#4 behavior coverage: a SAML user whose assertion contains
@@ -989,11 +1088,16 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
         default_role="viewer",  # default would be viewer; mapping takes precedence
         idp_certificate=saml_idp_cert_pem,
     )
-    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
+    request_id, relay_state = await _start_saml_login(client)
+    saml_response = _build_saml_response_b64(
+        saml_idp_server,
+        request_id,
+        kind="signed",
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": saml_response},
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
         follow_redirects=False,
     )
     assert resp.status_code == 302, f"ACS POST failed: {resp.text}"

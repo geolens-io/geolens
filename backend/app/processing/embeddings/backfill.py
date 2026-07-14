@@ -11,6 +11,7 @@ Can be run as a module: python -m app.embeddings.backfill
 """
 
 import structlog
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_MODEL
@@ -41,18 +42,24 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     Returns:
         Dict with counts: processed, created, skipped, errors.
     """
-    if force:
-        from sqlalchemy import delete
+    port = get_processing_port()
 
+    if force:
         # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
-        # force=True we just clear the rows; no need to drop the index.
-        await session.execute(delete(RecordEmbedding))
+        # force=True we just clear the active tenant's rows; no need to drop
+        # the index. RecordEmbedding is not RLS-scoped itself, so the Record
+        # subquery is the required tenant boundary in hosted mode.
+        Record = port.get_record_orm_class()
+        await session.execute(
+            delete(RecordEmbedding).where(
+                RecordEmbedding.record_id.in_(select(Record.id))
+            )
+        )
         await session.commit()
-        logger.info("Backfill: cleared all existing embeddings (force=True)")
+        logger.info("Backfill: cleared visible embeddings (force=True)")
 
     # Find records that have no embedding row, eager-load keywords
-    port = get_processing_port()
     records = await port.get_records_without_embeddings(session, force=False)
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads

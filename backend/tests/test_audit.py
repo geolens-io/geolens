@@ -253,94 +253,27 @@ async def test_audit_log_unauthenticated_returns_401(
 
 
 # ---------------------------------------------------------------------------
-# Export tests
+# Export tests. Community includes bounded CSV and JSON export. Enterprise adds
+# automated compliance workflows and external streaming integrations.
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# Export tests
-#
-# Audit-log export is an enterprise-only feature (Team/Business pricing tier).
-# In community, the route returns 404 to prevent feature leakage. The CSV/JSON
-# implementations remain in core but are advertised only when an enterprise
-# overlay registers an ``AuditExtension`` whose ``get_export_formats()`` lists
-# them. The tests below mock that registration to exercise the success path.
-# ---------------------------------------------------------------------------
-
-
-def _enterprise_audit_ext():
-    """Context manager that registers an AuditExtension advertising csv+json."""
-    from contextlib import contextmanager
-
-    @contextmanager
-    def _ctx():
-        import app.platform.extensions as ext_mod
-        from app.core.edition import init_edition
-        from app.platform.extensions.defaults import DefaultAuditExtension
-
-        prior_ext = ext_mod._extensions.get("audit")
-        prior_info = __import__("app.core.edition", fromlist=["_info"])._info
-
-        class _ExportingAudit(DefaultAuditExtension):
-            def get_export_formats(self):
-                return ["csv", "json"]
-
-        ext_mod._extensions["audit"] = _ExportingAudit()
-        init_edition(["audit"])
-        try:
-            yield
-        finally:
-            if prior_ext is None:
-                ext_mod._extensions.pop("audit", None)
-            else:
-                ext_mod._extensions["audit"] = prior_ext
-            __import__("app.core.edition", fromlist=["_info"])._info = prior_info
-
-    return _ctx()
-
-
 @pytest.mark.anyio
-async def test_export_audit_logs_csv_community_404(
-    client: AsyncClient,
-    admin_auth_header: dict,
-):
-    """Audit export returns 404 in community (boundary enforcement)."""
-    resp = await client.get(
-        "/admin/audit-logs/export/csv",
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 404
-
-
-@pytest.mark.anyio
-async def test_export_audit_logs_json_community_404(
-    client: AsyncClient,
-    admin_auth_header: dict,
-):
-    """JSON export also 404 in community."""
-    resp = await client.get(
-        "/admin/audit-logs/export/json",
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 404
-
-
-@pytest.mark.anyio
-async def test_export_audit_logs_csv_enterprise(
+async def test_export_audit_logs_csv_community(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    community_edition,
 ):
-    """Enterprise-with-AuditExtension serves CSV streaming export."""
+    """Community serves a bounded CSV streaming export."""
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await create_dataset(test_db_session, created_by=admin_id)
     await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
 
-    with _enterprise_audit_ext():
-        resp = await client.get(
-            "/admin/audit-logs/export/csv",
-            headers=admin_auth_header,
-        )
+    resp = await client.get(
+        "/admin/audit-logs/export/csv",
+        headers=admin_auth_header,
+    )
 
     assert resp.status_code == 200
     assert "text/csv" in resp.headers.get("content-type", "")
@@ -450,12 +383,11 @@ async def test_export_audit_logs_applies_identity_and_resource_filters(
         "resource_id": str(target.id),
         "max_rows": 1,
     }
-    with _enterprise_audit_ext():
-        resp = await client.get(
-            "/admin/audit-logs/export/json",
-            params=params,
-            headers=admin_auth_header,
-        )
+    resp = await client.get(
+        "/admin/audit-logs/export/json",
+        params=params,
+        headers=admin_auth_header,
+    )
 
     assert resp.status_code == 200
     rows = resp.json()
@@ -482,21 +414,21 @@ async def test_export_audit_logs_applies_identity_and_resource_filters(
 
 
 @pytest.mark.anyio
-async def test_export_audit_logs_json_enterprise(
+async def test_export_audit_logs_json_community(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    community_edition,
 ):
-    """Enterprise-with-AuditExtension serves JSON streaming export."""
+    """Community serves a bounded JSON streaming export."""
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await create_dataset(test_db_session, created_by=admin_id)
     await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
 
-    with _enterprise_audit_ext():
-        resp = await client.get(
-            "/admin/audit-logs/export/json",
-            headers=admin_auth_header,
-        )
+    resp = await client.get(
+        "/admin/audit-logs/export/json",
+        headers=admin_auth_header,
+    )
 
     assert resp.status_code == 200
     assert "application/json" in resp.headers.get("content-type", "")
@@ -512,9 +444,12 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     from unittest.mock import AsyncMock
 
     import app.core.db as db_module
+    import app.core.tenancy as tenancy
     import app.modules.audit.router as audit_router
+    from app.core.db.tenant_session import current_tenant_var
 
     actor_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
     streamed_rows = [
         SimpleNamespace(
             created_at=datetime.now(timezone.utc),
@@ -540,12 +475,8 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
         async def commit(self):
             return None
 
-    class ExportingAudit:
-        @staticmethod
-        def get_export_formats():
-            return ["json"]
-
     async def stream_rows(_session, **_filters):
+        assert current_tenant_var.get() == tenant_id
         for row in streamed_rows:
             yield row
 
@@ -553,31 +484,42 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
         request_events.append(event)
 
     async def record_outcome(event):
+        assert current_tenant_var.get() == tenant_id
         outcome_events.append(event)
 
     preflight_count = AsyncMock(side_effect=AssertionError("no preflight count"))
     monkeypatch.setattr(db_module, "async_session", lambda: SessionContext())
-    monkeypatch.setattr(audit_router, "get_audit_extension", ExportingAudit)
     monkeypatch.setattr(audit_router, "query_audit_logs", preflight_count)
     monkeypatch.setattr(audit_router, "stream_audit_logs", stream_rows)
     monkeypatch.setattr(audit_router, "audit_emit", record_request)
     monkeypatch.setattr(audit_router, "audit_emit_durable", record_outcome)
+    monkeypatch.setattr(tenancy, "is_multi_tenant", lambda: True)
 
-    response = await audit_router.export_audit_logs(
-        format="json",
-        request=SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
-        user_id=None,
-        action=None,
-        resource_type=None,
-        resource_id=None,
-        date_from=None,
-        date_to=None,
-        search=None,
-        max_rows=100,
-        user=SimpleNamespace(id=actor_id),
-        _ent=None,
-        db=RequestSession(),
-    )
+    prior_tenant_id = current_tenant_var.get()
+    request_token = current_tenant_var.set(tenant_id)
+    try:
+        response = await audit_router.export_audit_logs(
+            format="json",
+            request=SimpleNamespace(
+                client=SimpleNamespace(host="127.0.0.1"),
+                state=SimpleNamespace(tenant_id=tenant_id),
+            ),
+            user_id=None,
+            action=None,
+            resource_type=None,
+            resource_id=None,
+            date_from=None,
+            date_to=None,
+            search=None,
+            max_rows=100,
+            user=SimpleNamespace(id=actor_id),
+            db=RequestSession(),
+        )
+    finally:
+        # Match TenantContextMiddleware resetting the request context before
+        # Starlette begins iterating the response body.
+        current_tenant_var.reset(request_token)
+    assert current_tenant_var.get() == prior_tenant_id
 
     # Simulate a concurrent commit after the durable request event but before
     # the fresh streaming SELECT establishes its MVCC statement snapshot.
@@ -602,6 +544,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     assert outcome_events[0].details["outcome"] == "completed"
     assert outcome_events[0].details["selected_rows"] == 2
     assert outcome_events[0].resource_id == request_events[0].resource_id
+    assert current_tenant_var.get() == prior_tenant_id
 
 
 @pytest.mark.anyio
@@ -609,12 +552,11 @@ async def test_export_audit_logs_viewer_forbidden(
     client: AsyncClient,
     viewer_auth_header: dict,
 ):
-    """Viewer is rejected before the enterprise gate runs (permission first)."""
-    with _enterprise_audit_ext():
-        resp = await client.get(
-            "/admin/audit-logs/export/csv",
-            headers=viewer_auth_header,
-        )
+    """A viewer cannot export audit logs."""
+    resp = await client.get(
+        "/admin/audit-logs/export/csv",
+        headers=viewer_auth_header,
+    )
     assert resp.status_code == 403
 
 
@@ -623,8 +565,7 @@ async def test_export_audit_logs_unauthenticated_returns_401(
     client: AsyncClient,
 ):
     """Unauthenticated request to export audit logs returns 401."""
-    with _enterprise_audit_ext():
-        resp = await client.get("/admin/audit-logs/export/csv")
+    resp = await client.get("/admin/audit-logs/export/csv")
     assert resp.status_code == 401
 
 
@@ -633,17 +574,22 @@ async def test_export_audit_logs_unknown_format_404(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """Unknown format 404 in community AND enterprise (no leak)."""
+    """Unknown formats return 404."""
     resp = await client.get(
         "/admin/audit-logs/export/xml",
         headers=admin_auth_header,
     )
     assert resp.status_code == 404
 
-    with _enterprise_audit_ext():
-        resp = await client.get(
-            "/admin/audit-logs/export/xml",
-            headers=admin_auth_header,
-        )
-    # Extension only advertises csv+json — unknown format also 404 inside enterprise.
-    assert resp.status_code == 404
+
+@pytest.mark.anyio
+async def test_export_audit_logs_enforces_community_row_limit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    resp = await client.get(
+        "/admin/audit-logs/export/json?max_rows=100001",
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 422

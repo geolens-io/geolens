@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, desc, func, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -39,6 +39,7 @@ class AuditLog(Base):
                 "lower(catalog.immutable_unaccent(action))": "gin_trgm_ops"
             },
         ),
+        Index("ix_catalog_audit_logs_tenant_id", "tenant_id"),
         {"schema": "catalog"},
     )
 
@@ -47,6 +48,12 @@ class AuditLog(Base):
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Durable scope survives actor deletion and covers system-authored events.
+    # NULL retains byte-identical single-tenant behavior; hosted RLS fails
+    # closed and the insert trigger stamps it from the active tenant GUC.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
     )
     action: Mapped[str] = mapped_column(String(50), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(50), nullable=False)

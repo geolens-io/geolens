@@ -129,6 +129,36 @@ def test_build_maplibre_style_exports_clean_sources_layers_and_viewport():
     assert style["layers"][1]["layout"]["text-font"] == ["Noto Sans Regular"]
 
 
+def test_hosted_style_tile_signature_is_bound_to_active_tenant(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+
+    tenant_id = "00000000-0000-0000-0000-0000000000aa"
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(tenant_id)
+    try:
+        style = build_maplibre_style(_map(), [_layer()])
+    finally:
+        current_tenant_var.reset(token)
+
+    tile_url = next(iter(style["sources"].values()))["tiles"][0]
+    params = parse_qs(urlsplit(tile_url).query)
+    scope = f"{tenant_id}:public_stops"
+    assert params["scope"] == [scope]
+    assert verify_tile_signature(scope, int(params["exp"][0]), params["sig"][0])
+
+
+def test_hosted_style_tile_signature_fails_closed_without_tenant(monkeypatch):
+    from app.core.db.tenant_session import current_tenant_var
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+    token = current_tenant_var.set(None)
+    try:
+        with pytest.raises(RuntimeError, match="Tenant context is required"):
+            build_maplibre_style(_map(), [_layer()])
+    finally:
+        current_tenant_var.reset(token)
+
+
 def test_build_maplibre_style_consolidates_symbol_label_output():
     layer = _layer(
         style_config={
@@ -946,9 +976,43 @@ def test_parse_maplibre_style_import_restores_terrain_from_metadata_fallback():
         },
     }
     imported = parse_maplibre_style_import(style)
-    assert imported.terrain_config["enabled"] is True
-    assert imported.terrain_config["source_dataset_id"] == str(dem_id)
-    assert imported.terrain_config["exaggeration"] == 1.5
+    assert imported.terrain_config == {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 1.5,
+    }
+
+
+@pytest.mark.parametrize(
+    "terrain_config",
+    [
+        {
+            "enabled": True,
+            "source_dataset_id": "not-a-uuid",
+            "exaggeration": 1.5,
+        },
+        {
+            "enabled": True,
+            "source_dataset_id": str(uuid.uuid4()),
+            "exaggeration": 3.5,
+        },
+    ],
+    ids=["invalid-source-dataset-id", "exaggeration-above-maximum"],
+)
+def test_parse_maplibre_style_import_drops_invalid_terrain_metadata(
+    terrain_config,
+):
+    imported = parse_maplibre_style_import(
+        {
+            "version": 8,
+            "name": "Invalid terrain metadata",
+            "sources": {},
+            "layers": [],
+            "metadata": {"geolens": {"terrain_config": terrain_config}},
+        }
+    )
+
+    assert imported.terrain_config is None
 
 
 def test_parse_maplibre_style_import_restores_basemap_config_from_metadata():
@@ -1474,6 +1538,29 @@ def test_export_uses_data_prefixed_mvt_source_layer_p1_01():
     for entry in style["layers"]:
         if "source-layer" in entry:
             assert entry["source-layer"] == "data.parcels", entry["id"]
+
+
+def test_export_uses_tenant_prefixed_mvt_source_layer():
+    """Hosted style exports use the physical MVT layer name in every companion."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        paint={"fill-color": "#94a3b8"},
+        label_config={"column": "name"},
+        style_config={"builder": {"outlineColor": "#112233", "outlineWidth": 2}},
+    )
+
+    style = build_maplibre_style(
+        _map(),
+        [layer],
+        mvt_source_layer_prefix=("data_t_12345678_1234_1234_1234_123456789abc"),
+    )
+
+    for entry in style["layers"]:
+        if "source-layer" in entry:
+            assert entry["source-layer"] == (
+                "data_t_12345678_1234_1234_1234_123456789abc.parcels"
+            ), entry["id"]
 
 
 def test_export_tile_url_includes_sorted_cols_for_all_references_p1_02():

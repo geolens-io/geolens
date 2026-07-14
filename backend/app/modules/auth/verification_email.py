@@ -25,14 +25,14 @@ async def send_verification_email(
     *,
     to_email: str,
     raw_token: str,
+    request: "Request | None" = None,  # noqa: F821 — type-only import
 ) -> None:
     """Send an email-verification link to *to_email*.
 
-    The absolute verify URL is built from ``PUBLIC_APP_URL.get(db)``.
-    If the setting is empty, falls back to the relative path
-    ``/verify-email?token=<raw_token>`` (works in local/dev contexts where the
-    frontend origin is the same host, but operators SHOULD set PUBLIC_APP_URL
-    for production).
+    Community/self-hosted mode builds the URL from ``PUBLIC_APP_URL.get(db)``
+    and retains the historical relative-path fallback when unset. Hosted mode
+    instead requires the tenant origin validated by ``TenantContextMiddleware``;
+    one fleet-wide setting cannot represent tenant-specific verification links.
 
     Imports are deferred (Phase 214 deferred-import discipline).
 
@@ -40,6 +40,7 @@ async def send_verification_email(
         db: Async DB session — used only for ``PUBLIC_APP_URL.get(db)``.
         to_email: The registrant's email address.
         raw_token: The raw opaque verification token (URL-safe base64, 32 bytes).
+        request: Request carrying middleware-validated tenant origin in hosted mode.
 
     Raises:
         smtplib.SMTPException: on SMTP-level failures (auth, server error, …).
@@ -48,10 +49,21 @@ async def send_verification_email(
     """
     # Deferred imports — Phase 214 discipline.
     from app.core.persistent_config import PUBLIC_APP_URL
+    from app.core.public_urls import get_public_app_url
+    from app.core.tenancy import is_multi_tenant
     from app.platform.extensions.protocols import Notification
     from app.platform.notifications.smtp_channel import send_email
 
-    base_url = await PUBLIC_APP_URL.get(db)
+    if is_multi_tenant():
+        base_url = await get_public_app_url(
+            db,
+            request=request,
+            for_external_use=True,
+        )
+    else:
+        # Preserve the historical Community/self-hosted configuration and
+        # relative-link fallback byte-for-byte.
+        base_url = await PUBLIC_APP_URL.get(db)
     if base_url:
         verify_url = f"{base_url.rstrip('/')}/verify-email?token={raw_token}"
     else:

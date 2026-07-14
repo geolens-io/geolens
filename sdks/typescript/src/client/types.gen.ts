@@ -2122,6 +2122,136 @@ export type ConnectivityResult = {
 };
 
 /**
+ * ConnectorDefinitionResponse
+ *
+ * Public, non-secret connector capabilities advertised by an overlay.
+ */
+export type ConnectorDefinitionResponse = {
+    /**
+     * Config Schema
+     */
+    config_schema: {
+        [key: string]: unknown;
+    };
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Supports Credentials
+     */
+    supports_credentials?: boolean;
+    /**
+     * Supports Scheduled Sync
+     */
+    supports_scheduled_sync?: boolean;
+};
+
+/**
+ * ConnectorDiscoverRequest
+ */
+export type ConnectorDiscoverRequest = {
+    /**
+     * Config
+     */
+    config?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Credential Id
+     */
+    credential_id?: string | null;
+};
+
+/**
+ * ConnectorDiscoverResponse
+ */
+export type ConnectorDiscoverResponse = {
+    /**
+     * Resources
+     */
+    resources: Array<ConnectorResourceResponse>;
+};
+
+/**
+ * ConnectorIngestRequest
+ */
+export type ConnectorIngestRequest = {
+    /**
+     * Config
+     */
+    config?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Credential Id
+     */
+    credential_id?: string | null;
+    /**
+     * Resource Id
+     *
+     * API-safe opaque handle returned by connector discovery.
+     */
+    resource_id: string;
+};
+
+/**
+ * ConnectorIngestResponse
+ */
+export type ConnectorIngestResponse = {
+    /**
+     * Job Id
+     *
+     * API-safe opaque handle for the dispatched ingest job.
+     */
+    job_id: string;
+    /**
+     * Status
+     */
+    status?: 'queued';
+};
+
+/**
+ * ConnectorListResponse
+ */
+export type ConnectorListResponse = {
+    /**
+     * Connectors
+     */
+    connectors: Array<ConnectorDefinitionResponse>;
+};
+
+/**
+ * ConnectorResourceResponse
+ */
+export type ConnectorResourceResponse = {
+    /**
+     * Id
+     *
+     * API-safe opaque resource handle. This is never a provider URL, signed locator, or credential.
+     */
+    id: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * ContactCreate
  */
 export type ContactCreate = {
@@ -7948,6 +8078,12 @@ export type ShareTokenRequest = {
      * Expiration timestamp; must carry a UTC offset. Null creates a non-expiring share link. A custom expiration requires advanced sharing controls.
      */
     expires_at?: string | null;
+    /**
+     * Expires In Days
+     *
+     * Server-calculated expiration preset available in every edition. Choose 1, 7, 30, or 90 days.
+     */
+    expires_in_days?: 1 | 7 | 30 | 90 | null;
 };
 
 /**
@@ -9261,6 +9397,12 @@ export type TileConfigResponse = {
      */
     cdn_base_url?: string | null;
     /**
+     * Mvt Source Layer Prefix
+     *
+     * Schema prefix emitted inside vector-tile source-layer names. Null when a multi-tenant request has no resolved tenant context.
+     */
+    mvt_source_layer_prefix?: string | null;
+    /**
      * Public Api Url
      *
      * Externally-reachable API base URL used in OGC self-links.
@@ -10439,6 +10581,95 @@ export type ListAuditLogsAdminAuditLogsGetResponses = {
 };
 
 export type ListAuditLogsAdminAuditLogsGetResponse = ListAuditLogsAdminAuditLogsGetResponses[keyof ListAuditLogsAdminAuditLogsGetResponses];
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetData = {
+    body?: never;
+    path: {
+        /**
+         * Format
+         */
+        format: string;
+    };
+    query?: {
+        /**
+         * User Id
+         */
+        user_id?: string | null;
+        /**
+         * Action
+         */
+        action?: string | null;
+        /**
+         * Resource Type
+         */
+        resource_type?: string | null;
+        /**
+         * Resource Id
+         */
+        resource_id?: string | null;
+        /**
+         * Date From
+         */
+        date_from?: string | null;
+        /**
+         * Date To
+         */
+        date_to?: string | null;
+        /**
+         * Search
+         */
+        search?: string | null;
+        /**
+         * Max Rows
+         */
+        max_rows?: number;
+    };
+    url: '/admin/audit-logs/export/{format}';
+};
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetError = ExportAuditLogsAdminAuditLogsExportFormatGetErrors[keyof ExportAuditLogsAdminAuditLogsExportFormatGetErrors];
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type TriggerBackfillAdminBackfillEmbeddingsPostData = {
     body?: never;
@@ -23107,6 +23338,203 @@ export type GetSavedSearchEndpointSearchSavedSearchIdGetResponses = {
 };
 
 export type GetSavedSearchEndpointSearchSavedSearchIdGetResponse = GetSavedSearchEndpointSearchSavedSearchIdGetResponses[keyof GetSavedSearchEndpointSearchSavedSearchIdGetResponses];
+
+export type ListConnectorsEndpointServicesConnectorsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/services/connectors/';
+};
+
+export type ListConnectorsEndpointServicesConnectorsGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListConnectorsEndpointServicesConnectorsGetError = ListConnectorsEndpointServicesConnectorsGetErrors[keyof ListConnectorsEndpointServicesConnectorsGetErrors];
+
+export type ListConnectorsEndpointServicesConnectorsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ConnectorListResponse;
+};
+
+export type ListConnectorsEndpointServicesConnectorsGetResponse = ListConnectorsEndpointServicesConnectorsGetResponses[keyof ListConnectorsEndpointServicesConnectorsGetResponses];
+
+export type DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostData = {
+    body: ConnectorDiscoverRequest;
+    path: {
+        /**
+         * Connector Name
+         */
+        connector_name: string;
+    };
+    query?: never;
+    url: '/services/connectors/{connector_name}/discover/';
+};
+
+export type DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — connector provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+    /**
+     * Gateway timeout — connector provider timed out
+     */
+    504: ProblemDetail;
+};
+
+export type DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostError = DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostErrors[keyof DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostErrors];
+
+export type DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ConnectorDiscoverResponse;
+};
+
+export type DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostResponse = DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostResponses[keyof DiscoverConnectorResourcesEndpointServicesConnectorsConnectorNameDiscoverPostResponses];
+
+export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostData = {
+    body: ConnectorIngestRequest;
+    path: {
+        /**
+         * Connector Name
+         */
+        connector_name: string;
+    };
+    query?: never;
+    url: '/services/connectors/{connector_name}/ingest/';
+};
+
+export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — connector provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+    /**
+     * Gateway timeout — connector provider timed out
+     */
+    504: ProblemDetail;
+};
+
+export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostError = DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostErrors[keyof DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostErrors];
+
+export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses = {
+    /**
+     * Successful Response
+     */
+    202: ConnectorIngestResponse;
+};
+
+export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponse = DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses[keyof DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses];
 
 export type PreviewServiceLayerServicesPreviewPostData = {
     body: ServicePreviewRequest;

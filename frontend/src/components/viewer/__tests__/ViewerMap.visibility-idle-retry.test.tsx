@@ -113,9 +113,19 @@ vi.mock('@vis.gl/react-maplibre', async () => {
   };
 });
 
+const tileConfigState = vi.hoisted(() => ({
+  data: {
+    cdn_base_url: null,
+    mvt_source_layer_prefix: 'data',
+  } as {
+    cdn_base_url: string | null;
+    mvt_source_layer_prefix: string | null;
+  } | null,
+}));
+
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: () => ({ data: [] }),
-  useTileConfig: () => ({ data: { cdn_base_url: null } }),
+  useTileConfig: () => ({ data: tileConfigState.data }),
   useBranding: () => ({ data: undefined }),
 }));
 vi.mock('@/hooks/use-webgl-recovery', () => ({
@@ -171,7 +181,26 @@ function renderViewer(visibleLayers: Set<string>) {
 }
 
 describe('ViewerMap visibility idle-retry (BUG-037)', () => {
-  beforeEach(() => { mapState.reset(); });
+  beforeEach(() => {
+    mapState.reset();
+    tileConfigState.data = {
+      cdn_base_url: null,
+      mvt_source_layer_prefix: 'data',
+    };
+  });
+
+  it('does not run visibility sync for an unresolved tenant source-layer prefix', async () => {
+    tileConfigState.data = {
+      cdn_base_url: null,
+      mvt_source_layer_prefix: null,
+    };
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+
+    renderViewer(new Set(['pt-layer']));
+
+    await waitFor(() => expect(mapState.fakeMap.setTransformRequest).toHaveBeenCalled());
+    expect(mapState.fakeMap.setLayoutProperty).not.toHaveBeenCalled();
+  });
 
   it('registers an idle retry when a toggle arrives while the style is transitioning', async () => {
     // Initial render with the style LOADED so the visibility effect advances

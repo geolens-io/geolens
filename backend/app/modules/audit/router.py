@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from app.core.db.tenant_session import tenant_job_context
 from app.modules.audit.schemas import (
     AuditLogListResponse,
     AuditLogResponse,
@@ -49,8 +50,6 @@ from app.modules.audit.service import (
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.dependencies import get_client_ip, get_db
-from app.platform.extensions import get_audit_extension
-from app.platform.extensions.guards import require_enterprise
 from app.processing.export.service import safe_content_disposition
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
@@ -66,17 +65,8 @@ audit_datasets_router = APIRouter(
 )
 
 
-# Phase 279 ADMIN-04 (M-04): Unified format dispatch. The set of advertised
-# formats is owned by the active AuditExtension. This dict registers the core
-# implementations that ship in the OSS audit module. Enterprise extensions
-# advertising additional formats are responsible for serving them via their
-# own router; if such a format reaches THIS route, the gate below 502s.
-#
-# Adding a new core format: register {format: media_type} here AND extend the
-# dispatch in export_audit_logs() below to actually serve it. Adding via the
-# extension's get_export_formats() alone is not enough — that just advertises;
-# implementation lives here for OSS or in the extension's own router for
-# enterprise-specific formats.
+# Community includes bounded CSV and JSON export. Enterprise automation uses
+# separate extension sinks and routes.
 FORMAT_HANDLERS: dict[str, str] = {
     "csv": "text/csv",
     "json": "application/json",
@@ -107,6 +97,7 @@ class _AuditExportStream:
     date_to: datetime | None
     search: str | None
     max_rows: int
+    tenant_id: str | None
 
     async def _record_outcome(self, outcome: str, selected_rows: int) -> None:
         details: dict[str, object] = {
@@ -119,41 +110,43 @@ class _AuditExportStream:
         # Shield terminal bookkeeping from level-triggered disconnect
         # cancellation, but cap it so a broken audit store cannot retain the
         # response task indefinitely.
-        with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
-            try:
-                await audit_emit_durable(
-                    AuditEvent(
-                        user_id=self.actor_id,
-                        action="audit.export",
-                        resource_type="audit_log",
-                        resource_id=self.export_id,
-                        details=details,
-                        ip_address=self.ip_address,
+        with tenant_job_context(self.tenant_id):
+            with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
+                try:
+                    await audit_emit_durable(
+                        AuditEvent(
+                            user_id=self.actor_id,
+                            action="audit.export",
+                            resource_type="audit_log",
+                            resource_id=self.export_id,
+                            details=details,
+                            ip_address=self.ip_address,
+                        )
                     )
-                )
-            except Exception:  # broad: response bytes may already have been sent
-                logger.exception(
-                    "Failed to persist audit export stream outcome",
-                    operation_id=str(self.export_id),
-                    outcome=outcome,
-                )
+                except Exception:  # broad: response bytes may already have been sent
+                    logger.exception(
+                        "Failed to persist audit export stream outcome",
+                        operation_id=str(self.export_id),
+                        outcome=outcome,
+                    )
 
     async def _logs(self):
         from app.core.db import async_session
 
-        async with async_session() as stream_db:
-            async for log in stream_audit_logs(
-                stream_db,
-                user_id=self.user_id,
-                action=self.action,
-                resource_type=self.resource_type,
-                resource_id=self.resource_id,
-                exclude_resource_id=self.export_id,
-                date_from=self.date_from,
-                date_to=self.date_to,
-                search=self.search,
-            ):
-                yield log
+        with tenant_job_context(self.tenant_id):
+            async with async_session() as stream_db:
+                async for log in stream_audit_logs(
+                    stream_db,
+                    user_id=self.user_id,
+                    action=self.action,
+                    resource_type=self.resource_type,
+                    resource_id=self.resource_id,
+                    exclude_resource_id=self.export_id,
+                    date_from=self.date_from,
+                    date_to=self.date_to,
+                    search=self.search,
+                ):
+                    yield log
 
     async def csv_generator(self) -> AsyncGenerator[str, None]:
         """Yield hardened CSV chunks and record the actual emitted row count."""
@@ -300,7 +293,6 @@ async def list_audit_logs(
 @router.get(
     "/audit-logs/export/{format}",
     response_class=StreamingResponse,
-    include_in_schema=False,
 )
 async def export_audit_logs(
     format: str,
@@ -312,41 +304,13 @@ async def export_audit_logs(
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     search: str | None = Query(None, max_length=200),
-    max_rows: int = Query(100_000, ge=1, le=1_000_000),
+    max_rows: int = Query(100_000, ge=1, le=100_000),
     user: Identity = Depends(require_permission("manage_settings")),
-    _ent: None = Depends(require_enterprise),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Export audit logs as CSV or JSON.
-
-    Available formats are defined by the active ``AuditExtension``. The default
-    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
-    or additional formats by registering an extension whose
-    ``get_export_formats()`` returns the format list. Unknown formats also 404
-    to avoid leaking unavailable formats.
-    """
-    allowed = set(get_audit_extension().get_export_formats())
-    if format not in allowed:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    """Export up to 100,000 audit log rows as CSV or JSON."""
     if format not in FORMAT_HANDLERS:
-        # Phase 279 ADMIN-04 (M-04): The active AuditExtension advertised this
-        # format but the OSS audit router does not implement it. Enterprise
-        # extensions advertising additional formats are responsible for
-        # registering their own route to serve them. Reaching this branch
-        # means the operator has an extension overlay that is mis-wired
-        # (route not registered, prefix collision, etc.). 502 surfaces "I
-        # can't fulfil this; upstream is mis-configured" more accurately
-        # than 501 ("never gonna build this") which the prior implementation
-        # used.
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"Format '{format}' is advertised by the active audit "
-                "extension but not implemented by the core audit router. "
-                "The active extension must register its own route to "
-                "serve this format."
-            ),
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"audit-export-{timestamp}.{format}"
@@ -357,6 +321,7 @@ async def export_audit_logs(
     export_id = uuid.uuid4()
     actor_id = user.id
     ip_address = get_client_ip(request)
+    tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)
     filters = {
         "user_id": str(user_id) if user_id else None,
         "action": action,
@@ -400,6 +365,7 @@ async def export_audit_logs(
         date_to=date_to,
         search=search,
         max_rows=max_rows,
+        tenant_id=tenant_id,
     )
     if format == "csv":
         return StreamingResponse(
@@ -456,11 +422,12 @@ async def get_column_ddl_feed(
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.
     """
-    from app.modules.catalog.authorization import check_dataset_access
-    from app.modules.catalog.datasets.domain.service import get_dataset
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
 
     # Step 1: load dataset (404 if not found)
-    dataset = await get_dataset(db, dataset_id)
+    dataset = await port.get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
@@ -469,7 +436,7 @@ async def get_column_ddl_feed(
     # Step 2: enforce visibility / ownership gate
     # check_dataset_access raises HTTPException(404) for non-owners of private datasets,
     # consistent with the column-DDL write endpoints from Phase 1061 Plan 02.
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await port.check_dataset_access(db, dataset, dataset_id, user)
 
     # Step 3: fetch DDL history. Preserve the old offset parameter while new
     # clients converge on the repository-wide skip/limit convention.

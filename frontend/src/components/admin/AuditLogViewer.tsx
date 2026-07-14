@@ -2,7 +2,6 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuditLogs } from '@/hooks/use-admin';
-import { useEdition } from '@/hooks/use-edition';
 import { formatDateTimeSmart } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
@@ -102,7 +101,6 @@ const CURRENT_AUDIT_ACTIONS = [
 
 export function AuditLogViewer() {
   const { t } = useTranslation('admin');
-  const { isEnterprise } = useEdition();
   const [action, setAction] = useState('');
   const [userId, setUserId] = useState('');
   const [resourceType, setResourceType] = useState('');
@@ -212,20 +210,18 @@ export function AuditLogViewer() {
       <CardHeader>
         <CardTitle level={2} className="text-sm font-medium">{t('audit.title')}</CardTitle>
         <CardAction className="flex items-center gap-2">
-          {isEnterprise && (
-            <ExportSplitButton
-              disabled={!filtersValid}
-              filters={{
-                user_id: userIdFilter,
-                action: action || undefined,
-                resource_type: resourceType || undefined,
-                resource_id: resourceIdFilter,
-                date_from: dateFrom || undefined,
-                date_to: dateTo || undefined,
-                search: searchQuery || undefined,
-              }}
-            />
-          )}
+          <ExportSplitButton
+            disabled={!filtersValid}
+            filters={{
+              user_id: userIdFilter,
+              action: action || undefined,
+              resource_type: resourceType || undefined,
+              resource_id: resourceIdFilter,
+              date_from: dateFrom || undefined,
+              date_to: dateTo || undefined,
+              search: searchQuery || undefined,
+            }}
+          />
           <DataTableSearch
             value={searchQuery}
             onChange={(v) => { setSearchQuery(v); setPage(0); }}

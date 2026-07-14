@@ -32,10 +32,20 @@ def _validate_identifier(name: str, label: str) -> None:
         raise ValueError(f"Invalid {label}: {name!r}")
 
 
-def _qtable(table_name: str) -> str:
-    """Return quoted 'data.table_name' identifier after validation."""
+def _current_data_schema() -> str:
+    """Resolve the active physical schema (``data`` in single-tenant mode)."""
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    return tenant_data_schema(current_tenant_var.get())
+
+
+def _qtable(table_name: str, *, schema: str | None = None) -> str:
+    """Return a validated, quoted physical table identifier."""
     _validate_identifier(table_name, "table name")
-    return f'"data"."{table_name}"'
+    resolved_schema = schema or _current_data_schema()
+    _validate_identifier(resolved_schema, "schema name")
+    return f'"{resolved_schema}"."{table_name}"'
 
 
 def _sql_quote_ident(name: str) -> str:
@@ -62,9 +72,11 @@ async def get_distinct_values(
     if allowed_tables is not None and table_name not in allowed_tables:
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
+    table_ref = _qtable(table_name)
+
     sql = text(
         f"SELECT DISTINCT {column_name} AS val "
-        f"FROM data.{table_name} "
+        f"FROM {table_ref} "
         f"WHERE {column_name} IS NOT NULL "
         f"ORDER BY val LIMIT :limit"
     ).bindparams(limit=limit)
@@ -101,13 +113,15 @@ async def get_column_null_cardinality(
     if allowed_tables is not None and table_name not in allowed_tables:
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
+    schema = _current_data_schema()
+
     # Filter columns down to identifier-safe + live-in-table to avoid
     # producing query failures on bogus inputs.
     live_result = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :t"
-        ).bindparams(t=table_name)
+            "WHERE table_schema = :schema AND table_name = :t"
+        ).bindparams(schema=schema, t=table_name)
     )
     live_columns = {row[0] for row in live_result.all()}
     candidates: list[tuple[str, str]] = []
@@ -132,8 +146,8 @@ async def get_column_null_cardinality(
         text(
             "SELECT reltuples::bigint FROM pg_class "
             "WHERE relname = :t AND relnamespace = "
-            "(SELECT oid FROM pg_namespace WHERE nspname = 'data')"
-        ).bindparams(t=table_name)
+            "(SELECT oid FROM pg_namespace WHERE nspname = :schema)"
+        ).bindparams(t=table_name, schema=schema)
     )
     est_rows = size_q.scalar_one_or_none() or 0
     approximate = est_rows > sample_size
@@ -141,9 +155,11 @@ async def get_column_null_cardinality(
     if approximate:
         # Sample ~sample_size rows via TABLESAMPLE BERNOULLI(pct).
         pct = max(0.1, min(100.0, 100.0 * sample_size / max(est_rows, 1)))
-        from_clause = f"{_qtable(table_name)} TABLESAMPLE BERNOULLI ({pct})"
+        from_clause = (
+            f"{_qtable(table_name, schema=schema)} TABLESAMPLE BERNOULLI ({pct})"
+        )
     else:
-        from_clause = _qtable(table_name)
+        from_clause = _qtable(table_name, schema=schema)
 
     # Build SELECT clause: total + per-column not-null + per-column distinct.
     parts = ["COUNT(*) AS _total"]
@@ -198,22 +214,24 @@ async def get_column_stats(
     if allowed_tables is not None and table_name not in allowed_tables:
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
+    schema = _current_data_schema()
+
     # Detect the column's data type so we never cast a text column ::numeric
     # (which raises a DataError -> 500). Reuses the information_schema lookup
     # pattern from get_column_null_cardinality.
     type_result = await session.execute(
         text(
             "SELECT data_type FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :t "
+            "WHERE table_schema = :schema AND table_name = :t "
             "AND column_name = :c"
-        ).bindparams(t=table_name, c=column_name)
+        ).bindparams(schema=schema, t=table_name, c=column_name)
     )
     data_type = type_result.scalar_one_or_none()
     if data_type is None:
         raise ValueError(f"Column not found: {column_name!r}")
 
     col_q = _sql_quote_ident(column_name)
-    tbl_q = _qtable(table_name)
+    tbl_q = _qtable(table_name, schema=schema)
 
     if data_type not in _NUMERIC_TYPES:
         # Non-numeric column: numeric aggregates are undefined, so return a

@@ -472,10 +472,11 @@ async def _fetch_fk_value(
     session: AsyncSession, source_table: str, source_column: str, feature_gid: int
 ) -> object | None:
     """Read the FK value from the source feature row, or None if absent."""
+    table_ref = get_catalog_port().quote_table(source_table)
     result = await session.execute(
-        text(
-            f"SELECT {source_column} FROM data.{source_table} WHERE gid = :gid"
-        ).bindparams(gid=feature_gid)
+        text(f"SELECT {source_column} FROM {table_ref} WHERE gid = :gid").bindparams(
+            gid=feature_gid
+        )
     )
     return result.scalar_one_or_none()
 
@@ -484,9 +485,10 @@ async def _count_target_rows(
     session: AsyncSession, target_table: str, target_column: str, fk_value: object
 ) -> int:
     """Count target rows matching the FK value."""
+    table_ref = get_catalog_port().quote_table(target_table)
     result = await session.execute(
         text(
-            f"SELECT COUNT(*) FROM data.{target_table} WHERE {target_column} = :fk_val"
+            f"SELECT COUNT(*) FROM {table_ref} WHERE {target_column} = :fk_val"
         ).bindparams(fk_val=fk_value)
     )
     return int(result.scalar_one())
@@ -501,10 +503,11 @@ async def _fetch_target_rows(
     after: int,
 ) -> list[dict]:
     """Window-fetch matching target rows as gid+properties dicts."""
+    table_ref = get_catalog_port().quote_table(target_table)
     rows_result = await session.execute(
         text(
             f"SELECT gid, to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties "
-            f"FROM data.{target_table} t "
+            f"FROM {table_ref} t "
             f"WHERE t.{target_column} = :fk_val "
             f"ORDER BY gid LIMIT :lim OFFSET :off"
         ).bindparams(fk_val=fk_value, lim=limit, off=after)

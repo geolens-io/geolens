@@ -266,16 +266,14 @@ class TestSlotConflictGuard:
     to recognize the __slot_inner__ marker.
     """
 
-    def _make_loader(self, key: str, val: object, *, version: int = 1):
+    def _make_loader(self, key: str, val: object):
         """Build a minimal loader callable that writes registry[key] = val."""
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
         def loader(registry: dict) -> None:
             registry[key] = val
 
-        loader.EXTENSION_API_VERSION = (
-            EXTENSION_API_VERSION if version == 1 else version
-        )
+        loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
         return loader
 
     def test_bare_replace_still_raises_slot_conflict(self):
@@ -371,16 +369,17 @@ class TestSlotConflictGuard:
         """Additive-slot keys (billing_extensions, _routers, etc.) are always
         exempt from the slot-conflict guard, even without __slot_inner__."""
         from app.platform.extensions import _extensions, load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
 
         def first_loader(registry: dict) -> None:
             registry.setdefault("billing_extensions", []).append("first")
 
-        first_loader.EXTENSION_API_VERSION = 1
+        first_loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
 
         def second_loader(registry: dict) -> None:
             registry.setdefault("billing_extensions", []).append("second")
 
-        second_loader.EXTENSION_API_VERSION = 1
+        second_loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
 
         first_ep = MagicMock()
         first_ep.name = "overlay_first"
@@ -419,6 +418,7 @@ class TestSlotConflictGuard:
         """If a loader writes the SAME object instance to a single-slot key that
         it already holds (idempotent re-registration), no error is raised."""
         from app.platform.extensions import _extensions, load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
 
         val = object()
 
@@ -427,7 +427,7 @@ class TestSlotConflictGuard:
             registry["permission"] = val
             registry["permission"] = val
 
-        loader.EXTENSION_API_VERSION = 1
+        loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
 
         ep = MagicMock()
         ep.name = "overlay_only"

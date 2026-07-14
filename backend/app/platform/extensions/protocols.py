@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +42,10 @@ class BrandingExtension(Protocol):
 
 @runtime_checkable
 class AuditExtension(Protocol):
-    """Extension point for audit export formats."""
+    """Metadata for additional audit formats served by overlay-owned routes.
+
+    Core CSV and JSON export does not depend on this extension.
+    """
 
     def get_export_formats(self) -> list[str]: ...
 
@@ -58,11 +61,9 @@ class AuthExtension(Protocol):
 class AuditSink(Protocol):
     """Write-side hook for audit event emission (Phase 222 D-01).
 
-    Sibling to ``AuditExtension`` (read-side export-format gating at
-    ``audit/router.py``). Two orthogonal concerns: a SIEM streamer doesn't add
-    export formats; a CSV exporter doesn't subscribe to writes. Future overlays
-    may implement BOTH on one class (Phase 217 D-13 dual-Protocol pattern), but
-    the contracts stay separate.
+    A SIEM streamer does not change the bounded CSV and JSON export provided by
+    Core. Future overlays may implement this protocol and ``AuditExtension`` on
+    one class, but the contracts stay separate.
 
     Enterprise overlays subscribe by appending instances to
     ``_extensions["audit_sinks"]`` in their ``register_extensions(registry)``
@@ -123,6 +124,23 @@ class ConnectorCredentialRef:
     secret_ref: str
 
 
+@dataclass(frozen=True)
+class ConnectorResource:
+    """Public metadata for one discoverable connector resource.
+
+    The DTO intentionally carries no credentials or provider client objects.
+    ``id`` is an API-safe opaque handle (ASCII letters/digits plus ``._~-``),
+    never a provider URL, signed locator, credential, or provider object ID that
+    itself contains secret material. ``metadata`` is non-secret discovery
+    metadata that core may return to an authorized caller.
+    """
+
+    id: str
+    name: str
+    kind: str
+    metadata: dict[str, Any]
+
+
 @runtime_checkable
 class ConnectorExtension(Protocol):
     """Persistent connector registry seam.
@@ -144,6 +162,69 @@ class ConnectorExtension(Protocol):
         connector_name: str,
         credential_id: str,
     ) -> ConnectorCredentialRef | None: ...
+
+    async def discover_resources(
+        self,
+        db: AsyncSession,
+        connector_name: str,
+        credential_ref: ConnectorCredentialRef | None,
+        config: dict[str, Any],
+    ) -> list[ConnectorResource]: ...
+
+    async def dispatch_ingest(
+        self,
+        db: AsyncSession,
+        connector_name: str,
+        credential_ref: ConnectorCredentialRef | None,
+        resource_id: str,
+        config: dict[str, Any],
+        user_id: str,
+    ) -> str:
+        """Return an API-safe opaque job handle, never a provider URL."""
+        ...
+
+
+@dataclass(frozen=True)
+class TableReadinessResult:
+    """Result of preparing a backing table for a read request.
+
+    ``hydrated`` means the caller may continue immediately. ``warming`` means
+    preparation continues asynchronously and the caller should return 202 with
+    the opaque job identifier. The names describe generic serving state; core
+    does not know which storage tier or provider implements the preparation.
+    """
+
+    status: Literal["hydrated", "warming"]
+    job_id: str | None = None
+
+
+@runtime_checkable
+class TileConcurrencyLimiter(Protocol):
+    """Minimal async concurrency primitive used around a tile database read."""
+
+    async def acquire(self) -> bool: ...
+
+    def release(self) -> None: ...
+
+
+@runtime_checkable
+class DataServingExtension(Protocol):
+    """Provider-neutral hooks for preparing and governing data reads.
+
+    Community uses a no-op implementation. Hosted overlays may prepare data
+    that is not immediately queryable, apply a per-tenant concurrency budget,
+    and override cache policy without public core importing a private package.
+    """
+
+    async def prepare_table_for_read(
+        self, *, table_name: str, tenant_id: str
+    ) -> TableReadinessResult | None: ...
+
+    def get_tile_concurrency_limiter(
+        self, tenant_id: str
+    ) -> TileConcurrencyLimiter | None: ...
+
+    def get_tile_cache_control(self) -> str | None: ...
 
 
 @runtime_checkable

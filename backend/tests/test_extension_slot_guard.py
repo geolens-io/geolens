@@ -63,6 +63,8 @@ class TestSingleSlotConflictGuard:
             "audit",
             "auth",
             "entitlement",  # Phase 1207 / ENTSEAM-01
+            "connectors",
+            "data_serving",
         ],
     )
     def test_duplicate_single_slot_raises(self, slot_key):
@@ -285,6 +287,8 @@ class TestSingleSlotKeySet:
                 "audit",
                 "auth",
                 "entitlement",  # Phase 1207 / ENTSEAM-01
+                "connectors",
+                "data_serving",
             }
         )
         assert SINGLE_SLOT_KEYS == expected, (

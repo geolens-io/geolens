@@ -86,7 +86,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-# The 6 RLS-protected tables (same list as rls.py RLS_TABLES).
+# The RLS-protected tables (same list as rls.py RLS_TABLES).
 _RLS_TABLES = [
     "users",
     "records",
@@ -94,6 +94,9 @@ _RLS_TABLES = [
     "maps",
     "collections",
     "embed_tokens",
+    "oauth_accounts",
+    "audit_logs",
+    "ingest_jobs",
 ]
 
 # Roles under test (geolens_readonly may be absent in the test DB — handled via
@@ -164,6 +167,27 @@ class TestIso05RolePrivileges:
             "ISO-05: 'geolens' rolbypassrls changed — re-evaluate the harness.\n"
             "  If it became False, FORCE RLS now applies to the primary role."
         )
+
+    async def test_runtime_guard_rejects_live_superuser_connection(self):
+        """The actual Compose-style geolens login cannot boot multi-tenant mode."""
+        from unittest.mock import patch
+
+        from app.core.db.rls import assert_multi_tenant_runtime_role
+
+        db_url = await _get_db_url()
+        engine = create_async_engine(db_url, poolclass=NullPool)
+        try:
+            async with engine.connect() as conn:
+                with (
+                    patch("app.core.tenancy.is_multi_tenant", return_value=True),
+                    pytest.raises(
+                        RuntimeError,
+                        match="least-privilege runtime credential",
+                    ),
+                ):
+                    await assert_multi_tenant_runtime_role(conn)
+        finally:
+            await engine.dispose()
 
     async def test_probe_roles_are_not_superuser_not_bypassrls(self):
         """geolens_reader (and geolens_readonly if present) are rolsuper=False, rolbypassrls=False.
@@ -245,7 +269,10 @@ class TestIso05RolePrivileges:
                                 'catalog.datasets'::regclass,
                                 'catalog.maps'::regclass,
                                 'catalog.collections'::regclass,
-                                'catalog.embed_tokens'::regclass
+                                'catalog.embed_tokens'::regclass,
+                                'catalog.oauth_accounts'::regclass,
+                                'catalog.audit_logs'::regclass,
+                                'catalog.ingest_jobs'::regclass
                             ])
                             ORDER BY c.relname
                             """
@@ -255,8 +282,9 @@ class TestIso05RolePrivileges:
         finally:
             await engine.dispose()
 
-        assert len(rows) == 6, (
-            f"ISO-05: expected 6 catalog tables in pg_class, got {len(rows)}. "
+        assert len(rows) == len(_RLS_TABLES), (
+            f"ISO-05: expected {len(_RLS_TABLES)} catalog tables in pg_class, "
+            f"got {len(rows)}. "
             "Ensure migration 0006_tenant_rls is applied."
         )
 

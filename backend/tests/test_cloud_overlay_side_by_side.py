@@ -38,6 +38,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.platform.extensions.version import EXTENSION_API_VERSION
+
 # ---------------------------------------------------------------------------
 # Cloud importability check
 # ---------------------------------------------------------------------------
@@ -146,7 +148,8 @@ def _enterprise_loader(registry: dict) -> None:
     registry.setdefault("_routers", [])
 
 
-_enterprise_loader.EXTENSION_API_VERSION = 1  # type: ignore[attr-defined]
+_enterprise_loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION  # type: ignore[attr-defined]
+_enterprise_loader.EXTENSION_LOAD_PRIORITY = 100  # type: ignore[attr-defined]
 
 
 def _cloud_loader_factory():
@@ -174,7 +177,8 @@ def _cloud_loader_factory():
         # List-slot: routers via setdefault+extend (cloud-owned routers)
         registry.setdefault("_routers", [])
 
-    _cloud_loader.EXTENSION_API_VERSION = 1  # type: ignore[attr-defined]
+    _cloud_loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION  # type: ignore[attr-defined]
+    _cloud_loader.EXTENSION_LOAD_PRIORITY = 200  # type: ignore[attr-defined]
     return _cloud_loader
 
 
@@ -187,7 +191,8 @@ def _cloud_loader_factory():
 class TestSideBySideLoad:
     """CLOUD-01/04: enterprise + cloud both load without SLOT conflict."""
 
-    def test_cloud_and_enterprise_load_side_by_side(self):
+    @pytest.mark.parametrize("reverse_discovery", [False, True])
+    def test_cloud_and_enterprise_load_side_by_side(self, reverse_discovery: bool):
         """load_extensions() with enterprise→cloud entry points must not raise.
 
         After load:
@@ -211,9 +216,13 @@ class TestSideBySideLoad:
         ent_ep = _make_entry_point("enterprise", _enterprise_loader)
         cloud_ep = _make_entry_point("cloud", _cloud_loader_factory())
 
+        discovered = [ent_ep, cloud_ep]
+        if reverse_discovery:
+            discovered.reverse()
+
         with patch(
             "app.platform.extensions.entry_points",
-            return_value=[ent_ep, cloud_ep],
+            return_value=discovered,
         ):
             # Must NOT raise ExtensionSlotConflictError
             try:
@@ -570,7 +579,8 @@ class TestBake01ImageBoundary:
         """BAKE-01: INSTALL_OVERLAYS ARG must default to empty string (not /cloud).
 
         The OSS Dockerfile must default-exclude cloud. Cloud inclusion is an
-        operator opt-in via --build-arg INSTALL_OVERLAYS="/enterprise /cloud".
+        legacy distributor-owned builds may still pass INSTALL_OVERLAYS, while
+        the unmodified public build must keep its default empty.
 
         Supplementary to runtime cloud-absent proof (Tests C).
         """

@@ -17,8 +17,9 @@ Contract (GUARD-01):
   that the frontend intentionally keeps in the in-memory paint view and does
   NOT strip via this Set. Those extra backend keys are not a bug.
 
-  A second assertion guards the single-source-of-truth import: style_json.py
-  must import LEGACY_BUILDER_PAINT_KEYS from schemas rather than redefining it.
+  A second assertion guards the single-source-of-truth import: the extracted
+  style_sanitizers.py module must import LEGACY_BUILDER_PAINT_KEYS from schemas
+  rather than redefining it.
 
   Fail-before is provable: temporarily add a fake key (e.g. '_zzz-fake') to
   the frontend Set literal — the subset assertion fails and names the offending
@@ -45,8 +46,14 @@ SHARED_TS = (
     / "layer-adapters"
     / "shared.ts"
 )
-STYLE_JSON_PY = (
-    REPO_ROOT / "backend" / "app" / "modules" / "catalog" / "maps" / "style_json.py"
+STYLE_SANITIZERS_PY = (
+    REPO_ROOT
+    / "backend"
+    / "app"
+    / "modules"
+    / "catalog"
+    / "maps"
+    / "style_sanitizers.py"
 )
 
 
@@ -120,26 +127,26 @@ def test_paint_key_allowlist_parity():
         pass  # documented in GUARD-01 SUMMARY
 
 
-def test_style_json_imports_not_redefines_paint_keys():
-    """style_json.py must import LEGACY_BUILDER_PAINT_KEYS from schemas, not redefine it.
+def test_style_sanitizers_imports_not_redefines_paint_keys():
+    """style_sanitizers.py imports the paint-key map rather than redefining it.
 
     The single source of truth for paint-key→storage-field mapping is
     ``backend/app/modules/catalog/maps/schemas.py``. A second definition
-    in ``style_json.py`` would silently diverge from the source of truth.
+    in ``style_sanitizers.py`` would silently diverge from the source of truth.
 
     This test guards the import contract: the constant must be imported,
     and the file must NOT contain a standalone assignment
     ``LEGACY_BUILDER_PAINT_KEYS = ...``.
     """
-    source = STYLE_JSON_PY.read_text(encoding="utf-8")
+    source = STYLE_SANITIZERS_PY.read_text(encoding="utf-8")
 
     # Must import the constant from schemas
     assert (
         "LEGACY_BUILDER_PAINT_KEYS" in source
         and "from app.modules.catalog.maps.schemas import" in source
     ), (
-        f"style_json.py no longer imports LEGACY_BUILDER_PAINT_KEYS from schemas. "
-        f"Check {STYLE_JSON_PY} — the import must be preserved so there is a "
+        f"style_sanitizers.py no longer imports LEGACY_BUILDER_PAINT_KEYS from schemas. "
+        f"Check {STYLE_SANITIZERS_PY} — the import must be preserved so there is a "
         f"single source of truth for the paint-key allowlist."
     )
 
@@ -150,7 +157,7 @@ def test_style_json_imports_not_redefines_paint_keys():
         re.MULTILINE,
     )
     assert not redefinition, (
-        f"GUARD-01: style_json.py redefines LEGACY_BUILDER_PAINT_KEYS at line "
+        f"GUARD-01: style_sanitizers.py redefines LEGACY_BUILDER_PAINT_KEYS at line "
         f"{source[: redefinition.start()].count(chr(10)) + 1}. "
         f"Remove this redefinition — the constant must only live in schemas.py."
     )

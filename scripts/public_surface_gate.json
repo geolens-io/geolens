@@ -168,6 +168,76 @@
   ],
   "allowlist": [
     {
+      "id": "env-multi-tenant-runtime-role-requirement",
+      "path": ".env.example",
+      "pattern_id": "multi_tenant_wording",
+      "match": "MULTI-TENANT",
+      "reason": "Operator configuration must identify the mode where separate least-privilege runtime roles are mandatory."
+    },
+    {
+      "id": "env-multi-tenant-tile-url-requirement",
+      "path": ".env.example",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "Operator configuration must identify when the dedicated tile database URL is required."
+    },
+    {
+      "id": "env-multi-tenant-tile-url-default",
+      "path": ".env.example",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "Operator configuration documents that the dedicated tile database URL has no default in this mode."
+    },
+    {
+      "id": "env-multi-tenant-routing-boundary",
+      "path": ".env.example",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "Operator configuration must identify when tenant host-routing settings are required."
+    },
+    {
+      "id": "editions-enterprise-image-boundary",
+      "path": "EDITIONS.md",
+      "pattern_id": "enterprise_word",
+      "match": "Enterprise",
+      "reason": "Licensing transparency names the separately licensed image so the free and paid boundary is explicit."
+    },
+    {
+      "id": "editions-multi-tenant-core-substrate",
+      "path": "EDITIONS.md",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "Licensing transparency records that generic tenant-isolation substrate remains Apache-2.0 Core."
+    },
+    {
+      "id": "editions-multi-tenant-hosted-boundary",
+      "path": "EDITIONS.md",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "Licensing transparency distinguishes dormant Core substrate from separately licensed hosted behavior."
+    },
+    {
+      "id": "editions-enterprise-import-boundary",
+      "path": "EDITIONS.md",
+      "pattern_id": "enterprise_word",
+      "match": "Enterprise",
+      "reason": "Licensing transparency documents CI enforcement that keeps private paid packages out of public Core."
+    },
+    {
+      "id": "runbook-multi-tenant-role-reconstruction",
+      "path": "RUNBOOK.md",
+      "pattern_id": "multi_tenant_wording",
+      "match": "Multi-tenant",
+      "reason": "Offline recovery instructions must name the role-reconstruction procedure operators need after restore."
+    },
+    {
+      "id": "runbook-multi-tenant-fresh-cluster-restore",
+      "path": "RUNBOOK.md",
+      "pattern_id": "multi_tenant_wording",
+      "match": "multi-tenant",
+      "reason": "Offline recovery instructions must distinguish fresh-cluster tenant restores from same-cluster recovery."
+    },
+    {
       "id": "env-example-edition-enum-value",
       "path": ".env.example",
       "pattern_id": "enterprise_word",

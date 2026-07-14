@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
+from app.core.db.tenant_session import current_tenant_var
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_COLUMN_NAME_RE,
@@ -74,6 +76,9 @@ async def create_empty_dataset(
     table_name, _collision_warning = await get_catalog_port().generate_table_name(
         request.title, session
     )
+    tenant_id = current_tenant_var.get()
+    data_schema = tenant_data_schema(tenant_id)
+    reader_role = tenant_reader_role(tenant_id)
 
     # Build column definitions SQL
     col_defs = []
@@ -84,7 +89,7 @@ async def create_empty_dataset(
 
     columns_sql = ", ".join(col_defs)
     create_sql = (
-        f"CREATE TABLE {_safe_table_ref(table_name)} ("
+        f"CREATE TABLE {_safe_table_ref(table_name, schema=data_schema)} ("
         f"gid SERIAL PRIMARY KEY, "
         f"geom geometry(Geometry, 4326), "
         f"geom_4326 geometry(Geometry, 4326), "
@@ -94,7 +99,12 @@ async def create_empty_dataset(
     await session.execute(text(create_sql))
 
     # Grant reader access
-    await get_catalog_port().grant_reader_access(session, table_name)
+    await get_catalog_port().grant_reader_access(
+        session,
+        table_name,
+        schema=data_schema,
+        role=reader_role,
+    )
 
     # Build column_info in standard format
     column_info = []

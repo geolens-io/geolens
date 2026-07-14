@@ -18,6 +18,7 @@ from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.oauth.schemas import (
+    IDP_MAPPING_ERROR,
     SAML_PROVIDER_ERROR,
     SAML_PROVIDER_FIELDS,
     OAuthProviderCreate,
@@ -231,8 +232,17 @@ def normalize_provider_create(data: OAuthProviderCreate) -> dict[str, object]:
     """
     normalized: dict[str, object] = data.model_dump()
     is_saml = data.provider_type == "saml"
-    if is_saml and not is_enterprise():
+    has_saml_fields = any(
+        field in data.model_fields_set or getattr(data, field) is not None
+        for field in SAML_PROVIDER_FIELDS
+    )
+    if not is_enterprise() and (is_saml or has_saml_fields):
         raise OAuthProviderConfigurationError(SAML_PROVIDER_ERROR)
+    has_paid_idp_mapping = data.group_claim is not None or (
+        data.group_role_mapping is not None and data.group_role_mapping != {}
+    )
+    if not is_enterprise() and has_paid_idp_mapping:
+        raise OAuthProviderConfigurationError(IDP_MAPPING_ERROR)
 
     endpoint_values = _provider_endpoint_values(normalized)
     for field in _OAUTH_ENDPOINT_FIELDS:
@@ -262,6 +272,12 @@ def normalize_provider_update(
         or any(field in update_data for field in SAML_PROVIDER_FIELDS)
     ):
         raise OAuthProviderConfigurationError(SAML_PROVIDER_ERROR)
+    has_paid_idp_mapping = update_data.get("group_claim") is not None or (
+        update_data.get("group_role_mapping") is not None
+        and update_data.get("group_role_mapping") != {}
+    )
+    if not is_enterprise() and has_paid_idp_mapping:
+        raise OAuthProviderConfigurationError(IDP_MAPPING_ERROR)
 
     current_endpoints = _raw_provider_endpoint_values(provider)
     updated_endpoints = _provider_endpoint_values(provider, update_data)
@@ -361,7 +377,8 @@ async def create_provider(
     the Pydantic fields Optional but does not relax the DB constraint).
 
     The Pydantic per-type validator on ``OAuthProviderCreate`` rejects mixed/
-    incomplete configs at the schema layer, so we can trust the data shape here.
+    incomplete configs at the schema layer. The edition gate is repeated here
+    because internal callers can invoke the service without schema validation.
     """
     normalized = normalize_provider_create(data)
     is_saml = normalized["provider_type"] == "saml"

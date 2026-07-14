@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 from geolens_cli.main import AppState, app
@@ -72,6 +73,23 @@ def test_help_lists_manifest_commands(runner, tmp_xdg_home) -> None:
     assert result.exit_code == 0, result.output
     assert "init" in result.output
     assert "validate" in result.output
+    assert "schema" in result.output
+
+
+def test_schema_command_exports_packaged_schema(
+    runner, tmp_path: Path, tmp_xdg_home
+) -> None:
+    output = tmp_path / "manifest.schema.json"
+
+    result = runner.invoke(app, ["schema", "--output", str(output)])
+
+    assert result.exit_code == 0, result.output
+    schema = json.loads(output.read_text(encoding="utf-8"))
+    assert (
+        schema["$id"]
+        == "https://schemas.getgeolens.com/geolens-manifest/v1/schema.json"
+    )
+    assert schema["properties"]["manifest_version"]["const"] == "1"
 
 
 def test_init_then_validate_succeeds_without_sdk(

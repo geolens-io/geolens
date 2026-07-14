@@ -10,6 +10,7 @@ that downstream plans replace.
 from __future__ import annotations
 
 import getpass
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Optional
@@ -217,6 +218,31 @@ def validate(
     raise typer.Exit(EXIT_USAGE)
 
 
+@app.command("schema")
+def print_manifest_schema(
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Write the versioned manifest JSON Schema to a file",
+        ),
+    ] = None,
+) -> None:
+    """Print the packaged geolens.yaml JSON Schema without contacting an API."""
+    from .manifest.schema import manifest_schema
+
+    rendered = json.dumps(manifest_schema(), indent=2, sort_keys=True) + "\n"
+    if output is None:
+        typer.echo(rendered, nl=False)
+        return
+    try:
+        output.write_text(rendered, encoding="utf-8")
+    except OSError as exc:
+        raise typer.BadParameter(f"Could not write schema to {output}: {exc}") from exc
+    typer.echo(str(output))
+
+
 @app.command("apply")
 def apply_manifest_command(
     ctx: typer.Context,
@@ -343,10 +369,7 @@ def login(
         Optional[str],
         typer.Option(
             "--api-key",
-            help=(
-                "Skip prompt; store as API key. "
-                "Pass '-' to read from stdin."
-            ),
+            help=("Skip prompt; store as API key. Pass '-' to read from stdin."),
         ),
     ] = None,
     no_keyring: Annotated[

@@ -134,6 +134,19 @@ from .config_response import ConfigResponse
 from .conformance_response import ConformanceResponse
 from .connectivity_result import ConnectivityResult
 from .connectivity_result_oidc_providers import ConnectivityResultOidcProviders
+from .connector_definition_response import ConnectorDefinitionResponse
+from .connector_definition_response_config_schema import (
+    ConnectorDefinitionResponseConfigSchema,
+)
+from .connector_discover_request import ConnectorDiscoverRequest
+from .connector_discover_request_config import ConnectorDiscoverRequestConfig
+from .connector_discover_response import ConnectorDiscoverResponse
+from .connector_ingest_request import ConnectorIngestRequest
+from .connector_ingest_request_config import ConnectorIngestRequestConfig
+from .connector_ingest_response import ConnectorIngestResponse
+from .connector_list_response import ConnectorListResponse
+from .connector_resource_response import ConnectorResourceResponse
+from .connector_resource_response_metadata import ConnectorResourceResponseMetadata
 from .contact_create import ContactCreate
 from .contact_create_extra_json_type_0 import ContactCreateExtraJsonType0
 from .contact_list_response import ContactListResponse
@@ -486,6 +499,9 @@ from .settings_reset_request import SettingsResetRequest
 from .settings_update_request import SettingsUpdateRequest
 from .settings_update_request_settings import SettingsUpdateRequestSettings
 from .share_token_request import ShareTokenRequest
+from .share_token_request_expires_in_days_type_0 import (
+    ShareTokenRequestExpiresInDaysType0,
+)
 from .share_token_response import ShareTokenResponse
 from .shared_layer_response import SharedLayerResponse
 from .shared_layer_response_column_info_type_0_item import (
@@ -711,6 +727,17 @@ __all__ = (
     "ConformanceResponse",
     "ConnectivityResult",
     "ConnectivityResultOidcProviders",
+    "ConnectorDefinitionResponse",
+    "ConnectorDefinitionResponseConfigSchema",
+    "ConnectorDiscoverRequest",
+    "ConnectorDiscoverRequestConfig",
+    "ConnectorDiscoverResponse",
+    "ConnectorIngestRequest",
+    "ConnectorIngestRequestConfig",
+    "ConnectorIngestResponse",
+    "ConnectorListResponse",
+    "ConnectorResourceResponse",
+    "ConnectorResourceResponseMetadata",
     "ContactCreate",
     "ContactCreateExtraJsonType0",
     "ContactListResponse",
@@ -986,6 +1013,7 @@ __all__ = (
     "SharedLayerResponseStyleConfigType0",
     "SharedMapResponse",
     "ShareTokenRequest",
+    "ShareTokenRequestExpiresInDaysType0",
     "ShareTokenResponse",
     "SSEActionsEvent",
     "SSEChatDoneEvent",

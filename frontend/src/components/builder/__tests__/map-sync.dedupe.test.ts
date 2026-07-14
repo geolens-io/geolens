@@ -7,7 +7,7 @@ import {
 import type { TileToken, VectorTileToken } from '@/api/tiles';
 
 vi.mock('@/lib/tile-utils', () => ({
-  getMvtSourceLayerName: (table: string) => `data.${table}`,
+  getMvtSourceLayerName: (table: string, prefix = 'data') => `${prefix}.${table}`,
   buildSignedTileUrl: vi.fn(
     (table: string) => `/tiles/${table}/{z}/{x}/{y}.pbf`,
   ),
@@ -153,6 +153,30 @@ describe('syncLayersToMap dedupes addSource by dataset_table_name', () => {
   beforeEach(() => {
     map = createMockMap();
     managedSourcesRef = { current: new Set() };
+  });
+
+  it('renders against the tenant-prefixed MVT source layer', () => {
+    const layer = makeLayer({ dataset_table_name: 'parcels' });
+    const tokenMap = new Map<string, TileToken>([
+      ['ds-x', makeVectorToken()],
+    ]);
+    const prefix = 'data_t_12345678_1234_1234_1234_123456789abc';
+
+    syncLayersToMap(
+      map,
+      [layer],
+      tokenMap,
+      undefined,
+      managedSourcesRef,
+      { current: '' },
+      undefined,
+      { mvtSourceLayerPrefix: prefix },
+    );
+
+    const renderedLayer = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls
+      .map(([spec]) => spec as Record<string, unknown>)
+      .find((spec) => spec.id === 'layer-layer-x');
+    expect(renderedLayer?.['source-layer']).toBe(`${prefix}.parcels`);
   });
 
   it('4 non-cluster vector layers across 2 datasets fires addSource exactly 2 times (M for M, not N)', () => {

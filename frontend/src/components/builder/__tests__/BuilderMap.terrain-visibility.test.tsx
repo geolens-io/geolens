@@ -30,7 +30,9 @@ vi.mock('@/hooks/use-settings', () => ({
     ],
   }),
   useMapDefaults: () => ({ data: { center_lng: 0, center_lat: 0, zoom: 2 } }),
-  useTileConfig: () => ({ data: null }),
+  useTileConfig: () => ({
+    data: { cdn_base_url: null, mvt_source_layer_prefix: 'data' },
+  }),
   useEnabledPlugins: () => ({ data: [], isLoading: false }),
 }));
 

@@ -21,6 +21,19 @@ class Collection(Base):
     __tablename__ = "collections"
     __table_args__ = (
         Index(
+            "uq_collections_name_global",
+            "name",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_collections_name_tenant",
+            "tenant_id",
+            "name",
+            unique=True,
+            postgresql_where=text("tenant_id IS NOT NULL"),
+        ),
+        Index(
             "ix_collections_created_by",
             "created_by",
             postgresql_where=text("created_by IS NOT NULL"),
@@ -31,7 +44,7 @@ class Collection(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
     )
-    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True

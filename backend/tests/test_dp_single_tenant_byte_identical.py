@@ -215,6 +215,12 @@ class TestNoPerTenantSchemaExistsFromSingleTenantBoot:
         "geolens_reader_t_00000000_0000_0000_0000_000000000002",
     }
 
+    def test_cluster_global_catalog_guard_is_serialized_by_xdist(self, request):
+        """The catalog observer must not overlap cluster-global role mutators."""
+        marker = request.node.get_closest_marker("xdist_group")
+        assert marker is not None
+        assert marker.args == ("tenancy_global_state",)
+
     @pytest.mark.asyncio
     async def test_no_non_fixture_per_tenant_schemas(self):
         """No data_t_* schemas exist beyond the two init-test-db.sh fixtures."""

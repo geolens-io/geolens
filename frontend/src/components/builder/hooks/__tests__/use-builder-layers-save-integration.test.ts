@@ -52,6 +52,9 @@ vi.mock('@/hooks/use-maps', () => ({
 
 vi.mock('@/hooks/use-settings', () => ({
   useEnabledPlugins: () => ({ data: null, isLoading: false }),
+  useTileConfig: () => ({
+    data: { cdn_base_url: null, mvt_source_layer_prefix: 'data' },
+  }),
 }));
 
 vi.mock('@/hooks/use-edition', () => ({

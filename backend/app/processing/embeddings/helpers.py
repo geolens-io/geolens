@@ -8,6 +8,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.processing.embeddings.models import RecordEmbedding
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -56,18 +57,29 @@ async def has_embeddings(session: AsyncSession) -> bool:
 
     Result is cached in-memory for 30 seconds, partitioned by the
     active embedding model name (PERF-10 / Phase 274) so a model
-    swap in admin Settings invalidates stale answers.
+    swap in admin Settings invalidates stale answers. Unscoped
+    multi-tenant requests fail closed before consulting either the
+    database or the process-wide cache.
     """
     global _has_embeddings_cache
     now = time.monotonic()
 
-    model_key = await _resolve_embedding_model_name(session)
+    if not tenant_cache_context_available():
+        return False
+
+    model_key = tenant_cache_key(await _resolve_embedding_model_name(session))
     entry = _has_embeddings_cache.get(model_key)
     if entry and (now - entry[1]) < _HAS_EMBEDDINGS_TTL:
         return entry[0]
 
     result = await session.execute(
-        text("SELECT EXISTS(SELECT 1 FROM catalog.record_embeddings)")
+        text(
+            "SELECT EXISTS("
+            "SELECT 1 FROM catalog.record_embeddings AS embedding "
+            "JOIN catalog.records AS visible_record "
+            "ON visible_record.id = embedding.record_id"
+            ")"
+        )
     )
     value = result.scalar_one()
 
@@ -95,6 +107,7 @@ async def get_nearest_record_ids(
     # Get this record's embedding
     emb_result = await session.execute(
         select(RecordEmbedding.embedding)
+        .join(RecordEmbedding.record)
         .where(RecordEmbedding.record_id == record_id)
         .limit(1)
     )
@@ -107,6 +120,7 @@ async def get_nearest_record_ids(
     # Find nearest neighbors (exclude self)
     nn_stmt = (
         select(RecordEmbedding.record_id)
+        .join(RecordEmbedding.record)
         .where(RecordEmbedding.record_id != record_id)
         .where(RecordEmbedding.embedding.cosine_distance(embedding) <= max_distance)
         .order_by(RecordEmbedding.embedding.cosine_distance(embedding))

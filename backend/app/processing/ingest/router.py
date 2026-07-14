@@ -96,6 +96,7 @@ from app.core.persistent_config import (
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.processing.raster.validation import validate_sources
 from app.platform.storage import get_storage
+from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
@@ -237,6 +238,7 @@ async def request_presigned_upload(
     job = await create_ingest_job(db, request.filename, "", user.id)
     storage = get_storage()
     s3_key = f"staging/{job.id}/{request.filename}"
+    physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     if request.file_size > threshold:
@@ -244,7 +246,7 @@ async def request_presigned_upload(
         try:
             upload_id, initiation_cancel = await run_in_thread_draining_capture_cancel(
                 storage.initiate_multipart_upload,
-                s3_key,
+                physical_s3_key,
                 request.content_type,
             )
             if initiation_cancel is not None:
@@ -253,7 +255,7 @@ async def request_presigned_upload(
             urls = [
                 await run_in_thread_draining(
                     storage.generate_presigned_part_url,
-                    s3_key,
+                    physical_s3_key,
                     upload_id,
                     part_num,
                 )
@@ -263,7 +265,7 @@ async def request_presigned_upload(
             if upload_id is not None:
                 await abort_presigned_multipart_upload(
                     storage,
-                    key=s3_key,
+                    key=physical_s3_key,
                     upload_id=upload_id,
                     job_id=job.id,
                 )
@@ -286,7 +288,7 @@ async def request_presigned_upload(
         except BaseException:
             await abort_presigned_multipart_upload(
                 storage,
-                key=s3_key,
+                key=physical_s3_key,
                 upload_id=upload_id,
                 job_id=job.id,
             )
@@ -294,7 +296,7 @@ async def request_presigned_upload(
         return PresignedUploadResponse(
             job_id=job.id,
             urls=urls,
-            s3_key=s3_key,
+            s3_key=physical_s3_key,
             upload_id=upload_id,
             part_size=PART_SIZE,
         )
@@ -302,7 +304,7 @@ async def request_presigned_upload(
         try:
             url = await run_in_thread_draining(
                 storage.generate_presigned_put_url,
-                s3_key,
+                physical_s3_key,
                 request.content_type,
             )
         except (
@@ -323,7 +325,7 @@ async def request_presigned_upload(
         return PresignedUploadResponse(
             job_id=job.id,
             urls=[url],
-            s3_key=s3_key,
+            s3_key=physical_s3_key,
         )
 
 
@@ -354,12 +356,13 @@ async def complete_presigned_upload(
 
     storage = get_storage()
     s3_key = um["s3_key"]
+    physical_s3_key = resolve_current_storage_key(s3_key)
 
     if um.get("multipart"):
         if not request.parts:
             await abort_presigned_multipart_upload(
                 storage,
-                key=s3_key,
+                key=physical_s3_key,
                 upload_id=um.get("upload_id"),
                 job_id=job.id,
             )
@@ -370,17 +373,17 @@ async def complete_presigned_upload(
         try:
             _, completion_cancel = await run_in_thread_draining_capture_cancel(
                 storage.complete_multipart_upload,
-                s3_key,
+                physical_s3_key,
                 um["upload_id"],
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                await _await_provider_call_draining(storage.delete(s3_key))
+                await _await_provider_call_draining(storage.delete(physical_s3_key))
                 raise completion_cancel
         except Exception as exc:  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
             await abort_presigned_multipart_upload(
                 storage,
-                key=s3_key,
+                key=physical_s3_key,
                 upload_id=um.get("upload_id"),
                 job_id=job.id,
             )
@@ -395,7 +398,7 @@ async def complete_presigned_upload(
                 detail="Upload completion failed — the upload session may have expired. Please try again.",
             ) from exc
 
-    if not await storage.exists(s3_key):
+    if not await storage.exists(physical_s3_key):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File not found in S3 after upload",
@@ -403,7 +406,7 @@ async def complete_presigned_upload(
     await verify_completed_presigned_upload(
         db=db,
         storage=storage,
-        key=s3_key,
+        key=physical_s3_key,
         expected_size=um.get("expected_size"),
         user_id=user.id,
         request=http_request,
@@ -434,7 +437,8 @@ async def _cleanup_saved_upload(
         saved_path.unlink(missing_ok=True)
         return
     try:
-        await _await_provider_call_draining(get_storage().delete(saved_path))
+        physical_saved_path = resolve_current_storage_key(saved_path)
+        await _await_provider_call_draining(get_storage().delete(physical_saved_path))
     except (
         BaseException
     ):  # broad: cleanup is best-effort and must drain through request cancellation
@@ -627,8 +631,9 @@ async def preview_file(
         )
     file_path: str = job.file_path
     downloaded_preview_path: Path | None = None
-    if not Path(file_path).exists():
-        file_path = await resolve_file_path(file_path, str(job.id))
+    resolved_file_path = await resolve_file_path(file_path, str(job.id))
+    if resolved_file_path != file_path:
+        file_path = resolved_file_path
         downloaded_preview_path = Path(file_path)
 
     # Branch: raster vs vector preview

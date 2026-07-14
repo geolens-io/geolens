@@ -73,6 +73,7 @@ export function applyLayerOpacityToMap(
   map: MaplibreMap,
   layer: MapLayerResponse,
   opacity: number,
+  mvtSourceLayerPrefix?: string | null,
 ): void {
   if (isDemTerrainVisualSuppressed(layer)) return;
 
@@ -93,7 +94,7 @@ export function applyLayerOpacityToMap(
       filter: layer.filter ?? null,
       sourceId: getSourceIdForLayer(layer),
       layerId: mapLayerId,
-      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
+      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
       tileUrl: '',
       style_config: layer.style_config ?? null,
       is_dem: layer.is_dem,
@@ -122,7 +123,7 @@ export function applyLayerOpacityToMap(
       // them through the cluster branch.
       sourceId: getSourceIdForLayer(layer),
       layerId: mapLayerId,
-      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
+      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
       tileUrl: '',
       style_config: layer.style_config ?? null,
       is_dem: layer.is_dem,
@@ -143,7 +144,7 @@ export function applyLayerOpacityToMap(
       filter: layer.filter ?? null,
       sourceId: getSourceIdForLayer(layer),
       layerId: mapLayerId,
-      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
+      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name, mvtSourceLayerPrefix),
       tileUrl: '',
       style_config: layer.style_config ?? null,
       is_dem: layer.is_dem,
@@ -168,6 +169,7 @@ export function useLayerMapSync(
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
   setHasUnsavedChanges: React.Dispatch<React.SetStateAction<boolean>>,
   mapInstanceRef: React.RefObject<MaplibreMap | null>,
+  mvtSourceLayerPrefix?: string | null,
 ) {
   // Mirror current layers in a ref so the memoized callbacks can read fresh
   // state without having `localLayers` in their dependency list. Without this
@@ -255,7 +257,10 @@ export function useLayerMapSync(
             // layers, per-layer for cluster/raster/hillshade.
             sourceId: getSourceIdForLayer(layer),
             layerId: mapLayerId,
-            sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
+            sourceLayer: getMvtSourceLayerName(
+              layer.dataset_table_name,
+              mvtSourceLayerPrefix,
+            ),
             tileUrl: '',
             is_dem: layer.is_dem,
           };
@@ -268,7 +273,7 @@ export function useLayerMapSync(
         },
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, mvtSourceLayerPrefix],
   );
 
   // Map-only side-effect for a style_config change — extracted so the bulk
@@ -311,7 +316,10 @@ export function useLayerMapSync(
         filter: layer.filter ?? null,
         sourceId,
         layerId: mapLayerId,
-        sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
+        sourceLayer: getMvtSourceLayerName(
+          layer.dataset_table_name,
+          mvtSourceLayerPrefix,
+        ),
         tileUrl,
         is_dem: layer.is_dem,
       };
@@ -333,7 +341,7 @@ export function useLayerMapSync(
         adapter.syncPaint(map, input);
       }
     },
-    [],
+    [mvtSourceLayerPrefix],
   );
 
   const handleStyleConfigChange = useCallback(
@@ -413,10 +421,11 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, opacity: newOpacity }),
-        (map, layer) => applyLayerOpacityToMap(map, layer, newOpacity),
+        (map, layer) =>
+          applyLayerOpacityToMap(map, layer, newOpacity, mvtSourceLayerPrefix),
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, mvtSourceLayerPrefix],
   );
 
   const handleLayoutChange = useCallback(
@@ -598,7 +607,10 @@ export function useLayerMapSync(
           const sourceId = getSourceIdForLayer(layer);
           if (!map.getSource(sourceId)) return;
 
-          const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
+          const sourceLayer = getMvtSourceLayerName(
+            layer.dataset_table_name,
+            mvtSourceLayerPrefix,
+          );
           const parentVis = (map.getLayer(ids.layer)
             ? (map.getLayoutProperty(ids.layer, 'visibility') ?? 'visible')
             : 'visible') as 'visible' | 'none';
@@ -611,7 +623,7 @@ export function useLayerMapSync(
         },
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, mvtSourceLayerPrefix],
   );
 
   const handlePopupChange = useCallback(

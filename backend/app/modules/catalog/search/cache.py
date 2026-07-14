@@ -5,17 +5,25 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import time
 from typing import Literal
 
 import structlog
 
 from app.core.identity import Identity
 from app.modules.catalog.search.service import SearchFilters
-from app.platform.cache import get_cache
+from app.platform.cache import (
+    get_cache,
+    tenant_cache_context_available,
+    tenant_cache_key,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
 SEARCH_CACHE_TTL = 30  # seconds — CONTEXT.md decision
+_COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
+_COLLECTION_META_TTL = 60
+_COLLECTION_META_MAX_SIZE = 200
 
 EndpointKind = Literal["search", "facets"]
 
@@ -26,7 +34,40 @@ def is_anon_cacheable(user: Identity | None) -> bool:
     Anonymous = ``user is None``. API-key-authed users with empty role sets are
     NOT anon and must bypass the cache (RESEARCH.md §1 edge case).
     """
-    return user is None
+    return user is None and tenant_cache_context_available()
+
+
+def collection_metadata_cache_key(identity: str) -> str | None:
+    """Return a tenant-scoped metadata key, or disable cache on unscoped hosts."""
+    if not tenant_cache_context_available():
+        return None
+    return tenant_cache_key(identity)
+
+
+def get_collection_metadata_cached(key: str | None) -> dict | None:
+    """Return a fresh copy of cached collection metadata."""
+    if key is None:
+        return None
+    cached = _COLLECTION_META_CACHE.get(key)
+    if cached is None:
+        return None
+    timestamp, data = cached
+    if time.monotonic() - timestamp >= _COLLECTION_META_TTL:
+        _COLLECTION_META_CACHE.pop(key, None)
+        return None
+    return dict(data)
+
+
+def set_collection_metadata_cached(key: str | None, data: dict) -> None:
+    """Store bounded collection metadata when a verified cache key exists."""
+    if key is None:
+        return
+    _COLLECTION_META_CACHE[key] = (time.monotonic(), data)
+    if len(_COLLECTION_META_CACHE) > _COLLECTION_META_MAX_SIZE:
+        oldest_key = min(
+            _COLLECTION_META_CACHE, key=lambda item: _COLLECTION_META_CACHE[item][0]
+        )
+        _COLLECTION_META_CACHE.pop(oldest_key, None)
 
 
 def build_cache_key(
@@ -77,7 +118,7 @@ def build_cache_key(
         json.dumps(payload, default=str, sort_keys=True).encode(),
         usedforsecurity=False,
     ).hexdigest()
-    return f"catalog:search:{endpoint}:{digest}"
+    return tenant_cache_key(f"catalog:search:{endpoint}:{digest}")
 
 
 async def get_cached(key: str) -> dict | None:

@@ -37,6 +37,7 @@ from app.modules.quota.schemas import UserQuotaUsage
 from app.modules.quota.service import get_user_quota_usage
 from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
+from app.core.tenancy import is_multi_tenant
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     ALLOWED_EMAIL_DOMAINS,
@@ -185,7 +186,13 @@ async def refresh(
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Exchange a valid refresh token for a new access + refresh token pair."""
+    """Exchange a valid refresh token for a new access + refresh token pair.
+
+    Multi-tenant clients must call this endpoint on their tenant host. Refresh
+    tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
+    binds the database transaction from that same-origin host before the user
+    row is resolved and the next tenant-bound access token is minted.
+    """
     # Read token lifetimes from PersistentConfig (hot-reloadable)
     expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
@@ -417,7 +424,12 @@ async def register(
         )  # LAZY: per D-17
 
         try:
-            await send_verification_email(db, to_email=body.email, raw_token=raw_token)
+            await send_verification_email(
+                db,
+                to_email=body.email,
+                raw_token=raw_token,
+                request=request,
+            )
         except (smtplib.SMTPException, OSError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -584,7 +596,12 @@ async def resend_verification(
         try:
             raw_token = await issue_verification_token(db, user.id)
             await db.commit()
-            await send_verification_email(db, to_email=body.email, raw_token=raw_token)
+            await send_verification_email(
+                db,
+                to_email=body.email,
+                raw_token=raw_token,
+                request=request,
+            )
         except (smtplib.SMTPException, OSError) as exc:
             # Log the error type only — never the SMTP password or full repr.
             _log.warning(
@@ -668,6 +685,14 @@ async def create_download_token_endpoint(
     #   audit row with user_id=NULL. (KNOWN-01 closure in Phase 1071; v1015
     #   Phase 1065 left this consumer gap behind — the consumer used to reject
     #   any sub-less token with 401, breaking the end-to-end anonymous flow.)
+    download_tenant_id = getattr(dataset, "tenant_id", None)
+    if is_multi_tenant() and download_tenant_id is None:
+        # Hosted records without durable tenant ownership are invalid and must
+        # never mint an unbound signed capability.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
     if user is not None:
         from app.modules.auth.providers import AuthenticatedIdentity  # LAZY — per D-17
 
@@ -676,7 +701,11 @@ async def create_download_token_endpoint(
             username=user.username,  # type: ignore[attr-defined]
         )
         service = AuthService(db)
-        token = service.create_download_token(identity, dataset_id)
+        token = service.create_download_token(
+            identity,
+            dataset_id,
+            tenant_id=download_tenant_id,
+        )
     else:
         # Anonymous download token for public dataset — no sub claim.
         now = datetime.now(UTC)
@@ -686,6 +715,8 @@ async def create_download_token_endpoint(
             "exp": now + timedelta(seconds=120),
             "iat": now,
         }
+        if is_multi_tenant():
+            payload["tid"] = str(download_tenant_id)
         token = _jwt.encode(
             payload,
             settings.jwt_secret_key.get_secret_value(),

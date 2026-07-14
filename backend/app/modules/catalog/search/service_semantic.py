@@ -18,6 +18,7 @@ from app.core.persistent_config import EMBEDDING_MODEL
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
+from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -28,9 +29,10 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 # Per-query embedding generation calls the configured AI provider (e.g.,
 # OpenAI text-embedding-3-small at 200-800 ms per call). Repeated identical
 # queries within ~5 minutes are common during user sessions and should not
-# pay that cost on every request. The cache key is `(query_text.lower(),
-# model_name)` so case variations and accidental whitespace collide. TTL is
-# 300 seconds (matches audit recommendation), max 512 entries.
+# pay that cost on every request. The cache key is `(tenant-scoped query text,
+# model_name)` so case variations and accidental whitespace collide without
+# sharing a provider result across tenants. TTL is 300 seconds (matches audit
+# recommendation), max 512 entries.
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
@@ -90,8 +92,9 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     """Generate an embedding through the configured CatalogPort provider.
 
     Phase 269 H-22: results are memoized in a TTL LRU cache keyed on
-    `(text.strip().lower(), model_name)`, TTL 300s. Cache write only happens
-    on the success path; provider errors propagate to callers as before.
+    `(tenant-scoped text.strip().lower(), model_name)`, TTL 300s. Cache write
+    only happens on the success path; provider errors propagate to callers as
+    before.
     """
     normalized = text.strip().lower()
     if not normalized:
@@ -99,7 +102,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
         return await _embed_with_deadline(text, session)
 
     model_name = await EMBEDDING_MODEL.get(session)
-    cache_key = (normalized, model_name)
+    cache_key = (tenant_cache_key(normalized), model_name)
 
     cached = _embedding_cache_get(cache_key)
     if cached is not None:
@@ -322,6 +325,7 @@ async def _run_rrf_merge(
         await session.execute(
             select(func.count())
             .select_from(RecordEmbedding)
+            .join(Record, RecordEmbedding.record_id == Record.id)
             .where(RecordEmbedding.model_name == model_name)
         )
     ).scalar_one()
