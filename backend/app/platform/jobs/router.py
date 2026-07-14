@@ -347,7 +347,17 @@ async def cleanup_stale_jobs(
     sweeper, so this endpoint is only needed if you need cleanup faster than
     that interval.
     """
-    pending_failed, running_failed = await fail_stale_jobs(db)
+    from app.core.tenancy import is_multi_tenant
+
+    if is_multi_tenant():
+        # fix(#507): FORCE RLS makes a request session visible only to its
+        # current tenant. Reuse the lifecycle sweeper so this fleet-level
+        # endpoint opens a separately scoped transaction for every tenant.
+        from app.api.main import sweep_stale_jobs_once
+
+        pending_failed, running_failed = await sweep_stale_jobs_once()
+    else:
+        pending_failed, running_failed = await fail_stale_jobs(db)
     return StaleCleanupResponse(
         pending_failed=pending_failed,
         running_failed=running_failed,

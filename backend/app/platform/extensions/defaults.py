@@ -13,7 +13,7 @@ class DefaultBrandingExtension:
 
 
 class DefaultAuditExtension:
-    """Default audit: no additional export formats."""
+    """Community advertises no overlay-owned audit formats."""
 
     def get_export_formats(self) -> list[str]:
         return []

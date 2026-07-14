@@ -42,7 +42,10 @@ class BrandingExtension(Protocol):
 
 @runtime_checkable
 class AuditExtension(Protocol):
-    """Extension point for audit export formats."""
+    """Metadata for additional audit formats served by overlay-owned routes.
+
+    Core CSV and JSON export does not depend on this extension.
+    """
 
     def get_export_formats(self) -> list[str]: ...
 
@@ -58,11 +61,9 @@ class AuthExtension(Protocol):
 class AuditSink(Protocol):
     """Write-side hook for audit event emission (Phase 222 D-01).
 
-    Sibling to ``AuditExtension`` (read-side export-format gating at
-    ``audit/router.py``). Two orthogonal concerns: a SIEM streamer doesn't add
-    export formats; a CSV exporter doesn't subscribe to writes. Future overlays
-    may implement BOTH on one class (Phase 217 D-13 dual-Protocol pattern), but
-    the contracts stay separate.
+    A SIEM streamer does not change the bounded CSV and JSON export provided by
+    Core. Future overlays may implement this protocol and ``AuditExtension`` on
+    one class, but the contracts stay separate.
 
     Enterprise overlays subscribe by appending instances to
     ``_extensions["audit_sinks"]`` in their ``register_extensions(registry)``

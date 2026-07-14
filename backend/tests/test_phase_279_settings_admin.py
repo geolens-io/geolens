@@ -5,9 +5,7 @@ Settings tab keys. Without this gate, future drift between backend
 ``ENTERPRISE_ONLY_TABS`` and frontend ``AdminSidebar`` enterpriseOnly flags
 can re-emerge silently.
 
-ADMIN-04 (M-04): Lock the unified audit-export format dispatcher. Without
-this gate, a future maintainer might re-introduce a parallel hardcoded
-format list that diverges from FORMAT_HANDLERS.
+ADMIN-04 (M-04): Lock the Community audit-export format dispatcher.
 
 These are pure static-analysis / import-level tests; no DB fixtures are
 required so they remain stable across CI environments where the test DB may
@@ -98,11 +96,13 @@ def test_audit_router_no_501_branch_remains():
     )
 
 
-def test_audit_router_502_branch_present_for_format_handlers_drift():
-    """The replacement 502 branch must exist and reference FORMAT_HANDLERS."""
+def test_audit_router_rejects_unknown_formats():
+    """The Core route serves only formats registered in FORMAT_HANDLERS."""
     router_path = (
         Path(__file__).resolve().parents[1] / "app" / "modules" / "audit" / "router.py"
     )
     text = router_path.read_text()
     assert "FORMAT_HANDLERS" in text
-    assert "HTTP_502_BAD_GATEWAY" in text
+    assert "HTTP_404_NOT_FOUND" in text
+    assert "get_audit_extension" not in text
+    assert "require_enterprise" not in text

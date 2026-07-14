@@ -269,7 +269,11 @@ async def share_map_endpoint(
         raise HTTPException(status_code=400, detail="Map must be public before sharing")
     try:
         token_obj = await create_share_token(
-            db, map_id, user.id, expires_at=body.expires_at if body else None
+            db,
+            map_id,
+            user.id,
+            expires_at=body.expires_at if body else None,
+            expires_in_days=body.expires_in_days if body else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -304,14 +308,19 @@ async def update_map_share_token_endpoint(
 ) -> ShareTokenResponse:
     """Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration.
+    A fixed-day preset is available in every edition. Null clears expiration.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
     await check_map_ownership(map_obj, user, db)
     try:
-        token_obj = await update_share_token(db, map_id, body.expires_at)
+        token_obj = await update_share_token(
+            db,
+            map_id,
+            body.expires_at,
+            expires_in_days=body.expires_in_days,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if token_obj is None:
@@ -323,7 +332,11 @@ async def update_map_share_token_endpoint(
             action="map.update_share_token",
             resource_type="map",
             resource_id=map_id,
-            details={"expires_at": str(body.expires_at)},
+            details={
+                "expires_at": (
+                    token_obj.expires_at.isoformat() if token_obj.expires_at else None
+                )
+            },
             ip_address=request.client.host if request.client else None,
         ),
     )

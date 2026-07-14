@@ -499,6 +499,9 @@ from .settings_reset_request import SettingsResetRequest
 from .settings_update_request import SettingsUpdateRequest
 from .settings_update_request_settings import SettingsUpdateRequestSettings
 from .share_token_request import ShareTokenRequest
+from .share_token_request_expires_in_days_type_0 import (
+    ShareTokenRequestExpiresInDaysType0,
+)
 from .share_token_response import ShareTokenResponse
 from .shared_layer_response import SharedLayerResponse
 from .shared_layer_response_column_info_type_0_item import (
@@ -1009,6 +1012,7 @@ __all__ = (
     "SharedLayerResponseStyleConfigType0",
     "SharedMapResponse",
     "ShareTokenRequest",
+    "ShareTokenRequestExpiresInDaysType0",
     "ShareTokenResponse",
     "SSEActionsEvent",
     "SSEChatDoneEvent",

@@ -8,6 +8,7 @@ The verifier trust root is the BUNDLED key file; tests pin it via the
 
 from __future__ import annotations
 
+import argparse
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -16,6 +17,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.core.license import load_license, verify_license_token
+from scripts import license_tool
 
 
 @pytest.fixture(autouse=True)
@@ -69,9 +71,17 @@ def install_trusted_key(keypair, tmp_path, monkeypatch):
 
 
 def _mint(
-    private_key, *, exp_delta=timedelta(days=30), edition="enterprise", **extra
+    private_key,
+    *,
+    maintenance_delta=timedelta(days=30),
+    edition="enterprise",
+    **extra,
 ) -> str:
-    payload = {"edition": edition, "exp": datetime.now(UTC) + exp_delta}
+    payload = {
+        "edition": edition,
+        "license_id": "lic-test",
+        "maintenance_until": int((datetime.now(UTC) + maintenance_delta).timestamp()),
+    }
     payload.update(extra)
     return jwt.encode(payload, private_key, algorithm="EdDSA")
 
@@ -93,13 +103,36 @@ def test_verify_valid_token(keypair):
     assert info.seats == 250
     assert info.license_id == "lic-1"
     assert info.features == ("scim",)
-    assert info.expires_at is not None and info.expires_at > datetime.now(UTC)
+    assert info.maintenance_until > datetime.now(UTC)
 
 
-def test_verify_expired_token(keypair):
+def test_verify_ended_maintenance_keeps_license_valid(keypair):
     key, pub = keypair
-    token = _mint(key, exp_delta=timedelta(days=-1))
-    assert verify_license_token(token, pub) is None
+    token = _mint(key, maintenance_delta=timedelta(days=-1))
+    info = verify_license_token(token, pub)
+
+    assert info is not None
+    assert info.maintenance_until < datetime.now(UTC)
+
+
+def test_verify_legacy_exp_becomes_maintenance_date(keypair):
+    key, pub = keypair
+    maintenance_ended = datetime.now(UTC) - timedelta(days=1)
+    token = jwt.encode(
+        {
+            "edition": "enterprise",
+            "license_id": "legacy-license",
+            "exp": int(maintenance_ended.timestamp()),
+        },
+        key,
+        algorithm="EdDSA",
+    )
+
+    info = verify_license_token(token, pub)
+
+    assert info is not None
+    assert info.license_id == "legacy-license"
+    assert info.maintenance_until == maintenance_ended.replace(microsecond=0)
 
 
 def test_verify_non_enterprise_edition(keypair):
@@ -127,9 +160,43 @@ def test_verify_forged_with_other_key(keypair):
     assert verify_license_token(token, pub) is None
 
 
-def test_verify_missing_exp(keypair):
+def test_verify_missing_maintenance_timestamp(keypair):
     key, pub = keypair
-    token = jwt.encode({"edition": "enterprise"}, key, algorithm="EdDSA")  # no exp
+    token = jwt.encode(
+        {"edition": "enterprise", "license_id": "lic-test"},
+        key,
+        algorithm="EdDSA",
+    )
+    assert verify_license_token(token, pub) is None
+
+
+def test_verify_missing_license_id(keypair):
+    key, pub = keypair
+    token = jwt.encode(
+        {
+            "edition": "enterprise",
+            "maintenance_until": int(
+                (datetime.now(UTC) + timedelta(days=30)).timestamp()
+            ),
+        },
+        key,
+        algorithm="EdDSA",
+    )
+    assert verify_license_token(token, pub) is None
+
+
+@pytest.mark.parametrize("maintenance_until", ["not-a-timestamp", True, 10**30])
+def test_verify_rejects_invalid_maintenance_timestamp(keypair, maintenance_until):
+    key, pub = keypair
+    token = jwt.encode(
+        {
+            "edition": "enterprise",
+            "license_id": "lic-test",
+            "maintenance_until": maintenance_until,
+        },
+        key,
+        algorithm="EdDSA",
+    )
     assert verify_license_token(token, pub) is None
 
 
@@ -142,7 +209,13 @@ def test_verify_rejects_non_eddsa_algorithm(keypair):
     is our decode-side pinning — verified here with a plain HS256 token."""
     _key, pub = keypair
     hs_token = jwt.encode(
-        {"edition": "enterprise", "exp": datetime.now(UTC) + timedelta(days=30)},
+        {
+            "edition": "enterprise",
+            "license_id": "lic-test",
+            "maintenance_until": int(
+                (datetime.now(UTC) + timedelta(days=30)).timestamp()
+            ),
+        },
         "any-shared-secret",
         algorithm="HS256",
     )
@@ -192,8 +265,9 @@ def test_verify_tolerates_clock_skew_within_leeway(keypair):
     token = jwt.encode(
         {
             "edition": "enterprise",
+            "license_id": "lic-test",
+            "maintenance_until": int((now + timedelta(days=30)).timestamp()),
             "nbf": now + timedelta(seconds=120),
-            "exp": now + timedelta(days=30),
         },
         key,
         algorithm="EdDSA",
@@ -207,8 +281,9 @@ def test_verify_rejects_beyond_leeway(keypair):
     token = jwt.encode(
         {
             "edition": "enterprise",
+            "license_id": "lic-test",
+            "maintenance_until": int((now + timedelta(days=30)).timestamp()),
             "nbf": now + timedelta(seconds=900),  # 15 min > 300s leeway
-            "exp": now + timedelta(days=30),
         },
         key,
         algorithm="EdDSA",
@@ -339,30 +414,66 @@ def test_init_env_community_override(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Runtime expiry (P1: a token valid at startup must stop unlocking at exp)
+# Maintenance lifecycle
 # --------------------------------------------------------------------------- #
 
 
-def test_runtime_expiry_downgrades_to_community():
+def test_ended_maintenance_keeps_installed_version_enterprise():
     import app.core.edition as edition_mod
 
     past = datetime.now(UTC) - timedelta(seconds=1)
     edition_mod._info = edition_mod.EditionInfo(
-        edition="enterprise", licensed=True, expires_at=past
+        edition="enterprise", licensed=True, maintenance_until=past
     )
-    # No restart / re-init: is_enterprise() must reflect expiry on read.
-    assert edition_mod.is_enterprise() is False
-    assert edition_mod.get_edition().edition == "community"
+    assert edition_mod.is_enterprise() is True
+    assert edition_mod.get_edition().edition == "enterprise"
 
 
-def test_runtime_unexpired_license_stays_enterprise():
+def test_active_maintenance_keeps_installed_version_enterprise():
     import app.core.edition as edition_mod
 
     future = datetime.now(UTC) + timedelta(days=1)
     edition_mod._info = edition_mod.EditionInfo(
-        edition="enterprise", licensed=True, expires_at=future
+        edition="enterprise", licensed=True, maintenance_until=future
     )
     assert edition_mod.is_enterprise() is True
+
+
+def test_license_tool_mints_maintenance_claim_without_runtime_expiry(
+    keypair, tmp_path, capsys
+):
+    key, _pub = keypair
+    private_key_path = tmp_path / "license_private_key.pem"
+    private_key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    args = argparse.Namespace(
+        private_key=str(private_key_path),
+        customer="Acme",
+        maintenance_days=365,
+        seats=25,
+        features=["saml"],
+        audience="acme-prod",
+    )
+
+    assert license_tool._cmd_mint(args) == 0
+    token = capsys.readouterr().out.strip()
+    claims = jwt.decode(token, options={"verify_signature": False})
+
+    assert claims["edition"] == "enterprise"
+    assert claims["maintenance_until"] > int(datetime.now(UTC).timestamp())
+    assert "exp" not in claims
+
+
+def test_license_tool_rejects_empty_maintenance_term(capsys):
+    args = argparse.Namespace(maintenance_days=0)
+
+    assert license_tool._cmd_mint(args) == 2
+    assert "greater than zero" in capsys.readouterr().err
 
 
 def _nonexistent_path():

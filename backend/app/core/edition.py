@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 import structlog
 
@@ -35,7 +35,7 @@ class EditionInfo:
     # env/extension-detected "enterprise" so ops can tell the two apart.
     licensed: bool = False
     customer: str | None = None
-    expires_at: datetime | None = None
+    maintenance_until: datetime | None = None
 
 
 def init_edition(loaded_extensions: list[str]) -> None:
@@ -66,11 +66,12 @@ def init_edition(loaded_extensions: list[str]) -> None:
             features=tuple(loaded_extensions),
             licensed=True,
             customer=license_info.customer,
-            expires_at=license_info.expires_at,
+            maintenance_until=license_info.maintenance_until,
         )
         logger.info(
             "Edition: enterprise (licensed)",
             customer=license_info.customer,
+            maintenance_until=license_info.maintenance_until.isoformat(),
             extensions=loaded_extensions,
         )
         return
@@ -112,21 +113,14 @@ def init_edition(loaded_extensions: list[str]) -> None:
 
 
 def get_edition() -> EditionInfo:
-    """Return the current edition info, defaulting to community.
+    """Return the current edition info, defaulting to Community.
 
-    A *licensed* enterprise edition is re-checked against the license's
-    ``expires_at`` on every read, so a long-running / always-on process stops
-    unlocking enterprise once the license expires — without needing a restart.
-    The legacy env/extension path carries no ``expires_at`` and is unaffected.
+    A verified license keeps the installed Enterprise version active after
+    maintenance ends. ``maintenance_until`` is available to update and support
+    workflows, but it never changes the runtime edition.
     """
     if _info is None:
         return EditionInfo(edition="community", features=())
-    if (
-        _info.licensed
-        and _info.expires_at is not None
-        and datetime.now(UTC) >= _info.expires_at
-    ):
-        return EditionInfo(edition="community", features=_info.features, licensed=False)
     return _info
 
 

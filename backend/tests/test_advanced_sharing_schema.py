@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.modules.catalog.maps.schemas import ShareTokenRequest
+from app.modules.catalog.maps.sharing_policy import SHARE_EXPIRATION_SELECTION_ERROR
 from app.modules.embed_tokens.schemas import (
     ADVANCED_SHARING_ERROR,
     EmbedTokenCreate,
@@ -95,6 +96,26 @@ def test_community_accepts_basic_sharing_defaults(community_edition):
     assert embed_request.expires_in_days == 30
     assert embed_request.allowed_origins is None
     assert share_request.expires_at is None
+    assert share_request.expires_in_days is None
+
+
+@pytest.mark.parametrize("days", [1, 7, 30, 90])
+def test_community_accepts_fixed_share_expiration_presets(community_edition, days):
+    request = ShareTokenRequest(expires_in_days=days)
+
+    assert request.expires_in_days == days
+
+
+def test_share_expiration_rejects_custom_date_with_preset(enterprise_edition):
+    with pytest.raises(ValidationError) as exc_info:
+        ShareTokenRequest(expires_at=_future_timestamp(), expires_in_days=7)
+
+    assert SHARE_EXPIRATION_SELECTION_ERROR in str(exc_info.value)
+
+
+def test_share_expiration_rejects_unknown_preset(community_edition):
+    with pytest.raises(ValidationError):
+        ShareTokenRequest(expires_in_days=14)
 
 
 def test_enterprise_accepts_custom_embed_lifetime_and_origins(enterprise_edition):
@@ -160,3 +181,18 @@ async def test_service_allows_clearing_expiration_in_community(
     assert (
         await service_public.update_share_token(_Session(), uuid.uuid4(), None) is None
     )
+
+
+def test_service_resolves_fixed_preset_on_server(community_edition):
+    from app.modules.catalog.maps.service_public import _resolve_share_expiration
+
+    now = datetime(2026, 7, 14, tzinfo=timezone.utc)
+
+    assert _resolve_share_expiration(None, 7, now=now) == now + timedelta(days=7)
+
+
+def test_service_rejects_unknown_fixed_preset(community_edition):
+    from app.modules.catalog.maps.service_public import _resolve_share_expiration
+
+    with pytest.raises(ValueError, match="must be 1, 7, 30, or 90 days"):
+        _resolve_share_expiration(None, 14)

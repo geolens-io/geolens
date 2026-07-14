@@ -19,6 +19,10 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.catalog.maps.filter_grammar import validate_filter
+from app.modules.catalog.maps.sharing_policy import (
+    SHARE_EXPIRATION_SELECTION_ERROR,
+    ShareExpirationPresetDays,
+)
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 
 LEGACY_BUILDER_PAINT_KEYS = {
@@ -1166,6 +1170,13 @@ class ShareTokenRequest(BaseModel):
             "sharing controls."
         ),
     )
+    expires_in_days: ShareExpirationPresetDays | None = Field(
+        default=None,
+        description=(
+            "Server-calculated expiration preset available in every edition. "
+            "Choose 1, 7, 30, or 90 days."
+        ),
+    )
 
     @field_validator("expires_at")
     @classmethod
@@ -1178,9 +1189,11 @@ class ShareTokenRequest(BaseModel):
     def validate_enterprise_controls(self):
         # fix(#435): the edition boundary was enforced only by the two route handlers,
         # so any internal caller reaching the service directly could persist an
-        # Enterprise-only expiration in Community. Guard at the schema too, mirroring
-        # `EmbedTokenCreate`. `None` stays valid — Community keeps basic create/revoke
-        # and can still clear an existing expiration.
+        # Custom dates remain an Enterprise control. Guard at the schema too,
+        # mirroring `EmbedTokenCreate`. `None` stays valid because Community can
+        # still clear an existing expiration.
+        if self.expires_at is not None and self.expires_in_days is not None:
+            raise ValueError(SHARE_EXPIRATION_SELECTION_ERROR)
         if self.expires_at is not None and not is_enterprise():
             raise ValueError(ADVANCED_SHARING_ERROR)
         return self

@@ -14,10 +14,12 @@ To give the teams who self-host GeoLens confidence to build on it, we commit tha
 - **What is free today stays free.** Capabilities that ship free in this repository stay free; new paid value is added alongside the software, never by taking free features away.
 - **No lock-in.** GeoLens is standards-native by design, so your data and catalog remain exportable and portable.
 
-Optional paid support and add-ons for organizations that want them are available separately from Carto Concepts, LLC. The paid surface currently includes support with an SLA, SAML identity, audit-log export, branding controls, custom share-link expiration, and origin-restricted embeds. Community retains basic OIDC/OAuth, share creation and revocation, non-expiring links, and default-lifetime embeds. Paid modules are distributed in a separately licensed, immutable Enterprise image; they are not required to build or run this repository.
+Carto Concepts, LLC offers optional paid support and add-ons. Enterprise includes SAML identity, SIEM streaming, compliance automation, branding controls, arbitrary share-link expiration, origin-restricted embeds, and support with an SLA. Community includes OIDC and OAuth, bounded CSV and JSON audit export, share creation and revocation, fixed expiration presets, non-expiring links, and default-lifetime embeds. The paid modules ship in a separately licensed, immutable Enterprise image. You do not need them to build or run this repository.
+
+A valid commercial license grants perpetual use of the installed version. The maintenance term controls access to updates and support. When maintenance ends, the installed version keeps working, data and backups remain accessible, and local administrators keep their login path.
 
 GeoLens core also contains dormant, generic multi-tenant substrate—nullable tenant columns, mode-gated RLS and tenant schemas, request/worker context, and typed processing/catalog/serving/entitlement extension ports. It is Apache-2.0 and remains inert in the default single-tenant mode. The vendor-hosted Cloud product, tenant provisioning, billing, and private provider implementations are separate commercial work; setting multi-tenant mode without an isolation overlay fails at startup.
 
-The architectural boundary is enforced in CI: public application code cannot import private Enterprise or Cloud packages. Optional behavior enters through typed extension protocols whose Community defaults preserve the free product.
+The architectural boundary is enforced in CI: public application code cannot import private paid or Cloud packages. Optional behavior enters through typed extension protocols whose Community defaults preserve the free product.
 
 The GeoLens name, logo, and brand assets are not covered by the software license. See [TRADEMARKS.md](TRADEMARKS.md). Third-party sample-data attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).

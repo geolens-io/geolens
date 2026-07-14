@@ -85,6 +85,29 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
 
 
 @pytest.mark.asyncio
+async def test_manual_cleanup_uses_fleet_sweeper_in_multi_tenant_mode():
+    from app.platform.jobs import router as jobs_router
+
+    fleet_sweep = AsyncMock(return_value=(4, 5))
+    direct_sweep = AsyncMock()
+
+    with (
+        patch("app.core.tenancy.is_multi_tenant", return_value=True),
+        patch("app.api.main.sweep_stale_jobs_once", fleet_sweep),
+        patch.object(jobs_router, "fail_stale_jobs", direct_sweep),
+    ):
+        response = await jobs_router.cleanup_stale_jobs(
+            user=MagicMock(), db=AsyncMock()
+        )
+
+    fleet_sweep.assert_awaited_once_with()
+    direct_sweep.assert_not_awaited()
+    assert response.pending_failed == 4
+    assert response.running_failed == 5
+    assert response.total_cleaned == 9
+
+
+@pytest.mark.asyncio
 async def test_worker_recovery_scopes_each_tenant_and_continues_after_failure():
     from app.platform.jobs import worker as worker_module
 

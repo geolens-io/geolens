@@ -188,15 +188,20 @@ describe('ShareDialog edition gates', () => {
     vi.clearAllMocks();
   });
 
-  it('hides advanced sharing controls in community', async () => {
+  it('shows fixed expiration presets but hides advanced sharing controls in community', async () => {
     const user = userEvent.setup();
     setup({ enterprise: false });
 
     await user.click(screen.getByRole('button', { name: /link settings/i }));
 
-    expect(screen.queryByText('Expiration')).not.toBeInTheDocument();
+    expect(screen.getByText('Expiration')).toBeInTheDocument();
     expect(screen.queryByText('Restrict to domains')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /revoke share link/i })).toBeInTheDocument();
+
+    openExpirationSelect();
+    const options = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(options).toEqual(['Never', '1 day', '7 days', '30 days', '90 days']);
+    expect(options).not.toContain('Custom date…');
   });
 
   it('keeps community share-link generation basic', async () => {
@@ -524,7 +529,7 @@ describe('SHARE-04 expiration presets', () => {
     vi.useRealTimers();
   });
 
-  it('test_expiration_select_renders_six_options: Select exposes 6 options (Never, 1 day, 7 days, 30 days, 1 year, Custom date…)', async () => {
+  it('test_expiration_select_renders_six_options: Select exposes fixed presets and a custom date for Enterprise', async () => {
     const user = userEvent.setup();
     setup({ enterprise: true });
 
@@ -539,14 +544,13 @@ describe('SHARE-04 expiration presets', () => {
     expect(labels).toContain('1 day');
     expect(labels).toContain('7 days');
     expect(labels).toContain('30 days');
-    expect(labels).toContain('1 year');
+    expect(labels).toContain('90 days');
     expect(labels).toContain('Custom date…');
   });
 
-  it('test_select_seven_days_preset_fires_updateShareToken: selecting "7 days" fires mutateAsync with ISO at T23:59:59Z ~7 days from now', async () => {
+  it('test_select_seven_days_preset_fires_updateShareToken: selecting "7 days" sends the server-calculated preset', async () => {
     const user = userEvent.setup();
     const { updateShareTokenFn } = setup({ enterprise: true });
-    const beforeClick = Date.now();
 
     await openLinkSettings(user);
     openExpirationSelect();
@@ -555,15 +559,10 @@ describe('SHARE-04 expiration presets', () => {
     await waitFor(() => {
       expect(updateShareTokenFn).toHaveBeenCalledOnce();
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const call = (updateShareTokenFn as unknown as { mock: { calls: any[][] } }).mock.calls[0][0] as { mapId: string; expiresAt: string | null };
-    expect(call.mapId).toBe('map-1');
-    expect(call.expiresAt).toMatch(/T23:59:59\.000Z$/);
-    // The date should be approximately 7 days from the time of click
-    const expiresMs = new Date(call.expiresAt as string).getTime();
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    expect(expiresMs - beforeClick).toBeGreaterThanOrEqual(sevenDaysMs - 1000);
-    expect(expiresMs - beforeClick).toBeLessThan(sevenDaysMs + 24 * 60 * 60 * 1000);
+    expect(updateShareTokenFn).toHaveBeenCalledWith({
+      mapId: 'map-1',
+      expiresInDays: 7,
+    });
   });
 
   it('test_select_never_preset_clears_expiration: selecting "Never" fires mutateAsync with expiresAt: null', async () => {

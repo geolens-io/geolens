@@ -41,8 +41,6 @@ from app.modules.audit.service import (
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.dependencies import get_db
-from app.platform.extensions import get_audit_extension
-from app.platform.extensions.guards import require_enterprise
 from app.processing.export.service import safe_content_disposition
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
@@ -56,17 +54,8 @@ audit_datasets_router = APIRouter(
 )
 
 
-# Phase 279 ADMIN-04 (M-04): Unified format dispatch. The set of advertised
-# formats is owned by the active AuditExtension. This dict registers the core
-# implementations that ship in the OSS audit module. Enterprise extensions
-# advertising additional formats are responsible for serving them via their
-# own router; if such a format reaches THIS route, the gate below 502s.
-#
-# Adding a new core format: register {format: media_type} here AND extend the
-# dispatch in export_audit_logs() below to actually serve it. Adding via the
-# extension's get_export_formats() alone is not enough — that just advertises;
-# implementation lives here for OSS or in the extension's own router for
-# enterprise-specific formats.
+# Community includes bounded CSV and JSON export. Enterprise automation uses
+# separate extension sinks and routes.
 FORMAT_HANDLERS: dict[str, str] = {
     "csv": "text/csv",
     "json": "application/json",
@@ -129,7 +118,6 @@ async def list_audit_logs(
 @router.get(
     "/audit-logs/export/{format}",
     response_class=StreamingResponse,
-    include_in_schema=False,
 )
 async def export_audit_logs(
     format: str,
@@ -138,41 +126,13 @@ async def export_audit_logs(
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     search: str | None = Query(None),
-    max_rows: int = Query(100_000, ge=1, le=1_000_000),
+    max_rows: int = Query(100_000, ge=1, le=100_000),
     user: Identity = Depends(require_permission("manage_settings")),
-    _ent: None = Depends(require_enterprise),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Export audit logs as CSV or JSON.
-
-    Available formats are defined by the active ``AuditExtension``. The default
-    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
-    or additional formats by registering an extension whose
-    ``get_export_formats()`` returns the format list. Unknown formats also 404
-    to avoid leaking unavailable formats.
-    """
-    allowed = set(get_audit_extension().get_export_formats())
-    if format not in allowed:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    """Export up to 100,000 audit log rows as CSV or JSON."""
     if format not in FORMAT_HANDLERS:
-        # Phase 279 ADMIN-04 (M-04): The active AuditExtension advertised this
-        # format but the OSS audit router does not implement it. Enterprise
-        # extensions advertising additional formats are responsible for
-        # registering their own route to serve them. Reaching this branch
-        # means the operator has an extension overlay that is mis-wired
-        # (route not registered, prefix collision, etc.). 502 surfaces "I
-        # can't fulfil this; upstream is mis-configured" more accurately
-        # than 501 ("never gonna build this") which the prior implementation
-        # used.
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"Format '{format}' is advertised by the active audit "
-                "extension but not implemented by the core audit router. "
-                "The active extension must register its own route to "
-                "serve this format."
-            ),
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"audit-export-{timestamp}.{format}"

@@ -58,7 +58,7 @@ _ENTERPRISE_PORT_CHECKS: list[tuple[str, str]] = [
 
 #: Single-slot ports that ONLY the cloud (multi-tenant) overlay registers.
 #: WORK-02 fix: the enterprise overlay never registers processing_port /
-#: catalog_port (it fills auth/identity/permission/workflow/audit/branding), so
+#: catalog_port (it fills auth/identity/permission/workflow/branding), so
 #: a bare enterprise worker legitimately runs the community defaults for these.
 #: Demanding them under GEOLENS_EDITION=enterprise crash-looped the worker while
 #: the API served fine. They are required only when multi-tenant — the same

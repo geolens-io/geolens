@@ -31,6 +31,20 @@ import i18n from '@/i18n/i18n';
 import { normalizeLayerStyleState } from '@/lib/normalize-style-config';
 import { normalizeSavedMap } from '@/lib/normalize-saved-map';
 
+export type ShareExpirationPresetDays = 1 | 7 | 30 | 90;
+
+export interface ShareExpirationInput {
+  expiresAt?: string | null;
+  expiresInDays?: ShareExpirationPresetDays;
+}
+
+function serializeShareExpiration(input: ShareExpirationInput): string | undefined {
+  const body: { expires_at?: string | null; expires_in_days?: ShareExpirationPresetDays } = {};
+  if (input.expiresAt !== undefined) body.expires_at = input.expiresAt;
+  if (input.expiresInDays !== undefined) body.expires_in_days = input.expiresInDays;
+  return Object.keys(body).length > 0 ? JSON.stringify(body) : undefined;
+}
+
 export async function listMaps(
   params: {
     skip?: number;
@@ -271,9 +285,9 @@ export async function publishMap(id: string, visibility: 'public' | 'private' | 
 
 export async function createShareToken(
   mapId: string,
-  expiresAt?: string,
+  expiration: ShareExpirationInput = {},
 ): Promise<ShareTokenResponse> {
-  const body = expiresAt ? JSON.stringify({ expires_at: expiresAt }) : undefined;
+  const body = serializeShareExpiration(expiration);
   return apiFetch<ShareTokenResponse>(`/maps/${mapId}/share/`, {
     method: 'POST',
     ...(body && { body }),
@@ -286,11 +300,11 @@ export async function revokeShareToken(mapId: string): Promise<void> {
 
 export async function updateShareTokenExpiration(
   mapId: string,
-  expiresAt: string | null,
+  expiration: ShareExpirationInput,
 ): Promise<ShareTokenResponse> {
   return apiFetch<ShareTokenResponse>(`/maps/${mapId}/share/`, {
     method: 'PATCH',
-    body: JSON.stringify({ expires_at: expiresAt }),
+    body: serializeShareExpiration(expiration),
   });
 }
 

@@ -114,6 +114,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/audit-logs/export/{format}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Audit Logs
+         * @description Export up to 100,000 audit log rows as CSV or JSON.
+         */
+        get: operations["export_audit_logs_admin_audit_logs_export__format__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/backfill-embeddings/": {
         parameters: {
             query?: never;
@@ -10794,6 +10814,11 @@ export interface components {
              * @description Expiration timestamp; must carry a UTC offset. Null creates a non-expiring share link. A custom expiration requires advanced sharing controls.
              */
             expires_at?: string | null;
+            /**
+             * Expires In Days
+             * @description Server-calculated expiration preset available in every edition. Choose 1, 7, 30, or 90 days.
+             */
+            expires_in_days?: (1 | 7 | 30 | 90) | null;
         };
         /** ShareTokenResponse */
         ShareTokenResponse: {
@@ -12938,6 +12963,107 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AuditLogListResponse"];
                 };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    export_audit_logs_admin_audit_logs_export__format__get: {
+        parameters: {
+            query?: {
+                action?: string | null;
+                resource_type?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+                search?: string | null;
+                max_rows?: number;
+            };
+            header?: never;
+            path: {
+                format: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {

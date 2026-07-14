@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""GeoLens license tooling — vendor-side keygen and license minting.
+"""Vendor tooling for GeoLens license keys and signed license tokens.
 
 This script is for the **vendor** (whoever sells GeoLens Enterprise). It is not
 needed to run GeoLens.
 
   # 1. One-time: generate the signing keypair.
   python scripts/license_tool.py keygen --out-dir ./license-keys
-  #   -> license-keys/license_private_key.pem   (SECRET — never commit/ship)
+  #   -> license-keys/license_private_key.pem   (SECRET; never commit or ship)
   #   -> license-keys/license_public_key.pem    (ship this with the product)
 
   # Bundle the PUBLIC key as the verifier trust root in the enterprise build.
@@ -17,10 +17,11 @@ needed to run GeoLens.
   # 2. Per customer: mint a signed license token.
   python scripts/license_tool.py mint \
       --private-key license-keys/license_private_key.pem \
-      --customer "Acme Water District" --days 365 --seats 250
+      --customer "Acme Water District" --maintenance-days 365 --seats 250
 
 The minted token is what a customer sets as GEOLENS_LICENSE_KEY. Verification is
-offline (no phone-home) against the public key — see app/core/license.py.
+offline against the public key. The maintenance date governs updates and
+support. It does not disable the installed version.
 
 SECURITY: anyone holding the private key can mint licenses. Keep it in a secrets
 manager / HSM, not in the repo.
@@ -66,7 +67,7 @@ def _cmd_keygen(args: argparse.Namespace) -> int:
         print(f"Wrote public key (ship this): {pub_path}", file=sys.stderr)
         print(
             "Keep the private key out of version control and in a secrets "
-            "manager — anyone with it can mint licenses.",
+            "manager. Anyone with it can mint licenses.",
             file=sys.stderr,
         )
     else:
@@ -76,6 +77,10 @@ def _cmd_keygen(args: argparse.Namespace) -> int:
 
 
 def _cmd_mint(args: argparse.Namespace) -> int:
+    if args.maintenance_days <= 0:
+        print("Maintenance days must be greater than zero.", file=sys.stderr)
+        return 2
+
     private_pem = Path(args.private_key).read_bytes()
     key = serialization.load_pem_private_key(private_pem, password=None)
     if not isinstance(key, Ed25519PrivateKey):
@@ -86,7 +91,9 @@ def _cmd_mint(args: argparse.Namespace) -> int:
     claims: dict = {
         "edition": "enterprise",
         "iat": now,
-        "exp": now + timedelta(days=args.days),
+        "maintenance_until": int(
+            (now + timedelta(days=args.maintenance_days)).timestamp()
+        ),
         "license_id": uuid.uuid4().hex,
     }
     if args.customer:
@@ -128,7 +135,12 @@ def main(argv: list[str] | None = None) -> int:
         "--customer", help="Customer name (stored as the `customer` claim)."
     )
     mt.add_argument(
-        "--days", type=int, default=365, help="Validity in days (default 365)."
+        "--maintenance-days",
+        "--days",
+        dest="maintenance_days",
+        type=int,
+        default=365,
+        help="Maintenance term in days (default 365). --days is a compatibility alias.",
     )
     mt.add_argument("--seats", type=int, default=None, help="Optional seat cap.")
     mt.add_argument(

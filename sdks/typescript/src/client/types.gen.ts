@@ -8048,6 +8048,12 @@ export type ShareTokenRequest = {
      * Expiration timestamp; must carry a UTC offset. Null creates a non-expiring share link. A custom expiration requires advanced sharing controls.
      */
     expires_at?: string | null;
+    /**
+     * Expires In Days
+     *
+     * Server-calculated expiration preset available in every edition. Choose 1, 7, 30, or 90 days.
+     */
+    expires_in_days?: 1 | 7 | 30 | 90 | null;
 };
 
 /**
@@ -10499,6 +10505,87 @@ export type ListAuditLogsAdminAuditLogsGetResponses = {
 };
 
 export type ListAuditLogsAdminAuditLogsGetResponse = ListAuditLogsAdminAuditLogsGetResponses[keyof ListAuditLogsAdminAuditLogsGetResponses];
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetData = {
+    body?: never;
+    path: {
+        /**
+         * Format
+         */
+        format: string;
+    };
+    query?: {
+        /**
+         * Action
+         */
+        action?: string | null;
+        /**
+         * Resource Type
+         */
+        resource_type?: string | null;
+        /**
+         * Date From
+         */
+        date_from?: string | null;
+        /**
+         * Date To
+         */
+        date_to?: string | null;
+        /**
+         * Search
+         */
+        search?: string | null;
+        /**
+         * Max Rows
+         */
+        max_rows?: number;
+    };
+    url: '/admin/audit-logs/export/{format}';
+};
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetError = ExportAuditLogsAdminAuditLogsExportFormatGetErrors[keyof ExportAuditLogsAdminAuditLogsExportFormatGetErrors];
+
+export type ExportAuditLogsAdminAuditLogsExportFormatGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type TriggerBackfillAdminBackfillEmbeddingsPostData = {
     body?: never;

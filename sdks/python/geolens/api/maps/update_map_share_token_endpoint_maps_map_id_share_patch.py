@@ -116,7 +116,7 @@ def sync_detailed(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration.
+    A fixed-day preset is available in every edition. Null clears expiration.
 
     Args:
         map_id (UUID):
@@ -152,7 +152,7 @@ def sync(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration.
+    A fixed-day preset is available in every edition. Null clears expiration.
 
     Args:
         map_id (UUID):
@@ -183,7 +183,7 @@ async def asyncio_detailed(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration.
+    A fixed-day preset is available in every edition. Null clears expiration.
 
     Args:
         map_id (UUID):
@@ -217,7 +217,7 @@ async def asyncio(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration.
+    A fixed-day preset is available in every edition. Null clears expiration.
 
     Args:
         map_id (UUID):

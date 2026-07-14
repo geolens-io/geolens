@@ -3,7 +3,7 @@
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, or_, select
@@ -16,6 +16,11 @@ from app.core.text import escape_ilike
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
+from app.modules.catalog.maps.sharing_policy import (
+    SHARE_EXPIRATION_PRESET_DAYS,
+    SHARE_EXPIRATION_SELECTION_ERROR,
+    ShareExpirationPresetDays,
+)
 from app.modules.catalog.maps.service_crud import get_map
 from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
@@ -100,14 +105,33 @@ def _reject_custom_expiration_in_community(expires_at: datetime | None) -> None:
         raise ValueError(ADVANCED_SHARING_ERROR)
 
 
+def _resolve_share_expiration(
+    expires_at: datetime | None,
+    expires_in_days: ShareExpirationPresetDays | int | None,
+    *,
+    now: datetime | None = None,
+) -> datetime | None:
+    """Resolve a fixed preset or an Enterprise custom timestamp."""
+    if expires_at is not None and expires_in_days is not None:
+        raise ValueError(SHARE_EXPIRATION_SELECTION_ERROR)
+    if expires_in_days is not None:
+        if expires_in_days not in SHARE_EXPIRATION_PRESET_DAYS:
+            raise ValueError("Share-link expiration must be 1, 7, 30, or 90 days")
+        base = now or datetime.now(timezone.utc)
+        return base + timedelta(days=expires_in_days)
+    _reject_custom_expiration_in_community(expires_at)
+    return expires_at
+
+
 async def create_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,
     created_by: uuid.UUID,
     expires_at: datetime | None = None,
+    expires_in_days: ShareExpirationPresetDays | int | None = None,
 ) -> MapShareToken:
     """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
-    _reject_custom_expiration_in_community(expires_at)
+    resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
     visible_map_id = await session.scalar(select(Map.id).where(Map.id == map_id))
     visible_creator_id = await session.scalar(
         select(User.id).where(User.id == created_by)
@@ -124,8 +148,8 @@ async def create_share_token(
     token_obj = existing.scalar_one_or_none()
     if token_obj is not None:
         # Update expiration if caller provided one
-        if expires_at is not None:
-            token_obj.expires_at = expires_at
+        if expires_at is not None or expires_in_days is not None:
+            token_obj.expires_at = resolved_expiration
         # Re-activate if previously revoked
         if not token_obj.is_active:
             token_obj.is_active = True
@@ -144,7 +168,7 @@ async def create_share_token(
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         token_hint=raw_token[:8],
         created_by=visible_creator_id,
-        expires_at=expires_at,
+        expires_at=resolved_expiration,
     )
     token_obj._raw_token = raw_token  # transient, not persisted
     session.add(token_obj)
@@ -156,9 +180,10 @@ async def update_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,
     expires_at: datetime | None,
+    expires_in_days: ShareExpirationPresetDays | int | None = None,
 ) -> MapShareToken | None:
     """Update expiration on the active share token for a map. Returns None if no active token."""
-    _reject_custom_expiration_in_community(expires_at)
+    resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
     result = await session.execute(
         select(MapShareToken)
         .join(Map, MapShareToken.map_id == Map.id)
@@ -170,7 +195,7 @@ async def update_share_token(
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
         return None
-    token_obj.expires_at = expires_at
+    token_obj.expires_at = resolved_expiration
     return token_obj
 
 
