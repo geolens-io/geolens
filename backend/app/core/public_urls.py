@@ -306,18 +306,13 @@ async def get_public_urls(
 ) -> tuple[str, str]:
     """Resolve (app_url, api_url) tuple. See :func:`resolve_public_api_url`
     for H-27 ``for_external_use`` semantics."""
+    fleet_urls_only = False
     if is_multi_tenant() and request is not None:
         tenant_id = getattr(request.state, "tenant_id", None)
         tenant_origin = normalize_public_url(
             getattr(request.state, "tenant_public_origin", None)
         )
-        if tenant_id is not None:
-            if tenant_origin is None:
-                raise PublicUrlNotConfiguredError(
-                    "Hosted tenant URLs require a middleware-validated tenant host; "
-                    "the fleet-wide PUBLIC_APP_URL / PUBLIC_API_URL cannot represent "
-                    "a tenant-specific callback or resource link."
-                )
+        if tenant_id is not None and tenant_origin is not None:
             root_path = str(request.scope.get("root_path", "")).rstrip("/")
             api_path = root_path or _configured_api_path()
             if api_path and (
@@ -328,6 +323,17 @@ async def get_public_urls(
                 )
             api_url = f"{tenant_origin}{api_path}" if api_path else tenant_origin
             return tenant_origin, api_url
+        # fix(#507): JWT-scoped requests on a trusted service host have no
+        # tenant origin. Internal response links may use the fleet URLs below,
+        # but external callbacks must remain tenant-bound.
+        if tenant_id is not None and for_external_use:
+            raise PublicUrlNotConfiguredError(
+                "Hosted tenant URLs require a middleware-validated tenant host; "
+                "the fleet-wide PUBLIC_APP_URL / PUBLIC_API_URL cannot represent "
+                "a tenant-specific callback or resource link."
+            )
+        if tenant_id is not None:
+            fleet_urls_only = True
         if for_external_use:
             raise PublicUrlNotConfiguredError(
                 "Hosted external-use URLs require a resolved tenant host."
@@ -335,18 +341,33 @@ async def get_public_urls(
 
     overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
 
+    app_setting = overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url)
+    api_setting = overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url)
+    legacy_api_setting = overrides.get(
+        LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url
+    )
+    if fleet_urls_only and not any(
+        normalize_public_url(value)
+        for value in (app_setting, api_setting, legacy_api_setting)
+    ):
+        raise PublicUrlNotConfiguredError(
+            "Hosted service-host response links require a fleet-wide "
+            "PUBLIC_APP_URL or PUBLIC_API_URL setting."
+        )
+    resolver_request = None if fleet_urls_only else request
+
     app_url = resolve_public_app_url(
-        overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
-        overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
-        overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
-        request=request,
+        app_setting,
+        api_setting,
+        legacy_api_setting,
+        request=resolver_request,
         for_external_use=for_external_use,
     )
     api_url = resolve_public_api_url(
-        overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
-        overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
-        overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
-        request=request,
+        app_setting,
+        api_setting,
+        legacy_api_setting,
+        request=resolver_request,
         for_external_use=for_external_use,
     )
     return app_url, api_url

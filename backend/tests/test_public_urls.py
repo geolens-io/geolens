@@ -357,10 +357,70 @@ async def test_hosted_urls_preserve_configured_api_path_after_proxy_rewrite(
 
 
 @pytest.mark.anyio
+async def test_hosted_internal_urls_use_fleet_config_for_jwt_service_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = AsyncMock(
+        return_value={
+            public_urls.PUBLIC_APP_URL_KEY: "https://fleet.example.test",
+            public_urls.PUBLIC_API_URL_KEY: "https://api.fleet.example.test",
+        }
+    )
+    monkeypatch.setattr(public_urls.settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
+    request = _make_request(
+        headers={"origin": "https://attacker.example.test"},
+        tenant_id="00000000-0000-0000-0000-0000000000a1",
+        tenant_origin=None,
+        netloc="api",
+    )
+
+    app_url, api_url = await public_urls.get_public_urls(
+        AsyncMock(), request=request, for_external_use=False
+    )
+
+    assert app_url == "https://fleet.example.test"
+    assert api_url == "https://api.fleet.example.test"
+    loader.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_hosted_internal_urls_refuse_request_origin_without_fleet_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = AsyncMock(return_value={})
+    monkeypatch.setattr(public_urls.settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
+    monkeypatch.setattr(public_urls.settings, "public_app_url", None, raising=False)
+    monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
+    monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
+    request = _make_request(
+        headers={"origin": "https://attacker.example.test"},
+        tenant_id="00000000-0000-0000-0000-0000000000a1",
+        tenant_origin=None,
+        netloc="api",
+    )
+
+    with pytest.raises(
+        public_urls.PublicUrlNotConfiguredError,
+        match="fleet-wide PUBLIC_APP_URL or PUBLIC_API_URL",
+    ):
+        await public_urls.get_public_urls(
+            AsyncMock(), request=request, for_external_use=False
+        )
+
+    loader.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_hosted_external_url_refuses_unscoped_or_unvalidated_host(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    loader = AsyncMock()
     monkeypatch.setattr(public_urls.settings, "geolens_tenancy_mode", "multi_tenant")
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
     request = _make_request(
         tenant_id="00000000-0000-0000-0000-0000000000a1",
         tenant_origin=None,
@@ -373,6 +433,8 @@ async def test_hosted_external_url_refuses_unscoped_or_unvalidated_host(
         await public_urls.get_public_urls(
             AsyncMock(), request=request, for_external_use=True
         )
+
+    loader.assert_not_awaited()
 
 
 @pytest.mark.anyio
