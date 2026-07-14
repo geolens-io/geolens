@@ -539,8 +539,7 @@ async def cleanup_stale_jobs(
         await db.commit()
         outcome = await _reap_committed_staged_paths(outcome)
         details = outcome.as_dict()
-    # Broad by design: cleanup spans DB writes and external file/object deletion.
-    except Exception as exc:
+    except Exception as exc:  # broad: cleanup spans DB and artifact deletion
         await db.rollback()
         # Cleanup failures can embed local paths or storage keys in exception
         # messages. Record only the exception class in operator telemetry; the
