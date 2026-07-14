@@ -1,7 +1,8 @@
 """Programmatic migration round-trip + OSS drift-gate regression for Phase 1207.
 
-Verifies the 0005_dormant_tenancy migration is reversible and leaves the schema
-in the exact state the ORM expects (no alembic check drift after upgrade).
+Verifies the 0005_dormant_tenancy migration is reversible while its substrate is
+empty, refuses to discard tenant-scoped data, and leaves the schema in the exact
+state the ORM expects (no alembic check drift after upgrade).
 
 Tests
 -----
@@ -10,6 +11,8 @@ B: after downgrade, the four partial unique indexes and tenant_id columns are ab
 C: after re-upgrade, the four partial indexes and tenant_id on the six shared tables
    are all present
 D: alembic check reports no drift after upgrade (OSS drift gate)
+E: tenant-scoped users and tenancy rows block downgrade atomically with an
+   actionable error instead of failing at a later unique constraint or losing data
 
 Notes
 -----
@@ -199,6 +202,124 @@ async def _fresh_query(query: str, params: dict | None = None):
             return result.fetchall()
     finally:
         await engine.dispose()
+
+
+async def _fresh_execute(query: str, params: dict | None = None) -> None:
+    """Run committed DML on a fresh autocommit connection."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import settings
+
+    engine = create_async_engine(
+        settings.test_database_url,
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(sa.text(query), params or {})
+    finally:
+        await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Test E: production-shaped tenant data blocks the destructive downgrade
+# ---------------------------------------------------------------------------
+
+
+@_SKIP_UNDER_OVERLAY
+class TestTenantDataDowngradeContract:
+    """0005 fails before DDL when reverting would discard tenant ownership."""
+
+    async def test_cross_tenant_collision_and_tenancy_rows_block_atomically(self):
+        """Valid cross-tenant duplicates remain intact after a blocked downgrade."""
+        import uuid
+
+        r = _run_alembic("upgrade", "head")
+        assert r.returncode == 0, f"upgrade head failed: {r.stderr}"
+        r = _run_alembic("downgrade", "0005_dormant_tenancy")
+        assert r.returncode == 0, f"setup downgrade to 0005 failed: {r.stderr}"
+
+        suffix = uuid.uuid4().hex
+        username = f"rollback-shared-{suffix}"
+        organization_id = uuid.uuid4()
+        user_ids = (uuid.uuid4(), uuid.uuid4())
+        tenant_ids = (uuid.uuid4(), uuid.uuid4())
+
+        try:
+            await _fresh_execute(
+                """
+                INSERT INTO catalog.organizations (id, name)
+                VALUES (:organization_id, :name)
+                """,
+                {
+                    "organization_id": organization_id,
+                    "name": f"Rollback organization {suffix}",
+                },
+            )
+            await _fresh_execute(
+                """
+                INSERT INTO catalog.users (id, username, email, tenant_id)
+                VALUES
+                    (:user_a, :username, :email_a, :tenant_a),
+                    (:user_b, :username, :email_b, :tenant_b)
+                """,
+                {
+                    "user_a": user_ids[0],
+                    "user_b": user_ids[1],
+                    "username": username,
+                    "email_a": f"rollback-a-{suffix}@example.test",
+                    "email_b": f"rollback-b-{suffix}@example.test",
+                    "tenant_a": tenant_ids[0],
+                    "tenant_b": tenant_ids[1],
+                },
+            )
+
+            versions_before = await _fresh_query(
+                "SELECT version_num FROM catalog.alembic_version ORDER BY version_num"
+            )
+            assert versions_before == [("0005_dormant_tenancy",)]
+            result = _run_alembic("downgrade", "0004_add_maps_legend_title")
+            combined = result.stdout + result.stderr
+            assert result.returncode != 0, (
+                "tenant data downgrade unexpectedly succeeded"
+            )
+            assert "Cannot downgrade 0005_dormant_tenancy" in combined
+            assert "catalog.organizations" in combined
+            assert "catalog.users.tenant_id" in combined
+
+            versions_after = await _fresh_query(
+                "SELECT version_num FROM catalog.alembic_version ORDER BY version_num"
+            )
+            assert versions_after == versions_before
+
+            users = await _fresh_query(
+                """
+                SELECT tenant_id
+                FROM catalog.users
+                WHERE username = :username
+                ORDER BY tenant_id
+                """,
+                {"username": username},
+            )
+            assert {row[0] for row in users} == set(tenant_ids)
+            organizations = await _fresh_query(
+                "SELECT id FROM catalog.organizations WHERE id = :organization_id",
+                {"organization_id": organization_id},
+            )
+            assert {row[0] for row in organizations} == {organization_id}
+        finally:
+            restored = _run_alembic("upgrade", "head")
+            assert restored.returncode == 0, (
+                f"restore upgrade failed: {restored.stderr}"
+            )
+            await _fresh_execute(
+                "DELETE FROM catalog.users WHERE username = :username",
+                {"username": username},
+            )
+            await _fresh_execute(
+                "DELETE FROM catalog.organizations WHERE id = :organization_id",
+                {"organization_id": organization_id},
+            )
 
 
 @_SKIP_UNDER_OVERLAY
