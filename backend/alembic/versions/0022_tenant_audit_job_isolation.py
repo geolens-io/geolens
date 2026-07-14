@@ -12,8 +12,8 @@ for privileged maintenance SQL.  The policies remain dormant after migration;
 runtime enablement is still owned by ``apply_tenancy_rls()`` in multi-tenant
 mode, preserving byte-identical single-tenant behavior.
 
-Revision ID: 0020_tenant_audit_job_isolation
-Revises: 0019_tenant_control_plane_hardening
+Revision ID: 0022_tenant_audit_job_isolation
+Revises: 0021_tenant_control_plane_hardening
 Create Date: 2026-07-13
 """
 
@@ -23,8 +23,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0020_tenant_audit_job_isolation"
-down_revision: Union[str, None] = "0019_tenant_control_plane_hardening"
+revision: str = "0022_tenant_audit_job_isolation"
+down_revision: Union[str, None] = "0021_tenant_control_plane_hardening"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

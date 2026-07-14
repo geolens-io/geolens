@@ -25,14 +25,14 @@ pytestmark = pytest.mark.xdist_group("tenancy_global_state")
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _MIGRATION_PATH = (
-    _BACKEND_DIR / "alembic" / "versions" / "0016_tenant_insert_stamping.py"
+    _BACKEND_DIR / "alembic" / "versions" / "0018_tenant_insert_stamping.py"
 )
 _SNAPSHOT_PATH = Path(__file__).parent / "tenant_insert_stamping_snapshot.json"
 
 
 def _load_migration() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
-        "migration_0016_tenant_insert_stamping",
+        "migration_0018_tenant_insert_stamping",
         _MIGRATION_PATH,
     )
     assert spec is not None and spec.loader is not None
@@ -53,9 +53,9 @@ def test_migration_source_pins_revision_and_exact_rls_table_boundary():
     migration = _load_migration()
     snapshot = _load_snapshot()
 
-    assert migration.revision == "0016_tenant_insert_stamping"
-    assert migration.down_revision == "0016_admin_identity_hardening"
-    # 0016 established the original six-table boundary. Later linear
+    assert migration.revision == "0018_tenant_insert_stamping"
+    assert migration.down_revision == "0017_add_fk_support_indexes"
+    # 0018 carries forward the original six-table boundary. Later linear
     # migrations may extend the current runtime boundary and snapshot.
     assert migration._TABLES == RLS_TABLES[:6]
     assert {item["table"] for item in snapshot["triggers"]} == set(RLS_TABLES)

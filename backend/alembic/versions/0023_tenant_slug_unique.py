@@ -10,8 +10,8 @@ the duplicate values that an operator must repair.  ``IF NOT EXISTS`` adopts
 the same index created by older Cloud c002 deployments during a rolling
 cross-repository upgrade.
 
-Revision ID: 0021_tenant_slug_unique
-Revises: 0020_tenant_audit_job_isolation
+Revision ID: 0023_tenant_slug_unique
+Revises: 0022_tenant_audit_job_isolation
 Create Date: 2026-07-13
 """
 
@@ -19,8 +19,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0021_tenant_slug_unique"
-down_revision: Union[str, None] = "0020_tenant_audit_job_isolation"
+revision: str = "0023_tenant_slug_unique"
+down_revision: Union[str, None] = "0022_tenant_audit_job_isolation"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

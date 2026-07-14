@@ -7,8 +7,8 @@ functions.  Runtime callers receive EXECUTE through a separate control group;
 writers receive only data-schema privileges; sandbox and tile consumers receive
 SET-only membership paths to each tenant reader role.
 
-Revision ID: 0017_tenant_provisioning_boundary
-Revises: 0016_tenant_insert_stamping
+Revision ID: 0019_tenant_provisioning_boundary
+Revises: 0018_tenant_insert_stamping
 Create Date: 2026-07-13
 """
 
@@ -16,8 +16,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0017_tenant_provisioning_boundary"
-down_revision: Union[str, None] = "0016_tenant_insert_stamping"
+revision: str = "0019_tenant_provisioning_boundary"
+down_revision: Union[str, None] = "0018_tenant_insert_stamping"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

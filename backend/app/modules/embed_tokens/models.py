@@ -35,6 +35,11 @@ class EmbedToken(Base):
             "expires_at",
             postgresql_where=text("is_active = true"),
         ),
+        Index(
+            "ix_embed_tokens_created_by",
+            "created_by",
+            postgresql_where=text("created_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 

@@ -6,8 +6,8 @@ uses one ``data_t_<tenant>`` schema per tenant, so two tenants may safely use
 the same physical table name. Keeping the global constraint also made
 RLS-scoped collision detection race into an unexpected unique violation.
 
-Revision ID: 0018_tenant_dataset_table_names
-Revises: 0017_tenant_provisioning_boundary
+Revision ID: 0020_tenant_dataset_table_names
+Revises: 0019_tenant_provisioning_boundary
 Create Date: 2026-07-13
 """
 
@@ -16,8 +16,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0018_tenant_dataset_table_names"
-down_revision: Union[str, None] = "0017_tenant_provisioning_boundary"
+revision: str = "0020_tenant_dataset_table_names"
+down_revision: Union[str, None] = "0019_tenant_provisioning_boundary"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

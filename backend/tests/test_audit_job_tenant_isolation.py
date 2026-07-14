@@ -23,13 +23,13 @@ pytestmark = pytest.mark.xdist_group("tenancy_global_state")
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _MIGRATION_PATH = (
-    _BACKEND_DIR / "alembic" / "versions" / "0020_tenant_audit_job_isolation.py"
+    _BACKEND_DIR / "alembic" / "versions" / "0022_tenant_audit_job_isolation.py"
 )
 
 
 def _load_migration() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
-        "migration_0020_tenant_audit_job_isolation",
+        "migration_0022_tenant_audit_job_isolation",
         _MIGRATION_PATH,
     )
     assert spec is not None and spec.loader is not None
@@ -43,8 +43,8 @@ def test_migration_extends_linear_fail_closed_boundary():
     source = _MIGRATION_PATH.read_text()
     upgrade_source = inspect.getsource(migration.upgrade)
 
-    assert migration.revision == "0020_tenant_audit_job_isolation"
-    assert migration.down_revision == "0019_tenant_control_plane_hardening"
+    assert migration.revision == "0022_tenant_audit_job_isolation"
+    assert migration.down_revision == "0021_tenant_control_plane_hardening"
     assert migration._TABLES == ("audit_logs", "ingest_jobs")
     assert {"audit_logs", "ingest_jobs"}.issubset(RLS_TABLES)
     assert "CREATE POLICY tenant_isolation_{table}" in source

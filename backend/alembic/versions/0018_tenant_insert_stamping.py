@@ -10,8 +10,8 @@ Keeping this invariant in PostgreSQL closes write paths that bypass the ORM or
 forget to populate ``tenant_id``.  RLS remains the read/write visibility
 boundary; this trigger is the complementary server-side insert invariant.
 
-Revision ID: 0016_tenant_insert_stamping
-Revises: 0015_add_ingest_job_heartbeat
+Revision ID: 0018_tenant_insert_stamping
+Revises: 0017_add_fk_support_indexes
 Create Date: 2026-07-13
 """
 
@@ -19,8 +19,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0016_tenant_insert_stamping"
-down_revision: Union[str, None] = "0016_admin_identity_hardening"
+revision: str = "0018_tenant_insert_stamping"
+down_revision: Union[str, None] = "0017_add_fk_support_indexes"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

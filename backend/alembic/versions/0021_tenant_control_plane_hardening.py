@@ -9,8 +9,8 @@ server-side tenant stamping.
 Collections already carry tenant scope, so their historical global name
 constraint is also replaced with dormant-global and per-tenant partial indexes.
 
-Revision ID: 0019_tenant_control_plane_hardening
-Revises: 0018_tenant_dataset_table_names
+Revision ID: 0021_tenant_control_plane_hardening
+Revises: 0020_tenant_dataset_table_names
 Create Date: 2026-07-13
 """
 
@@ -20,8 +20,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0019_tenant_control_plane_hardening"
-down_revision: Union[str, None] = "0018_tenant_dataset_table_names"
+revision: str = "0021_tenant_control_plane_hardening"
+down_revision: Union[str, None] = "0020_tenant_dataset_table_names"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

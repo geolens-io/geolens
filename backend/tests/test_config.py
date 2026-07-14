@@ -464,6 +464,11 @@ class TestEmptyStringToNone:
         s = _make_settings(geolens_edition="")
         assert s.geolens_edition is None
 
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_empty_embedding_dims_uses_default(self, value):
+        s = _make_settings(embedding_dims=value)
+        assert s.embedding_dims == 1536
+
     def test_geolens_edition_is_normalized_case_insensitively(self):
         s = _make_settings(geolens_edition=" Enterprise ")
         assert s.geolens_edition == "enterprise"

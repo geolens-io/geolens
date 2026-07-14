@@ -209,6 +209,11 @@ services:
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
       PYTHONPATH: /app
+      # Migration 0012 resolves the vector typmod before the API starts. Keep
+      # an unset dimension empty so stored vectors can still win over the
+      # built-in 1536 fallback; an explicitly supplied 1536 remains explicit.
+      EMBEDDING_DIMS: "${EMBEDDING_DIMS-}"
+      ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
     depends_on:
       db:
         condition: service_healthy

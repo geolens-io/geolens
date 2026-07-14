@@ -14,7 +14,9 @@ Key design constraints
   IS NULL`` escape is intentionally absent — it would make the policy fail-open
   and is rejected by the ISO-02 decision (see 1208-CONTEXT.md).  An unset GUC
   fails closed (error or 0 rows) as required.
-- **Reversible.** ``downgrade()`` drops all 6 policies in inverse order.
+- **Safe rollback.** ``downgrade()`` unforces and disables runtime-activated RLS
+  before dropping all 6 policies in inverse order.  This prevents policy-free
+  tables from remaining in a deny-all state after rollback.
 
 The 6 tables (all in ``catalog`` schema) received a nullable ``tenant_id`` UUID
 column in ``0005_dormant_tenancy``.
@@ -63,6 +65,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the 6 tenant isolation policies in inverse order."""
+    """Disable runtime RLS state, then drop the policies in inverse order."""
     for table in reversed(_TABLES):
+        op.execute(f"ALTER TABLE catalog.{table} NO FORCE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE catalog.{table} DISABLE ROW LEVEL SECURITY")
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{table} ON catalog.{table}")

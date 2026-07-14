@@ -12,8 +12,8 @@ roles, gateway memberships, and schema privileges.  Object creators and
 restore paths remain responsible for explicit reader grants on each relation.
 Downgrade reinstates the legacy object-ACL reconciliation exactly.
 
-Revision ID: 0022_tenant_provisioning_reentry
-Revises: 0021_tenant_slug_unique
+Revision ID: 0024_tenant_provisioning_reentry
+Revises: 0023_tenant_slug_unique
 Create Date: 2026-07-13
 """
 
@@ -21,8 +21,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0022_tenant_provisioning_reentry"
-down_revision: Union[str, None] = "0021_tenant_slug_unique"
+revision: str = "0024_tenant_provisioning_reentry"
+down_revision: Union[str, None] = "0023_tenant_slug_unique"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

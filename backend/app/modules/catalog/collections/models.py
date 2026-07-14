@@ -33,6 +33,11 @@ class Collection(Base):
             unique=True,
             postgresql_where=text("tenant_id IS NOT NULL"),
         ),
+        Index(
+            "ix_collections_created_by",
+            "created_by",
+            postgresql_where=text("created_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 
@@ -61,6 +66,11 @@ class CollectionDataset(Base):
     __table_args__ = (
         # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_collection_datasets_dataset_id", "dataset_id"),
+        Index(
+            "ix_collection_datasets_added_by",
+            "added_by",
+            postgresql_where=text("added_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 
@@ -85,6 +95,11 @@ class DatasetVersion(Base):
         UniqueConstraint("dataset_id", "version_number", name="uq_dataset_version"),
         # DBM-10 covering index added in migration 0001_baseline.
         Index("ix_dataset_versions_dataset_id", "dataset_id"),
+        Index(
+            "ix_dataset_versions_uploaded_by",
+            "uploaded_by",
+            postgresql_where=text("uploaded_by IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 

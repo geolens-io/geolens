@@ -262,11 +262,11 @@ TENANT_SCHEMA="data_t_${TENANT_SUFFIX}"
 TENANT_READER="geolens_reader_t_${TENANT_SUFFIX}"
 TENANT_WRITER="geolens_writer_t_${TENANT_SUFFIX}"
 
-# Stop immediately before 0017, then create the shape of a legacy tenant whose
-# table and sequence are owned by the old shared database login. The 0017
+# Stop immediately before 0019, then create the shape of a legacy tenant whose
+# table and sequence are owned by the old shared database login. The 0019
 # upgrade must adopt both objects into the per-tenant writer role.
 alembic_rc=0
-uv run --no-dev alembic upgrade 0016_tenant_insert_stamping || alembic_rc=$?
+uv run --no-dev alembic upgrade 0018_tenant_insert_stamping || alembic_rc=$?
 if [ "${alembic_rc}" -eq 0 ]; then
   docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
     -U "${PG_USER}" -d "${PG_DB}" -c \
@@ -287,7 +287,7 @@ fi
 owner_check="$(docker exec "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" -tAc \
   "SELECT bool_and(owner_role.rolname = '${TENANT_WRITER}') FROM pg_class AS relation JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace JOIN pg_roles AS owner_role ON owner_role.oid = relation.relowner WHERE namespace.nspname = '${TENANT_SCHEMA}' AND relation.relkind IN ('r', 'p', 'v', 'm', 'f', 'S');")"
 if [ "${owner_check}" != "t" ]; then
-  echo "FAIL: 0017 did not transfer every legacy tenant table/sequence to ${TENANT_WRITER}" >&2
+  echo "FAIL: 0019 did not transfer every legacy tenant table/sequence to ${TENANT_WRITER}" >&2
   exit 1
 fi
 
@@ -315,11 +315,11 @@ if [ "${api_writer_role}" != "${TENANT_WRITER}" ] \
   exit 1
 fi
 
-# 0017 intentionally retains cluster roles and operator-managed login grants.
+# 0019 intentionally retains cluster roles and operator-managed login grants.
 # A real downgrade/re-upgrade must therefore validate and accept those safe
 # members rather than treating them as reserved-name collisions.
-echo "==> Running 0017 downgrade -> re-upgrade with deployed memberships..."
-uv run --no-dev alembic downgrade 0016_tenant_insert_stamping
+echo "==> Running 0019 downgrade -> re-upgrade with deployed memberships..."
+uv run --no-dev alembic downgrade 0018_tenant_insert_stamping
 uv run --no-dev alembic upgrade head
 
 # -----------------------------------------------------------------------

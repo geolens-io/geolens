@@ -15,13 +15,13 @@ from sqlalchemy.exc import IntegrityError
 from app.modules.tenancy.models import Tenant
 
 _MIGRATION_PATH = (
-    Path(__file__).parent.parent / "alembic" / "versions" / "0021_tenant_slug_unique.py"
+    Path(__file__).parent.parent / "alembic" / "versions" / "0023_tenant_slug_unique.py"
 )
 
 
 def _load_migration() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
-        "migration_0021_tenant_slug_unique",
+        "migration_0023_tenant_slug_unique",
         _MIGRATION_PATH,
     )
     assert spec is not None and spec.loader is not None
@@ -34,8 +34,8 @@ def test_migration_diagnoses_duplicates_and_adopts_cloud_index():
     migration = _load_migration()
     source = _MIGRATION_PATH.read_text()
 
-    assert migration.revision == "0021_tenant_slug_unique"
-    assert migration.down_revision == "0020_tenant_audit_job_isolation"
+    assert migration.revision == "0023_tenant_slug_unique"
+    assert migration.down_revision == "0022_tenant_audit_job_isolation"
     assert "HAVING count(*) > 1" in source
     assert "cannot make tenant routing slugs unique" in source
     assert "CREATE UNIQUE INDEX IF NOT EXISTS uq_tenants_slug" in source

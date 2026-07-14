@@ -41,6 +41,22 @@ table that may be large in production (`records`, `record_embeddings`,
 `audit_logs`, `ingest_jobs`, per-dataset `data.*` tables). For small/transient
 tables a plain `CREATE INDEX` is fine.
 
+### Embedding cache after migration 0012
+
+Migration `0012_type_embedding_vector` deliberately truncates
+`catalog.record_embeddings` before fixing the vector dimension. Embeddings are
+derived cache data, and clearing them keeps the type-change lock short even on a
+large catalog. The migration then commits that transition and builds HNSW with
+`CREATE INDEX CONCURRENTLY`; a retry repairs an invalid interrupted index.
+Strong-lock acquisition is capped at five seconds. If PostgreSQL reports a lock
+timeout, let the blocking transaction finish (or choose a quieter window) and
+rerun Alembic; the transition is unchanged and retry-safe.
+
+After the API starts with its embedding provider configured, an administrator
+should call `POST /admin/backfill-embeddings/` (or use the corresponding admin
+control) to restore embedding coverage. Until that backfill or later record edits
+complete, semantic search has no cached vectors for pre-existing records.
+
 ## Large-table CHECK / FK constraints (NOT VALID + VALIDATE)
 
 A bare `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` takes `ACCESS EXCLUSIVE`
@@ -67,6 +83,14 @@ Migration `0018` (`chk_ingest_jobs_status`) is deliberately left as a single
 is cheap and re-validating an already-released migration is unwarranted churn
 (finding CV-3).
 
+If existing rows need repair before validation, commit the idempotent `ADD ...
+NOT VALID` first, repair only changed rows in the restarted transaction, then
+enter a second `autocommit_block` for `VALIDATE`. Migration `0014` follows this
+pattern. The first commit makes the constraint enforce new writes before the
+repair begins; the second releases repair locks before the validation scan.
+Both DDL phases cap lock acquisition at five seconds and can be retried after a
+lock-timeout failure without manual schema repair.
+
 ## Functional / expression indexes and `alembic check`
 
 `alembic check` must stay green (it is the drift gate). SQLAlchemy cannot
@@ -87,7 +111,7 @@ and copy the expression verbatim from the diff error message, or read
 
 A fresh `alembic upgrade head` requires **PostgreSQL 13+** (`gen_random_uuid()`
 is used as a column default; migration `0001` RAISEs a clear error on older
-servers) and **pgvector 0.5+** (HNSW index in migration `0011`). Required
+servers) and **pgvector 0.5+** (HNSW index in migration `0012`). Required
 extensions (`postgis`, `pg_trgm`, `vector`, `unaccent`) are provisioned
 out-of-band by `scripts/init-db.sh`; `0001` verifies their presence and RAISEs
 if any is missing.

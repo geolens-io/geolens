@@ -20,13 +20,13 @@ pytestmark = pytest.mark.xdist_group("tenancy_global_state")
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _MIGRATION_PATH = (
-    _BACKEND_DIR / "alembic" / "versions" / "0019_tenant_control_plane_hardening.py"
+    _BACKEND_DIR / "alembic" / "versions" / "0021_tenant_control_plane_hardening.py"
 )
 
 
 def _load_migration() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
-        "migration_0019_tenant_control_plane_hardening",
+        "migration_0021_tenant_control_plane_hardening",
         _MIGRATION_PATH,
     )
     assert spec is not None and spec.loader is not None
@@ -39,8 +39,8 @@ def test_migration_extends_the_fail_closed_tenant_boundary():
     migration = _load_migration()
     source = _MIGRATION_PATH.read_text()
 
-    assert migration.revision == "0019_tenant_control_plane_hardening"
-    assert migration.down_revision == "0018_tenant_dataset_table_names"
+    assert migration.revision == "0021_tenant_control_plane_hardening"
+    assert migration.down_revision == "0020_tenant_dataset_table_names"
     assert "oauth_accounts" in RLS_TABLES
     assert "tenant_isolation_oauth_accounts" in source
     assert "current_setting('app.current_tenant')::uuid" in source

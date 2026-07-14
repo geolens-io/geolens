@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -66,6 +66,12 @@ alembic-check:
 	# missing revision — reset the dev DB or use a clean OSS DB. UV_CACHE_DIR points at a
 	# writable path because the running container's default ~/.cache/uv is read-only.
 	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic check
+
+# Requires a real migration overlay to already be installed in the api image.
+# The verifier fails (never skips) when the geolens.migrations entry point is
+# absent, making it suitable for an overlay-owned cross-repository release gate.
+overlay-migration-check:
+	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync python scripts/verify_overlay_migrations.py
 
 # Defaults to parallel execution (the -n value was chosen from xdist benchmarking).
 # Use `make test-sequential` to opt into sequential debugging mode.

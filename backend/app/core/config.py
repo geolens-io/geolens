@@ -371,6 +371,17 @@ class Settings(BaseSettings):
             normalized.append(host)
         return ",".join(dict.fromkeys(normalized))
 
+    @field_validator("embedding_dims", mode="before")
+    @classmethod
+    def empty_embedding_dims_to_default(cls, v: object) -> object:
+        # fix(#512): the one-shot migrate service deliberately preserves an
+        # unset host value as "" so migration 0012 can distinguish it from an
+        # explicitly configured 1536. Settings is imported before the revision,
+        # so normalize only the application-facing value to its existing default.
+        if isinstance(v, str) and not v.strip():
+            return 1536
+        return v
+
     @field_validator("geolens_edition", mode="before")
     @classmethod
     def normalize_geolens_edition(cls, v: str | None) -> str | None:

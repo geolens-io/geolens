@@ -30,7 +30,12 @@ What this migration adds
    tenant_id IS NULL — breaking single_tenant global uniqueness.  The partial
    indexes are the correct solution.
 
-Downgrade reverses every operation in the exact inverse order.
+Downgrade reverses every operation in the exact inverse order only while the
+tenant substrate is empty.  Once tenant-scoped data exists, removing the
+columns and tables would silently discard ownership metadata and can make the
+restored global user constraints impossible to create.  The downgrade therefore
+locks the affected tables and fails with an operator-facing consolidation
+contract before changing the schema.
 
 Revision ID: 0005_dormant_tenancy
 Revises:     0004_add_maps_legend_title
@@ -48,19 +53,109 @@ down_revision: Union[str, None] = "0004_add_maps_legend_title"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+_SHARED_TABLES = (
+    "users",
+    "records",
+    "datasets",
+    "maps",
+    "collections",
+    "embed_tokens",
+)
+
+
+def _assert_downgrade_has_no_tenant_data() -> None:
+    """Refuse to erase tenant ownership or restore impossible constraints.
+
+    The lock prevents a write from racing the preflight and committing tenant
+    data before the destructive DDL acquires its stronger table locks.  It is
+    retained until Alembic's surrounding transaction commits or rolls back.
+    """
+    bind = op.get_bind()
+    bind.execute(
+        sa.text(
+            """
+            LOCK TABLE
+                catalog.users,
+                catalog.records,
+                catalog.datasets,
+                catalog.maps,
+                catalog.collections,
+                catalog.embed_tokens,
+                catalog.organizations,
+                catalog.tenants,
+                catalog.org_memberships
+            IN SHARE ROW EXCLUSIVE MODE
+            """
+        )
+    )
+    blockers = (
+        bind.execute(
+            sa.text(
+                """
+            SELECT blocker
+            FROM (
+                SELECT 'catalog.users.tenant_id' AS blocker
+                WHERE EXISTS (
+                    SELECT 1 FROM catalog.users WHERE tenant_id IS NOT NULL
+                )
+                UNION ALL
+                SELECT 'catalog.records.tenant_id'
+                WHERE EXISTS (
+                    SELECT 1 FROM catalog.records WHERE tenant_id IS NOT NULL
+                )
+                UNION ALL
+                SELECT 'catalog.datasets.tenant_id'
+                WHERE EXISTS (
+                    SELECT 1 FROM catalog.datasets WHERE tenant_id IS NOT NULL
+                )
+                UNION ALL
+                SELECT 'catalog.maps.tenant_id'
+                WHERE EXISTS (
+                    SELECT 1 FROM catalog.maps WHERE tenant_id IS NOT NULL
+                )
+                UNION ALL
+                SELECT 'catalog.collections.tenant_id'
+                WHERE EXISTS (
+                    SELECT 1 FROM catalog.collections WHERE tenant_id IS NOT NULL
+                )
+                UNION ALL
+                SELECT 'catalog.embed_tokens.tenant_id'
+                WHERE EXISTS (
+                    SELECT 1 FROM catalog.embed_tokens WHERE tenant_id IS NOT NULL
+                )
+                UNION ALL
+                SELECT 'catalog.organizations'
+                WHERE EXISTS (SELECT 1 FROM catalog.organizations)
+                UNION ALL
+                SELECT 'catalog.tenants'
+                WHERE EXISTS (SELECT 1 FROM catalog.tenants)
+                UNION ALL
+                SELECT 'catalog.org_memberships'
+                WHERE EXISTS (SELECT 1 FROM catalog.org_memberships)
+            ) AS present
+            ORDER BY blocker
+            """
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if blockers:
+        raise RuntimeError(
+            "Cannot downgrade 0005_dormant_tenancy while tenant-scoped data "
+            f"exists in: {', '.join(blockers)}. This downgrade removes tenant "
+            "associations and tenancy tables. Back up and consolidate tenant "
+            "data, resolve global username/email collisions, clear tenant_id "
+            "values, and empty the tenancy tables before retrying."
+        )
+
 
 def upgrade() -> None:
     # ------------------------------------------------------------------
     # 1. Add nullable tenant_id to the six shared control-plane tables.
     # ------------------------------------------------------------------
-    for table in (
-        "users",
-        "records",
-        "datasets",
-        "maps",
-        "collections",
-        "embed_tokens",
-    ):
+    for table in _SHARED_TABLES:
         op.add_column(
             table,
             sa.Column(
@@ -204,6 +299,8 @@ def downgrade() -> None:
     # Reverse in exact inverse order of upgrade().
     # ------------------------------------------------------------------
 
+    _assert_downgrade_has_no_tenant_data()
+
     # 3. Restore the global unique constraints and drop the partial indexes.
     op.drop_index("uq_users_email_tenant", table_name="users", schema="catalog")
     op.drop_index("uq_users_email_global", table_name="users", schema="catalog")
@@ -222,12 +319,5 @@ def downgrade() -> None:
     op.drop_table("organizations", schema="catalog")
 
     # 1. Drop the tenant_id columns from the six shared tables.
-    for table in (
-        "embed_tokens",
-        "collections",
-        "maps",
-        "datasets",
-        "records",
-        "users",
-    ):
+    for table in reversed(_SHARED_TABLES):
         op.drop_column(table, "tenant_id", schema="catalog")
