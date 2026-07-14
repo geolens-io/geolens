@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
 from app.modules.catalog.search import service_semantic
 
 
@@ -105,6 +107,42 @@ async def test_cache_partitioned_by_model_name():
 
     assert r1 == fake_v1
     assert r2 == fake_v2
+    assert mock_port.generate_embedding.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_partitioned_by_tenant(monkeypatch: pytest.MonkeyPatch):
+    """The same provider/model label must not share vectors across tenants."""
+    tenant_a = "00000000-0000-0000-0000-0000000000a1"
+    tenant_b = "00000000-0000-0000-0000-0000000000b2"
+    fake_a = [0.31] * 1536
+    fake_b = [0.42] * 1536
+    mock_port = MagicMock()
+    mock_port.generate_embedding = AsyncMock(side_effect=[fake_a, fake_b])
+    session = _mock_session_with_model()
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
+
+    async def embed_for(tenant_id: str):
+        token = current_tenant_var.set(tenant_id)
+        try:
+            return await service_semantic.generate_embedding("query", session)
+        finally:
+            current_tenant_var.reset(token)
+
+    with (
+        patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
+        patch.object(
+            service_semantic.EMBEDDING_MODEL,
+            "get",
+            new=AsyncMock(return_value="shared-model"),
+        ),
+    ):
+        first_a = await embed_for(tenant_a)
+        first_b = await embed_for(tenant_b)
+        second_a = await embed_for(tenant_a)
+
+    assert first_a == second_a == fake_a
+    assert first_b == fake_b
     assert mock_port.generate_embedding.call_count == 2
 
 

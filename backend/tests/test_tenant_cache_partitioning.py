@@ -348,6 +348,27 @@ async def test_unscoped_embedding_presence_fails_closed_without_shared_cache(
     assert helpers._has_embeddings_cache == {}
 
 
+@pytest.mark.anyio
+async def test_unscoped_embedding_neighbors_fail_closed_without_shared_cache(
+    multi_tenant,
+):
+    metadata_service = importlib.import_module("app.processing.ai.metadata_service")
+    metadata_service._neighbor_kw_cache.clear()
+    port = SimpleNamespace(get_dataset=AsyncMock())
+    session = AsyncMock()
+
+    result = await metadata_service._get_related_keywords_from_embeddings(
+        session,
+        str(uuid.uuid4()),
+        port=port,
+    )
+
+    assert result == []
+    port.get_dataset.assert_not_awaited()
+    session.execute.assert_not_awaited()
+    assert metadata_service._neighbor_kw_cache == {}
+
+
 def test_sql_schema_cache_key_is_tenant_scoped(multi_tenant):
     from app.processing.ai.sql_generator import _schema_cache_key
 

@@ -21,7 +21,7 @@ from app.processing.ai.metadata_schemas import (
     SummaryDraftResponse,
 )
 from app.core.config import settings
-from app.platform.cache import tenant_cache_key
+from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
@@ -250,6 +250,9 @@ async def _get_related_keywords_from_embeddings(
     Enterprise overlays (Phase 226) can intercept both calls.
     """
     import uuid as _uuid
+
+    if not tenant_cache_context_available():
+        return []
 
     # Check cache first (keyed on dataset_id; embedding model rebinds are
     # rare and a 5min staleness window is acceptable for context enrichment).
