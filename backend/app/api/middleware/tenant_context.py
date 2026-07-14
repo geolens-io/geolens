@@ -180,18 +180,16 @@ def _extract_jwt_tenant_claim(authorization: str) -> str | None:
 
 
 async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
-    """Resolve a tenant signal (subdomain slug or JWT claim) to a tenant UUID.
+    """Resolve an untrusted Host signal against the tenant registry.
 
     The Phase 1208 RLS GUC is cast to ``::uuid`` and the per-tenant data-schema
     helpers validate UUIDs, so ``current_tenant_var`` must hold a UUID string,
     never a slug (Gap A — Codex review of PR #256).
 
-    - A signal that already parses as a UUID (the cloud JWT stamps ``tid`` as
-      the tenant UUID) is returned unchanged — no DB hit.
-    - A subdomain slug is resolved against the core-owned ``catalog.tenants``
-      registry (NOT one of the RLS-protected tenant-shared tables, so the
-      lookup needs no tenant context). Returns the UUID string, or ``None``
-      when the slug matches no tenant.
+    UUID-shaped host labels are not trusted tenant identities. Both UUIDs and
+    slugs are resolved against the core-owned ``catalog.tenants`` registry
+    (which has no RLS and therefore needs no tenant context). Only the verified
+    JWT ``tid`` path may skip this lookup.
 
     Resilient by design: any DB error resolves to ``None`` (logged) rather than
     500-ing the request — enforcement is RLS, not this middleware.
@@ -199,11 +197,11 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
     if tenant_signal is None:
         return None
 
-    # Already a UUID (e.g. cloud JWT ``tid`` claim) → use as-is, no DB hit.
+    tenant_uuid: uuid.UUID | None = None
     try:
-        return str(uuid.UUID(tenant_signal))
+        tenant_uuid = uuid.UUID(tenant_signal)
     except (ValueError, AttributeError, TypeError):
-        pass  # not a UUID → treat as a subdomain slug and resolve via the DB
+        pass
 
     try:
         from sqlalchemy import text
@@ -211,16 +209,22 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
         from app.core.db import async_session
 
         async with async_session() as session:
-            # Bound param (T-1208-01); catalog.tenants has no RLS (registry).
-            resolved = await session.scalar(
-                text("SELECT id FROM catalog.tenants WHERE slug = :slug"),
-                {"slug": tenant_signal},
-            )
+            # Bound params (T-1208-01); catalog.tenants has no RLS (registry).
+            if tenant_uuid is not None:
+                resolved = await session.scalar(
+                    text("SELECT id FROM catalog.tenants WHERE id = :tenant_id"),
+                    {"tenant_id": tenant_uuid},
+                )
+            else:
+                resolved = await session.scalar(
+                    text("SELECT id FROM catalog.tenants WHERE slug = :slug"),
+                    {"slug": tenant_signal},
+                )
         return str(resolved) if resolved is not None else None
     except Exception:  # broad: a resolution failure must not 500 the request
         logger.warning(
-            "tenant slug resolution failed; running request unscoped",
-            slug=tenant_signal,
+            "tenant Host resolution failed; running request unscoped",
+            tenant_signal=tenant_signal,
             exc_info=True,
         )
         return None
@@ -287,9 +291,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        jwt_tenant_id = (
-            await _resolve_tenant_uuid(jwt_signal) if jwt_signal is not None else None
-        )
+        # ``jwt_signal`` came from a signature-, expiry-, and claim-verified
+        # access token above. It is the only caller-controlled tenant signal
+        # allowed to bypass the public Host registry lookup.
+        jwt_tenant_id = jwt_signal
         if (
             host_tenant_id is not None
             and jwt_tenant_id is not None

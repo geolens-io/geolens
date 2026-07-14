@@ -37,10 +37,14 @@ _TABLES = (
 
 _FUNCTION_NAME = "catalog.stamp_current_tenant_on_insert"
 _TRIGGER_NAME = "trg_stamp_current_tenant_on_insert"
+_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 
 def upgrade() -> None:
     """Install the dormant tenant-stamping function and six insert triggers."""
+    # CREATE TRIGGER takes SHARE ROW EXCLUSIVE on every target. Fail quickly on
+    # a busy table so this migration never queues ahead of normal API traffic.
+    op.execute(_LOCK_TIMEOUT)
     op.execute(
         f"""
         CREATE FUNCTION {_FUNCTION_NAME}()
@@ -93,6 +97,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop the six triggers and then their shared trigger function."""
+    op.execute(_LOCK_TIMEOUT)
     for table in reversed(_TABLES):
         op.execute(f"DROP TRIGGER IF EXISTS {_TRIGGER_NAME} ON catalog.{table}")
     op.execute(f"DROP FUNCTION IF EXISTS {_FUNCTION_NAME}()")

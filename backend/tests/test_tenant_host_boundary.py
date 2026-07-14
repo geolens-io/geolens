@@ -119,6 +119,32 @@ def test_configured_tenant_suffix_resolves_slug(monkeypatch):
     assert response.json()["tenant_public_origin"] == "http://acme.geolens.app:443"
 
 
+def test_uuid_shaped_tenant_host_must_resolve_in_registry(monkeypatch):
+    """An arbitrary UUID label cannot bypass the unresolved-host rejection."""
+    import app.api.middleware.tenant_context as tenant_context
+
+    host_uuid = str(uuid.uuid4())
+    seen: list[str | None] = []
+
+    async def _resolve(signal):
+        seen.append(signal)
+        return None
+
+    monkeypatch.setattr(tenant_context, "is_multi_tenant", lambda: True)
+    monkeypatch.setattr(tenant_context.settings, "tenant_base_domain", "geolens.app")
+    monkeypatch.setattr(tenant_context.settings, "tenant_trusted_hosts", "testserver")
+    app, called = _app_with_probe()
+    with patch.object(tenant_context, "_resolve_tenant_uuid", side_effect=_resolve):
+        response = TestClient(app).get(
+            "/public", headers={"host": f"{host_uuid}.geolens.app"}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Tenant host could not be resolved"
+    assert seen == [host_uuid]
+    assert called == []
+
+
 def test_resolved_tenant_host_allows_identity_extension_bearer(monkeypatch):
     import app.api.middleware.tenant_context as tenant_context
     import app.modules.auth.dependencies as auth_dependencies

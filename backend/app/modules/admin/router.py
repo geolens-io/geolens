@@ -43,6 +43,7 @@ from app.modules.auth.models import User
 from app.modules.auth.schemas import UserResponse
 from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
+from app.core.db.tenant_session import tenant_job_context
 from app.core.dependencies import get_client_ip, get_db
 from app.modules.admin.router_operations import router as operations_router
 from app.platform.jobs.router import get_retry_capability
@@ -242,6 +243,7 @@ async def export_users_csv(
     operation_id = uuid.uuid4()
     actor_id = current_user.id
     ip_address = get_client_ip(request)
+    tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)
     audit_context = {
         "operation_id": str(operation_id),
         "format": "csv",
@@ -276,24 +278,25 @@ async def export_users_csv(
         # an unshielded await is cancelled immediately and cannot persist the
         # promised terminal event. Bound the shield so disconnect cleanup can
         # never hold a response task indefinitely.
-        with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
-            try:
-                await audit_emit_durable(
-                    AuditEvent(
-                        user_id=actor_id,
-                        action="user.export",
-                        resource_type="user",
-                        resource_id=operation_id,
-                        details=details,
-                        ip_address=ip_address,
+        with tenant_job_context(tenant_id):
+            with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
+                try:
+                    await audit_emit_durable(
+                        AuditEvent(
+                            user_id=actor_id,
+                            action="user.export",
+                            resource_type="user",
+                            resource_id=operation_id,
+                            details=details,
+                            ip_address=ip_address,
+                        )
                     )
-                )
-            except Exception:  # broad: response bytes may already have been sent
-                logger.exception(
-                    "Failed to persist user export stream outcome",
-                    operation_id=str(operation_id),
-                    outcome=outcome,
-                )
+                except Exception:  # broad: response bytes may already have been sent
+                    logger.exception(
+                        "Failed to persist user export stream outcome",
+                        operation_id=str(operation_id),
+                        outcome=outcome,
+                    )
 
     async def csv_generator() -> AsyncGenerator[str, None]:
         row_count = 0
@@ -309,25 +312,26 @@ async def export_users_csv(
 
             from app.core.db import async_session
 
-            async with async_session() as stream_db:
-                stmt = select(User).order_by(User.created_at.asc())
-                result = await stream_db.stream(stmt)
-                async for (user,) in result:
-                    writer.writerow(
-                        [
-                            _safe(user.email or ""),
-                            _safe(user.username or ""),
-                            _safe(user.auth_provider or ""),
-                            _safe(user.status or ""),
-                            user.created_at.isoformat() if user.created_at else "",
-                        ]
-                    )
-                    yield buf.getvalue()
-                    # Reaching this line means the preceding body chunk was
-                    # accepted by the ASGI send loop.
-                    row_count += 1
-                    buf.seek(0)
-                    buf.truncate(0)
+            with tenant_job_context(tenant_id):
+                async with async_session() as stream_db:
+                    stmt = select(User).order_by(User.created_at.asc())
+                    result = await stream_db.stream(stmt)
+                    async for (user,) in result:
+                        writer.writerow(
+                            [
+                                _safe(user.email or ""),
+                                _safe(user.username or ""),
+                                _safe(user.auth_provider or ""),
+                                _safe(user.status or ""),
+                                user.created_at.isoformat() if user.created_at else "",
+                            ]
+                        )
+                        yield buf.getvalue()
+                        # Reaching this line means the preceding body chunk was
+                        # accepted by the ASGI send loop.
+                        row_count += 1
+                        buf.seek(0)
+                        buf.truncate(0)
         except BaseException:  # record disconnects/cancellation as failed exports
             await record_outcome("failed", row_count)
             raise

@@ -69,8 +69,9 @@ def test_upgrade_sql_is_mode_independent_and_fail_closed():
         migration.upgrade()
 
     statements = _captured_sql(execute)
-    assert len(statements) == 7
-    function_sql = statements[0]
+    assert len(statements) == 8
+    assert statements[0] == "SET LOCAL lock_timeout = '5s'"
+    function_sql = statements[1]
     assert "SECURITY INVOKER" in function_sql
     assert "SECURITY DEFINER" not in function_sql
     assert "current_setting('app.current_tenant', true)" in function_sql
@@ -79,7 +80,7 @@ def test_upgrade_sql_is_mode_independent_and_fail_closed():
     assert "USING ERRCODE = '42501'" in function_sql
     assert "NEW.tenant_id := session_tenant" in function_sql
 
-    trigger_sql = statements[1:]
+    trigger_sql = statements[2:]
     assert trigger_sql == [
         "CREATE TRIGGER trg_stamp_current_tenant_on_insert "
         f"BEFORE INSERT ON catalog.{table} FOR EACH ROW EXECUTE FUNCTION "
@@ -99,7 +100,8 @@ def test_downgrade_sql_removes_exact_boundary_in_inverse_order():
         migration.downgrade()
 
     statements = _captured_sql(execute)
-    assert statements[:-1] == [
+    assert statements[0] == "SET LOCAL lock_timeout = '5s'"
+    assert statements[1:-1] == [
         f"DROP TRIGGER IF EXISTS trg_stamp_current_tenant_on_insert ON catalog.{table}"
         for table in reversed(migration._TABLES)
     ]

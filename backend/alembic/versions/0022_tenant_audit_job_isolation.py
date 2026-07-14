@@ -21,7 +21,6 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
 
 revision: str = "0022_tenant_audit_job_isolation"
 down_revision: Union[str, None] = "0021_tenant_control_plane_hardening"
@@ -36,14 +35,66 @@ _AUDIT_PARENT_TRIGGER = "trg_validate_audit_log_user_tenant"
 _AUDIT_PARENT_FUNCTION = "catalog.enforce_audit_log_user_tenant"
 _JOB_PARENT_TRIGGER = "trg_validate_ingest_job_parent_tenant"
 _JOB_PARENT_FUNCTION = "catalog.enforce_ingest_job_parent_tenant"
+_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
+_TENANT_INDEXES = (
+    ("ix_catalog_audit_logs_tenant_id", "audit_logs"),
+    ("ix_catalog_ingest_jobs_tenant_id", "ingest_jobs"),
+)
+
+
+def _index_state(index_name: str) -> tuple[bool, bool] | None:
+    row = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """
+                SELECT index_row.indisvalid, index_row.indisready
+                FROM pg_catalog.pg_index AS index_row
+                JOIN pg_catalog.pg_class AS index_class
+                  ON index_class.oid = index_row.indexrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = index_class.relnamespace
+                WHERE namespace.nspname = 'catalog'
+                  AND index_class.relname = :index_name
+                """
+            ),
+            {"index_name": index_name},
+        )
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return bool(row.indisvalid), bool(row.indisready)
+
+
+def _ensure_tenant_index(index_name: str, table: str) -> None:
+    """Build a tenant index online and repair an interrupted build."""
+    state = _index_state(index_name)
+    if state == (True, True):
+        return
+
+    with op.get_context().autocommit_block():
+        if state is not None:
+            op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS catalog."{index_name}"')
+        op.execute(
+            f'CREATE INDEX CONCURRENTLY IF NOT EXISTS "{index_name}" '
+            f'ON catalog."{table}" ("tenant_id")'
+        )
+
+
+def _drop_tenant_indexes() -> None:
+    with op.get_context().autocommit_block():
+        for index_name, _table in reversed(_TENANT_INDEXES):
+            op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS catalog."{index_name}"')
 
 
 def upgrade() -> None:
+    op.execute(_LOCK_TIMEOUT)
     for table in _TABLES:
-        op.add_column(
-            table,
-            sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=True),
-            schema="catalog",
+        # The first concurrent build commits this prefix. IF NOT EXISTS makes a
+        # lock-timeout or interrupted build safe to retry.
+        op.execute(
+            f"ALTER TABLE catalog.{table} ADD COLUMN IF NOT EXISTS tenant_id UUID"
         )
 
     # Actor-backed audit rows inherit the actor's tenant. Rows whose actor was
@@ -102,25 +153,14 @@ def upgrade() -> None:
         """
     )
 
-    op.create_index(
-        "ix_catalog_audit_logs_tenant_id",
-        "audit_logs",
-        ["tenant_id"],
-        schema="catalog",
-    )
-    op.create_index(
-        "ix_catalog_ingest_jobs_tenant_id",
-        "ingest_jobs",
-        ["tenant_id"],
-        schema="catalog",
-    )
-
     for table in _TABLES:
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{table} ON catalog.{table}")
         op.execute(
             f"CREATE POLICY tenant_isolation_{table} ON catalog.{table} "
             "USING (tenant_id = current_setting('app.current_tenant')::uuid) "
             "WITH CHECK (tenant_id = current_setting('app.current_tenant')::uuid)"
         )
+        op.execute(f"DROP TRIGGER IF EXISTS {_STAMP_TRIGGER} ON catalog.{table}")
         op.execute(
             f"CREATE TRIGGER {_STAMP_TRIGGER} BEFORE INSERT ON catalog.{table} "
             f"FOR EACH ROW EXECUTE FUNCTION {_STAMP_FUNCTION}()"
@@ -130,7 +170,7 @@ def upgrade() -> None:
     # When an actor is present, derive or verify the child key against it.
     op.execute(
         f"""
-        CREATE FUNCTION {_AUDIT_PARENT_FUNCTION}()
+        CREATE OR REPLACE FUNCTION {_AUDIT_PARENT_FUNCTION}()
         RETURNS trigger
         LANGUAGE plpgsql
         SECURITY INVOKER
@@ -164,6 +204,7 @@ def upgrade() -> None:
         $$
         """
     )
+    op.execute(f"DROP TRIGGER IF EXISTS {_AUDIT_PARENT_TRIGGER} ON catalog.audit_logs")
     op.execute(
         f"CREATE TRIGGER {_AUDIT_PARENT_TRIGGER} "
         "BEFORE INSERT OR UPDATE OF user_id, tenant_id ON catalog.audit_logs "
@@ -175,7 +216,7 @@ def upgrade() -> None:
     # ON DELETE SET NULL removes the final parent reference.
     op.execute(
         f"""
-        CREATE FUNCTION {_JOB_PARENT_FUNCTION}()
+        CREATE OR REPLACE FUNCTION {_JOB_PARENT_FUNCTION}()
         RETURNS trigger
         LANGUAGE plpgsql
         SECURITY INVOKER
@@ -237,6 +278,7 @@ def upgrade() -> None:
         $$
         """
     )
+    op.execute(f"DROP TRIGGER IF EXISTS {_JOB_PARENT_TRIGGER} ON catalog.ingest_jobs")
     op.execute(
         f"CREATE TRIGGER {_JOB_PARENT_TRIGGER} "
         "BEFORE INSERT OR UPDATE OF created_by, dataset_id, tenant_id "
@@ -244,8 +286,14 @@ def upgrade() -> None:
         f"FOR EACH ROW EXECUTE FUNCTION {_JOB_PARENT_FUNCTION}()"
     )
 
+    # Commit the tenant keys and write guards before releasing table locks.
+    # Inserts that race either online build are therefore stamped and checked.
+    for index_name, table in _TENANT_INDEXES:
+        _ensure_tenant_index(index_name, table)
+
 
 def downgrade() -> None:
+    op.execute(_LOCK_TIMEOUT)
     op.execute(f"DROP TRIGGER IF EXISTS {_JOB_PARENT_TRIGGER} ON catalog.ingest_jobs")
     op.execute(f"DROP FUNCTION IF EXISTS {_JOB_PARENT_FUNCTION}()")
     op.execute(f"DROP TRIGGER IF EXISTS {_AUDIT_PARENT_TRIGGER} ON catalog.audit_logs")
@@ -257,15 +305,8 @@ def downgrade() -> None:
         op.execute(f"ALTER TABLE catalog.{table} DISABLE ROW LEVEL SECURITY")
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{table} ON catalog.{table}")
 
-    op.drop_index(
-        "ix_catalog_ingest_jobs_tenant_id",
-        table_name="ingest_jobs",
-        schema="catalog",
-    )
-    op.drop_index(
-        "ix_catalog_audit_logs_tenant_id",
-        table_name="audit_logs",
-        schema="catalog",
-    )
+    _drop_tenant_indexes()
+
+    op.execute(_LOCK_TIMEOUT)
     for table in reversed(_TABLES):
-        op.drop_column(table, "tenant_id", schema="catalog")
+        op.execute(f"ALTER TABLE catalog.{table} DROP COLUMN IF EXISTS tenant_id")

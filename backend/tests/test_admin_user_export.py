@@ -17,6 +17,7 @@ Invocation:
 import csv
 import io
 import uuid
+from contextlib import contextmanager
 
 import pytest
 from httpx import AsyncClient
@@ -208,8 +209,10 @@ async def test_export_stream_failure_records_actual_emitted_rows_without_content
 
     secret_path = "/tmp/private/customer-secret.csv"
     actor_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
     request_events = []
     outcome_events = []
+    tenant_contexts = []
 
     class BrokenRows:
         def __init__(self):
@@ -253,12 +256,24 @@ async def test_export_stream_failure_records_actual_emitted_rows_without_content
     async def record_outcome(event):
         outcome_events.append(event)
 
+    @contextmanager
+    def record_tenant_context(value):
+        tenant_contexts.append(("enter", value))
+        try:
+            yield
+        finally:
+            tenant_contexts.append(("exit", value))
+
     monkeypatch.setattr(db_module, "async_session", lambda: StreamSessionContext())
     monkeypatch.setattr(admin_router, "audit_emit", record_request)
     monkeypatch.setattr(admin_router, "audit_emit_durable", record_outcome)
+    monkeypatch.setattr(admin_router, "tenant_job_context", record_tenant_context)
 
     response = await admin_router.export_users_csv(
-        SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
+        SimpleNamespace(
+            client=SimpleNamespace(host="127.0.0.1"),
+            state=SimpleNamespace(tenant_id=tenant_id),
+        ),
         SimpleNamespace(id=actor_id),
         RequestSession(),
     )
@@ -278,3 +293,9 @@ async def test_export_stream_failure_records_actual_emitted_rows_without_content
     assert failed.details["operation_id"] == request_events[0].details["operation_id"]
     assert secret_path not in repr(failed.details)
     assert "safe@example.com" not in repr(failed.details)
+    assert tenant_contexts == [
+        ("enter", tenant_id),
+        ("exit", tenant_id),
+        ("enter", tenant_id),
+        ("exit", tenant_id),
+    ]

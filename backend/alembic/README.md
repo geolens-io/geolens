@@ -41,6 +41,14 @@ table that may be large in production (`records`, `record_embeddings`,
 `audit_logs`, `ingest_jobs`, per-dataset `data.*` tables). For small/transient
 tables a plain `CREATE INDEX` is fine.
 
+When an online build introduces an autocommit boundary, make the preceding DDL
+safe to retry and inspect `pg_index.indisvalid`/`indisready` before accepting an
+existing name. PostgreSQL can leave an invalid index behind after an interrupted
+concurrent build; `IF NOT EXISTS` alone would silently preserve it. Migrations
+0017 and 0020–0022 show the recovery pattern. They also apply a five-second
+`lock_timeout` before brief `ALTER TABLE` and `CREATE TRIGGER` operations so a
+busy deployment fails cleanly instead of queueing ahead of application traffic.
+
 ### Embedding cache after migration 0012
 
 Migration `0012_type_embedding_vector` deliberately truncates

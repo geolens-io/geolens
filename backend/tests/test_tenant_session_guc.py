@@ -385,7 +385,7 @@ class TestMiddlewareBridge:
 
 
 class TestResolveTenantUuid:
-    """_resolve_tenant_uuid: UUID passthrough + slug→catalog.tenants lookup (Gap A)."""
+    """Host UUIDs and slugs must both resolve through catalog.tenants."""
 
     @pytest.mark.asyncio
     async def test_none_signal_returns_none(self):
@@ -394,16 +394,25 @@ class TestResolveTenantUuid:
         assert await _resolve_tenant_uuid(None) is None
 
     @pytest.mark.asyncio
-    async def test_uuid_signal_passes_through_without_db(self):
-        """A JWT 'tid' that is already a UUID is returned unchanged — no DB hit."""
+    async def test_uuid_host_signal_must_exist_in_registry(self):
+        """A UUID-shaped Host label is untrusted until the registry confirms it."""
         import app.core.db as core_db
         from app.api.middleware.tenant_context import _resolve_tenant_uuid
 
-        tid = str(uuid.uuid4())
-        with patch.object(
-            core_db, "async_session", side_effect=AssertionError("must not hit DB")
-        ):
-            assert await _resolve_tenant_uuid(tid) == tid
+        tid = uuid.uuid4()
+        session = MagicMock()
+        session.scalar = AsyncMock(return_value=tid)
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=session)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.object(core_db, "async_session", return_value=cm):
+            assert await _resolve_tenant_uuid(str(tid)) == str(tid)
+
+        statement = session.scalar.await_args.args[0]
+        parameters = session.scalar.await_args.args[1]
+        assert "WHERE id = :tenant_id" in str(statement)
+        assert parameters == {"tenant_id": tid}
 
     @pytest.mark.asyncio
     async def test_slug_resolved_to_uuid_via_db(self):
