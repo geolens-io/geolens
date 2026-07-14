@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.core import config as config_module
 from app.core.config import Settings
 
 # Settings constructor kwargs (lowercase field names).
@@ -56,6 +57,48 @@ class TestDatabaseUrlOverride:
         url = s.database_url
         assert "sslmode" not in url
         assert "application_name=geolens" in url
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "not-a-postgres-url",
+            "mysql://user:pass@host/db",
+            "postgresql:///missing-host",
+            "postgresql://user:pass@host",
+            "postgresql://user:pass@host/",
+            "postgresql://user:pass@host-one,host-two/db",
+        ],
+    )
+    def test_invalid_or_non_postgres_override_rejected(self, url):
+        with pytest.raises(Exception):
+            _make_settings(database_url_override=url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "postgres://u:p@host/db",
+            "postgresql://u:p@host/db",
+            "postgresql+asyncpg://u:p@host/db",
+            "postgresql+psycopg://u:p@host/db",
+        ],
+    )
+    def test_supported_postgres_schemes_accepted(self, url):
+        assert _make_settings(database_url_override=url).database_url_override
+
+    def test_boot_error_redacts_invalid_dsn_credentials(self, monkeypatch, capsys):
+        for field, value in BASE_ENV.items():
+            monkeypatch.setenv(field.upper(), value)
+        monkeypatch.setenv(
+            "DATABASE_URL_OVERRIDE",
+            "mysql://user:must-not-appear@host/database",
+        )
+
+        with pytest.raises(SystemExit):
+            config_module._create_settings()
+
+        stderr = capsys.readouterr().err
+        assert "DATABASE_URL_OVERRIDE" in stderr
+        assert "must-not-appear" not in stderr
 
 
 class TestDatabaseUrlSync:
@@ -245,6 +288,79 @@ class TestConditionalValidation:
         s = _make_settings(storage_provider="local")
         assert s.storage_provider == "local"
 
+    def test_tile_pool_min_must_not_exceed_max(self):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(tile_pool_min_size=11, tile_pool_max_size=10)
+        assert "TILE_POOL_MIN_SIZE" in str(exc_info.value)
+
+
+class TestSettingsConstraints:
+    """Invalid enum and numeric configuration must fail during Settings parsing."""
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("jwt_algorithm", "none"),
+            ("storage_provider", "typo"),
+            ("database_ssl_mode", "typo"),
+            ("s3_addressing_style", "typo"),
+        ],
+    )
+    def test_invalid_enum_rejected(self, field, value):
+        with pytest.raises(Exception):
+            _make_settings(**{field: value})
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("postgres_port", 0),
+            ("postgres_port", 65536),
+            ("access_token_expire_minutes", 0),
+            ("refresh_token_expire_days", 0),
+            ("password_min_length", 7),
+            ("upload_max_size_mb", 0),
+            ("presigned_multipart_threshold_mb", 0),
+            ("embedding_dims", 0),
+            ("embedding_dims", 4097),
+            ("worker_shutdown_timeout", 0),
+            ("worker_concurrency", 0),
+            ("db_pool_size", 0),
+            ("db_max_overflow", -2),
+            ("db_pool_timeout", 0),
+            ("db_pool_recycle", -2),
+            ("tile_pool_min_size", 0),
+            ("tile_pool_max_size", 0),
+            ("ingest_http_timeout_seconds", 0),
+            ("ingest_jobs_retention_days", -1),
+            ("smtp_port", 0),
+            ("smtp_port", 65536),
+        ],
+    )
+    def test_out_of_range_numeric_value_rejected(self, field, value):
+        with pytest.raises(Exception):
+            _make_settings(**{field: value})
+
+    def test_documented_zero_and_negative_sentinels_remain_supported(self):
+        s = _make_settings(
+            tile_cache_ttl=0,
+            ingest_jobs_retention_days=0,
+            db_max_overflow=-1,
+            db_pool_recycle=-1,
+        )
+        assert s.tile_cache_ttl == 0
+        assert s.ingest_jobs_retention_days == 0
+        assert s.db_max_overflow == -1
+        assert s.db_pool_recycle == -1
+
+    def test_worker_queues_are_trimmed_and_normalized(self):
+        s = _make_settings(worker_queues=" priority, ingest ,raster ")
+        assert s.worker_queues == "priority,ingest,raster"
+
+    @pytest.mark.parametrize("queues", ["", " , ", "ingest,ingest"])
+    def test_empty_or_duplicate_worker_queues_rejected(self, queues):
+        with pytest.raises(Exception):
+            _make_settings(worker_queues=queues)
+
 
 class TestEmptyStringToNone:
     """Test that empty string env vars become None."""
@@ -264,6 +380,11 @@ class TestEmptyStringToNone:
     def test_nonempty_redis_url_preserved(self):
         s = _make_settings(redis_url="redis://localhost:6379/0")
         assert s.redis_url == "redis://localhost:6379/0"
+
+    def test_empty_notification_secrets_become_none(self):
+        s = _make_settings(smtp_password="", notification_webhook_secret=" ")
+        assert s.smtp_password is None
+        assert s.notification_webhook_secret is None
 
 
 class TestExternalPooler:

@@ -70,6 +70,38 @@ x-ai-env: &ai-env
   EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
   EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
 
+x-edition-env: &edition-env
+  # Edition, tenancy, and signed-license inputs must reach every backend
+  # process. Empty edition preserves extension auto-detection; single_tenant is
+  # the safe OSS default.
+  GEOLENS_EDITION: "${GEOLENS_EDITION:-}"
+  GEOLENS_TENANCY_MODE: "${GEOLENS_TENANCY_MODE:-single_tenant}"
+  GEOLENS_LICENSE_ENFORCE: "${GEOLENS_LICENSE_ENFORCE:-false}"
+  GEOLENS_LICENSE_KEY: "${GEOLENS_LICENSE_KEY:-}"
+  GEOLENS_LICENSE_FILE: "${GEOLENS_LICENSE_FILE:-}"
+  GEOLENS_LICENSE_AUDIENCE: "${GEOLENS_LICENSE_AUDIENCE:-}"
+
+x-notification-env: &notification-env
+  NOTIFICATIONS_ENABLED: "${NOTIFICATIONS_ENABLED:-false}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USERNAME: "${SMTP_USERNAME:-}"
+  SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+  SMTP_FROM_ADDRESS: "${SMTP_FROM_ADDRESS:-}"
+  SMTP_USE_TLS: "${SMTP_USE_TLS:-true}"
+  NOTIFICATION_WEBHOOK_URL: "${NOTIFICATION_WEBHOOK_URL:-}"
+  NOTIFICATION_WEBHOOK_SECRET: "${NOTIFICATION_WEBHOOK_SECRET:-}"
+  NOTIFY_ON_SIGNUP: "${NOTIFY_ON_SIGNUP:-false}"
+  NOTIFY_ON_INGEST_COMPLETE: "${NOTIFY_ON_INGEST_COMPLETE:-false}"
+  NOTIFY_ON_INGEST_FAILED: "${NOTIFY_ON_INGEST_FAILED:-false}"
+  NOTIFY_ON_HEALTH_ALERT: "${NOTIFY_ON_HEALTH_ALERT:-false}"
+  NOTIFICATION_ADMIN_EMAIL: "${NOTIFICATION_ADMIN_EMAIL:-}"
+
+x-app-runtime-env: &app-runtime-env
+  LANDING_FIRST: "${LANDING_FIRST:-false}"
+  DEMO_MODE: "${DEMO_MODE:-false}"
+  TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
+
 # Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
 # All three run the same Dockerfile target and use the same setpriv-based
 # entrypoint flow (start as root -> chown volume mounts -> drop to uid 1001
@@ -191,7 +223,7 @@ services:
     volumes:
       - ./backend/alembic:/app/alembic
     environment:
-      <<: [*db-env, *auth-env, *db-ssl-env]
+      <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
       PYTHONPATH: /app
     depends_on:
       db:
@@ -288,7 +320,7 @@ services:
       --proxy-headers --forwarded-allow-ips='*'
       --reload --reload-dir /app/app"
     environment:
-      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env, *app-runtime-env]
       PYTHONPATH: /app
       UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
@@ -361,7 +393,7 @@ services:
       - ./backend/tests:/app/tests
       - upload_staging:/app/staging
     environment:
-      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env]
       PYTHONPATH: /app
       REDIS_URL: "${REDIS_URL:-}"
       # GAP-022: pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
@@ -428,7 +460,9 @@ services:
       # Empty defaults keep the existing s3/local stack unchanged when vars are unset.
       AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
       AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT:-}"
-      AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCESS_KEY:-}"
+      # GDAL names the key differently from the application SDK. Keep one
+      # canonical host variable and translate it only at the container boundary.
+      AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"
       TITILER_API_ROOT_PATH: ""
     volumes:
       - upload_staging:/app/staging

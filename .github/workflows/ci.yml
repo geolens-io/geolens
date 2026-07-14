@@ -214,7 +214,7 @@ jobs:
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh
 
-      - name: Env-doc-drift gate (install.sh keys documented in .env.example)
+      - name: Environment contract drift gate
         run: python3 scripts/check_env_doc_drift.py
 
       - name: Validate compose files parse

@@ -17,3 +17,24 @@ To give the teams who self-host GeoLens confidence to build on it, we commit tha
 Optional paid support and add-ons for organizations that want them (support with an SLA, advanced identity, audit-log export, and single-tenant deployment hardening) are available separately from Carto Concepts, LLC. They are entirely optional — nothing in this repository is disabled without them. We note it here so the free/paid boundary is never a surprise.
 
 The GeoLens name, logo, and brand assets are not covered by the software license. See [TRADEMARKS.md](TRADEMARKS.md). Third-party sample-data attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+
+## Enterprise overlay deployment contract
+
+The base Compose files also provide an explicit, fail-closed handoff for an
+optional enterprise overlay image. This plumbing does not enable or download
+paid code; it only ensures a pre-baked overlay receives the same edition,
+tenancy, and signed-license inputs in the migration, API, and worker processes.
+
+- `GEOLENS_EDITION=enterprise` requires a loaded enterprise extension. The
+  application and Alembic refuse to continue when the overlay is absent.
+- `GEOLENS_TENANCY_MODE=multi_tenant` requires the overlay's tenant-isolation
+  layer. The default is `single_tenant`.
+- `GEOLENS_LICENSE_KEY` supplies a signed token inline.
+  `GEOLENS_LICENSE_FILE` is the alternative and must name a file mounted
+  read-only into migrate, api, and worker by a Compose override.
+- `GEOLENS_LICENSE_AUDIENCE` binds an audience-restricted token to a
+  deployment. `GEOLENS_LICENSE_ENFORCE=true` keeps the process in community
+  mode unless a valid signed license is present.
+
+All six inputs are optional and empty/disabled by default. The canonical
+placeholders and constraints live in [`.env.example`](.env.example).
