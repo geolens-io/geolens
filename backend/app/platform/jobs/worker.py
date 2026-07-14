@@ -220,7 +220,7 @@ async def run_health_server() -> None:
 
 
 async def main() -> None:
-    """Worker entrypoint: recovery, init, health server, metrics, worker loop."""
+    """Worker entrypoint: init, recovery, health server, metrics, worker loop."""
     # Import all ORM models so the SQLAlchemy mapper registry is complete
     # before any task or relationship tries to resolve string references.
     import app.modules.auth.models  # noqa: F401
@@ -240,10 +240,7 @@ async def main() -> None:
 
     await assert_schema_in_sync()
 
-    # 1. Recover stale jobs from previous crash
-    await recover_stale_jobs()
-
-    # 2. Ensure staging directories exist
+    # 1. Ensure staging directories exist
     ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(Path(settings.upload_staging_dir) / "exports")
 
@@ -256,7 +253,7 @@ async def main() -> None:
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     sweep_orphaned_exports(exports_dir)
 
-    # 3. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
+    # 2. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
     # overlay requested, init edition, init storage + S3 health probe, init cache.
     # bootstrap(app=None) = worker mode: skips router include and billing dispatch
     # (both require a FastAPI app object). Runs BEFORE run_worker_async so all
@@ -274,6 +271,11 @@ async def main() -> None:
     # every expected single-slot port must be a non-Default implementation.
     # Fails loud (RuntimeError) rather than silently running community ports.
     assert_enterprise_ports_resolved()
+
+    # 3. fix(#507): recover only after bootstrap has applied tenancy RLS.
+    # Tenant-scoped recovery relies on FORCE RLS and the tenant GUC; running it
+    # before bootstrap could let an unqualified startup sweep cross tenants.
+    await recover_stale_jobs()
 
     # 4. Start health server as background task
     health_task = asyncio.create_task(run_health_server())
