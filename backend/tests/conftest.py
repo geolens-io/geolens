@@ -164,10 +164,10 @@ def pytest_configure(config):
         os.environ["PYTEST_XDIST_WORKER"] = worker_id
 
 
-# Tenancy test files that mutate state which is GLOBAL beyond a single test, in two
-# distinct ways — both fixed by co-locating every such module onto ONE xdist worker
-# (via --dist loadgroup, set in pyproject addopts) so the mutations can never run
-# concurrently with, or leak into, a sibling on another worker:
+# Tenancy test files that mutate or assert state which is GLOBAL beyond a single
+# test. Co-locating every such module onto ONE xdist worker (via --dist loadgroup,
+# set in pyproject addopts) ensures mutations cannot overlap each other or a
+# global-state observer running on another worker:
 #
 #   1. PROCESS-GLOBAL (per worker): set os.environ["GEOLENS_TENANCY_MODE"]=multi_tenant,
 #      rebuild app.core.config.settings, importlib.reload(app.core.tenancy), or apply
@@ -193,6 +193,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_dp03_cross_tenant_privilege_gate",
     "test_dp04_data_plane_structural_gate",
     "test_dp05_shard_routing_pgbouncer",
+    "test_dp_single_tenant_byte_identical",
     "test_dormant_tenancy_migration_roundtrip",
     "test_dormant_tenancy_schema",
     "test_audit_job_tenant_isolation",
