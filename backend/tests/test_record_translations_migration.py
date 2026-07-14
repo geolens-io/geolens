@@ -118,8 +118,10 @@ async def test_upgrade_normalizes_legacy_values_and_validates_constraint() -> No
             LANGUAGE plpgsql
             AS $$
             BEGIN
-              UPDATE catalog.migration_0014_update_counter
-              SET updates = updates + 1;
+              IF NEW.title LIKE 'migration-0014-lock-test-%' THEN
+                UPDATE catalog.migration_0014_update_counter
+                SET updates = updates + 1;
+              END IF;
               RETURN NEW;
             END
             $$
@@ -128,9 +130,8 @@ async def test_upgrade_normalizes_legacy_values_and_validates_constraint() -> No
         await _fresh_query(
             """
             CREATE TRIGGER migration_0014_count_language_updates
-            BEFORE UPDATE OF language ON catalog.records
+            BEFORE UPDATE ON catalog.records
             FOR EACH ROW
-            WHEN (OLD.title LIKE 'migration-0014-lock-test-%')
             EXECUTE FUNCTION catalog.migration_0014_count_language_updates()
             """
         )
