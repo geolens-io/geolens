@@ -25,6 +25,17 @@ def _is_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _requested_edition() -> str:
+    """Return the normalized explicit edition, rejecting invalid operator input."""
+    value = os.environ.get("GEOLENS_EDITION", "").lower().strip()
+    if value not in ("", "community", "enterprise"):
+        raise RuntimeError(
+            "GEOLENS_EDITION must be unset, 'community', or 'enterprise'. "
+            "Refusing to infer an edition from an invalid explicit value."
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class EditionInfo:
     """Immutable edition descriptor."""
@@ -57,6 +68,7 @@ def init_edition(loaded_extensions: list[str]) -> None:
     """
     global _info
 
+    env_val = _requested_edition()
     license_info: LicenseInfo | None = load_license()
     enforce = _is_truthy(os.environ.get("GEOLENS_LICENSE_ENFORCE"))
 
@@ -76,8 +88,6 @@ def init_edition(loaded_extensions: list[str]) -> None:
         return
 
     # No valid license from here on.
-    env_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
-
     if enforce:
         if env_val == "enterprise" or loaded_extensions:
             logger.warning(
@@ -173,7 +183,7 @@ def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
             build time (see ``ARG INSTALL_ENTERPRISE_OVERLAY`` in Dockerfile)
             rather than attempting a runtime ``uv add`` under a read-only rootfs.
     """
-    env_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
+    env_val = _requested_edition()
 
     if env_val != "enterprise":
         # Not explicitly requesting enterprise — OSS default or community explicit.

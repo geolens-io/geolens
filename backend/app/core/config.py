@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
     environment: Literal["development", "production"] | None = None
 
+    # Explicit edition request. None preserves extension auto-detection, while
+    # invalid values fail during Settings construction instead of silently
+    # falling back to community behavior.
+    geolens_edition: Literal["community", "enterprise"] | None = None
+
     # TSEAM-03 (Phase 1207-02): orthogonal tenancy MODE axis.
     # Edition stays binary (community|enterprise); mode controls the tenancy
     # posture of the deployment.
@@ -303,6 +308,14 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("geolens_edition", mode="before")
+    @classmethod
+    def normalize_geolens_edition(cls, v: str | None) -> str | None:
+        if not isinstance(v, str):
+            return v
+        value = v.strip().lower()
+        return value or None
 
     @field_validator("database_url_override", mode="after")
     @classmethod

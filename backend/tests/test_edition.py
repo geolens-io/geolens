@@ -48,6 +48,16 @@ class TestEditionDetection:
 
         assert get_edition().edition == "community"
 
+    def test_invalid_edition_env_fails_closed(self):
+        """A typo must not silently fall through to community/auto-detection."""
+        from app.core.edition import get_edition, init_edition
+
+        with patch.dict("os.environ", {"GEOLENS_EDITION": "enterpise"}):
+            with pytest.raises(RuntimeError, match="GEOLENS_EDITION"):
+                init_edition([])
+
+        assert get_edition().edition == "community"
+
     def test_edition_auto_detect_enterprise(self):
         """With no env var + non-empty extensions, edition=enterprise."""
         from app.core.edition import get_edition, init_edition

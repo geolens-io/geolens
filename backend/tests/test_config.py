@@ -348,6 +348,7 @@ class TestSettingsConstraints:
         ("field", "value"),
         [
             ("jwt_algorithm", "none"),
+            ("geolens_edition", "enterpise"),
             ("storage_provider", "typo"),
             ("database_ssl_mode", "typo"),
             ("s3_addressing_style", "typo"),
@@ -423,6 +424,14 @@ class TestEmptyStringToNone:
     def test_empty_database_url_override(self):
         s = _make_settings(database_url_override="")
         assert s.database_url_override is None
+
+    def test_empty_geolens_edition_uses_auto_detection(self):
+        s = _make_settings(geolens_edition="")
+        assert s.geolens_edition is None
+
+    def test_geolens_edition_is_normalized_case_insensitively(self):
+        s = _make_settings(geolens_edition=" Enterprise ")
+        assert s.geolens_edition == "enterprise"
 
     def test_nonempty_redis_url_preserved(self):
         s = _make_settings(redis_url="redis://localhost:6379/0")

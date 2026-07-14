@@ -76,6 +76,14 @@ class TestEnterpriseOverlayStartupCheck:
         with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
             check_enterprise_overlay_requested(loaded_extensions=[])
 
+    def test_invalid_explicit_edition_raises(self):
+        """A misspelled explicit edition must fail before overlay detection."""
+        from app.core.edition import check_enterprise_overlay_requested
+
+        with patch.dict("os.environ", {"GEOLENS_EDITION": "enterpise"}):
+            with pytest.raises(RuntimeError, match="GEOLENS_EDITION"):
+                check_enterprise_overlay_requested(loaded_extensions=[])
+
     def test_error_message_mentions_overlay_and_build_time_bake(self):
         """RuntimeError message must guide operators toward the build-time bake fix."""
         from app.core.edition import check_enterprise_overlay_requested
