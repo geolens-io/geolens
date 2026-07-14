@@ -7,12 +7,14 @@ Verifies the 0010_oauth_github_provider_type migration:
 
 Tests
 -----
-A: upgrade head → downgrade -1 → upgrade head all exit 0 (reversibility)
+A: upgrade head → downgrade explicitly below 0010 → upgrade head all exit 0
+   when no GitHub providers exist
 B: after upgrade head, a github-typed row inserts successfully into
    catalog.oauth_providers (constraint admits 'github')
 C: after upgrade head, a saml-typed row still satisfies the constraint;
-   after downgrade -1, a saml-typed row still satisfies it (saml not dropped)
+   after downgrade below 0010, a saml-typed row still satisfies it (saml not dropped)
 D: alembic heads reports a single head; alembic check reports no drift
+E: a live GitHub provider blocks downgrade atomically and remains unchanged
 
 Notes
 -----
@@ -163,9 +165,9 @@ async def _fresh_execute(query: str, params: dict | None = None) -> None:
 class TestMigrationRoundTripExitCodes:
     """0010_oauth_github_provider_type round-trips with no subprocess errors.
 
-    Downgrade recreates the constraint without 'github' (but keeps 'saml'),
-    so both downgrade and re-upgrade are real DDL operations — unlike the
-    NO-OP downgrade pattern in 0008/0009.
+    Downgrade recreates the constraint without 'github' (but keeps 'saml') when
+    the documented no-GitHub-provider precondition is satisfied, so both
+    downgrade and re-upgrade are real DDL operations.
 
     The ENTIRE round-trip (upgrade -> downgrade -> re-upgrade) runs in ONE test
     method with the re-upgrade in a finally. It MUST NOT be split into separate
@@ -190,9 +192,8 @@ class TestMigrationRoundTripExitCodes:
         )
 
         try:
-            # Delete any github-typed rows so downgrade's ADD CONSTRAINT does not
-            # fail with a CHECK violation (sibling provider-create tests use the
-            # same per-worker DB as the migration subprocess).
+            # Satisfy the migration's explicit precondition. Sibling provider-create
+            # tests use the same per-worker DB as the migration subprocess.
             async def _cleanup():
                 await _fresh_execute(
                     "DELETE FROM catalog.oauth_providers WHERE provider_type = 'github'"
@@ -200,9 +201,9 @@ class TestMigrationRoundTripExitCodes:
 
             asyncio.run(_cleanup())
 
-            r = _run_alembic("downgrade", "-1")
+            r = _run_alembic("downgrade", "0009_email_verification")
             assert r.returncode == 0, (
-                f"alembic downgrade -1 failed (rc={r.returncode}):\n"
+                f"alembic downgrade to 0009 failed (rc={r.returncode}):\n"
                 f"stdout: {r.stdout}\nstderr: {r.stderr}"
             )
         finally:
@@ -283,6 +284,86 @@ class TestGithubConstraintAfterUpgrade:
         assert "saml" in constraint_def, (
             f"'saml' missing from constraint definition after upgrade: {constraint_def}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test E: live GitHub providers block downgrade atomically
+# ---------------------------------------------------------------------------
+
+
+@_SKIP_UNDER_OVERLAY
+class TestGithubProviderDowngradeContract:
+    """A live GitHub provider is preserved by a blocked downgrade."""
+
+    async def test_live_provider_blocks_downgrade_atomically(self):
+        """Preflight fails before constraint DDL and preserves version and data."""
+        import uuid
+
+        r = _run_alembic("upgrade", "head")
+        assert r.returncode == 0, f"upgrade head failed: {r.stderr}"
+        r = _run_alembic("downgrade", "0010_oauth_github_provider_type")
+        assert r.returncode == 0, f"setup downgrade to 0010 failed: {r.stderr}"
+
+        slug = f"rollback-github-{uuid.uuid4().hex[:12]}"
+        try:
+            await _fresh_execute(
+                """
+                INSERT INTO catalog.oauth_providers
+                    (slug, display_name, provider_type, client_id,
+                     client_secret_encrypted, scopes, default_role, enabled)
+                VALUES
+                    (:slug, 'Rollback GitHub', 'github', 'rollback-client-id',
+                     'rollback-secret-encrypted', 'read:user user:email',
+                     'viewer', true)
+                """,
+                {"slug": slug},
+            )
+            versions_before = await _fresh_query(
+                "SELECT version_num FROM catalog.alembic_version ORDER BY version_num"
+            )
+            assert versions_before == [("0010_oauth_github_provider_type",)]
+
+            result = _run_alembic("downgrade", "0009_email_verification")
+            combined = result.stdout + result.stderr
+            assert result.returncode != 0, "live-provider downgrade unexpectedly passed"
+            assert "Cannot downgrade 0010_oauth_github_provider_type" in combined
+            assert "will not delete or coerce provider credentials" in combined
+
+            versions_after = await _fresh_query(
+                "SELECT version_num FROM catalog.alembic_version ORDER BY version_num"
+            )
+            assert versions_after == versions_before
+
+            providers = await _fresh_query(
+                """
+                SELECT provider_type, client_id, client_secret_encrypted
+                FROM catalog.oauth_providers
+                WHERE slug = :slug
+                """,
+                {"slug": slug},
+            )
+            assert [tuple(row) for row in providers] == [
+                ("github", "rollback-client-id", "rollback-secret-encrypted")
+            ]
+
+            rows = await _fresh_query(
+                """
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'chk_oauth_providers_type'
+                  AND conrelid = 'catalog.oauth_providers'::regclass
+                """
+            )
+            assert rows and "github" in rows[0][0]
+        finally:
+            restored = _run_alembic("upgrade", "head")
+            assert restored.returncode == 0, (
+                f"restore upgrade failed: {restored.stderr}"
+            )
+            await _fresh_execute(
+                "DELETE FROM catalog.oauth_providers WHERE slug = :slug",
+                {"slug": slug},
+            )
 
 
 # ---------------------------------------------------------------------------
