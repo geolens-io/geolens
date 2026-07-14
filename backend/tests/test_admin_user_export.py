@@ -38,6 +38,32 @@ async def test_export_csv_as_admin(
     lines = resp.text.splitlines()
     assert len(lines) >= 1, "CSV must have at least a header row"
     assert lines[0] == "email,display_name,auth_provider,status,created_at"
+    exported_rows = list(csv.DictReader(io.StringIO(resp.text)))
+
+    audit_resp = await client.get(
+        "/admin/audit-logs/",
+        params={"action": "user.export"},
+        headers=admin_auth_header,
+    )
+    assert audit_resp.status_code == 200
+    events = audit_resp.json()["logs"]
+    completed = next(
+        event for event in events if event["details"].get("outcome") == "completed"
+    )
+    operation_id = completed["details"]["operation_id"]
+    requested = next(
+        event
+        for event in events
+        if event["details"].get("operation_id") == operation_id
+        and event["details"].get("outcome") == "requested"
+    )
+    assert completed["resource_type"] == "user"
+    assert completed["resource_id"] == requested["resource_id"]
+    assert completed["details"]["format"] == "csv"
+    assert completed["details"]["mode"] == "stream"
+    assert completed["details"]["selected_rows"] == len(exported_rows)
+    assert "selected_rows" not in requested["details"]
+    assert completed["ip_address"] is not None
 
 
 @pytest.mark.anyio
@@ -168,3 +194,87 @@ async def test_export_csv_non_admin_403(
     """Non-admin (viewer) request to export.csv returns 403."""
     resp = await client.get(EXPORT_URL, headers=viewer_auth_header)
     assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_export_stream_failure_records_actual_emitted_rows_without_content(
+    monkeypatch,
+) -> None:
+    """A post-release stream failure records only safe correlated metadata."""
+    from types import SimpleNamespace
+
+    import app.core.db as db_module
+    import app.modules.admin.router as admin_router
+
+    secret_path = "/tmp/private/customer-secret.csv"
+    actor_id = uuid.uuid4()
+    request_events = []
+    outcome_events = []
+
+    class BrokenRows:
+        def __init__(self):
+            self.returned = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self.returned:
+                self.returned = True
+                return (
+                    SimpleNamespace(
+                        email="safe@example.com",
+                        username="safe-user",
+                        auth_provider="local",
+                        status="active",
+                        created_at=None,
+                    ),
+                )
+            raise RuntimeError(f"stream failed while reading {secret_path}")
+
+    class StreamSession:
+        async def stream(self, _stmt):
+            return BrokenRows()
+
+    class StreamSessionContext:
+        async def __aenter__(self):
+            return StreamSession()
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+    class RequestSession:
+        async def commit(self):
+            return None
+
+    async def record_request(_db, event):
+        request_events.append(event)
+
+    async def record_outcome(event):
+        outcome_events.append(event)
+
+    monkeypatch.setattr(db_module, "async_session", lambda: StreamSessionContext())
+    monkeypatch.setattr(admin_router, "audit_emit", record_request)
+    monkeypatch.setattr(admin_router, "audit_emit_durable", record_outcome)
+
+    response = await admin_router.export_users_csv(
+        SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")),
+        SimpleNamespace(id=actor_id),
+        RequestSession(),
+    )
+
+    with pytest.raises(RuntimeError, match="stream failed"):
+        async for _chunk in response.body_iterator:
+            pass
+
+    assert len(request_events) == 1
+    assert request_events[0].details["outcome"] == "requested"
+    assert len(outcome_events) == 1
+    failed = outcome_events[0]
+    assert failed.details["outcome"] == "failed"
+    assert failed.details["selected_rows"] == 1
+    assert failed.details["error_code"] == "stream_failed"
+    assert failed.resource_id == request_events[0].resource_id
+    assert failed.details["operation_id"] == request_events[0].details["operation_id"]
+    assert secret_path not in repr(failed.details)
+    assert "safe@example.com" not in repr(failed.details)

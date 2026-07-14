@@ -17,9 +17,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiKeySection } from './ApiKeySection';
 import { RoleSelect } from './RoleSelect';
+import { useAuthStore } from '@/stores/auth-store';
 
 interface UserEditDialogProps {
   user: UserResponse;
@@ -27,11 +34,18 @@ interface UserEditDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type AccountStatus = 'active' | 'pending' | 'suspended' | 'deactivated';
+
 export function UserEditDialog({ user, open, onOpenChange }: UserEditDialogProps) {
   const { t } = useTranslation('admin');
+  const currentUserId = useAuthStore((state) => state.user?.id);
+  const isSelf = currentUserId === user.id;
+  const canEditAuthority = !isSelf && user.status !== 'pending';
   const [email, setEmail] = useState(user.email ?? '');
   const [role, setRole] = useState(user.roles[0] ?? 'viewer');
-  const [isActive, setIsActive] = useState(user.is_active);
+  const [accountStatus, setAccountStatus] = useState<AccountStatus>(
+    user.status as AccountStatus,
+  );
 
   const updateUser = useUpdateUser();
 
@@ -39,10 +53,16 @@ export function UserEditDialog({ user, open, onOpenChange }: UserEditDialogProps
     e.preventDefault();
 
     // Only send changed fields
-    const data: { email?: string; role?: string; is_active?: boolean } = {};
+    const data: {
+      email?: string;
+      role?: string;
+      status?: 'active' | 'suspended' | 'deactivated';
+    } = {};
     if (email !== (user.email ?? '')) data.email = email;
-    if (role !== (user.roles[0] ?? 'viewer')) data.role = role;
-    if (isActive !== user.is_active) data.is_active = isActive;
+    if (canEditAuthority && role !== (user.roles[0] ?? 'viewer')) data.role = role;
+    if (canEditAuthority && accountStatus !== user.status && accountStatus !== 'pending') {
+      data.status = accountStatus;
+    }
 
     if (Object.keys(data).length === 0) {
       onOpenChange(false);
@@ -80,24 +100,40 @@ export function UserEditDialog({ user, open, onOpenChange }: UserEditDialogProps
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-role">{t('userEdit.labels.role')}</Label>
-            <RoleSelect id="edit-role" value={role} onChange={setRole} />
+            <Label htmlFor={canEditAuthority ? 'edit-role' : undefined}>{t('userEdit.labels.role')}</Label>
+            {!canEditAuthority ? (
+              <p className="text-sm text-muted-foreground">{user.roles.join(', ') || '\u2014'}</p>
+            ) : (
+              <RoleSelect id="edit-role" value={role} onChange={setRole} />
+            )}
           </div>
           <div className="space-y-2">
-            <Label>{t('userEdit.labels.status')}</Label>
-            <div>
-              <Badge variant="outline" className={userStatusColors[user.status] ?? 'bg-muted text-muted-foreground border-border'}>
-                {user.status === 'pending' ? t('users.status.pending') : t('users.status.active')}
-              </Badge>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="edit-active">{t('userEdit.labels.active')}</Label>
-            <Switch
-              id="edit-active"
-              checked={isActive}
-              onCheckedChange={setIsActive}
-            />
+            <Label htmlFor={canEditAuthority ? 'edit-status' : undefined}>
+              {t('userEdit.labels.status')}
+            </Label>
+            {!canEditAuthority ? (
+              <div>
+                <Badge variant="outline" className={userStatusColors[user.status]}>
+                  {t(`users.status.${user.status}`)}
+                </Badge>
+              </div>
+            ) : (
+              <Select
+                value={accountStatus}
+                onValueChange={(value) => setAccountStatus(
+                  value as Exclude<AccountStatus, 'pending'>,
+                )}
+              >
+                <SelectTrigger id="edit-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">{t('users.status.active')}</SelectItem>
+                  <SelectItem value="suspended">{t('users.status.suspended')}</SelectItem>
+                  <SelectItem value="deactivated">{t('users.status.deactivated')}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
           {updateUser.error && (
             <p className="text-sm text-destructive">

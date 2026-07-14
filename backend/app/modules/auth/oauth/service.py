@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer_group
 
 from app.core.edition import is_enterprise
 from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS
@@ -220,6 +221,70 @@ def _credential_destination_changed(
     return False
 
 
+def normalize_provider_create(data: OAuthProviderCreate) -> dict[str, object]:
+    """Return the validated values that ``create_provider`` will persist.
+
+    This is intentionally pure so config-import preflight can run the same
+    endpoint and edition checks as apply without staging an ORM object.  The
+    returned mapping contains write-only credentials when the caller supplied
+    them; callers must never serialize it into a response or audit payload.
+    """
+    normalized: dict[str, object] = data.model_dump()
+    is_saml = data.provider_type == "saml"
+    if is_saml and not is_enterprise():
+        raise OAuthProviderConfigurationError(SAML_PROVIDER_ERROR)
+
+    endpoint_values = _provider_endpoint_values(normalized)
+    for field in _OAUTH_ENDPOINT_FIELDS:
+        normalized[field] = endpoint_values[field]
+
+    if data.provider_type == "github" and data.scopes == "openid profile email":
+        normalized["scopes"] = GITHUB_DEFAULT_SCOPE
+
+    return normalized
+
+
+def normalize_provider_update(
+    provider: OAuthProvider,
+    data: OAuthProviderUpdate,
+) -> dict[str, object]:
+    """Return the validated values that ``update_provider`` will persist.
+
+    Validation depends on the current provider (not just the request schema):
+    existing SAML rows remain edition-gated and an OAuth credential destination
+    cannot move without an explicit secret rotation.  Keeping this logic pure
+    lets config dry-run and apply consume the exact same normalization contract.
+    """
+    update_data: dict[str, object] = data.model_dump(exclude_unset=True)
+    if not is_enterprise() and (
+        provider.provider_type == "saml"
+        or update_data.get("provider_type") == "saml"
+        or any(field in update_data for field in SAML_PROVIDER_FIELDS)
+    ):
+        raise OAuthProviderConfigurationError(SAML_PROVIDER_ERROR)
+
+    current_endpoints = _raw_provider_endpoint_values(provider)
+    updated_endpoints = _provider_endpoint_values(provider, update_data)
+    destination_changed = _credential_destination_changed(
+        current_endpoints, updated_endpoints
+    )
+    replacement_secret = update_data.get("client_secret")
+    if (
+        updated_endpoints["provider_type"] != "saml"
+        and destination_changed
+        and not replacement_secret
+    ):
+        raise OAuthCredentialDestinationError(
+            "client_secret must be provided when changing an OAuth credential destination origin"
+        )
+
+    # Persist the normalized/defaulted endpoint set used for the security
+    # comparison, including canonical public-GitHub defaults.
+    for field in _OAUTH_ENDPOINT_FIELDS:
+        update_data[field] = updated_endpoints[field]
+    return update_data
+
+
 async def validate_provider_server_endpoints(provider: OAuthProvider) -> None:
     """Resolve and validate every configured URL before OAuth credentials are used."""
     from app.modules.catalog.sources.security import validate_url_for_ssrf
@@ -298,17 +363,15 @@ async def create_provider(
     The Pydantic per-type validator on ``OAuthProviderCreate`` rejects mixed/
     incomplete configs at the schema layer, so we can trust the data shape here.
     """
-    is_saml = data.provider_type == "saml"
-    if is_saml and not is_enterprise():
-        raise ValueError(SAML_PROVIDER_ERROR)
-
-    endpoint_values = _provider_endpoint_values(data.model_dump())
+    normalized = normalize_provider_create(data)
+    is_saml = normalized["provider_type"] == "saml"
 
     # NOT-NULL placeholder strings for SAML rows (DB columns require non-null).
-    client_id_value = data.client_id if not is_saml else "saml-no-client-id"
+    client_id_value = normalized["client_id"] if not is_saml else "saml-no-client-id"
+    raw_client_secret = normalized.get("client_secret")
     client_secret_value = (
-        encrypt_secret(data.client_secret)
-        if data.client_secret
+        encrypt_secret(str(raw_client_secret))
+        if raw_client_secret
         else encrypt_secret("saml-no-client-secret")
     )
 
@@ -321,41 +384,31 @@ async def create_provider(
     # is None (i.e. the admin left it blank).  The scope is auto-defaulted to
     # GITHUB_DEFAULT_SCOPE only when the admin sent the schema default
     # ("openid profile email"), which is not useful for GitHub.
-    authorize_url = endpoint_values["authorize_url"]
-    token_url = endpoint_values["token_url"]
-    userinfo_url = endpoint_values["userinfo_url"]
-    scopes = data.scopes
-    if data.provider_type == "github":
-        # Replace the schema default ("openid profile email") with GitHub's
-        # native scope when the admin did not explicitly customise scopes.
-        # The schema default is a sentinel we can detect: if an admin supplied
-        # a custom scope string for GitHub (unusual but allowed), we honour it.
-        if scopes == "openid profile email":
-            scopes = GITHUB_DEFAULT_SCOPE
-
     provider = OAuthProvider(
-        slug=data.slug,
-        display_name=data.display_name,
-        provider_type=data.provider_type,
+        slug=normalized["slug"],
+        display_name=normalized["display_name"],
+        provider_type=normalized["provider_type"],
         client_id=client_id_value,
         client_secret_encrypted=client_secret_value,
-        discovery_url=endpoint_values["discovery_url"],
-        authorize_url=authorize_url,
-        token_url=token_url,
-        userinfo_url=userinfo_url,
+        discovery_url=normalized["discovery_url"],
+        authorize_url=normalized["authorize_url"],
+        token_url=normalized["token_url"],
+        userinfo_url=normalized["userinfo_url"],
         # SAML fields: idp_certificate is Fernet-encrypted (D-03 / Pattern D);
         # the other 3 are plaintext (entity IDs and a public URL — not credentials).
-        idp_entity_id=data.idp_entity_id,
-        idp_sso_url=data.idp_sso_url,
+        idp_entity_id=normalized["idp_entity_id"],
+        idp_sso_url=normalized["idp_sso_url"],
         idp_certificate=(
-            encrypt_secret(data.idp_certificate) if data.idp_certificate else None
+            encrypt_secret(str(normalized["idp_certificate"]))
+            if normalized["idp_certificate"]
+            else None
         ),
-        sp_entity_id=data.sp_entity_id,
-        scopes=scopes,
-        default_role=data.default_role,
-        group_claim=data.group_claim,
-        group_role_mapping=data.group_role_mapping,
-        enabled=data.enabled,
+        sp_entity_id=normalized["sp_entity_id"],
+        scopes=normalized["scopes"],
+        default_role=normalized["default_role"],
+        group_claim=normalized["group_claim"],
+        group_role_mapping=normalized["group_role_mapping"],
+        enabled=normalized["enabled"],
     )
     db.add(provider)
     await db.flush()
@@ -380,10 +433,15 @@ async def get_provider_by_id(
 
 
 async def list_providers(
-    db: AsyncSession, enabled_only: bool = False
+    db: AsyncSession,
+    enabled_only: bool = False,
+    *,
+    include_saml_fields: bool = False,
 ) -> list[OAuthProvider]:
-    """List all OAuth providers, optionally filtering to enabled only."""
+    """List OAuth providers, optionally loading the deferred SAML field group."""
     query = select(OAuthProvider).order_by(OAuthProvider.display_name)
+    if include_saml_fields:
+        query = query.options(undefer_group("saml"))
     if enabled_only:
         query = query.where(OAuthProvider.enabled.is_(True))
     result = await db.execute(query)
@@ -441,28 +499,7 @@ async def update_provider(
     )
     provider = locked_result.scalar_one()
 
-    update_data = data.model_dump(exclude_unset=True)
-    if not is_enterprise() and (
-        provider.provider_type == "saml"
-        or update_data.get("provider_type") == "saml"
-        or any(field in update_data for field in SAML_PROVIDER_FIELDS)
-    ):
-        raise ValueError(SAML_PROVIDER_ERROR)
-
-    current_endpoints = _raw_provider_endpoint_values(provider)
-    updated_endpoints = _provider_endpoint_values(provider, update_data)
-    destination_changed = _credential_destination_changed(
-        current_endpoints, updated_endpoints
-    )
-    replacement_secret = update_data.get("client_secret")
-    if (
-        updated_endpoints["provider_type"] != "saml"
-        and destination_changed
-        and not replacement_secret
-    ):
-        raise OAuthCredentialDestinationError(
-            "client_secret must be provided when changing an OAuth credential destination origin"
-        )
+    update_data = normalize_provider_update(provider, data)
 
     # Handle client_secret specially: encrypt before storing
     if "client_secret" in update_data:
@@ -478,10 +515,6 @@ async def update_provider(
 
     for field, value in update_data.items():
         setattr(provider, field, value)
-
-    # Store the normalized/defaulted values used for the security comparison.
-    for field in _OAUTH_ENDPOINT_FIELDS:
-        setattr(provider, field, updated_endpoints[field])
 
     await db.flush()
     await db.refresh(provider)

@@ -145,6 +145,35 @@ class TestGetEffectivePermissions:
         )
         assert resp.status_code == 200
 
+    @pytest.mark.anyio
+    async def test_legacy_stored_manage_tenants_is_scrubbed(
+        self, monkeypatch, test_db_session
+    ):
+        """Read-time defense blocks malicious rows saved before the validator."""
+        from unittest.mock import AsyncMock
+
+        from app.core.persistent_config import ROLE_PERMISSIONS
+        from app.modules.auth.permissions import get_effective_permissions
+
+        monkeypatch.setattr(
+            ROLE_PERMISSIONS,
+            "get",
+            AsyncMock(
+                return_value={
+                    "admin": {"manage_tenants": True},
+                    "legacy_fleet_role": {
+                        "manage_tenants": True,
+                        "upload": True,
+                    },
+                }
+            ),
+        )
+
+        result = await get_effective_permissions(test_db_session)
+        assert result["admin"]["manage_tenants"] is False
+        assert result["legacy_fleet_role"]["manage_tenants"] is False
+        assert result["legacy_fleet_role"]["upload"] is True
+
 
 class TestSettingsIntegration:
     """Admin can GET/PUT role_permissions via settings API."""
@@ -269,6 +298,75 @@ class TestSettingsIntegration:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.anyio
+    async def test_manage_tenants_cannot_be_stored_for_admin(
+        self, client, admin_auth_header
+    ):
+        """Tenant-editable settings cannot grant fleet control to any role."""
+        matrix = {
+            "admin": {
+                "manage_users": True,
+                "manage_settings": True,
+                "manage_tenants": True,
+            }
+        }
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"role_permissions": matrix}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "manage_tenants" in resp.json()["detail"]
+
+
+def test_matrix_validator_rejects_manage_tenants_for_every_stored_role():
+    """The central validator includes admin and custom roles in the fleet gate."""
+    from app.modules.auth.permissions import validate_permission_matrix
+
+    for role_name in ("admin", "viewer", "custom_operator"):
+        matrix = {
+            "admin": {"manage_users": True, "manage_settings": True},
+            role_name: {
+                "manage_users": role_name == "admin",
+                "manage_settings": role_name == "admin",
+                "manage_tenants": True,
+            },
+        }
+        with pytest.raises(ValueError, match="manage_tenants"):
+            validate_permission_matrix(matrix)
+
+
+def test_matrix_validator_rejects_non_object_admin_role_cleanly():
+    """Malformed direct callers receive a validation error, not AttributeError."""
+    from app.modules.auth.permissions import validate_permission_matrix
+
+    with pytest.raises(ValueError, match="admin.*object"):
+        validate_permission_matrix({"admin": "not-an-object"})
+
+
+@pytest.mark.anyio
+async def test_settings_rejects_coerced_false_admin_capabilities(
+    client, admin_auth_header
+):
+    """Canonical booleans, not raw JSON truthiness, drive lockout checks."""
+    response = await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "role_permissions": {
+                    "admin": {
+                        "manage_users": "false",
+                        "manage_settings": "false",
+                    }
+                }
+            }
+        },
+        headers=admin_auth_header,
+    )
+
+    assert response.status_code == 422
+    assert "lockout prevention" in response.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # Task 2: require_permission() factory and /auth/me/permissions endpoint
@@ -313,6 +411,86 @@ class TestRequirePermission:
         perms = resp.json()["permissions"]
         assert perms["export"] is True
         assert perms["upload"] is False
+
+    @pytest.mark.anyio
+    async def test_me_permissions_honors_overlay_denial(
+        self, client, admin_auth_header, monkeypatch
+    ):
+        """The UI permission snapshot cannot bypass a stricter overlay policy."""
+        import app.platform.extensions as ext_mod
+        from app.platform.extensions.defaults import DefaultPermissionExtension
+
+        seen: list[str] = []
+
+        class DenyUploadExtension(DefaultPermissionExtension):
+            async def check_permission(
+                self,
+                db,
+                user,
+                capability,
+                *,
+                user_roles,
+                permission_matrix=None,
+                resource=None,
+            ):
+                seen.append(capability)
+                if capability == "upload":
+                    return False
+                return await super().check_permission(
+                    db,
+                    user,
+                    capability,
+                    user_roles=user_roles,
+                    permission_matrix=permission_matrix,
+                    resource=resource,
+                )
+
+        monkeypatch.setitem(ext_mod._extensions, "permission", DenyUploadExtension())
+
+        response = await client.get("/auth/me/permissions/", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json()["permissions"]["upload"] is False
+        from app.modules.auth.permissions import ALL_CAPABILITIES
+
+        assert set(seen) == set(ALL_CAPABILITIES)
+
+    @pytest.mark.anyio
+    async def test_me_permissions_honors_overlay_grant(
+        self, client, admin_auth_header, monkeypatch
+    ):
+        """Out-of-band fleet grants are represented in the UI snapshot."""
+        import app.platform.extensions as ext_mod
+        from app.platform.extensions.defaults import DefaultPermissionExtension
+
+        class GrantTenantExtension(DefaultPermissionExtension):
+            async def check_permission(
+                self,
+                db,
+                user,
+                capability,
+                *,
+                user_roles,
+                permission_matrix=None,
+                resource=None,
+            ):
+                if capability == "manage_tenants":
+                    return True
+                return await super().check_permission(
+                    db,
+                    user,
+                    capability,
+                    user_roles=user_roles,
+                    permission_matrix=permission_matrix,
+                    resource=resource,
+                )
+
+        monkeypatch.setitem(ext_mod._extensions, "permission", GrantTenantExtension())
+
+        response = await client.get("/auth/me/permissions/", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json()["permissions"]["manage_tenants"] is True
 
     @pytest.mark.anyio
     async def test_permissions_update_reflected(

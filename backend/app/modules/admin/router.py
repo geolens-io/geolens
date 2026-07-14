@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import NoReturn
 
+import anyio
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
@@ -34,9 +35,13 @@ from app.modules.admin.schemas import (
     UserNameItem,
     UserUpdate,
 )
-from app.modules.admin.service import AdminService
+from app.modules.admin.service import (
+    AdminService,
+    PendingUserMutationError,
+    PendingUserTransitionConflict,
+)
 from app.modules.quota.service import get_user_quota_usage_bulk
-from app.modules.audit.service import AuditEvent, audit_emit
+from app.modules.audit.service import AuditEvent, audit_emit, audit_emit_durable
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.router import limiter  # HARDEN-01: shared rate-limiter instance
 from app.modules.auth.models import ApiKey, User
@@ -58,6 +63,7 @@ from app.standards.ogc.errors import (
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
+_EXPORT_OUTCOME_TIMEOUT_SECONDS = 5
 
 
 def _user_response(user: User) -> UserResponse:
@@ -80,6 +86,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
         id=key.id,
         user_id=key.user_id,
         name=key.name,
+        fingerprint=key.fingerprint,
         is_active=key.is_active,
         created_at=key.created_at,
         last_used_at=key.last_used_at,
@@ -224,11 +231,12 @@ async def list_users(
 @router.get(
     "/users/export.csv",
     response_class=StreamingResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
     summary="Export registered users as CSV",
     tags=["Admin"],
 )
 async def export_users_csv(
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Export all registered users as a hardened CSV file (admin only).
@@ -244,31 +252,100 @@ async def export_users_csv(
             return "\t" + val
         return val
 
-    async def csv_generator() -> AsyncGenerator[str, None]:
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(
-            ["email", "display_name", "auth_provider", "status", "created_at"]
-        )
-        yield buf.getvalue()
-        buf.seek(0)
-        buf.truncate(0)
+    operation_id = uuid.uuid4()
+    actor_id = current_user.id
+    ip_address = get_client_ip(request)
+    audit_context = {
+        "operation_id": str(operation_id),
+        "format": "csv",
+        "mode": "stream",
+        "filters": {},
+    }
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=actor_id,
+            action="user.export",
+            resource_type="user",
+            resource_id=operation_id,
+            details={**audit_context, "outcome": "requested"},
+            ip_address=ip_address,
+        ),
+    )
+    # The response body executes after this handler returns. Persist the request
+    # before releasing the stream, then use fresh sessions for stream outcome
+    # bookkeeping so the request-scoped session is never reused concurrently.
+    await db.commit()
 
-        stmt = select(User).order_by(User.created_at.asc())
-        result = await db.stream(stmt)
-        async for (user,) in result:
+    async def record_outcome(outcome: str, selected_rows: int) -> None:
+        details: dict[str, object] = {
+            **audit_context,
+            "outcome": outcome,
+            "selected_rows": selected_rows,
+        }
+        if outcome == "failed":
+            details["error_code"] = "stream_failed"
+        # AnyIO cancellation is level-triggered: after a client disconnect,
+        # an unshielded await is cancelled immediately and cannot persist the
+        # promised terminal event. Bound the shield so disconnect cleanup can
+        # never hold a response task indefinitely.
+        with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
+            try:
+                await audit_emit_durable(
+                    AuditEvent(
+                        user_id=actor_id,
+                        action="user.export",
+                        resource_type="user",
+                        resource_id=operation_id,
+                        details=details,
+                        ip_address=ip_address,
+                    )
+                )
+            except Exception:  # broad: response bytes may already have been sent
+                logger.exception(
+                    "Failed to persist user export stream outcome",
+                    operation_id=str(operation_id),
+                    outcome=outcome,
+                )
+
+    async def csv_generator() -> AsyncGenerator[str, None]:
+        row_count = 0
+        try:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
             writer.writerow(
-                [
-                    _safe(user.email or ""),
-                    _safe(user.username or ""),
-                    _safe(user.auth_provider or ""),
-                    _safe(user.status or ""),
-                    user.created_at.isoformat() if user.created_at else "",
-                ]
+                ["email", "display_name", "auth_provider", "status", "created_at"]
             )
             yield buf.getvalue()
             buf.seek(0)
             buf.truncate(0)
+
+            from app.core.db import async_session
+
+            async with async_session() as stream_db:
+                stmt = select(User).order_by(User.created_at.asc())
+                result = await stream_db.stream(stmt)
+                async for (user,) in result:
+                    writer.writerow(
+                        [
+                            _safe(user.email or ""),
+                            _safe(user.username or ""),
+                            _safe(user.auth_provider or ""),
+                            _safe(user.status or ""),
+                            user.created_at.isoformat() if user.created_at else "",
+                        ]
+                    )
+                    yield buf.getvalue()
+                    # Reaching this line means the preceding body chunk was
+                    # accepted by the ASGI send loop.
+                    row_count += 1
+                    buf.seek(0)
+                    buf.truncate(0)
+        except BaseException:  # record disconnects/cancellation as failed exports
+            await record_outcome("failed", row_count)
+            raise
+        else:
+            await record_outcome("completed", row_count)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d")
     filename = f"users-export-{ts}.csv"
@@ -340,14 +417,22 @@ async def update_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Update a user's fields and/or role (admin only)."""
-    if user_id == current_user.id and body.role is not None:
+    if user_id == current_user.id and (
+        body.role is not None
+        or body.is_active is False
+        or body.status in {"suspended", "deactivated"}
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Cannot change your own role",
+            detail="Cannot change your own role or disable your own account",
         )
     service = AdminService(db)
     try:
-        user = await service.update_user(user_id, body)
+        user, before, after = await service.update_user_with_snapshot(
+            user_id, body, current_user_id=current_user.id
+        )
+    except PendingUserMutationError as exc:
+        _raise_on_error(exc, status.HTTP_422_UNPROCESSABLE_ENTITY)
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_409_CONFLICT)
     ip = get_client_ip(request)
@@ -358,7 +443,7 @@ async def update_user(
             action="user.update",
             resource_type="user",
             resource_id=user_id,
-            details=body.model_dump(exclude_none=True),
+            details={"before": before, "after": after},
             ip_address=ip,
         ),
     )
@@ -387,6 +472,8 @@ async def deactivate_user(
     service = AdminService(db)
     try:
         user = await service.deactivate_user(user_id, current_user.id)
+    except PendingUserTransitionConflict as exc:
+        _raise_on_error(exc, status.HTTP_409_CONFLICT)
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
@@ -504,6 +591,8 @@ async def approve_user(
     service = AdminService(db)
     try:
         user = await service.approve_user(user_id, body.role)
+    except PendingUserTransitionConflict as exc:
+        _raise_on_error(exc, status.HTTP_409_CONFLICT)
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
@@ -543,6 +632,8 @@ async def reject_user(
     service = AdminService(db)
     try:
         await service.reject_user(user_id)
+    except PendingUserTransitionConflict as exc:
+        _raise_on_error(exc, status.HTTP_409_CONFLICT)
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
@@ -703,15 +794,21 @@ async def create_api_key(
             action="api_key.create",
             resource_type="api_key",
             resource_id=api_key.id,
-            details={"name": body.name, "target_user_id": str(body.user_id)},
+            details={
+                "name": body.name,
+                "fingerprint": api_key.fingerprint,
+                "target_user_id": str(body.user_id),
+            },
             ip_address=ip,
         ),
     )
     await db.commit()
 
+    assert api_key.fingerprint is not None  # New keys always receive a fingerprint.
     return ApiKeyCreateResponse(
         id=api_key.id,
         key=raw_key,
+        fingerprint=api_key.fingerprint,
         name=api_key.name,
         created_at=api_key.created_at,
     )
@@ -842,7 +939,7 @@ async def get_ai_status(
 async def update_ai_status(
     body: AIStatusUpdate,
     request: Request,
-    user: User = Depends(require_permission("manage_users")),
+    user: User = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
     """Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only)."""
@@ -853,7 +950,12 @@ async def update_ai_status(
         SEMANTIC_SEARCH_ENABLED,
     )
 
-    await AI_ENABLED.set(db, body.enabled, user_id=user.id)
+    await AI_ENABLED.set(
+        db,
+        body.enabled,
+        user_id=user.id,
+        ip_address=get_client_ip(request),
+    )
     provider = await LLM_PROVIDER.get(db)
     semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
     has_embeds = await has_embeddings(db)
@@ -910,6 +1012,27 @@ async def trigger_backfill(
     """
     from app.processing.embeddings.backfill import backfill_embeddings
 
+    operation_id = str(uuid.uuid4())
+    current_user_id = current_user.id
+    ip_address = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user_id,
+            action="embedding.backfill",
+            resource_type="record_embedding",
+            details={
+                "force": force,
+                "operation_id": operation_id,
+                "outcome": "requested",
+            },
+            ip_address=ip_address,
+        ),
+    )
+    # Force mode commits a destructive DELETE before provider work starts.
+    # Make the operator's request durable before that first mutation.
+    await db.commit()
+
     try:
         result = await backfill_embeddings(db, force=force)
     except Exception:  # broad: backfill spans embedding SDK + DB writes — diverse errors map to 502 without leaking traceback
@@ -918,13 +1041,50 @@ async def trigger_backfill(
         # return a generic 502.
         logger.exception(
             "Embedding backfill failed",
-            user_id=str(current_user.id),
+            user_id=str(current_user_id),
             force=force,
+            operation_id=operation_id,
         )
+        await db.rollback()
+        try:
+            await audit_emit_durable(
+                AuditEvent(
+                    user_id=current_user_id,
+                    action="embedding.backfill",
+                    resource_type="record_embedding",
+                    details={
+                        "force": force,
+                        "operation_id": operation_id,
+                        "outcome": "failed",
+                        "error_code": "backfill_failed",
+                    },
+                    ip_address=ip_address,
+                ),
+            )
+        except Exception:  # broad: preserve the generic operation failure response
+            logger.exception(
+                "Failed to persist embedding backfill failure audit",
+                user_id=str(current_user_id),
+                operation_id=operation_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Embedding backfill failed. See server logs for details.",
-        )
+        ) from None
+    await audit_emit_durable(
+        AuditEvent(
+            user_id=current_user_id,
+            action="embedding.backfill",
+            resource_type="record_embedding",
+            details={
+                "force": force,
+                "operation_id": operation_id,
+                "outcome": "completed",
+                **result,
+            },
+            ip_address=ip_address,
+        ),
+    )
     return BackfillResponse(**result)
 
 
@@ -956,7 +1116,11 @@ async def revoke_api_key(
             action="api_key.revoke",
             resource_type="api_key",
             resource_id=key_id,
-            details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
+            details={
+                "name": api_key.name,
+                "fingerprint": api_key.fingerprint,
+                "target_user_id": str(api_key.user_id),
+            },
             ip_address=ip,
         ),
     )

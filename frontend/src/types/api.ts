@@ -619,6 +619,7 @@ export interface ApiKeyResponse {
   id: string;
   user_id: string;
   name: string;
+  fingerprint: string | null;
   is_active: boolean;
   created_at: string;
   last_used_at: string | null;
@@ -627,6 +628,7 @@ export interface ApiKeyResponse {
 export interface ApiKeyCreateResponse {
   id: string;
   key: string;
+  fingerprint: string;
   name: string;
   created_at: string;
 }
@@ -634,6 +636,7 @@ export interface ApiKeyCreateResponse {
 export interface MyApiKeyResponse {
   id: string;
   name: string;
+  fingerprint: string | null;
   is_active: boolean;
   created_at: string;
   last_used_at: string | null;

@@ -192,18 +192,30 @@ async def test_require_permission_delegates_to_permission_extension():
 
     ext_mod._extensions["permission"] = DenyPermissionExtension()
     request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path="/uploads"),
+        scope={"route": SimpleNamespace(path="/uploads")},
         state=SimpleNamespace(
             _user_roles={"viewer"},
             _effective_permissions={"viewer": {"upload": True}},
-        )
+        ),
     )
     checker = require_permission("upload")
 
-    with pytest.raises(HTTPException) as exc:
-        await checker(request, SimpleNamespace(id=uuid4()), MagicMock())
+    with patch("app.modules.auth.dependencies.log") as denial_log:
+        with pytest.raises(HTTPException) as exc:
+            await checker(request, SimpleNamespace(id=uuid4()), MagicMock())
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "Missing permission: upload"
+    (event,) = denial_log.warning.call_args.args
+    fields = denial_log.warning.call_args.kwargs
+    assert event == "permission_denied"
+    assert fields["capability"] == "upload"
+    assert fields["user_roles"] == ["viewer"]
+    assert fields["method"] == "POST"
+    assert fields["path"] == "/uploads"
+    assert not ({"authorization", "api_key", "body", "query"} & fields.keys())
 
 
 def test_apply_visibility_filter_delegates_to_permission_extension():

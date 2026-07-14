@@ -18,20 +18,95 @@ import { FilterSelect } from './FilterSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 
 const PAGE_SIZE = 25;
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
-const ACTION_OPTIONS = [
-  { value: '', labelKey: 'audit.filters.allActions' },
-  { value: 'dataset.view', labelKey: 'audit.filters.datasetView' },
-  { value: 'dataset.export', labelKey: 'audit.filters.datasetExport' },
-  { value: 'metadata.edit', labelKey: 'audit.filters.metadataEdit' },
-  { value: 'dataset.create', labelKey: 'audit.filters.datasetCreate' },
-  { value: 'dataset.delete', labelKey: 'audit.filters.datasetDelete' },
-];
+// Canonical action strings currently emitted by audited application paths. Keep
+// the exact stored values visible so operators can correlate filters with API
+// responses and SIEM rules instead of relying on stale display-only aliases.
+const CURRENT_AUDIT_ACTIONS = [
+  'api_key.create',
+  'api_key.revoke',
+  'attribute.edit',
+  'attribute.reset',
+  'audit.export',
+  'collection.add_datasets',
+  'collection.create',
+  'collection.delete',
+  'collection.remove_dataset',
+  'collection.update',
+  'config_export',
+  'config_import',
+  'dataset.delete',
+  'dataset.download_cog',
+  'dataset.export',
+  'dataset.view',
+  'embed_token.bulk_revoke',
+  'embed_token.create',
+  'embed_token.revoke',
+  'embed_token.update',
+  'embedding.backfill',
+  'feature.delete',
+  'feature.insert',
+  'feature.replace',
+  'feature.update',
+  'job.cleanup_stale',
+  'job.retry',
+  'layer.add',
+  'layer.add_column',
+  'layer.alter_column_type',
+  'layer.bulk_remove',
+  'layer.drop_column',
+  'layer.remove',
+  'layer.rename_column',
+  'layer.reorder',
+  'map.admin_share_revoke',
+  'map.add_layer',
+  'map.bulk_remove_layers',
+  'map.create',
+  'map.delete',
+  'map.duplicate',
+  'map.import_style',
+  'map.patch_layers',
+  'map.remove_layer',
+  'map.revoke_share',
+  'map.share',
+  'map.update',
+  'map.update_share_token',
+  'metadata.edit',
+  'notification.test_sent',
+  'oauth.login.failure',
+  'oauth.login.init',
+  'oauth.login.success',
+  'oauth_provider.create',
+  'oauth_provider.delete',
+  'oauth_provider.update',
+  'preview_service_layer',
+  'probe_service',
+  'reset',
+  'reupload.commit',
+  'stac_connect',
+  'stac_import',
+  'update',
+  'user.approve',
+  'user.change_password',
+  'user.convert_saml_to_local',
+  'user.create',
+  'user.deactivate',
+  'user.delete',
+  'user.export',
+  'user.register',
+  'user.reject',
+  'user.update',
+  'user.verify_email',
+] as const;
 
 export function AuditLogViewer() {
   const { t } = useTranslation('admin');
   const { isEnterprise } = useEdition();
   const [action, setAction] = useState('');
+  const [userId, setUserId] = useState('');
+  const [resourceType, setResourceType] = useState('');
+  const [resourceId, setResourceId] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(0);
@@ -40,15 +115,35 @@ export function AuditLogViewer() {
   const toggleRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const skip = page * PAGE_SIZE;
+  const normalizedUserId = userId.trim();
+  const normalizedResourceId = resourceId.trim();
+  const userIdInvalid = normalizedUserId !== '' && !UUID_PATTERN.test(normalizedUserId);
+  const resourceIdInvalid = normalizedResourceId !== '' && !UUID_PATTERN.test(normalizedResourceId);
+  const filtersValid = !userIdInvalid && !resourceIdInvalid;
+  const userIdFilter = normalizedUserId || undefined;
+  const resourceIdFilter = normalizedResourceId || undefined;
 
-  const { data, isLoading, error, refetch } = useAuditLogs({
+  const {
+    data: queryData,
+    isLoading: queryIsLoading,
+    error: queryError,
+    refetch,
+  } = useAuditLogs({
+    user_id: userIdFilter,
     action: action || undefined,
+    resource_type: resourceType || undefined,
+    resource_id: resourceIdFilter,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
     search: searchQuery || undefined,
     skip,
     limit: PAGE_SIZE,
-  });
+  }, { enabled: filtersValid });
+  // keepPreviousData must not leave a broad prior result visible beside an
+  // invalid, visibly populated identity filter.
+  const data = filtersValid ? queryData : undefined;
+  const isLoading = filtersValid && queryIsLoading;
+  const error = filtersValid ? queryError : null;
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
   const visibleLogIds = data?.logs?.map((log) => log.id) ?? [];
@@ -64,6 +159,9 @@ export function AuditLogViewer() {
 
   function clearFilters() {
     setAction('');
+    setUserId('');
+    setResourceType('');
+    setResourceId('');
     setDateFrom('');
     setDateTo('');
     setPage(0);
@@ -116,8 +214,12 @@ export function AuditLogViewer() {
         <CardAction className="flex items-center gap-2">
           {isEnterprise && (
             <ExportSplitButton
+              disabled={!filtersValid}
               filters={{
+                user_id: userIdFilter,
                 action: action || undefined,
+                resource_type: resourceType || undefined,
+                resource_id: resourceIdFilter,
                 date_from: dateFrom || undefined,
                 date_to: dateTo || undefined,
                 search: searchQuery || undefined,
@@ -138,8 +240,61 @@ export function AuditLogViewer() {
             label={t('audit.filters.action')}
             value={action}
             onChange={(v) => { setAction(v); setPage(0); }}
-            options={ACTION_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+            options={[
+              { value: '', label: t('audit.filters.allActions') },
+              ...CURRENT_AUDIT_ACTIONS.map((value) => ({ value, label: value })),
+            ]}
           />
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t('audit.filters.userId')}
+            </label>
+            <Input
+              aria-label={t('audit.filters.userId')}
+              aria-invalid={userIdInvalid}
+              aria-describedby={userIdInvalid ? 'audit-user-id-error' : undefined}
+              value={userId}
+              onChange={(e) => { setUserId(e.target.value); setPage(0); }}
+              placeholder={t('audit.filters.uuidPlaceholder')}
+              className="h-8 w-52"
+            />
+            {userIdInvalid && (
+              <p id="audit-user-id-error" className="mt-1 text-xs text-destructive">
+                {t('audit.filters.invalidUuid')}
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t('audit.filters.resourceType')}
+            </label>
+            <Input
+              aria-label={t('audit.filters.resourceType')}
+              value={resourceType}
+              onChange={(e) => { setResourceType(e.target.value); setPage(0); }}
+              placeholder={t('audit.filters.resourceTypePlaceholder')}
+              className="h-8 w-40"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t('audit.filters.resourceId')}
+            </label>
+            <Input
+              aria-label={t('audit.filters.resourceId')}
+              aria-invalid={resourceIdInvalid}
+              aria-describedby={resourceIdInvalid ? 'audit-resource-id-error' : undefined}
+              value={resourceId}
+              onChange={(e) => { setResourceId(e.target.value); setPage(0); }}
+              placeholder={t('audit.filters.uuidPlaceholder')}
+              className="h-8 w-52"
+            />
+            {resourceIdInvalid && (
+              <p id="audit-resource-id-error" className="mt-1 text-xs text-destructive">
+                {t('audit.filters.invalidUuid')}
+              </p>
+            )}
+          </div>
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
               {t('audit.filters.from')}

@@ -54,6 +54,7 @@ function makeKey(overrides: Partial<MyApiKeyResponse> = {}): MyApiKeyResponse {
   return {
     id: 'key-1',
     name: 'test-key',
+    fingerprint: 'abcd1234…wxyz',
     is_active: true,
     created_at: '2026-01-01T00:00:00Z',
     last_used_at: null,
@@ -116,6 +117,17 @@ describe('GLUX-002 / GLUX-014: MyApiKeySection control semantics', () => {
     const revokedText = screen.getByText('admin:apiKeys.revoked');
     expect(revokedText).toBeInTheDocument();
     expect(revokedText).not.toHaveClass('sr-only');
+  });
+
+  it('renders the non-secret key fingerprint', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ fingerprint: 'abcd1234…wxyz' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('abcd1234…wxyz')).toBeVisible();
   });
 
   it('revoke button is queryable by its accessible name (GLUX-002)', () => {

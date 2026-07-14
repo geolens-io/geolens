@@ -47,6 +47,18 @@ describe('admin api request contracts', () => {
     expect(calledUrl()).toBe('/admin/users/');
   });
 
+  it('listAuditLogs forwards actor and resource filters', async () => {
+    await admin.listAuditLogs({
+      user_id: 'u1',
+      action: 'job.retry',
+      resource_type: 'ingest_job',
+      resource_id: 'j1',
+    });
+    expect(calledUrl()).toBe(
+      '/admin/audit-logs/?user_id=u1&action=job.retry&resource_type=ingest_job&resource_id=j1',
+    );
+  });
+
   it('createUser POSTs the user body to /admin/users/', async () => {
     await admin.createUser({ username: 'ann', password: 'pw', role: 'viewer' });
     expect(calledUrl()).toBe('/admin/users/');
@@ -117,7 +129,15 @@ describe('admin api request contracts', () => {
   });
 
   it('exportAuditLogs builds the format path + filter query on the raw fetch', async () => {
-    await admin.exportAuditLogs('csv', { action: 'login', search: 'ann' });
-    expect(mockRawFetch).toHaveBeenCalledWith(`${API_BASE}/admin/audit-logs/export/csv?action=login&search=ann`);
+    await admin.exportAuditLogs('csv', {
+      user_id: 'u1',
+      action: 'login',
+      resource_type: 'dataset',
+      resource_id: 'd1',
+      search: 'ann',
+    });
+    expect(mockRawFetch).toHaveBeenCalledWith(
+      `${API_BASE}/admin/audit-logs/export/csv?user_id=u1&action=login&resource_type=dataset&resource_id=d1&search=ann`,
+    );
   });
 });

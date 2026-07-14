@@ -8,6 +8,22 @@ import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 
+const permissionState = vi.hoisted(() => ({
+  manageUsers: false,
+  manageSettings: false,
+}));
+
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    can: (capability: string) =>
+      capability === 'manage_users'
+        ? permissionState.manageUsers
+        : capability === 'manage_settings' && permissionState.manageSettings,
+    permissions: {},
+    isLoading: false,
+  }),
+}));
+
 vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
 }));
@@ -37,6 +53,8 @@ function renderAppLayout(initialEntries: string[] = ['/']) {
 
 describe('AppLayout', () => {
   beforeEach(() => {
+    permissionState.manageUsers = false;
+    permissionState.manageSettings = false;
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
     mockedUseEdition.mockReturnValue({
       edition: 'community',
@@ -48,6 +66,29 @@ describe('AppLayout', () => {
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },
     } as ReturnType<typeof useBranding>);
+  });
+
+  it('shows the admin entry to settings-only operators', () => {
+    permissionState.manageSettings = true;
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: null,
+      expiresAt: Date.now() + 900_000,
+      user: {
+        id: 'settings-operator',
+        username: 'settings-operator',
+        email: 'settings@example.com',
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        roles: ['settings-operator'],
+      },
+    });
+
+    renderAppLayout();
+
+    expect(document.querySelector('a[href="/admin"]')).not.toBeNull();
   });
 
   it('renders footer with Powered by GeoLens in community mode', () => {

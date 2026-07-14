@@ -39,6 +39,7 @@ async def test_create_api_key(client: AsyncClient):
     assert "id" in data
     assert data["name"] == "Test Key"
     assert len(data["key"]) > 20  # token_urlsafe(32) produces ~43 chars
+    assert data["fingerprint"] == f"{data['key'][:8]}…{data['key'][-4:]}"
 
 
 @pytest.mark.anyio
@@ -152,14 +153,17 @@ async def test_list_api_keys(client: AsyncClient):
 
     # Create 2 keys for that user
     key_names = set()
+    expected_fingerprints: dict[str, str] = {}
     for i in range(2):
         name = f"list-test-key-{uuid.uuid4().hex[:6]}"
         key_names.add(name)
-        await client.post(
+        create_resp = await client.post(
             "/admin/api-keys/",
             json={"user_id": viewer_id, "name": name},
             headers=admin_headers,
         )
+        created = create_resp.json()
+        expected_fingerprints[name] = created["fingerprint"]
 
     # List keys filtered by user
     list_resp = await client.get(
@@ -176,6 +180,8 @@ async def test_list_api_keys(client: AsyncClient):
     returned_names = set()
     for item in items:
         assert "key" not in item  # raw key must NOT be returned
+        if item["name"] in expected_fingerprints:
+            assert item["fingerprint"] == expected_fingerprints[item["name"]]
         returned_names.add(item["name"])
 
     assert key_names.issubset(returned_names)
@@ -247,6 +253,12 @@ async def test_self_service_create_api_key(client: AsyncClient):
     assert "key" in data
     assert data["name"] == "Self-Service Key"
     assert len(data["key"]) > 20
+    assert data["fingerprint"] == f"{data['key'][:8]}…{data['key'][-4:]}"
+
+    list_resp = await client.get("/auth/api-keys/", headers=admin_headers)
+    listed = {item["id"]: item for item in list_resp.json()["items"]}
+    assert listed[data["id"]]["fingerprint"] == data["fingerprint"]
+    assert "key" not in listed[data["id"]]
 
 
 @pytest.mark.anyio

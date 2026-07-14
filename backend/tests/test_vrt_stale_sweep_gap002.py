@@ -103,6 +103,7 @@ def _make_mock_db_for_fail_stale(
     stale_vrt_assets: list | None = None,
     stale_vrt_generations: list | None = None,
     purge_candidates: list | None = None,
+    surviving_paths: list[str] | None = None,
 ) -> AsyncMock:
     """Build a mock AsyncSession for fail_stale_jobs.
 
@@ -113,8 +114,7 @@ def _make_mock_db_for_fail_stale(
       4. stale regenerating RasterAsset UPDATE → scalars() returns dataset ids
       5. purge DELETE .. RETURNING file_path (fix #434) → .all() returns
          (file_path,) one-tuples
-    (a survivors SELECT fires after 5 only when a deleted row had a non-null
-    file_path — keep mock candidates' file_path None)
+      6. optional surviving-path SELECT when a deleted row had a file_path
     """
     results = []
     for returned_ids in [
@@ -130,6 +130,11 @@ def _make_mock_db_for_fail_stale(
     delete_result = MagicMock()
     delete_result.all.return_value = purge_candidates or []
     results.append(delete_result)
+
+    if any(file_path for (file_path,) in (purge_candidates or [])):
+        survivors_result = MagicMock()
+        survivors_result.scalars.return_value = surviving_paths or []
+        results.append(survivors_result)
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=results)
@@ -244,6 +249,82 @@ async def test_fail_stale_jobs_returns_vrt_asset_count():
 
     # Result must be a tuple (the IngestJob counts are the base contract).
     assert isinstance(result, tuple)
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
+    tmp_path, monkeypatch
+):
+    """Admin callers receive VRT, retention, local, and object cleanup counts."""
+    from app.core.config import settings
+    from app.platform.jobs.router import StaleCleanupOutcome, fail_stale_jobs
+
+    stale_asset = _make_raster_asset(status="regenerating")
+    stale_gen = _make_vrt_generation(status="running")
+    local_file = tmp_path / "retained-upload.geojson"
+    local_file.write_text("{}")
+    storage_key = "staging/job-id/retained-upload.geojson"
+
+    mock_db = _make_mock_db_for_fail_stale(
+        stale_jobs_pending=[uuid4()],
+        stale_jobs_running=[uuid4()],
+        stale_vrt_assets=[stale_asset],
+        stale_vrt_generations=[stale_gen],
+        purge_candidates=[(str(local_file),), (storage_key,)],
+    )
+    storage = MagicMock()
+    storage.delete = AsyncMock()
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+
+    with patch("app.platform.storage.get_storage", return_value=storage):
+        result = await fail_stale_jobs(mock_db, detailed=True)
+
+    assert isinstance(result, StaleCleanupOutcome)
+    assert result.pending_failed == 1
+    assert result.running_failed == 1
+    assert result.vrt_assets_recovered == 1
+    assert result.vrt_generations_failed == 1
+    assert result.terminal_jobs_purged == 2
+    assert result.staged_paths_considered == 2
+    assert result.local_files_reaped == 1
+    assert result.storage_objects_reaped == 1
+    assert result.staged_paths_skipped == 0
+    assert result.staged_cleanup_failures == 0
+    assert result.total_cleaned == 2
+    assert result.total_affected == 8
+    assert not local_file.exists()
+    storage.delete.assert_awaited_once_with(storage_key)
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_commit_failure_keeps_external_artifacts(
+    tmp_path, monkeypatch
+):
+    """Retention files are not deleted for a database purge that rolls back."""
+    from app.core.config import settings
+    from app.platform.jobs.router import fail_stale_jobs
+
+    local_file = tmp_path / "retry-input.geojson"
+    local_file.write_text("{}")
+    storage_key = "staging/job-id/retry-input.geojson"
+    mock_db = _make_mock_db_for_fail_stale(
+        purge_candidates=[(str(local_file),), (storage_key,)],
+    )
+    mock_db.commit.side_effect = RuntimeError("commit failed")
+    storage = MagicMock()
+    storage.delete = AsyncMock()
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+
+    with (
+        patch("app.platform.storage.get_storage", return_value=storage),
+        pytest.raises(RuntimeError, match="commit failed"),
+    ):
+        await fail_stale_jobs(mock_db, detailed=True)
+
+    assert local_file.exists()
+    storage.delete.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
