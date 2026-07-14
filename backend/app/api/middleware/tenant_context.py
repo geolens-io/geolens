@@ -17,9 +17,12 @@ byte-identical guarantee (T-1207-08).
     against the core-owned ``catalog.tenants`` registry; a JWT claim that is
     already a UUID passes through) and stores it on
     ``request.state.tenant_id``, or ``None`` if unresolved.
-  - Rejects invalid/unbound bearer tokens, unresolved explicit tenant hosts,
-    and host/token tenant mismatches before a request reaches application code.
-    Requests carrying neither signal stay unscoped so tenant RLS fails closed.
+  - Rejects unresolved explicit tenant hosts and host/token tenant mismatches
+    before a request reaches application code. A bearer token that is not a
+    verified GeoLens JWT may proceed only after the Host has resolved a tenant;
+    the normal auth dependency then gives the registered identity extension a
+    chance to validate it. Requests carrying neither signal stay unscoped so
+    tenant RLS fails closed.
 
 Slug→UUID resolution happens here (not in the GUC layer): the Phase 1208 RLS
 GUC casts ``app.current_tenant::uuid`` and the per-tenant data-schema helpers
@@ -264,25 +267,29 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("authorization", "")
         bearer_present = auth_header.lower().startswith("bearer ")
         jwt_signal = _extract_jwt_tenant_claim(auth_header) if bearer_present else None
-        if bearer_present and jwt_signal is None:
+
+        host_tenant_id = (
+            await _resolve_tenant_uuid(host_signal) if host_signal is not None else None
+        )
+        if host_signal is not None and host_tenant_id is None:
+            return JSONResponse(
+                {"detail": "Tenant host could not be resolved"},
+                status_code=403,
+            )
+        # Alternate identity backends validate their opaque/externally signed
+        # bearer tokens in the normal auth dependency, after the Host-derived
+        # tenant context has scoped the DB session. Without a resolved tenant
+        # Host, only a locally verified JWT may establish the tenant boundary.
+        if bearer_present and jwt_signal is None and host_tenant_id is None:
             return JSONResponse(
                 {"detail": "Bearer token is invalid or not tenant-bound"},
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        host_tenant_id = (
-            await _resolve_tenant_uuid(host_signal) if host_signal is not None else None
-        )
         jwt_tenant_id = (
             await _resolve_tenant_uuid(jwt_signal) if jwt_signal is not None else None
         )
-
-        if host_signal is not None and host_tenant_id is None:
-            return JSONResponse(
-                {"detail": "Tenant host could not be resolved"},
-                status_code=403,
-            )
         if (
             host_tenant_id is not None
             and jwt_tenant_id is not None

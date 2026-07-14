@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import jwt
 import pytest
+from fastapi import Depends, FastAPI
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -115,6 +117,161 @@ def test_configured_tenant_suffix_resolves_slug(monkeypatch):
     assert seen == ["acme"]
     assert response.json()["tenant_id"] == tenant_id
     assert response.json()["tenant_public_origin"] == "http://acme.geolens.app:443"
+
+
+def test_resolved_tenant_host_allows_identity_extension_bearer(monkeypatch):
+    import app.api.middleware.tenant_context as tenant_context
+    import app.modules.auth.dependencies as auth_dependencies
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.dependencies import get_db
+
+    tenant_id = str(uuid.uuid4())
+    fake_db = object()
+    identity = SimpleNamespace(username="extension-user")
+    seen: list[tuple[str, str | None, str | None, object]] = []
+
+    class _IdentityExtension:
+        async def resolve_identity_from_token(self, token, request, db):
+            seen.append(
+                (
+                    token,
+                    current_tenant_var.get(),
+                    getattr(request.state, "tenant_id", None),
+                    db,
+                )
+            )
+            return identity
+
+    async def _get_fake_db():
+        yield fake_db
+
+    async def _resolve(signal):
+        return tenant_id if signal == "acme" else None
+
+    monkeypatch.setattr(tenant_context, "is_multi_tenant", lambda: True)
+    monkeypatch.setattr(tenant_context.settings, "tenant_base_domain", "geolens.app")
+    monkeypatch.setattr(tenant_context.settings, "tenant_trusted_hosts", "testserver")
+    monkeypatch.setattr(
+        auth_dependencies, "get_identity_extension", lambda: _IdentityExtension()
+    )
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = _get_fake_db
+
+    @app.get("/probe")
+    async def _probe(user=Depends(auth_dependencies.get_current_user)):
+        return {"username": user.username}
+
+    app.add_middleware(tenant_context.TenantContextMiddleware)
+    with patch.object(tenant_context, "_resolve_tenant_uuid", side_effect=_resolve):
+        response = TestClient(app).get(
+            "/probe",
+            headers={
+                "host": "acme.geolens.app",
+                "authorization": "Bearer externally-signed-session",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"username": "extension-user"}
+    assert seen == [
+        ("externally-signed-session", tenant_id, tenant_id, fake_db),
+    ]
+    assert current_tenant_var.get() is None
+
+
+def test_unscoped_service_host_rejects_nonlocal_bearer_before_extension(monkeypatch):
+    import app.api.middleware.tenant_context as tenant_context
+    import app.modules.auth.dependencies as auth_dependencies
+    from app.core.dependencies import get_db
+
+    extension_calls: list[str] = []
+    handler_calls: list[bool] = []
+
+    class _IdentityExtension:
+        async def resolve_identity_from_token(self, token, request, db):
+            extension_calls.append(token)
+            return SimpleNamespace(username="unexpected")
+
+    async def _get_fake_db():
+        yield object()
+
+    monkeypatch.setattr(tenant_context, "is_multi_tenant", lambda: True)
+    monkeypatch.setattr(tenant_context.settings, "tenant_base_domain", "geolens.app")
+    monkeypatch.setattr(tenant_context.settings, "tenant_trusted_hosts", "testserver")
+    monkeypatch.setattr(
+        auth_dependencies, "get_identity_extension", lambda: _IdentityExtension()
+    )
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = _get_fake_db
+
+    @app.get("/probe")
+    async def _probe(user=Depends(auth_dependencies.get_current_user)):
+        handler_calls.append(True)
+        return {"username": user.username}
+
+    app.add_middleware(tenant_context.TenantContextMiddleware)
+    response = TestClient(app).get(
+        "/probe",
+        headers={
+            "host": "api.geolens.app",
+            "authorization": "Bearer externally-signed-session",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Bearer token is invalid or not tenant-bound"
+    assert extension_calls == []
+    assert handler_calls == []
+
+
+def test_unrecognized_nonlocal_bearer_remains_unauthorized(monkeypatch):
+    import app.api.middleware.tenant_context as tenant_context
+    import app.modules.auth.dependencies as auth_dependencies
+    from app.core.dependencies import get_db
+
+    tenant_id = str(uuid.uuid4())
+    extension_calls: list[str] = []
+
+    class _IdentityExtension:
+        async def resolve_identity_from_token(self, token, request, db):
+            extension_calls.append(token)
+            return None
+
+    async def _get_fake_db():
+        yield object()
+
+    async def _resolve(signal):
+        return tenant_id if signal == "acme" else None
+
+    monkeypatch.setattr(tenant_context, "is_multi_tenant", lambda: True)
+    monkeypatch.setattr(tenant_context.settings, "tenant_base_domain", "geolens.app")
+    monkeypatch.setattr(tenant_context.settings, "tenant_trusted_hosts", "testserver")
+    monkeypatch.setattr(
+        auth_dependencies, "get_identity_extension", lambda: _IdentityExtension()
+    )
+
+    app = FastAPI()
+    app.dependency_overrides[get_db] = _get_fake_db
+
+    @app.get("/probe")
+    async def _probe(user=Depends(auth_dependencies.get_current_user)):
+        return {"username": user.username}
+
+    app.add_middleware(tenant_context.TenantContextMiddleware)
+    with patch.object(tenant_context, "_resolve_tenant_uuid", side_effect=_resolve):
+        response = TestClient(app).get(
+            "/probe",
+            headers={
+                "host": "acme.geolens.app",
+                "authorization": "Bearer unrecognized-session",
+            },
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Could not validate credentials"
+    assert extension_calls == ["unrecognized-session"]
 
 
 @pytest.mark.parametrize(
