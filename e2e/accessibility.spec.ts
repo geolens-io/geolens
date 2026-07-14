@@ -33,6 +33,17 @@ test.describe('Accessibility - WCAG 2AA', () => {
     datasetId = seeded.id;
     datasetTitle = seeded.title;
 
+    // Public maps may only reference public datasets; publish the fixture for anonymous viewing.
+    const publishDatasetResponse = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+      body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
+    });
+    expect(publishDatasetResponse.ok).toBe(true);
+
     collectionName = `A11y Collection Test ${Date.now()}`;
     const collectionResponse = await fetch(`${BASE_URL}/api/catalog/collections/`, {
       method: 'POST',
