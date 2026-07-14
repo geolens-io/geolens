@@ -34,6 +34,7 @@ export const jobStatusColors: Record<string, string> = {
 export const userStatusColors: Record<string, string> = {
   pending: semanticBadgeColors.warning,
   active: semanticBadgeColors.success,
+  suspended: semanticBadgeColors.warning,
   deactivated: 'border-border bg-muted text-muted-foreground',
 };
 

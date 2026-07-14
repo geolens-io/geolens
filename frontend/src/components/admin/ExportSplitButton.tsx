@@ -14,14 +14,18 @@ import { triggerDownload, datedFilename } from '@/lib/download';
 
 interface ExportSplitButtonProps {
   filters: {
+    user_id?: string;
     action?: string;
+    resource_type?: string;
+    resource_id?: string;
     date_from?: string;
     date_to?: string;
     search?: string;
   };
+  disabled?: boolean;
 }
 
-export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
+export function ExportSplitButton({ filters, disabled = false }: ExportSplitButtonProps) {
   const { t } = useTranslation('admin');
   const [isExporting, setIsExporting] = useState(false);
 
@@ -45,7 +49,7 @@ export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
         variant="default"
         size="sm"
         className="rounded-e-none"
-        disabled={isExporting}
+        disabled={disabled || isExporting}
         aria-busy={isExporting || undefined}
         onClick={() => handleExport('csv')}
       >
@@ -62,7 +66,7 @@ export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
             variant="outline"
             size="sm"
             className="rounded-s-none border-s border-l-border px-1.5"
-            disabled={isExporting}
+            disabled={disabled || isExporting}
             aria-label={t('audit.export.formatOptions')}
           >
             <ChevronDown className="h-3.5 w-3.5" />

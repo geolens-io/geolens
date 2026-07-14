@@ -370,7 +370,7 @@ class TestBug011EditionGatedImport:
         """
         from app.core.persistent_config import _registry
         from app.core.persistent_config import ENTERPRISE_ONLY_TABS
-        from app.platform.config_ops.service import import_config
+        from app.platform.config_ops.service import dry_run_import, import_config
 
         mock_db = AsyncMock(spec=AsyncSession)
         mock_result = MagicMock()
@@ -389,6 +389,7 @@ class TestBug011EditionGatedImport:
         # Import only an allowed key; every other registered key is a reset
         # candidate in overwrite mode.
         data = {"settings": {"ai_enabled": True}}
+        preview = await dry_run_import(mock_db, data, "overwrite")
 
         with patch(
             "app.core.persistent_config.PersistentConfig.set",
@@ -404,6 +405,7 @@ class TestBug011EditionGatedImport:
                     mode="overwrite",
                     user_id=uuid.uuid4(),
                     ip_address=None,
+                    preview_token=preview.preview_token,
                 )
 
         enterprise_keys = {c.key for c in _registry if c.tab in ENTERPRISE_ONLY_TABS}
@@ -469,6 +471,9 @@ class TestBug011EditionGatedImport:
         # Record the current stored value of the restricted key.
         from app.core.dependencies import get_db
 
+        exported = await client.get("/config-ops/export/", headers=admin_auth_header)
+        original_ai_enabled = exported.json()["settings"]["ai_enabled"]
+
         # Read via the public export endpoint is simplest, but branding is an
         # restricted tab and may be hidden in /settings/all. Instead, attempt
         # the import and confirm settings_skipped_restricted lists it.
@@ -477,7 +482,7 @@ class TestBug011EditionGatedImport:
             json={
                 "settings": {
                     "branding.show_badge": False,  # attempt to flip (default True)
-                    "ai_enabled": True,  # allowed key
+                    "ai_enabled": not original_ai_enabled,  # allowed, real change
                 }
             },
             headers=admin_auth_header,
@@ -501,4 +506,9 @@ class TestBug011EditionGatedImport:
             break
         assert stored == BRANDING_SHOW_BADGE.env_default, (
             "BUG-011: import must NOT change the restricted key's stored value"
+        )
+        await client.post(
+            "/config-ops/import/?mode=merge",
+            json={"settings": {"ai_enabled": original_ai_enabled}},
+            headers=admin_auth_header,
         )

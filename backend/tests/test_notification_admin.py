@@ -159,12 +159,16 @@ class TestNotificationTestSend:
         monkeypatch.setattr(settings, "smtp_host", None)
         monkeypatch.setattr(settings, "notification_webhook_url", None)
 
-        resp = await client.post(TEST_URL, headers=admin_auth_header)
+        with patch(
+            "app.modules.settings.router.audit_emit", new_callable=AsyncMock
+        ) as audit_emit:
+            resp = await client.post(TEST_URL, headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["sent"] is False
         assert data["channels"] == []
         assert "No notification channel" in data["message"]
+        audit_emit.assert_not_awaited()
 
     async def test_notifications_disabled_returns_sent_false(
         self,
@@ -178,11 +182,15 @@ class TestNotificationTestSend:
         monkeypatch.setattr(settings, "notifications_enabled", False)
         monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
 
-        resp = await client.post(TEST_URL, headers=admin_auth_header)
+        with patch(
+            "app.modules.settings.router.audit_emit", new_callable=AsyncMock
+        ) as audit_emit:
+            resp = await client.post(TEST_URL, headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["sent"] is False
         assert "disabled" in data["message"].lower()
+        audit_emit.assert_not_awaited()
 
     async def test_channel_success_returns_ok_true(
         self,
@@ -197,9 +205,14 @@ class TestNotificationTestSend:
         monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
         monkeypatch.setattr(settings, "notification_webhook_url", None)
 
-        with patch(
-            "app.modules.settings.router.send_email",
-            new=AsyncMock(return_value=None),
+        with (
+            patch(
+                "app.modules.settings.router.send_email",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.modules.settings.router.audit_emit", new_callable=AsyncMock
+            ) as audit_emit,
         ):
             resp = await client.post(TEST_URL, headers=admin_auth_header)
 
@@ -210,6 +223,9 @@ class TestNotificationTestSend:
         assert data["channels"][0]["channel"] == "smtp"
         assert data["channels"][0]["ok"] is True
         assert data["channels"][0]["error"] is None
+        event = audit_emit.await_args.args[1]
+        assert event.action == "notification.test_sent"
+        assert event.ip_address is not None
 
     async def test_channel_raises_returns_ok_false_safe_error(
         self,

@@ -565,6 +565,7 @@ from .user_quota_usage import UserQuotaUsage
 from .user_response import UserResponse
 from .user_response_status import UserResponseStatus
 from .user_update import UserUpdate
+from .user_update_status_type_0 import UserUpdateStatusType0
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .validation_issue import ValidationIssue
@@ -1049,6 +1050,7 @@ __all__ = (
     "UserResponse",
     "UserResponseStatus",
     "UserUpdate",
+    "UserUpdateStatusType0",
     "ValidationError",
     "ValidationErrorContext",
     "ValidationIssue",

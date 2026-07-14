@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Bot, ArrowRight } from 'lucide-react';
 import { useAIStatus, useEmbeddingStats } from '@/hooks/use-admin';
-import { useAuthStore } from '@/stores/auth-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
   Card,
@@ -14,19 +14,13 @@ import { Badge } from '@/components/ui/badge';
 
 export function AIStatusCard() {
   const { t } = useTranslation('admin');
-  // SF-06: gate the admin probe at the consumer. An admin endpoint must
-  // never fire from an unauthenticated or non-admin context — mirrors the
-  // consumer-side pattern in use-ai-availability.ts:7.
-  const token = useAuthStore((s) => s.token);
-  const isAdmin = useAuthStore((s) => s.isAdmin());
-  const { data: aiStatus, isLoading } = useAIStatus({ enabled: !!token && isAdmin });
-  // CR-03/WR-04 (Phase 1050-rev): gate the embedding-stats probe with the
-  // same `!!token && isAdmin` predicate as useAIStatus. SF-06 only gated
-  // useAIStatus consumer-side; useEmbeddingStats was firing unconditionally
-  // → 401 from any non-admin authed page AND during admin logout transition.
-  const { data: embeddingStats } = useEmbeddingStats({ enabled: !!token && isAdmin });
+  const { can } = usePermissions();
+  const canManageUsers = can('manage_users');
+  const canManageSettings = can('manage_settings');
+  const { data: aiStatus, isLoading } = useAIStatus({ enabled: canManageUsers });
+  const { data: embeddingStats } = useEmbeddingStats({ enabled: canManageUsers });
 
-  if (isLoading || !aiStatus) return null;
+  if (!canManageUsers || isLoading || !aiStatus) return null;
 
   return (
     <Card>
@@ -89,15 +83,17 @@ export function AIStatusCard() {
             )}
 
             {/* Link to settings */}
-            <div className="border-t pt-3">
-              <Link
-                to="/admin/settings/ai"
-                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-              >
-                {t('ai.manageSettings')}
-                <ArrowRight className="h-3.5 w-3.5 rtl-mirror" />
-              </Link>
-            </div>
+            {canManageSettings && (
+              <div className="border-t pt-3">
+                <Link
+                  to="/admin/settings/ai"
+                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  {t('ai.manageSettings')}
+                  <ArrowRight className="h-3.5 w-3.5 rtl-mirror" />
+                </Link>
+              </div>
+            )}
           </>
         )}
       </CardContent>

@@ -415,6 +415,7 @@
     "providersCreated": "{{count}} Anbieter erstellt",
     "providersUpdated": "{{count}} aktualisiert",
     "providersDeleted": "{{count}} gelöscht",
+    "accountsDeleted": "{{count}} verknüpfte OAuth-Konten gelöscht",
     "page": {
       "title": "Konfigurationsvorgänge",
       "description": "Exportieren und importieren Sie Ihre Instanzkonfiguration."
@@ -450,6 +451,7 @@
       "modeMerge": "Zusammenführen - Vorhandene aktualisieren, Neue hinzufügen",
       "modeOverwrite": "Überschreiben - Alles ersetzen",
       "overwriteWarning": "Dies ersetzt alle vorhandenen Einstellungen und OAuth-Anbieter.",
+      "overwritePreviewRequired": "Führen Sie vor dem Anwenden dieser Konfiguration eine neue Überschreibungsvorschau aus.",
       "preview": "Änderungen vorschauen",
       "apply": "Import anwenden",
       "settingsChanges": "Einstellungsänderungen",
@@ -460,9 +462,11 @@
       "oauthChanges": "OAuth-Anbieter-Änderungen",
       "slug": "Slug",
       "changedFields": "Geänderte Felder",
+      "linkedAccountsDeleted": "Gelöschte verknüpfte Konten",
+      "oauthAccountDeletionWarning": "Gelöschte verknüpfte OAuth-Konten: {{count}}. Betroffene Benutzer können ihren SSO-Zugang verlieren.",
       "noChanges": "Keine Änderungen erkannt.",
       "success": "Import abgeschlossen.",
-      "successDetail": "{{settingsApplied}} Einstellungen angewendet, {{settingsSkipped}} übersprungen. {{oauthCreated}} Anbieter erstellt, {{oauthUpdated}} aktualisiert, {{oauthDeleted}} gelöscht.",
+      "successDetail": "{{settingsApplied}} Einstellungen angewendet, {{settingsSkipped}} übersprungen. {{oauthCreated}} Anbieter erstellt, {{oauthUpdated}} aktualisiert, {{oauthDeleted}} gelöscht. {{oauthAccountsDeleted}} verknüpfte OAuth-Konten gelöscht.",
       "confirmTitle": "Die gesamte Konfiguration überschreiben?",
       "confirmDescription": "Dies ersetzt alle aktuellen Einstellungen und kann nicht rückgängig gemacht werden. Geben Sie {{keyword}} zur Bestätigung ein."
     }

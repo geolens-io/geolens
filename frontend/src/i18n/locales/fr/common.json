@@ -415,6 +415,7 @@
     "providersCreated": "{{count}} fournisseurs créés",
     "providersUpdated": "{{count}} mis à jour",
     "providersDeleted": "{{count}} supprimés",
+    "accountsDeleted": "{{count}} comptes OAuth liés supprimés",
     "page": {
       "title": "Opérations de configuration",
       "description": "Exportez et importez la configuration de votre instance."
@@ -450,6 +451,7 @@
       "modeMerge": "Fusionner - mettre à jour les existants, ajouter les nouveaux",
       "modeOverwrite": "Écraser - tout remplacer",
       "overwriteWarning": "Cela remplacera tous les paramètres et fournisseurs OAuth existants.",
+      "overwritePreviewRequired": "Lancez un nouvel aperçu d’écrasement avant d’appliquer cette configuration.",
       "preview": "Prévisualiser les changements",
       "apply": "Appliquer l'importation",
       "settingsChanges": "Changements de paramètres",
@@ -460,9 +462,11 @@
       "oauthChanges": "Changements de fournisseurs OAuth",
       "slug": "Slug",
       "changedFields": "Champs modifiés",
+      "linkedAccountsDeleted": "Comptes liés supprimés",
+      "oauthAccountDeletionWarning": "Suppressions de comptes OAuth liés : {{count}}. Les utilisateurs concernés peuvent perdre leur accès SSO.",
       "noChanges": "Aucun changement détecté.",
       "success": "Importation terminée.",
-      "successDetail": "{{settingsApplied}} paramètres appliqués, {{settingsSkipped}} ignorés. {{oauthCreated}} fournisseurs créés, {{oauthUpdated}} mis à jour, {{oauthDeleted}} supprimés.",
+      "successDetail": "{{settingsApplied}} paramètres appliqués, {{settingsSkipped}} ignorés. {{oauthCreated}} fournisseurs créés, {{oauthUpdated}} mis à jour, {{oauthDeleted}} supprimés. {{oauthAccountsDeleted}} comptes OAuth liés supprimés.",
       "confirmTitle": "Écraser toute la configuration ?",
       "confirmDescription": "Cela remplace tous les paramètres actuels et est irréversible. Saisissez {{keyword}} pour confirmer."
     }

@@ -141,6 +141,11 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
               <div className="flex-1 min-w-0 space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate">{key.name}</span>
+                  {key.fingerprint && (
+                    <code className="text-xs text-muted-foreground">
+                      {key.fingerprint}
+                    </code>
+                  )}
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${
                       activeDotColor[String(key.is_active) as keyof typeof activeDotColor]

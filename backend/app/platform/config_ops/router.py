@@ -3,14 +3,19 @@
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.platform.config_ops.exceptions import ConfigLockedError, ConfigValidationError
+from app.platform.config_ops.exceptions import (
+    ConfigLockedError,
+    ConfigPreviewError,
+    ConfigValidationError,
+)
 from app.platform.config_ops.schemas import (
     ConfigImportRequest,
     ConnectivityResult,
@@ -24,7 +29,6 @@ from app.platform.config_ops.service import (
     import_config,
     validate_connectivity,
 )
-from app.core.dependencies import get_db
 from app.processing.export.service import safe_content_disposition
 from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
 
@@ -46,6 +50,7 @@ router = APIRouter(
     },
 )
 async def export_configuration(
+    request: Request,
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -57,7 +62,26 @@ async def export_configuration(
     headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
     """
+    # Deferred by design: platform must not depend upward on product domains
+    # at module load time (D-17). The audit module owns persistence of its DTO.
+    from app.modules.audit.service import AuditEvent, audit_emit
+
     data = await export_config(db)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="config_export",
+            resource_type="config",
+            details={
+                "settings_count": len(data["settings"]),
+                "oauth_providers_count": len(data["oauth_providers"]),
+            },
+            ip_address=get_client_ip(request),
+        ),
+    )
+    # Do not release a sensitive export unless its audit record is durable.
+    await db.commit()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"geolens-config-{timestamp}.json"
@@ -72,6 +96,13 @@ async def import_configuration(
     data: ConfigImportRequest,
     request: Request,
     mode: ImportMode = Query("merge"),
+    preview_token: str | None = Header(
+        default=None,
+        alias="X-Config-Preview-Token",
+        description=(
+            "Signed token returned by the matching dry-run. Required for overwrite mode."
+        ),
+    ),
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> ImportResult:
@@ -80,14 +111,18 @@ async def import_configuration(
     Merge mode: updates existing settings and OAuth providers, adds new ones.
     Overwrite mode: replaces all settings and OAuth providers.
     """
-    ip_address = request.client.host if request.client else None
+    ip_address = get_client_ip(request)
     try:
         result = await import_config(
             db,
-            data.model_dump(),
+            {
+                "settings": data.settings,
+                "oauth_providers": data.oauth_providers,
+            },
             mode,
             user.id,
             ip_address,
+            preview_token=preview_token,
         )
     except ConfigLockedError:
         raise HTTPException(
@@ -97,6 +132,11 @@ async def import_configuration(
     except ConfigValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except ConfigPreviewError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
     except IntegrityError:
@@ -128,5 +168,23 @@ async def dry_run_configuration(
     db: AsyncSession = Depends(get_db),
 ) -> DryRunResponse:
     """Preview what an import would change without applying any modifications."""
-    result = await dry_run_import(db, data.model_dump(), mode)
+    try:
+        result = await dry_run_import(
+            db,
+            {
+                "settings": data.settings,
+                "oauth_providers": data.oauth_providers,
+            },
+            mode,
+        )
+    except ConfigLockedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Configuration locked to environment variables",
+        )
+    except ConfigValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
     return result

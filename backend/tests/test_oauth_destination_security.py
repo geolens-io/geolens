@@ -412,7 +412,7 @@ async def test_merge_import_applies_null_endpoint_clears(
         "merge",
     )
 
-    assert counts == (0, 1, 0)
+    assert counts == (0, 1, 0, 0)
     assert provider.display_name == "Destination Security"
     assert provider.discovery_url == discovery_url
     assert provider.authorize_url is None
@@ -482,7 +482,7 @@ async def test_merge_import_clears_discovery_for_explicit_mode(
         "merge",
     )
 
-    assert counts == (0, 1, 0)
+    assert counts == (0, 1, 0, 0)
     assert provider.discovery_url is None
     assert provider.authorize_url == "https://idp.example.com/authorize"
     assert provider.token_url == "https://idp.example.com/token"

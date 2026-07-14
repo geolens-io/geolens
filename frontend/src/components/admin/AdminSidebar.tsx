@@ -40,9 +40,11 @@ import {
 } from '@/hooks/use-admin';
 import { useEdition } from '@/hooks/use-edition';
 import { useEnterpriseOnlyTabs } from '@/hooks/use-settings';
+import { usePermissions } from '@/hooks/use-permissions';
+import type { Capability } from '@/lib/capabilities';
 
 const overviewItems = [
-  { labelKey: 'adminNav.overview', to: '/admin/overview', icon: LayoutDashboard },
+  { labelKey: 'adminNav.overview', to: '/admin/overview', icon: LayoutDashboard, capability: 'manage_users' },
 ] as const;
 
 type OperationItem = {
@@ -51,14 +53,15 @@ type OperationItem = {
   icon: LucideIcon;
   badgeKey?: 'users' | 'failed' | 'audit' | 'sharedMaps';
   enterpriseOnly?: boolean;
+  capability: Capability;
 };
 
 const operationsItems: readonly OperationItem[] = [
-  { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'users' },
-  { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase, badgeKey: 'failed' },
-  { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText, badgeKey: 'audit' },
-  { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2, badgeKey: 'sharedMaps' },
-  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true },
+  { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'users', capability: 'manage_users' },
+  { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase, badgeKey: 'failed', capability: 'manage_users' },
+  { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText, badgeKey: 'audit', capability: 'manage_settings' },
+  { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2, badgeKey: 'sharedMaps', capability: 'manage_users' },
+  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings' },
 ];
 
 // Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. Used as the
@@ -110,12 +113,17 @@ const settingsItemsBase: readonly SettingsNavBaseItem[] = [
 export function AdminSidebar() {
   const { pathname } = useLocation();
   const { t } = useTranslation();
-  const { data: userCount } = useUserCount();
-  const { data: failedJobCount } = useFailedJobCount();
-  const { data: auditLogCount } = useAuditLogCount();
-  const { data: publishedMapCount } = usePublishedMapCount();
+  const { can } = usePermissions();
+  const canManageUsers = can('manage_users');
+  const canManageSettings = can('manage_settings');
+  const { data: userCount } = useUserCount(canManageUsers);
+  const { data: failedJobCount } = useFailedJobCount(canManageUsers);
+  const { data: auditLogCount } = useAuditLogCount(canManageSettings);
+  const { data: publishedMapCount } = usePublishedMapCount(canManageUsers);
   const { isEnterprise } = useEdition();
-  const { data: enterpriseTabsData } = useEnterpriseOnlyTabs();
+  const { data: enterpriseTabsData } = useEnterpriseOnlyTabs({
+    enabled: canManageSettings,
+  });
 
   // Phase 279 ADMIN-03 (M-03): derive each Settings-tab's enterpriseOnly flag
   // from the server-driven list. Falls back to the local default when the
@@ -130,8 +138,13 @@ export function AdminSidebar() {
         : item.enterpriseOnly ?? false,
   }));
 
-  const visibleSettingsItems = settingsItems.filter(item => !item.enterpriseOnly || isEnterprise);
-  const visibleOperationsItems = operationsItems.filter(item => !item.enterpriseOnly || isEnterprise);
+  const visibleOverviewItems = overviewItems.filter(item => can(item.capability));
+  const visibleSettingsItems = canManageSettings
+    ? settingsItems.filter(item => !item.enterpriseOnly || isEnterprise)
+    : [];
+  const visibleOperationsItems = operationsItems.filter(
+    item => can(item.capability) && (!item.enterpriseOnly || isEnterprise),
+  );
 
   const badgeCounts: Record<string, number | undefined> = {
     users: userCount,
@@ -150,10 +163,10 @@ export function AdminSidebar() {
       </SidebarHeader>
       <SidebarContent>
         {/* Overview */}
-        <SidebarGroup>
+        {visibleOverviewItems.length > 0 && <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {overviewItems.map(({ labelKey, to, icon: Icon }) => (
+              {visibleOverviewItems.map(({ labelKey, to, icon: Icon }) => (
                 <SidebarMenuItem key={to}>
                   <SidebarMenuButton
                     asChild
@@ -169,10 +182,10 @@ export function AdminSidebar() {
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
+        </SidebarGroup>}
 
         {/* Operations */}
-        <SidebarGroup>
+        {visibleOperationsItems.length > 0 && <SidebarGroup>
           <SidebarGroupLabel className="eyebrow">{t('adminNav.operations')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -198,10 +211,10 @@ export function AdminSidebar() {
               })}
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
+        </SidebarGroup>}
 
         {/* Settings */}
-        <SidebarGroup>
+        {visibleSettingsItems.length > 0 && <SidebarGroup>
           <SidebarGroupLabel className="eyebrow">{t('adminNav.settings')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -221,7 +234,7 @@ export function AdminSidebar() {
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
+        </SidebarGroup>}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

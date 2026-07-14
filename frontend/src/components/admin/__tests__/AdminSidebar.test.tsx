@@ -5,12 +5,42 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { AdminSidebar } from '../AdminSidebar';
 
 const counts = vi.hoisted(() => ({ users: 0, failed: 0, audit: 0, published: 0 }));
+const permissionState = vi.hoisted(() => ({ manageUsers: true, manageSettings: true }));
+const countHookEnabled = vi.hoisted(() => ({
+  users: true,
+  failed: true,
+  audit: true,
+  published: true,
+}));
 
 vi.mock('@/hooks/use-admin', () => ({
-  useUserCount: () => ({ data: counts.users }),
-  useFailedJobCount: () => ({ data: counts.failed }),
-  useAuditLogCount: () => ({ data: counts.audit }),
-  usePublishedMapCount: () => ({ data: counts.published }),
+  useUserCount: (enabled: boolean) => {
+    countHookEnabled.users = enabled;
+    return { data: counts.users };
+  },
+  useFailedJobCount: (enabled: boolean) => {
+    countHookEnabled.failed = enabled;
+    return { data: counts.failed };
+  },
+  useAuditLogCount: (enabled: boolean) => {
+    countHookEnabled.audit = enabled;
+    return { data: counts.audit };
+  },
+  usePublishedMapCount: (enabled: boolean) => {
+    countHookEnabled.published = enabled;
+    return { data: counts.published };
+  },
+}));
+
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    can: (capability: string) =>
+      capability === 'manage_users'
+        ? permissionState.manageUsers
+        : capability === 'manage_settings' && permissionState.manageSettings,
+    isLoading: false,
+    permissions: {},
+  }),
 }));
 
 // Default: community edition. Individual tests can override per-call via
@@ -30,12 +60,12 @@ vi.mock('@/hooks/use-edition', () => ({
 // the canonical post-279 set so existing tests (which expect appearance to be
 // hidden in community) keep passing without changes. Per-test overrides via
 // `mockReturnValueOnce` exercise the loading / drift / extension scenarios.
-const useEnterpriseOnlyTabsMock = vi.fn<() => { data: { tabs: string[] } | undefined }>(() => ({
+const useEnterpriseOnlyTabsMock = vi.fn<(_options?: { enabled?: boolean }) => { data: { tabs: string[] } | undefined }>(() => ({
   data: { tabs: ['branding', 'appearance'] },
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnterpriseOnlyTabs: () => useEnterpriseOnlyTabsMock(),
+  useEnterpriseOnlyTabs: (options?: { enabled?: boolean }) => useEnterpriseOnlyTabsMock(options),
 }));
 
 // i18n returns the key by default in tests, so we match on i18n keys' last segment
@@ -74,6 +104,9 @@ beforeEach(() => {
   counts.failed = 0;
   counts.audit = 0;
   counts.published = 0;
+  permissionState.manageUsers = true;
+  permissionState.manageSettings = true;
+  useEnterpriseOnlyTabsMock.mockClear();
 });
 
 // SidebarProvider uses useIsMobile which calls window.matchMedia
@@ -158,6 +191,38 @@ describe('AdminSidebar', () => {
     renderSidebar();
     const link = screen.getByText('Back to App').closest('a');
     expect(link).toHaveAttribute('href', '/');
+  });
+
+  it('shows only user-management routes and disables settings queries for a user manager', () => {
+    permissionState.manageSettings = false;
+    renderSidebar();
+
+    expect(screen.getByText('Overview')).toBeInTheDocument();
+    expect(screen.getByText('Users')).toBeInTheDocument();
+    expect(screen.getByText('Jobs')).toBeInTheDocument();
+    expect(screen.getByText('Shared Maps')).toBeInTheDocument();
+    expect(screen.queryByText('Audit Log')).not.toBeInTheDocument();
+    expect(screen.queryByText('General')).not.toBeInTheDocument();
+    expect(countHookEnabled.audit).toBe(false);
+    expect(countHookEnabled.users).toBe(true);
+    expect(useEnterpriseOnlyTabsMock).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it('shows only settings routes and disables user-management queries for a settings manager', () => {
+    permissionState.manageUsers = false;
+    renderSidebar();
+
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument();
+    expect(screen.queryByText('Users')).not.toBeInTheDocument();
+    expect(screen.queryByText('Jobs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Shared Maps')).not.toBeInTheDocument();
+    expect(screen.getByText('Audit Log')).toBeInTheDocument();
+    expect(screen.getByText('General')).toBeInTheDocument();
+    expect(countHookEnabled.audit).toBe(true);
+    expect(countHookEnabled.users).toBe(false);
+    expect(countHookEnabled.failed).toBe(false);
+    expect(countHookEnabled.published).toBe(false);
+    expect(useEnterpriseOnlyTabsMock).toHaveBeenCalledWith({ enabled: true });
   });
 
   it('shows total count badges and caps large counts at 999+ (#347 (ADM-02))', () => {

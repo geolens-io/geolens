@@ -358,7 +358,13 @@ async def create_api_key_for_user(
     """
     raw_key = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    api_key = ApiKey(user_id=user_id, key_hash=key_hash, name=name)
+    fingerprint = f"{raw_key[:8]}…{raw_key[-4:]}"
+    api_key = ApiKey(
+        user_id=user_id,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        name=name,
+    )
     db.add(api_key)
     await db.flush()
     await db.refresh(api_key)

@@ -21,6 +21,7 @@ class AdminApiKeyListItem:
     """
     Attributes:
         created_at (datetime.datetime): Timestamp when the key was created.
+        fingerprint (None | str): Non-secret key identifier; null for legacy keys.
         id (UUID): Unique API key identifier.
         is_active (bool): Whether the key is active. Inactive keys cannot authenticate.
         last_used_at (datetime.datetime | None): Timestamp of the most recent successful authentication using this key.
@@ -29,6 +30,7 @@ class AdminApiKeyListItem:
     """
 
     created_at: datetime.datetime
+    fingerprint: None | str
     id: UUID
     is_active: bool
     last_used_at: datetime.datetime | None
@@ -38,6 +40,9 @@ class AdminApiKeyListItem:
 
     def to_dict(self) -> dict[str, Any]:
         created_at = self.created_at.isoformat()
+
+        fingerprint: None | str
+        fingerprint = self.fingerprint
 
         id = str(self.id)
 
@@ -58,6 +63,7 @@ class AdminApiKeyListItem:
         field_dict.update(
             {
                 "created_at": created_at,
+                "fingerprint": fingerprint,
                 "id": id,
                 "is_active": is_active,
                 "last_used_at": last_used_at,
@@ -72,6 +78,13 @@ class AdminApiKeyListItem:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         created_at = isoparse(d.pop("created_at"))
+
+        def _parse_fingerprint(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        fingerprint = _parse_fingerprint(d.pop("fingerprint"))
 
         id = UUID(d.pop("id"))
 
@@ -98,6 +111,7 @@ class AdminApiKeyListItem:
 
         admin_api_key_list_item = cls(
             created_at=created_at,
+            fingerprint=fingerprint,
             id=id,
             is_active=is_active,
             last_used_at=last_used_at,

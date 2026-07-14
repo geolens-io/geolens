@@ -21,6 +21,7 @@ class ApiKeyListItem:
     """
     Attributes:
         created_at (datetime.datetime):
+        fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
         id (UUID):
         is_active (bool):
         last_used_at (datetime.datetime | None):
@@ -28,6 +29,7 @@ class ApiKeyListItem:
     """
 
     created_at: datetime.datetime
+    fingerprint: None | str
     id: UUID
     is_active: bool
     last_used_at: datetime.datetime | None
@@ -36,6 +38,9 @@ class ApiKeyListItem:
 
     def to_dict(self) -> dict[str, Any]:
         created_at = self.created_at.isoformat()
+
+        fingerprint: None | str
+        fingerprint = self.fingerprint
 
         id = str(self.id)
 
@@ -54,6 +59,7 @@ class ApiKeyListItem:
         field_dict.update(
             {
                 "created_at": created_at,
+                "fingerprint": fingerprint,
                 "id": id,
                 "is_active": is_active,
                 "last_used_at": last_used_at,
@@ -67,6 +73,13 @@ class ApiKeyListItem:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         created_at = isoparse(d.pop("created_at"))
+
+        def _parse_fingerprint(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        fingerprint = _parse_fingerprint(d.pop("fingerprint"))
 
         id = UUID(d.pop("id"))
 
@@ -91,6 +104,7 @@ class ApiKeyListItem:
 
         api_key_list_item = cls(
             created_at=created_at,
+            fingerprint=fingerprint,
             id=id,
             is_active=is_active,
             last_used_at=last_used_at,
