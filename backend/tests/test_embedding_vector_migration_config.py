@@ -115,3 +115,19 @@ def test_migrate_service_receives_embedding_config(filename: str) -> None:
     environment = body["services"]["migrate"]["environment"]
     assert environment["EMBEDDING_DIMS"] == "${EMBEDDING_DIMS-}"
     assert environment["ENV_ONLY_CONFIG"] == "${ENV_ONLY_CONFIG:-false}"
+
+
+def test_vector_transition_is_bounded_and_concurrent() -> None:
+    source = _MIGRATION_PATH.read_text(encoding="utf-8")
+    assert "TRUNCATE catalog.record_embeddings" in source
+    assert "DELETE FROM catalog.record_embeddings" not in source
+    assert "autocommit_block()" in source
+    assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS" in source
+
+
+def test_concurrent_index_recovery_rejects_invalid_same_name_index() -> None:
+    source = _MIGRATION_PATH.read_text(encoding="utf-8")
+    validity_check = source.index("idx.indisvalid AND idx.indisready")
+    invalid_drop = source.index("DROP INDEX CONCURRENTLY IF EXISTS")
+    concurrent_create = source.index("CREATE INDEX CONCURRENTLY IF NOT EXISTS")
+    assert validity_check < invalid_drop < concurrent_create

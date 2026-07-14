@@ -13,21 +13,21 @@ This migration types the column in place, preferring (in order):
 1. An explicitly configured dimension: the ``embedding_dims``
    persistent-config override (skipped when ``ENV_ONLY_CONFIG`` is set,
    mirroring runtime resolution in persistent_config.py), then an
-   explicitly-set ``EMBEDDING_DIMS`` env value (detected via pydantic's
-   ``model_fields_set``, so a deliberate ``EMBEDDING_DIMS=1536`` counts
-   even though it equals the default). Explicit config beats stored
-   rows — stale cache rows from a superseded model must not pin the
-   column to the old dimension (the current model's inserts would fail
-   until a manual rebuild).
+   explicitly exported ``EMBEDDING_DIMS`` value. A deliberate
+   ``EMBEDDING_DIMS=1536`` counts even though it equals the fallback.
+   Explicit config beats stored rows — stale cache rows from a superseded
+   model must not pin the column to the old dimension (the current model's
+   inserts would fail until a manual rebuild).
 2. The dimension of vectors already stored, when they all agree. Stored
    rows beat only the BUILT-IN default: a local model emitting 768-dim
-   vectors with nothing configured anywhere must keep its rows.
-3. The Settings default (1536, text-embedding-3-small).
+   vectors with nothing configured anywhere still selects vector(768).
+3. The frozen migration default (1536, text-embedding-3-small).
 
-Rows whose dimension disagrees with the chosen value are deleted —
-embeddings are a regenerable cache (content-hash backfill restores them).
-Deployments whose column is already typed (the settings-UI path ran) are
-left untouched except for ensuring the index.
+When the untyped column must transition, all embedding rows are truncated before
+the type change. Embeddings are a regenerable cache (content-hash backfill restores
+them), and clearing them bounds the ACCESS EXCLUSIVE work independently of table
+size. Deployments whose column is already typed (the settings-UI path ran) are left
+untouched except for ensuring the index.
 
 Revision ID: 0012_type_embedding_vector
 Revises: 0011_allow_generic_geometry_type
@@ -37,6 +37,7 @@ Create Date: 2026-07-10
 import os
 from typing import Sequence, Union
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0012_type_embedding_vector"
@@ -46,6 +47,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 _TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_ENV_VALUES = frozenset({"0", "false", "no", "off"})
+
+_HNSW_INDEX_VALIDITY_SQL = sa.text(
+    """
+    SELECT idx.indisvalid AND idx.indisready
+    FROM pg_index AS idx
+    JOIN pg_class AS cls ON cls.oid = idx.indexrelid
+    JOIN pg_namespace AS ns ON ns.oid = cls.relnamespace
+    WHERE ns.nspname = 'catalog'
+      AND cls.relname = 'ix_record_embeddings_hnsw'
+    """
+)
 
 
 def _explicit_embedding_dims() -> int | None:
@@ -81,6 +93,26 @@ def _env_only_config_enabled() -> bool:
     )
 
 
+def _ensure_hnsw_index_concurrently() -> None:
+    """Create the ANN index without blocking writers, recovering failed builds."""
+    index_is_valid = (
+        op.get_bind().execute(_HNSW_INDEX_VALIDITY_SQL).scalar_one_or_none()
+    )
+    if index_is_valid is False:
+        # PostgreSQL leaves an invalid same-name index after a failed concurrent
+        # build. IF NOT EXISTS would silently accept it, so remove it first.
+        op.execute(
+            "DROP INDEX CONCURRENTLY IF EXISTS catalog.ix_record_embeddings_hnsw"
+        )
+    if index_is_valid is not True:
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_record_embeddings_hnsw "
+            "ON catalog.record_embeddings USING hnsw "
+            "(embedding vector_cosine_ops) "
+            "WITH (m = 16, ef_construction = 64)"
+        )
+
+
 def upgrade() -> None:
     # fix(#449, codex P2): honor the deployment's configured dimension, not a
     # hardcoded 1536, and let explicit config beat stale stored rows. Mirror
@@ -107,11 +139,6 @@ def upgrade() -> None:
             AND attname = 'embedding';
 
           IF cur_typmod = -1 THEN
-            -- Acquire the strongest lock up front: DELETE-then-ALTER would
-            -- otherwise escalate ROW EXCLUSIVE -> ACCESS EXCLUSIVE mid-flight,
-            -- a deadlock-prone pattern if anything is reading the table.
-            LOCK TABLE catalog.record_embeddings IN ACCESS EXCLUSIVE MODE;
-
             SELECT count(DISTINCT vector_dims(embedding)),
                    max(vector_dims(embedding))
               INTO distinct_dims, stored_dims
@@ -149,8 +176,13 @@ def upgrade() -> None:
               dims := 1536;
             END IF;
 
-            DELETE FROM catalog.record_embeddings
-            WHERE vector_dims(embedding) <> dims;
+            -- Embeddings are a regenerable cache. TRUNCATE acquires the same
+            -- ACCESS EXCLUSIVE lock the type change needs, but makes the locked
+            -- work constant-size rather than rewriting/deleting O(rows). The
+            -- index is built after this transaction commits, so the lock is
+            -- released before the potentially long HNSW scan.
+            TRUNCATE catalog.record_embeddings;
+            RAISE NOTICE 'Cleared cached record embeddings for vector(%) transition; run the embedding backfill after upgrade.', dims;
 
             EXECUTE format(
               'ALTER TABLE catalog.record_embeddings '
@@ -158,28 +190,37 @@ def upgrade() -> None:
               dims, dims
             );
           END IF;
-
-          -- Same DDL the baseline and rebuild_embedding_column intend.
-          -- fix(#449, codex P1): pgvector rejects HNSW on vector columns over
-          -- 2000 dims (3072-dim models are legal config, cap is 4096) — skip
-          -- the index rather than fail the upgrade; semantic search falls
-          -- back to exact scans. Re-probe: the ALTER above may have typed it.
-          SELECT atttypmod INTO cur_typmod
-          FROM pg_attribute
-          WHERE attrelid = 'catalog.record_embeddings'::regclass
-            AND attname = 'embedding';
-
-          IF cur_typmod BETWEEN 1 AND 2000 THEN
-            EXECUTE 'CREATE INDEX IF NOT EXISTS ix_record_embeddings_hnsw '
-                    'ON catalog.record_embeddings USING hnsw '
-                    '(embedding vector_cosine_ops) '
-                    'WITH (m = 16, ef_construction = 64)';
-          ELSE
-            RAISE NOTICE 'Skipping ix_record_embeddings_hnsw: % dims exceeds pgvector''s 2000-dim HNSW limit; semantic search stays on exact scans.', cur_typmod;
-          END IF;
         END $$;
         """
     )
+
+    current_dims = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding'"
+            )
+        )
+        .scalar_one()
+    )
+
+    # Entering the block commits the TRUNCATE/type transition and releases its
+    # ACCESS EXCLUSIVE lock. It also makes a partially completed migration
+    # resumable: a retry sees the typed column, then repairs/recreates the index.
+    with op.get_context().autocommit_block():
+        if 1 <= current_dims <= 2000:
+            _ensure_hnsw_index_concurrently()
+        else:
+            op.execute(
+                sa.text(
+                    "DO $$ BEGIN RAISE NOTICE "
+                    "'Skipping ix_record_embeddings_hnsw: dimensions exceed "
+                    "pgvector''s 2000-dim HNSW limit; semantic search stays on "
+                    "exact scans.'; END $$"
+                )
+            )
 
 
 def downgrade() -> None:

@@ -41,6 +41,19 @@ table that may be large in production (`records`, `record_embeddings`,
 `audit_logs`, `ingest_jobs`, per-dataset `data.*` tables). For small/transient
 tables a plain `CREATE INDEX` is fine.
 
+### Embedding cache after migration 0012
+
+Migration `0012_type_embedding_vector` deliberately truncates
+`catalog.record_embeddings` before fixing the vector dimension. Embeddings are
+derived cache data, and clearing them keeps the type-change lock short even on a
+large catalog. The migration then commits that transition and builds HNSW with
+`CREATE INDEX CONCURRENTLY`; a retry repairs an invalid interrupted index.
+
+After the API starts with its embedding provider configured, an administrator
+should call `POST /admin/backfill-embeddings/` (or use the corresponding admin
+control) to restore embedding coverage. Until that backfill or later record edits
+complete, semantic search has no cached vectors for pre-existing records.
+
 ## Large-table CHECK / FK constraints (NOT VALID + VALIDATE)
 
 A bare `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` takes `ACCESS EXCLUSIVE`
