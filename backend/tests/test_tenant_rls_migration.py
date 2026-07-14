@@ -7,7 +7,8 @@ B: after upgrade, all 6 policies exist in pg_policies with the correct qual +
    with_check; NEITHER contains IS NULL (no fail-open escape)
 C: after upgrade, relrowsecurity = false AND relforcerowsecurity = false on all
    6 tables (migration defines policies but does NOT enable RLS)
-D: downgrade drops all 6 policies; re-upgrade re-creates them (reversibility)
+D: downgrade disables/unforces runtime-activated RLS before dropping all 6
+   policies; re-upgrade re-creates the policies without re-enabling RLS
 E: alembic check — no drift after upgrade (policies are raw SQL, invisible to
    autogenerate, so check remains clean)
 F: apply_tenancy_rls — single_tenant: relforcerowsecurity stays false (no-op)
@@ -168,6 +169,29 @@ async def _get_rls_state() -> dict[str, dict[str, bool]]:
         row[0]: {"relrowsecurity": row[1], "relforcerowsecurity": row[2]}
         for row in rows
     }
+
+
+async def _enable_rls_on_all() -> None:
+    """Enable + force RLS on all 6 tables (runtime-state setup helper)."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import settings
+
+    engine = create_async_engine(
+        settings.test_database_url,
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with engine.connect() as conn:
+            for table in _SIX_TABLES:
+                await conn.execute(
+                    sa.text(f"ALTER TABLE catalog.{table} ENABLE ROW LEVEL SECURITY")
+                )
+                await conn.execute(
+                    sa.text(f"ALTER TABLE catalog.{table} FORCE ROW LEVEL SECURITY")
+                )
+    finally:
+        await engine.dispose()
 
 
 async def _disable_rls_on_all() -> None:
@@ -397,32 +421,46 @@ class TestPoliciesRoundTrip:
     """
 
     async def test_policies_absent_after_downgrade(self):
-        """After downgrade to 0005, all 6 policies are gone from pg_policies.
+        """Downgrade disables runtime RLS before removing all 6 policies.
 
         The policies are defined in 0006; downgrading to 0005 (explicitly, so
-        the target is head-independent) removes them.
+        the target is head-independent) removes them without leaving the tables
+        in a policy-free deny-all state.
         """
-        # Downgrade to 0005 explicitly (below the 0006 policy migration). Using an
-        # explicit target instead of relative -N steps keeps this head-robust: new
-        # head migrations (e.g. 0008_oauth_saml_columns) no longer shift the offset
-        # and silently stop above 0005, leaving the policies in place.
-        r1 = _run_alembic("downgrade", "0005_dormant_tenancy")
-        assert r1.returncode == 0, f"downgrade to 0005 failed: {r1.stderr}"
+        r0 = _run_alembic("upgrade", "head")
+        assert r0.returncode == 0, f"upgrade head failed: {r0.stderr}"
 
-        rows = await _fresh_query(
-            """
-            SELECT policyname FROM pg_policies
-            WHERE schemaname = 'catalog'
-              AND policyname = ANY(:names)
-            """,
-            {"names": _POLICY_NAMES},
-        )
-        found = {row[0] for row in rows}
-        assert not found, f"Policies still present after downgrade to 0005: {found}"
+        await _enable_rls_on_all()
+        try:
+            # Downgrade to 0005 explicitly (below the 0006 policy migration). Using
+            # an explicit target keeps this head-robust as new revisions are added.
+            r1 = _run_alembic("downgrade", "0005_dormant_tenancy")
+            assert r1.returncode == 0, f"downgrade to 0005 failed: {r1.stderr}"
 
-        # Restore head for subsequent tests.
-        r3 = _run_alembic("upgrade", "head")
-        assert r3.returncode == 0, f"re-upgrade failed: {r3.stderr}"
+            rows = await _fresh_query(
+                """
+                SELECT policyname FROM pg_policies
+                WHERE schemaname = 'catalog'
+                  AND policyname = ANY(:names)
+                """,
+                {"names": _POLICY_NAMES},
+            )
+            found = {row[0] for row in rows}
+            assert not found, f"Policies still present after downgrade to 0005: {found}"
+
+            state = await _get_rls_state()
+            assert len(state) == 6, f"Expected 6 tables, got: {list(state)}"
+            for table, flags in state.items():
+                assert flags["relrowsecurity"] is False, (
+                    f"RLS remains enabled without a policy on {table}"
+                )
+                assert flags["relforcerowsecurity"] is False, (
+                    f"RLS remains forced without a policy on {table}"
+                )
+        finally:
+            await _disable_rls_on_all()
+            restored = _run_alembic("upgrade", "head")
+            assert restored.returncode == 0, f"re-upgrade failed: {restored.stderr}"
 
     async def test_policies_present_after_reupgrade(self):
         """After re-upgrade, all 6 policies exist again."""
