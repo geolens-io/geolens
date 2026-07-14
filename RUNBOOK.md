@@ -120,7 +120,7 @@ PostgreSQL roles are cluster objects and are not included in a database-only
 `pg_dump`. A same-cluster restore normally retains them. When restoring a
 multi-tenant dump into a brand-new cluster, restore without ACL entries (the old
 tenant role names do not exist yet), then rebuild the guarded topology with the
-0017 migration before starting API, worker, or tile traffic:
+0019 migration before starting API, worker, or tile traffic:
 
 ```bash
 # Use the privileged migrator DATABASE_URL_OVERRIDE for all three commands.
@@ -131,7 +131,7 @@ uv run alembic upgrade head
 uv run python scripts/prepare-tenant-rls.py
 ```
 
-The 0017 re-upgrade recreates the fixed provisioner/control/writer/sandbox/tile
+The 0019 re-upgrade recreates the fixed provisioner/control/writer/sandbox/tile
 roles, recreates each tenant reader/writer role, and transfers restored tenant
 tables and sequences to the matching writer. Reapply the runtime login grants
 from `.env.example` afterward; those login credentials are deliberately not

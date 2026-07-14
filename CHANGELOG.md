@@ -11,6 +11,32 @@ and releases use semantic versioning.
 
 - **Database SSL modes now fail closed.** Undocumented `allow` and `verify-ca`
   values no longer boot; use `prefer` or `verify-full` before upgrading.
+- **Back up before applying migrations `0018` through `0024`.** The standard
+  `scripts/upgrade.sh` flow takes this backup automatically. The migrations add
+  tenant identifiers, database roles, row security policies, and tenant data
+  schema support. Default single-tenant deployments keep their current behavior
+  and do not need an extension or commercial license.
+- **Run these migrations with a database role that can create roles.** Managed
+  PostgreSQL users may need a separate migration credential with `CREATEROLE`.
+  Keep the API and worker on their existing least-privilege runtime credential.
+  On a busy database, lock-sensitive steps stop after five seconds instead of
+  waiting behind application traffic. Retry the migration during a quieter
+  window if that happens.
+
+### Added
+
+- Community administrators can download up to 100,000 audit events as CSV or
+  JSON. Share links can expire after 1, 7, 30, or 90 days, and non-expiring
+  links remain available.
+
+### Changed
+
+- Optional distributions now connect to GeoLens through typed extension
+  interfaces. Community images contain only the Apache-2.0 application, and
+  the default single-tenant configuration does not load an extension.
+- An installed version covered by a valid commercial license keeps working
+  after its maintenance date. The date controls access to updates and support;
+  it does not shut down the installation.
 
 ## [1.4.6] - 2026-07-12
 

@@ -759,7 +759,7 @@ def _adopt_and_backfill_existing_tenants() -> None:
                     );
                 END IF;
 
-                -- The pre-0017 runtime helper created readers with the default
+                -- The pre-0019 runtime helper created readers with the default
                 -- INHERIT flag, an automatic creator membership, and an ALTER
                 -- DEFAULT PRIVILEGES entry. Normalize that known legacy shape
                 -- before the strict provision function validates the role.
@@ -1013,7 +1013,7 @@ def downgrade() -> None:
         BEGIN
             -- A dump restored into a fresh cluster contains database objects,
             -- but not cluster roles. Keep downgrade usable there so operators
-            -- can run 0016 -> 0017 to reconstruct the guarded role topology.
+            -- can run 0018 -> 0019 to reconstruct the guarded role topology.
             IF EXISTS (
                 SELECT 1 FROM pg_catalog.pg_roles
                 WHERE rolname = '{_PROVISIONER}'
