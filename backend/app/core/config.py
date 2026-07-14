@@ -515,8 +515,10 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         if self.database_url_override:
-            url = str(self.database_url_override)
-            if url.startswith("postgresql://"):
+            url = self.database_url_override
+            if url.startswith("postgresql+psycopg://"):
+                url = url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+            elif url.startswith("postgresql://"):
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
@@ -556,7 +558,7 @@ class Settings(BaseSettings):
         SSL via connect_args["ssl"] and would conflict with a URL-borne flag.
         """
         if self.database_url_override:
-            url = str(self.database_url_override)
+            url = self.database_url_override
             if url.startswith("postgresql+asyncpg://"):
                 url = url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
             elif url.startswith("postgresql://"):
@@ -588,7 +590,7 @@ class Settings(BaseSettings):
         if self.database_url_override:
             from urllib.parse import parse_qs, urlparse
 
-            raw = str(self.database_url_override)
+            raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
                 if raw.startswith(prefix):
                     raw = raw.replace(prefix, "postgresql://", 1)
@@ -640,7 +642,7 @@ class Settings(BaseSettings):
         if self.database_url_override:
             from urllib.parse import parse_qs, urlparse
 
-            raw = str(self.database_url_override)
+            raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
                 if raw.startswith(prefix):
                     raw = raw.replace(prefix, "postgresql://", 1)

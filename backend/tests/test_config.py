@@ -52,6 +52,12 @@ class TestDatabaseUrlOverride:
         s = _make_settings(database_url_override="postgres://u:p@host:5432/db")
         assert s.database_url.startswith("postgresql+asyncpg://")
 
+    def test_override_normalizes_psycopg_scheme_for_async_engine(self):
+        s = _make_settings(
+            database_url_override="postgresql+psycopg://u:p@host:5432/db"
+        )
+        assert s.database_url.startswith("postgresql+asyncpg://")
+
     def test_override_preserves_non_ssl_query_params(self):
         s = _make_settings(
             database_url_override="postgresql://u:p@host/db?application_name=geolens&sslmode=require"
