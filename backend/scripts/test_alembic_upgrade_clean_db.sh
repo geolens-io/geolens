@@ -266,7 +266,7 @@ TENANT_WRITER="geolens_writer_t_${TENANT_SUFFIX}"
 # table and sequence are owned by the old shared database login. The 0017
 # upgrade must adopt both objects into the per-tenant writer role.
 alembic_rc=0
-uv run --no-dev alembic upgrade 0016 || alembic_rc=$?
+uv run --no-dev alembic upgrade 0016_tenant_insert_stamping || alembic_rc=$?
 if [ "${alembic_rc}" -eq 0 ]; then
   docker exec "${CONTAINER_NAME}" psql -v ON_ERROR_STOP=1 \
     -U "${PG_USER}" -d "${PG_DB}" -c \
@@ -319,7 +319,7 @@ fi
 # A real downgrade/re-upgrade must therefore validate and accept those safe
 # members rather than treating them as reserved-name collisions.
 echo "==> Running 0017 downgrade -> re-upgrade with deployed memberships..."
-uv run --no-dev alembic downgrade 0016
+uv run --no-dev alembic downgrade 0016_tenant_insert_stamping
 uv run --no-dev alembic upgrade head
 
 # -----------------------------------------------------------------------

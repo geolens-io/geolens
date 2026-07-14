@@ -71,30 +71,11 @@ async def shared_map_card_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    """Crawler-facing HTML route that emits per-map OG/Twitter social-card meta.
+    """Return crawler HTML for a public shared map.
 
-    Returns a minimal ``<!doctype html>`` document containing server-rendered
-    ``<meta>`` tags for ``og:title``, ``og:description``, ``og:image``,
-    ``og:type``, ``twitter:card``, ``twitter:title``, ``twitter:description``,
-    ``twitter:image``, and a ``<meta http-equiv="refresh">`` redirect to the
-    real SPA viewer at ``/m/{token}``.
-
-    Access control (T-1142-02):
-    - Invalid or revoked/expired token → 404 (no title/description leak)
-    - Non-public map → 404 (no title/description leak)
-
-    Security (T-1142-01):
-    - All user-controlled text (map name, description) is HTML-escaped via
-      ``html.escape()`` before interpolation into the meta content attribute.
-
-    Image URL priority:
-    1. ``og_image_uri`` → ``/api/maps/{id}/og-image/`` (absolute)
-    2. ``thumbnail_uri`` → ``/api/maps/{id}/thumbnail/`` (absolute)
-    3. ``/og-image.png`` (site-level static fallback, absolute)
-
-    ``include_in_schema=False``: this is a crawler-only HTML surface, not part
-    of the JSON API contract. No OpenAPI/SDK refresh needed for this route.
-    (Phase 1143 OpenAPI refresh is for the og-image PUT/GET and MapResponse.)
+    Invalid, expired, revoked, and non-public links return 404 before map details
+    are rendered. User-controlled text is escaped before it enters social-card
+    metadata. This crawler-only route is excluded from OpenAPI.
     """
     token_obj = await _validate_share_token(db, token)
     if token_obj is None or isinstance(token_obj, str):

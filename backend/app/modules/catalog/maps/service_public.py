@@ -3,23 +3,21 @@
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.edition import is_enterprise
 from app.core.identity import Identity
-from app.modules.auth.models import User
 from app.core.text import escape_ilike
+from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.catalog.maps.sharing_policy import (
-    SHARE_EXPIRATION_PRESET_DAYS,
-    SHARE_EXPIRATION_SELECTION_ERROR,
     ShareExpirationPresetDays,
+    resolve_share_expiration as _resolve_share_expiration,
 )
 from app.modules.catalog.maps.service_crud import get_map
 from app.modules.catalog.maps.service_shared import (
@@ -27,7 +25,6 @@ from app.modules.catalog.maps.service_shared import (
     _extract_dem_vertical_units,
 )
 from app.modules.embed_tokens.models import EmbedToken
-from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.platform.extensions import get_catalog_port
 
@@ -90,37 +87,6 @@ async def find_public_maps_using_dataset(
     )
     result = await session.execute(stmt)
     return [row[0] for row in result.all()]
-
-
-def _reject_custom_expiration_in_community(expires_at: datetime | None) -> None:
-    """Enforce the advanced-sharing edition boundary at the service entry points.
-
-    fix(#435): only the two route handlers called `is_enterprise()` before invoking
-    these services, so a bulk-import path, overlay, or test helper could persist an
-    Enterprise-only expiration on a Community deployment. `None` remains valid, which
-    keeps basic create/revoke working and lets Community clear an expiration that an
-    Enterprise license previously set.
-    """
-    if expires_at is not None and not is_enterprise():
-        raise ValueError(ADVANCED_SHARING_ERROR)
-
-
-def _resolve_share_expiration(
-    expires_at: datetime | None,
-    expires_in_days: ShareExpirationPresetDays | int | None,
-    *,
-    now: datetime | None = None,
-) -> datetime | None:
-    """Resolve a fixed preset or an Enterprise custom timestamp."""
-    if expires_at is not None and expires_in_days is not None:
-        raise ValueError(SHARE_EXPIRATION_SELECTION_ERROR)
-    if expires_in_days is not None:
-        if expires_in_days not in SHARE_EXPIRATION_PRESET_DAYS:
-            raise ValueError("Share-link expiration must be 1, 7, 30, or 90 days")
-        base = now or datetime.now(timezone.utc)
-        return base + timedelta(days=expires_in_days)
-    _reject_custom_expiration_in_community(expires_at)
-    return expires_at
 
 
 async def create_share_token(

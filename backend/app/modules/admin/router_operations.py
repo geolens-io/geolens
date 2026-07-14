@@ -1,9 +1,4 @@
-"""Admin API keys, infrastructure, and sharing operations.
-
-These routes are composed into the public ``/admin`` router. Keeping operational
-surfaces separate from user lifecycle and AI reporting limits cross-domain
-imports without changing paths or OpenAPI operation ids.
-"""
+"""Admin API key, infrastructure, and sharing routes."""
 
 from __future__ import annotations
 
