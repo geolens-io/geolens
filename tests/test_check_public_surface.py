@@ -31,9 +31,9 @@ class PublicSurfaceGateTest(unittest.TestCase):
 
     def write_config(self, repo: Path, **overrides: object) -> Path:
         config = json.loads(CONFIG.read_text(encoding="utf-8"))
-        # Production exceptions name tracked files that do not exist in these
-        # intentionally tiny fixture repositories. Tests that exercise the
-        # allowlist supply their own entries through ``overrides`` below.
+        # Isolated fixture repos do not contain the production tree paths used
+        # by the real gate's exact, single-use allowlist entries. Tests that
+        # exercise allowlisting provide their own fixture-local entries below.
         config["allowlist"] = []
         config.update(overrides)
         path = repo / "public_surface_gate.json"

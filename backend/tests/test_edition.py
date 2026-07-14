@@ -39,12 +39,34 @@ class TestEditionDetection:
 
         assert get_edition().edition == "enterprise"
 
+    def test_edition_settings_fallback_enterprise(self, monkeypatch):
+        """A GEOLENS_EDITION value loaded from .env is honored at init."""
+        from app.core import config as config_module
+        from app.core.edition import get_edition, init_edition
+
+        monkeypatch.delenv("GEOLENS_EDITION", raising=False)
+        monkeypatch.setattr(config_module.settings, "geolens_edition", "enterprise")
+
+        init_edition([])
+
+        assert get_edition().edition == "enterprise"
+
     def test_edition_env_override_community(self):
         """With GEOLENS_EDITION=community + extensions, init_edition sets community."""
         from app.core.edition import get_edition, init_edition
 
         with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
             init_edition(["some_ext"])
+
+        assert get_edition().edition == "community"
+
+    def test_invalid_edition_env_fails_closed(self):
+        """A typo must not silently fall through to community/auto-detection."""
+        from app.core.edition import get_edition, init_edition
+
+        with patch.dict("os.environ", {"GEOLENS_EDITION": "enterpise"}):
+            with pytest.raises(RuntimeError, match="GEOLENS_EDITION"):
+                init_edition([])
 
         assert get_edition().edition == "community"
 

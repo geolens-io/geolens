@@ -1,6 +1,7 @@
 """Admin service: user CRUD, role assignment, and catalog stats."""
 
 import uuid
+from typing import Any
 
 import structlog
 from sqlalchemy import delete, func, select, text, update
@@ -17,6 +18,20 @@ from app.modules.auth.providers.local import hash_password
 from app.core.text import escape_ilike
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# Serialize every operation that can reduce the set of viable administrators.
+# This is deliberately an application-wide PostgreSQL advisory transaction lock:
+# locking individual User rows is insufficient when two admins concurrently
+# deactivate each other (each operation targets a different row).
+_ADMIN_LIFECYCLE_LOCK_KEY = 0x47454F4C41444D49  # "GEOLADMI"
+
+
+class PendingUserMutationError(ValueError):
+    """Raised when generic user PATCH attempts an approval-only mutation."""
+
+
+class PendingUserTransitionConflict(ValueError):
+    """Raised when a pending-user decision has already been made."""
 
 
 async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int:
@@ -54,23 +69,78 @@ class AdminService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _lock_admin_lifecycle(self) -> None:
+        """Acquire the transaction-scoped global admin-lifecycle lock."""
+        await self.db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": _ADMIN_LIFECYCLE_LOCK_KEY},
+        )
+
     async def _get_other_admin_count(self, exclude_user_id: uuid.UUID) -> int:
-        """Count admin users excluding the given user_id."""
+        """Count other *viable* admins that can still authenticate."""
         result = await self.db.execute(
-            select(func.count())
+            select(func.count(func.distinct(UserRole.user_id)))
             .select_from(UserRole)
             .join(User, UserRole.user_id == User.id)
             .join(Role, UserRole.role_id == Role.id)
-            .where(Role.name == "admin", UserRole.user_id != exclude_user_id)
+            .where(
+                Role.name == "admin",
+                UserRole.user_id != exclude_user_id,
+                User.status == "active",
+                User.is_active == True,  # noqa: E712
+            )
         )
         return result.scalar() or 0
 
-    async def _ensure_not_last_admin(self, user: User, action: str = "modify") -> None:
-        """Raise ValueError if this is the last admin user."""
-        if "admin" not in {r.name for r in user.roles}:
+    @staticmethod
+    def _is_viable_admin(user: User) -> bool:
+        """Return whether the user currently provides a usable admin login."""
+        return (
+            user.status == "active"
+            and user.is_active
+            and "admin" in {role.name for role in user.roles}
+        )
+
+    @staticmethod
+    def _user_audit_snapshot(user: User) -> dict[str, Any]:
+        """Return the non-secret lifecycle fields used by user.update audits."""
+        return {
+            "email": user.email,
+            "is_active": user.is_active,
+            "status": user.status,
+            "roles": sorted(role.name for role in user.roles),
+        }
+
+    async def _ensure_not_last_admin(
+        self,
+        user: User,
+        action: str = "modify",
+        *,
+        lock_held: bool = False,
+    ) -> None:
+        """Raise if removing this user's viability would leave no active admin.
+
+        The advisory lock spans the caller's transaction, so a concurrent
+        reducer cannot pass the same count check against a stale snapshot.
+        """
+        if not lock_held:
+            await self._lock_admin_lifecycle()
+            await self.db.refresh(user, attribute_names=["roles"])
+        if not self._is_viable_admin(user):
             return
         if await self._get_other_admin_count(exclude_user_id=user.id) == 0:
             raise ValueError(f"Cannot {action} the last admin user")
+
+    async def _get_lifecycle_user(self, user_id: uuid.UUID) -> User:
+        """Lock the invariant and return the latest target user row."""
+        await self._lock_admin_lifecycle()
+        result = await self.db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise ValueError("User not found")
+        return user
 
     async def _ensure_unique_user_field(
         self,
@@ -145,34 +215,85 @@ class AdminService:
 
         Raises ValueError if user not found, self-deactivation, or last admin.
         """
-        result = await self.db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise ValueError("User not found")
+        user = await self._get_lifecycle_user(user_id)
+
+        if user.status == "pending":
+            raise PendingUserTransitionConflict(
+                "Pending users must be approved or rejected before deactivation"
+            )
 
         if current_user_id is not None and user_id == current_user_id:
             raise ValueError("Cannot deactivate your own account")
 
-        await self._ensure_not_last_admin(user, "deactivate")
+        await self._ensure_not_last_admin(user, "deactivate", lock_held=True)
 
-        # Note: sets is_active=False while keeping status="active".
-        # Auth checks enforce BOTH (status=="active" AND is_active==True),
-        # so the user is effectively locked out. The list_users endpoint
-        # interprets "deactivated" as status="active" + is_active=False.
+        user.status = "deactivated"
         user.is_active = False
         await self.db.flush()
         await self.db.refresh(user)
         return user
 
-    async def update_user(self, user_id: uuid.UUID, updates: UserUpdate) -> User:
+    async def update_user(
+        self,
+        user_id: uuid.UUID,
+        updates: UserUpdate,
+        current_user_id: uuid.UUID | None = None,
+    ) -> User:
         """Update a user's fields and/or role.
 
         Raises ValueError if user not found or role not found.
         """
-        result = await self.db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise ValueError("User not found")
+        user, _, _ = await self.update_user_with_snapshot(
+            user_id, updates, current_user_id=current_user_id
+        )
+        return user
+
+    async def update_user_with_snapshot(
+        self,
+        user_id: uuid.UUID,
+        updates: UserUpdate,
+        *,
+        current_user_id: uuid.UUID | None = None,
+    ) -> tuple[User, dict[str, Any], dict[str, Any]]:
+        """Update a user and return stable before/after audit snapshots."""
+        user = await self._get_lifecycle_user(user_id)
+        before = self._user_audit_snapshot(user)
+
+        target_status = updates.status
+        if target_status is None and updates.is_active is not None:
+            # Backward-compatible mapping for existing API clients.
+            target_status = "active" if updates.is_active else "deactivated"
+
+        if user.status == "pending" and (
+            target_status is not None or updates.role is not None
+        ):
+            raise PendingUserMutationError(
+                "Pending users must be approved or rejected; role and status "
+                "cannot be changed via PATCH"
+            )
+
+        if (
+            current_user_id is not None
+            and user_id == current_user_id
+            and target_status is not None
+            and target_status != "active"
+        ):
+            raise ValueError("Cannot deactivate or suspend your own account")
+
+        will_remove_viability = self._is_viable_admin(user) and (
+            (target_status is not None and target_status != "active")
+            or (updates.role is not None and updates.role != "admin")
+        )
+        if will_remove_viability:
+            action = (
+                "demote"
+                if updates.role not in (None, "admin")
+                else {
+                    "deactivated": "deactivate",
+                    "suspended": "suspend",
+                }.get(target_status or "", "modify")
+            )
+            await self._ensure_not_last_admin(user, action, lock_held=True)
 
         # Apply non-None scalar fields
         if updates.email is not None:
@@ -184,19 +305,28 @@ class AdminService:
             )
             user.email = updates.email
 
-        if updates.is_active is not None:
-            if updates.is_active is False:
-                await self._ensure_not_last_admin(user, "deactivate")
-            user.is_active = updates.is_active
+        if target_status is not None:
+            user.status = target_status
+            user.is_active = target_status == "active"
 
         if updates.role is not None:
-            await self._update_user_role(user, updates.role)
+            await self._update_user_role(
+                user, updates.role, lock_held=True, viability_checked=True
+            )
 
         await self.db.flush()
-        await self.db.refresh(user)
-        return user
+        await self.db.refresh(user, attribute_names=["roles"])
+        after = self._user_audit_snapshot(user)
+        return user, before, after
 
-    async def _update_user_role(self, user: User, new_role_name: str) -> None:
+    async def _update_user_role(
+        self,
+        user: User,
+        new_role_name: str,
+        *,
+        lock_held: bool = False,
+        viability_checked: bool = False,
+    ) -> None:
         """Replace a user's role with new_role_name in the current transaction.
 
         Raises ValueError if the new role doesn't exist or if this would demote
@@ -209,13 +339,8 @@ class AdminService:
         if new_role is None:
             raise ValueError(f"Role '{new_role_name}' not found")
 
-        # Last-admin guard: prevent demoting the sole admin
-        if (
-            "admin" in {r.name for r in user.roles}
-            and new_role_name != "admin"
-            and await self._get_other_admin_count(exclude_user_id=user.id) == 0
-        ):
-            raise ValueError("Cannot demote the last admin user")
+        if new_role_name != "admin" and not viability_checked:
+            await self._ensure_not_last_admin(user, "demote", lock_held=lock_held)
 
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
         self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
@@ -327,11 +452,7 @@ class AdminService:
         Returns (users, total_count).
         """
         filters = []
-        if status == "deactivated":
-            filters.append(
-                (User.status == "active") & (User.is_active == False)  # noqa: E712
-            )
-        elif status is not None:
+        if status is not None:
             filters.append(User.status == status)
         if search is not None:
             # T-2/T-1: normalize BOTH the column AND the pattern with
@@ -376,42 +497,60 @@ class AdminService:
         return user
 
     async def approve_user(self, user_id: uuid.UUID, role_name: str) -> User:
-        """Approve a pending user: set active, assign role.
+        """Atomically approve a pending user and replace its assigned role.
 
-        Raises ValueError if user not found, not pending, or role not found.
+        The row lock serializes approve/approve and approve/reject decisions. A
+        concurrent loser observes a transition conflict instead of appending a
+        second role or deleting an account that was just approved.
+
+        Raises PendingUserTransitionConflict if an existing account has
+        already left pending state, or ValueError if the user or requested
+        role does not exist.
         """
-        result = await self.db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise ValueError("User not found")
-        if user.status != "pending":
-            raise ValueError("User is not in pending status")
-
-        user.status = "active"
-        user.is_active = True
-
-        # Assign the chosen role
         role_result = await self.db.execute(select(Role).where(Role.name == role_name))
         role = role_result.scalar_one_or_none()
         if role is None:
             raise ValueError(f"Role '{role_name}' not found")
 
-        self.db.add(UserRole(user_id=user.id, role_id=role.id))
-        await self.db.flush()
-        await self.db.refresh(user)
-        return user
-
-    async def reject_user(self, user_id: uuid.UUID) -> None:
-        """Reject a pending user by hard-deleting them.
-
-        Raises ValueError if user not found or not pending.
-        """
-        result = await self.db.execute(select(User).where(User.id == user_id))
+        result = await self.db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
         user = result.scalar_one_or_none()
         if user is None:
             raise ValueError("User not found")
         if user.status != "pending":
-            raise ValueError("User is not in pending status")
+            raise PendingUserTransitionConflict(
+                "Pending user approval is no longer available"
+            )
+
+        user.status = "active"
+        user.is_active = True
+
+        # A pending account should not normally own a role, but legacy/manual
+        # rows may. Replace the complete assignment so the approved role is the
+        # only authority the newly active account receives.
+        await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+        self.db.add(UserRole(user_id=user.id, role_id=role.id))
+        await self.db.flush()
+        await self.db.refresh(user, attribute_names=["roles"])
+        return user
+
+    async def reject_user(self, user_id: uuid.UUID) -> None:
+        """Atomically reject a pending user by hard-deleting them.
+
+        Raises PendingUserTransitionConflict if an existing account has
+        already left pending state, or ValueError if the user does not exist.
+        """
+        result = await self.db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise ValueError("User not found")
+        if user.status != "pending":
+            raise PendingUserTransitionConflict(
+                "Pending user rejection is no longer available"
+            )
 
         await self.db.delete(user)
         await self.db.flush()
@@ -422,15 +561,12 @@ class AdminService:
         Raises ValueError for self-deletion, last-admin deletion, or not found.
         FK SET NULL handles audit_logs, datasets, ingest_jobs automatically.
         """
-        result = await self.db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise ValueError("User not found")
+        user = await self._get_lifecycle_user(user_id)
 
         if user_id == current_user_id:
             raise ValueError("Cannot delete your own account")
 
-        await self._ensure_not_last_admin(user, "delete")
+        await self._ensure_not_last_admin(user, "delete", lock_held=True)
 
         username = user.username
 

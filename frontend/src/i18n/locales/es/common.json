@@ -415,6 +415,7 @@
     "providersCreated": "{{count}} proveedores creados",
     "providersUpdated": "{{count}} actualizados",
     "providersDeleted": "{{count}} eliminados",
+    "accountsDeleted": "{{count}} cuentas OAuth vinculadas eliminadas",
     "page": {
       "title": "Operaciones de configuración",
       "description": "Exporte e importe la configuración de su instancia."
@@ -450,6 +451,7 @@
       "modeMerge": "Combinar - actualizar existentes, agregar nuevos",
       "modeOverwrite": "Sobrescribir - reemplazar todo",
       "overwriteWarning": "Esto reemplazará todas las configuraciones y proveedores OAuth existentes.",
+      "overwritePreviewRequired": "Ejecuta una nueva vista previa de sobrescritura antes de aplicar esta configuración.",
       "preview": "Previsualizar cambios",
       "apply": "Aplicar importación",
       "settingsChanges": "Cambios de configuración",
@@ -460,9 +462,11 @@
       "oauthChanges": "Cambios de proveedores OAuth",
       "slug": "Slug",
       "changedFields": "Campos modificados",
+      "linkedAccountsDeleted": "Cuentas vinculadas eliminadas",
+      "oauthAccountDeletionWarning": "Eliminaciones de cuentas OAuth vinculadas: {{count}}. Los usuarios afectados pueden perder el acceso SSO.",
       "noChanges": "No se detectaron cambios.",
       "success": "Importación completada.",
-      "successDetail": "{{settingsApplied}} configuraciones aplicadas, {{settingsSkipped}} omitidas. {{oauthCreated}} proveedores creados, {{oauthUpdated}} actualizados, {{oauthDeleted}} eliminados.",
+      "successDetail": "{{settingsApplied}} configuraciones aplicadas, {{settingsSkipped}} omitidas. {{oauthCreated}} proveedores creados, {{oauthUpdated}} actualizados, {{oauthDeleted}} eliminados. {{oauthAccountsDeleted}} cuentas OAuth vinculadas eliminadas.",
       "confirmTitle": "¿Sobrescribir toda la configuración?",
       "confirmDescription": "Esto reemplaza toda la configuración actual y no se puede deshacer. Escribe {{keyword}} para confirmar."
     }

@@ -20,7 +20,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "0016_tenant_insert_stamping"
-down_revision: Union[str, None] = "0015_add_ingest_job_heartbeat"
+down_revision: Union[str, None] = "0016_admin_identity_hardening"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

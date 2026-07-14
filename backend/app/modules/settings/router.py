@@ -93,6 +93,40 @@ def _validate_setting(key: str, value: object) -> object:
     return value
 
 
+def _canonicalize_setting_value(key: str, value: object, cfg: object) -> object:
+    """Run setting validation in the safe order and map failures to HTTP 422."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    # Permission invariants must see the canonical booleans produced by the
+    # adapter. Other custom validators intentionally pre-normalize their input.
+    if key != "role_permissions":
+        try:
+            value = _validate_setting(key, value)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for '{key}': {exc}",
+            ) from exc
+
+    try:
+        value = cfg._adapter.validate_python(value)
+    except PydanticValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Validation error for '{key}': {exc.errors()}",
+        ) from exc
+
+    if key == "role_permissions":
+        try:
+            value = _validate_setting(key, value)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for '{key}': {exc}",
+            ) from exc
+    return value
+
+
 _registry_by_key: dict[str, object] | None = None
 
 
@@ -262,32 +296,7 @@ async def update_settings(
 
         _require_enterprise_for_key(key)
 
-        # Custom validators (range checks, format checks, etc.)
-        try:
-            value = _validate_setting(key, value)
-        except (ValueError, TypeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Validation error for '{key}': {e}",
-            )
-
-        # Type-level validation via the PersistentConfig TypeAdapter.
-        # This catches values that pass the custom validator but are wrong
-        # for the registered type (e.g. "NOTALEVEL" for log_level, which
-        # has no custom range-check validator but has type=str — a string
-        # passes here; for int/bool keys this blocks non-coercible garbage).
-        # Also validates enum-like constraints defined in the type annotation.
-        from pydantic import ValidationError as PydanticValidationError
-
-        try:
-            value = cfg._adapter.validate_python(value)
-        except PydanticValidationError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Validation error for '{key}': {e.errors()}",
-            )
-
-        validated_settings[key] = value
+        validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
     # SSO-04 (Phase 1236 Plan 02): lockout guard — refuse to disable password
     # login when zero enabled OAuth providers exist.  This runs AFTER Pass-1
@@ -388,6 +397,10 @@ async def reset_settings(
     """Reset one or more settings to their defaults (admin only). Returns updated settings."""
     registry_map = _get_registry_map()
 
+    # Resolve and authorize the complete batch before staging any deletes. A
+    # later unknown or restricted key therefore cannot leave earlier resets
+    # committed as a partial request.
+    configs_to_reset = []
     for key in body.keys:
         cfg = registry_map.get(key)
         if cfg is None:
@@ -396,8 +409,40 @@ async def reset_settings(
                 detail=f"Unknown setting key: {key}",
             )
         _require_enterprise_for_key(key)
-        ip = get_client_ip(request)
-        await cfg.reset(db, user_id=user.id, ip_address=ip)
+        configs_to_reset.append(cfg)
+
+    # Reset is another way to change the effective password-login value and
+    # must enforce the same final-state lockout invariant as PUT/import. Hold
+    # the provider locks through the settings transaction so a concurrent IdP
+    # disable/delete cannot race this check.
+    if (
+        PASSWORD_LOGIN_ENABLED in configs_to_reset
+        and PASSWORD_LOGIN_ENABLED.env_default is False
+    ):
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+        if len(locked_provider_ids) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Cannot reset password login to disabled while no SSO provider "
+                    "is enabled — enable an OAuth provider first"
+                ),
+            )
+
+    ip = get_client_ip(request)
+    for cfg in configs_to_reset:
+        await cfg.reset(
+            db,
+            user_id=user.id,
+            ip_address=ip,
+            commit=False,
+        )
+
+    # The setting deletes and their audit rows form one transaction. Runtime
+    # caches/hooks are changed only after that transaction is durable.
+    await db.commit()
+    for cfg in configs_to_reset:
+        await cfg.apply_side_effects(cfg.env_default)
 
     # Phase 279 ADMIN-09 (L-01): Intentional second SELECT. cfg.reset() writes
     # the env_default value back to AppSetting; we re-read to capture the
@@ -491,6 +536,7 @@ async def get_notification_status(
 )
 @router.post("/notifications/test/", response_model=NotificationTestResponse)
 async def send_test_notification(
+    request: Request,
     user: Identity = Depends(require_settings_admin),
     db: AsyncSession = Depends(get_db),
 ) -> NotificationTestResponse:
@@ -577,7 +623,7 @@ async def send_test_notification(
                 "channels": [r.channel for r in results],
                 "any_ok": any_ok,
             },
-            ip_address=None,
+            ip_address=get_client_ip(request),
         ),
     )
     # Persist the audit row (M2 — Codex review): this endpoint's session is not

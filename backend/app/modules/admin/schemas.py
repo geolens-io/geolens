@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.modules.auth.schemas import UserResponse
 
@@ -81,7 +81,17 @@ class UserUpdate(BaseModel):
     )
     is_active: bool | None = Field(
         default=None,
-        description="Whether the user can log in. Set to false to deactivate.",
+        description=(
+            "Legacy account-state toggle. False maps to 'deactivated' and true "
+            "maps to 'active'. Prefer the explicit status field."
+        ),
+    )
+    status: Literal["active", "suspended", "deactivated"] | None = Field(
+        default=None,
+        description=(
+            "Explicit account lifecycle state. Pending registrations must use "
+            "the approve/reject endpoints."
+        ),
     )
     role: str | None = Field(
         default=None,
@@ -95,6 +105,15 @@ class UserUpdate(BaseModel):
         if v is not None and v not in VALID_ROLES:
             raise ValueError(f"Role must be one of: {', '.join(sorted(VALID_ROLES))}")
         return v
+
+    @model_validator(mode="after")
+    def validate_state_fields(self) -> "UserUpdate":
+        """Reject contradictory legacy and explicit lifecycle fields."""
+        if self.status is not None and self.is_active is not None:
+            expected_active = self.status == "active"
+            if self.is_active is not expected_active:
+                raise ValueError("status and is_active describe conflicting states")
+        return self
 
 
 class SamlToLocalConversion(BaseModel):
@@ -333,6 +352,9 @@ class AdminApiKeyListItem(BaseModel):
     id: uuid.UUID = Field(description="Unique API key identifier.")
     user_id: uuid.UUID = Field(description="Owning user's ID.")
     name: str = Field(description="Human-readable label.")
+    fingerprint: str | None = Field(
+        description="Non-secret key identifier; null for legacy keys."
+    )
     is_active: bool = Field(
         description="Whether the key is active. Inactive keys cannot authenticate."
     )

@@ -14,8 +14,8 @@ import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
-import { useAIStatus, useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
-import { useAuthStore } from '@/stores/auth-store';
+import { useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
+import { usePermissions } from '@/hooks/use-permissions';
 import { detectEmbeddingDims } from '@/api/settings';
 import type { SettingItem } from '@/api/settings';
 
@@ -42,18 +42,13 @@ const AI_FIELDS = [
 
 export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  // SF-06: gate the admin probe at the consumer. An admin endpoint must
-  // never fire from an unauthenticated or non-admin context — mirrors the
-  // consumer-side pattern in use-ai-availability.ts:7.
-  const token = useAuthStore((s) => s.token);
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const { can } = usePermissions();
+  const canManageUsers = can('manage_users');
   const { data: keyStatus } = useApiKeyStatus();
-  const { data: aiStatus } = useAIStatus({ enabled: !!token && isAdmin });
-  // CR-03/WR-04 (Phase 1050-rev): gate the embedding-stats probe with the
-  // same `!!token && isAdmin` predicate as useAIStatus. SF-06 only gated
-  // useAIStatus consumer-side; useEmbeddingStats was firing unconditionally
-  // → 401 from any non-admin authed page AND during admin logout transition.
-  const { data: embeddingStats } = useEmbeddingStats({ enabled: !!token && isAdmin });
+  // Coverage/backfill are manage_users operations. A settings-only operator
+  // can configure embeddings without issuing forbidden operational probes.
+  const { data: embeddingStatsData } = useEmbeddingStats({ enabled: canManageUsers });
+  const embeddingStats = canManageUsers ? embeddingStatsData : undefined;
   const backfill = useBackfillEmbeddings();
   const semanticToggle = useUpdateSemanticSearch();
 
@@ -70,12 +65,16 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   const embeddingModel = values.embedding_model as string;
   const embeddingBaseUrl = values.embedding_base_url as string;
   const embeddingDims = values.embedding_dims as string;
+  const semanticSearchEnabled = Boolean(
+    findSetting(settings, 'semantic_search_enabled')?.value,
+  );
 
   const handleSemanticToggle = (checked: boolean) => {
     semanticToggle.mutate(checked);
   };
 
   const handleBackfill = (force = false) => {
+    if (!canManageUsers) return;
     backfill.mutate(force, {
       onSuccess: (data) => {
         if (data.errors > 0 && data.created === 0) {
@@ -250,7 +249,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             </div>
             <Switch
               id="semantic-toggle"
-              checked={aiStatus?.semantic_search_enabled ?? false}
+              checked={semanticSearchEnabled}
               onCheckedChange={handleSemanticToggle}
               disabled={semanticToggle.isPending}
             />
@@ -349,7 +348,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
           )}
 
           {/* Embedding coverage */}
-          {embeddingStats && (
+          {canManageUsers && embeddingStats && (
             <div className="rounded-lg border p-4 max-w-md space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium">{t('ai.embeddingCoverage')}</span>

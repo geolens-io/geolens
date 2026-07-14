@@ -795,16 +795,20 @@ async def me_permissions(
     matrix = await get_effective_permissions(db)
     permission_ext = get_permission_extension()
 
-    effective = {
-        cap: await permission_ext.check_permission(
+    # Resolve every capability through the governance seam. In particular,
+    # enterprise overlays may deny a matrix grant or add an out-of-band fleet
+    # grant, and the UI must see the same effective decision as protected API
+    # endpoints. Keep these checks sequential: AsyncSession is not safe for
+    # concurrent use by overlay implementations that consult the database.
+    effective: dict[str, bool] = {}
+    for cap in ALL_CAPABILITIES:
+        effective[cap] = await permission_ext.check_permission(
             db,
             current_user,
             cap,
             user_roles=user_roles,
             permission_matrix=matrix,
         )
-        for cap in ALL_CAPABILITIES
-    }
 
     return PermissionsResponse(permissions=effective)
 
@@ -847,6 +851,7 @@ async def list_my_api_keys(
             ApiKeyListItem(
                 id=k.id,
                 name=k.name,
+                fingerprint=k.fingerprint,
                 is_active=k.is_active,
                 created_at=k.created_at,
                 last_used_at=k.last_used_at,
@@ -895,15 +900,17 @@ async def create_my_api_key(
             action="api_key.create",
             resource_type="api_key",
             resource_id=api_key.id,
-            details={"name": body.name},
+            details={"name": body.name, "fingerprint": api_key.fingerprint},
             ip_address=ip,
         ),
     )
     await db.commit()
 
+    assert api_key.fingerprint is not None  # New keys always receive a fingerprint.
     return ApiKeyCreateResponse(
         id=api_key.id,
         key=raw_key,
+        fingerprint=api_key.fingerprint,
         name=api_key.name,
         created_at=api_key.created_at,
     )
@@ -940,7 +947,7 @@ async def revoke_my_api_key(
             action="api_key.revoke",
             resource_type="api_key",
             resource_id=key_id,
-            details={"name": api_key.name},
+            details={"name": api_key.name, "fingerprint": api_key.fingerprint},
             ip_address=ip,
         ),
     )

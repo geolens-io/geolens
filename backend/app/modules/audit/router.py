@@ -21,9 +21,14 @@ import csv
 import io
 import json
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import anyio
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -34,15 +39,20 @@ from app.modules.audit.schemas import (
     ColumnDdlFeedResponse,
 )
 from app.modules.audit.service import (
+    AuditEvent,
+    audit_emit,
+    audit_emit_durable,
     query_audit_logs,
     query_column_ddl_history,
     stream_audit_logs,
 )
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
-from app.core.dependencies import get_db
+from app.core.dependencies import get_client_ip, get_db
 from app.processing.export.service import safe_content_disposition
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+
+logger = structlog.stdlib.get_logger(__name__)
 
 # Shares /admin prefix with admin/router.py — kept separate for module organization.
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
@@ -60,6 +70,165 @@ FORMAT_HANDLERS: dict[str, str] = {
     "csv": "text/csv",
     "json": "application/json",
 }
+_EXPORT_OUTCOME_TIMEOUT_SECONDS = 5
+
+
+def _safe_csv_cell(value: str) -> str:
+    """Prevent spreadsheet formula execution for user-controlled CSV cells."""
+    if value and value[0] in ("=", "+", "-", "@"):
+        return "\t" + value
+    return value
+
+
+@dataclass(frozen=True)
+class _AuditExportStream:
+    """Own one audit export's fresh-session stream and outcome bookkeeping."""
+
+    actor_id: uuid.UUID
+    export_id: uuid.UUID
+    ip_address: str | None
+    audit_context: dict[str, object]
+    user_id: uuid.UUID | None
+    action: str | None
+    resource_type: str | None
+    resource_id: uuid.UUID | None
+    date_from: datetime | None
+    date_to: datetime | None
+    search: str | None
+    max_rows: int
+
+    async def _record_outcome(self, outcome: str, selected_rows: int) -> None:
+        details: dict[str, object] = {
+            **self.audit_context,
+            "outcome": outcome,
+            "selected_rows": selected_rows,
+        }
+        if outcome == "failed":
+            details["error_code"] = "stream_failed"
+        # Shield terminal bookkeeping from level-triggered disconnect
+        # cancellation, but cap it so a broken audit store cannot retain the
+        # response task indefinitely.
+        with anyio.move_on_after(_EXPORT_OUTCOME_TIMEOUT_SECONDS, shield=True):
+            try:
+                await audit_emit_durable(
+                    AuditEvent(
+                        user_id=self.actor_id,
+                        action="audit.export",
+                        resource_type="audit_log",
+                        resource_id=self.export_id,
+                        details=details,
+                        ip_address=self.ip_address,
+                    )
+                )
+            except Exception:  # broad: response bytes may already have been sent
+                logger.exception(
+                    "Failed to persist audit export stream outcome",
+                    operation_id=str(self.export_id),
+                    outcome=outcome,
+                )
+
+    async def _logs(self):
+        from app.core.db import async_session
+
+        async with async_session() as stream_db:
+            async for log in stream_audit_logs(
+                stream_db,
+                user_id=self.user_id,
+                action=self.action,
+                resource_type=self.resource_type,
+                resource_id=self.resource_id,
+                exclude_resource_id=self.export_id,
+                date_from=self.date_from,
+                date_to=self.date_to,
+                search=self.search,
+            ):
+                yield log
+
+    async def csv_generator(self) -> AsyncGenerator[str, None]:
+        """Yield hardened CSV chunks and record the actual emitted row count."""
+        row_count = 0
+        try:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(
+                [
+                    "timestamp",
+                    "username",
+                    "action",
+                    "resource_type",
+                    "resource_id",
+                    "ip_address",
+                    "details",
+                ]
+            )
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+
+            async with aclosing(self._logs()) as logs:
+                async for log in logs:
+                    if row_count >= self.max_rows:
+                        break
+                    writer.writerow(
+                        [
+                            _safe_csv_cell(
+                                log.created_at.isoformat() if log.created_at else ""
+                            ),
+                            _safe_csv_cell(log.user.username if log.user else ""),
+                            _safe_csv_cell(log.action),
+                            _safe_csv_cell(log.resource_type),
+                            _safe_csv_cell(
+                                str(log.resource_id) if log.resource_id else ""
+                            ),
+                            _safe_csv_cell(log.ip_address or ""),
+                            _safe_csv_cell(
+                                json.dumps(log.details) if log.details else ""
+                            ),
+                        ]
+                    )
+                    yield buf.getvalue()
+                    row_count += 1
+                    buf.seek(0)
+                    buf.truncate(0)
+        except BaseException:  # record disconnects/cancellation as failed exports
+            await self._record_outcome("failed", row_count)
+            raise
+        else:
+            await self._record_outcome("completed", row_count)
+
+    async def json_generator(self) -> AsyncGenerator[str, None]:
+        """Yield JSON chunks and record the actual emitted row count."""
+        row_count = 0
+        try:
+            yield "["
+            first = True
+            async with aclosing(self._logs()) as logs:
+                async for log in logs:
+                    if row_count >= self.max_rows:
+                        break
+                    row = {
+                        "timestamp": (
+                            log.created_at.isoformat() if log.created_at else None
+                        ),
+                        "username": log.user.username if log.user else None,
+                        "action": log.action,
+                        "resource_type": log.resource_type,
+                        "resource_id": (
+                            str(log.resource_id) if log.resource_id else None
+                        ),
+                        "ip_address": log.ip_address,
+                        "details": log.details,
+                    }
+                    prefix = "" if first else ","
+                    yield prefix + json.dumps(row)
+                    row_count += 1
+                    first = False
+            yield "]"
+        except BaseException:  # record disconnects/cancellation as failed exports
+            await self._record_outcome("failed", row_count)
+            raise
+        else:
+            await self._record_outcome("completed", row_count)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
@@ -76,6 +245,7 @@ async def list_audit_logs(
     user_id: uuid.UUID | None = Query(None),
     action: str | None = Query(None, max_length=200),
     resource_type: str | None = Query(None, max_length=200),
+    resource_id: uuid.UUID | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     search: str | None = Query(None, max_length=200),
@@ -90,6 +260,7 @@ async def list_audit_logs(
         user_id=user_id,
         action=action,
         resource_type=resource_type,
+        resource_id=resource_id,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -121,11 +292,14 @@ async def list_audit_logs(
 )
 async def export_audit_logs(
     format: str,
-    action: str | None = Query(None),
-    resource_type: str | None = Query(None),
+    request: Request,
+    user_id: uuid.UUID | None = Query(None),
+    action: str | None = Query(None, max_length=200),
+    resource_type: str | None = Query(None, max_length=200),
+    resource_id: uuid.UUID | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
-    search: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
     max_rows: int = Query(100_000, ge=1, le=100_000),
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
@@ -137,91 +311,65 @@ async def export_audit_logs(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"audit-export-{timestamp}.{format}"
 
+    # Correlate both audit rows and exclude them from the export. The fresh
+    # streaming SELECT's PostgreSQL MVCC statement snapshot is the authoritative
+    # row boundary; no application-clock fence is needed.
+    export_id = uuid.uuid4()
+    actor_id = user.id
+    ip_address = get_client_ip(request)
+    filters = {
+        "user_id": str(user_id) if user_id else None,
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": str(resource_id) if resource_id else None,
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "search": search,
+    }
+    audit_context = {
+        "operation_id": str(export_id),
+        "format": format,
+        "mode": "stream",
+        "filters": filters,
+        "row_limit": max_rows,
+    }
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=actor_id,
+            action="audit.export",
+            resource_type="audit_log",
+            resource_id=export_id,
+            details={**audit_context, "outcome": "requested"},
+            ip_address=ip_address,
+        ),
+    )
+    # Persist authorization + intent before the response body is released.
+    await db.commit()
+
+    export_stream = _AuditExportStream(
+        actor_id=actor_id,
+        export_id=export_id,
+        ip_address=ip_address,
+        audit_context=audit_context,
+        user_id=user_id,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        max_rows=max_rows,
+    )
     if format == "csv":
-
-        async def csv_generator():
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow(
-                [
-                    "timestamp",
-                    "username",
-                    "action",
-                    "resource_type",
-                    "resource_id",
-                    "ip_address",
-                    "details",
-                ]
-            )
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate(0)
-
-            row_count = 0
-            async for log in stream_audit_logs(
-                db,
-                action=action,
-                resource_type=resource_type,
-                date_from=date_from,
-                date_to=date_to,
-                search=search,
-            ):
-                if row_count >= max_rows:
-                    break
-                writer.writerow(
-                    [
-                        log.created_at.isoformat() if log.created_at else "",
-                        log.user.username if log.user else "",
-                        log.action,
-                        log.resource_type,
-                        str(log.resource_id) if log.resource_id else "",
-                        log.ip_address or "",
-                        json.dumps(log.details) if log.details else "",
-                    ]
-                )
-                yield buf.getvalue()
-                buf.seek(0)
-                buf.truncate(0)
-                row_count += 1
-
         return StreamingResponse(
-            csv_generator(),
+            export_stream.csv_generator(),
             media_type="text/csv",
             headers={"Content-Disposition": safe_content_disposition(filename)},
         )
 
-    # JSON format
-    async def json_generator():
-        yield "["
-        first = True
-        row_count = 0
-        async for log in stream_audit_logs(
-            db,
-            action=action,
-            resource_type=resource_type,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
-        ):
-            if row_count >= max_rows:
-                break
-            row = {
-                "timestamp": log.created_at.isoformat() if log.created_at else None,
-                "username": log.user.username if log.user else None,
-                "action": log.action,
-                "resource_type": log.resource_type,
-                "resource_id": str(log.resource_id) if log.resource_id else None,
-                "ip_address": log.ip_address,
-                "details": log.details,
-            }
-            prefix = "" if first else ","
-            yield prefix + json.dumps(row)
-            first = False
-            row_count += 1
-        yield "]"
-
     return StreamingResponse(
-        json_generator(),
+        export_stream.json_generator(),
         media_type="application/json",
         headers={"Content-Disposition": safe_content_disposition(filename)},
     )

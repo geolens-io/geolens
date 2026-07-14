@@ -68,6 +68,10 @@ x-storage-env: &storage-env
   S3_REGION: "${S3_REGION:-us-east-1}"
   S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
   S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+  AZURE_STORAGE_CONTAINER: "${AZURE_STORAGE_CONTAINER:-}"
+  AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
+  AZURE_STORAGE_ACCOUNT_URL: "${AZURE_STORAGE_ACCOUNT_URL:-}"
+  AZURE_STORAGE_ACCOUNT_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"
 
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
@@ -87,6 +91,35 @@ x-ai-env: &ai-env
   EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
   EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
   EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
+
+x-edition-env: &edition-env
+  GEOLENS_EDITION: "${GEOLENS_EDITION:-}"
+  GEOLENS_TENANCY_MODE: "${GEOLENS_TENANCY_MODE:-single_tenant}"
+  GEOLENS_LICENSE_ENFORCE: "${GEOLENS_LICENSE_ENFORCE:-false}"
+  GEOLENS_LICENSE_KEY: "${GEOLENS_LICENSE_KEY:-}"
+  GEOLENS_LICENSE_FILE: "${GEOLENS_LICENSE_FILE:-}"
+  GEOLENS_LICENSE_AUDIENCE: "${GEOLENS_LICENSE_AUDIENCE:-}"
+
+x-notification-env: &notification-env
+  NOTIFICATIONS_ENABLED: "${NOTIFICATIONS_ENABLED:-false}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USERNAME: "${SMTP_USERNAME:-}"
+  SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+  SMTP_FROM_ADDRESS: "${SMTP_FROM_ADDRESS:-}"
+  SMTP_USE_TLS: "${SMTP_USE_TLS:-true}"
+  NOTIFICATION_WEBHOOK_URL: "${NOTIFICATION_WEBHOOK_URL:-}"
+  NOTIFICATION_WEBHOOK_SECRET: "${NOTIFICATION_WEBHOOK_SECRET:-}"
+  NOTIFY_ON_SIGNUP: "${NOTIFY_ON_SIGNUP:-false}"
+  NOTIFY_ON_INGEST_COMPLETE: "${NOTIFY_ON_INGEST_COMPLETE:-false}"
+  NOTIFY_ON_INGEST_FAILED: "${NOTIFY_ON_INGEST_FAILED:-false}"
+  NOTIFY_ON_HEALTH_ALERT: "${NOTIFY_ON_HEALTH_ALERT:-false}"
+  NOTIFICATION_ADMIN_EMAIL: "${NOTIFICATION_ADMIN_EMAIL:-}"
+
+x-app-runtime-env: &app-runtime-env
+  LANDING_FIRST: "${LANDING_FIRST:-false}"
+  DEMO_MODE: "${DEMO_MODE:-false}"
+  TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
 
 # Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
 # Identical to docker-compose.yml: start as root, chown the upload_staging
@@ -174,7 +207,7 @@ services:
       - /home/appuser:size=64m,uid=1001,gid=1001
       - /app/staging:size=8m,uid=1001,gid=1001
     environment:
-      <<: [*db-env, *auth-env, *db-ssl-env]
+      <<: [*db-env, *auth-env, *db-ssl-env, *edition-env]
       PYTHONPATH: /app
     depends_on:
       db:
@@ -216,7 +249,7 @@ services:
     volumes:
       - upload_staging:/app/staging
     environment:
-      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env, *app-runtime-env]
       PYTHONPATH: /app
       GEOLENS_API_RUN_MIGRATIONS: "${GEOLENS_API_RUN_MIGRATIONS:-true}"
       # Prod default 2 workers (dev uses 1 to keep --reload working).
@@ -279,7 +312,7 @@ services:
     volumes:
       - upload_staging:/app/staging
     environment:
-      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env, *edition-env, *notification-env]
       PYTHONPATH: /app
       REDIS_URL: "${REDIS_URL:-}"
       # GAP-022: pinned — api/worker/titiler share the upload_staging volume at
@@ -338,6 +371,9 @@ services:
       AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
+      AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
+      AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT:-}"
+      AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"
       TITILER_API_ROOT_PATH: ""
     volumes:
       - upload_staging:/app/staging

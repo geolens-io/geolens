@@ -41,6 +41,7 @@ import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import from_origin
+from tests.repo_paths import repo_root
 
 # ---------------------------------------------------------------------------
 # Azurite well-known dev connection string (public Microsoft constant, not secret).
@@ -231,29 +232,20 @@ class TestTier1ResolveAndGdalOpen:
             f"Expected all pixels = 77, got min={data.min()} max={data.max()}"
         )
 
-    def test_titiler_compose_config_carries_azure_env(self):
-        """Titiler service in docker-compose.yml has AZURE_STORAGE env vars.
+    @pytest.mark.parametrize(
+        "compose_name", ["docker-compose.yml", "docker-compose.prod.yml"]
+    )
+    def test_titiler_compose_config_carries_azure_env(self, compose_name):
+        """Both Titiler deployments translate the canonical Azure credentials."""
+        compose_text = (repo_root(__file__) / compose_name).read_text()
 
-        This is a config-level assertion (no Azurite needed). Verified by grepping
-        the compose file for the AZURE_STORAGE_CONNECTION_STRING env key.
-        """
-        import subprocess
-
-        project_root = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), "..", "..")
+        assert (
+            'AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"'
+            in compose_text
         )
-        compose_path = os.path.join(project_root, "docker-compose.yml")
-        result = subprocess.run(
-            ["grep", "-n", "AZURE_STORAGE_CONNECTION_STRING", compose_path],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, (
-            "AZURE_STORAGE_CONNECTION_STRING not found in docker-compose.yml — "
-            "Titiler is not configured to receive the Azure GDAL env."
-        )
-        assert "AZURE_STORAGE_CONNECTION_STRING" in result.stdout, (
-            f"Unexpected grep output: {result.stdout!r}"
+        assert 'AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT:-}"' in compose_text
+        assert (
+            'AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"' in compose_text
         )
 
 

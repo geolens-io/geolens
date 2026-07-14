@@ -130,6 +130,7 @@ function UserMenu() {
   // #305: explicit light/dark override (default stays 'system', which
   // already honors prefers-color-scheme). resolvedTheme drives the icon/label.
   const { setTheme, resolvedTheme } = useTheme();
+  const canAccessAdmin = can('manage_users') || can('manage_settings');
 
   // Anonymous: show sign-in button instead of user dropdown
   if (!user) {
@@ -209,8 +210,8 @@ function UserMenu() {
             : t('nav.darkMode', { defaultValue: 'Dark mode' })}
         </DropdownMenuItem>
 
-        {/* Admin (admin users only) */}
-        {can('manage_users') && (
+        {/* Admin control plane (capability-bearing operators only) */}
+        {canAccessAdmin && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
@@ -255,6 +256,7 @@ function MobileNav() {
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [vrtOpen, setVrtOpen] = useState(false);
+  const canAccessAdmin = can('manage_users') || can('manage_settings');
 
   // Auto-close sheet on navigation
   useEffect(() => {
@@ -289,7 +291,7 @@ function MobileNav() {
             <NavLink to="/maps" className={mobileNavLinkClass}>
               {t('nav.maps')}
             </NavLink>
-            {can('manage_users') && (
+            {canAccessAdmin && (
               <NavLink to="/admin" className={mobileNavLinkClass}>
                 {t('nav.admin')}
               </NavLink>
@@ -383,6 +385,7 @@ function MobileNav() {
 export function Navbar() {
   const { t } = useTranslation();
   const { can } = usePermissions();
+  const canAccessAdmin = can('manage_users') || can('manage_settings');
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background pt-[env(safe-area-inset-top)]">
@@ -407,7 +410,7 @@ export function Navbar() {
             </NavLink>
             {/* Operators get a first-class entry — previously buried in the
                 user dropdown only. */}
-            {can('manage_users') && (
+            {canAccessAdmin && (
               <NavLink to="/admin" className={navLinkClass}>
                 {t('nav.admin')}
               </NavLink>

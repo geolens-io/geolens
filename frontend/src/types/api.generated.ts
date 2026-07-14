@@ -3611,7 +3611,7 @@ export interface paths {
          * Update Map Share Token Endpoint
          * @description Update expiration on an existing share token. Owner or admin only.
          *
-         *     Null clears expiration.
+         *     A fixed-day preset is available in every edition. Null clears expiration.
          */
         patch: operations["update_map_share_token_endpoint_maps__map_id__share__patch"];
         trace?: never;
@@ -5017,6 +5017,11 @@ export interface components {
              */
             created_at: string;
             /**
+             * Fingerprint
+             * @description Non-secret key identifier; null for legacy keys.
+             */
+            fingerprint: string | null;
+            /**
              * Id
              * Format: uuid
              * @description Unique API key identifier.
@@ -5279,6 +5284,11 @@ export interface components {
              */
             created_at: string;
             /**
+             * Fingerprint
+             * @description Non-secret key identifier (prefix and last four characters)
+             */
+            fingerprint: string;
+            /**
              * Id
              * Format: uuid
              */
@@ -5298,6 +5308,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Fingerprint
+             * @description Non-secret key identifier; null for keys created before fingerprint support
+             */
+            fingerprint: string | null;
             /**
              * Id
              * Format: uuid
@@ -7313,6 +7328,11 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
+             * Preview Token
+             * @description Short-lived signed confirmation token required to apply an overwrite. Bound to the normalized payload, overwrite mode, and current configuration state.
+             */
+            preview_token?: string | null;
+            /**
              * Settings
              * @description Per-setting diff result keyed by setting name.
              */
@@ -7850,6 +7870,12 @@ export interface components {
          * @description Summary of what was applied during an import.
          */
         ImportResult: {
+            /**
+             * Oauth Accounts Deleted
+             * @description Number of dependent OAuth account links cascade-deleted in overwrite mode.
+             * @default 0
+             */
+            oauth_accounts_deleted: number;
             /**
              * Oauth Created
              * @description Number of new OAuth providers created.
@@ -11680,12 +11706,30 @@ export interface components {
         };
         /** StaleCleanupResponse */
         StaleCleanupResponse: {
+            /** Local Files Reaped */
+            local_files_reaped: number;
             /** Pending Failed */
             pending_failed: number;
             /** Running Failed */
             running_failed: number;
+            /** Staged Cleanup Failures */
+            staged_cleanup_failures: number;
+            /** Staged Paths Considered */
+            staged_paths_considered: number;
+            /** Staged Paths Skipped */
+            staged_paths_skipped: number;
+            /** Storage Objects Reaped */
+            storage_objects_reaped: number;
+            /** Terminal Jobs Purged */
+            terminal_jobs_purged: number;
+            /** Total Affected */
+            total_affected: number;
             /** Total Cleaned */
             total_cleaned: number;
+            /** Vrt Assets Recovered */
+            vrt_assets_recovered: number;
+            /** Vrt Generations Failed */
+            vrt_generations_failed: number;
         };
         /**
          * StatusUpdate
@@ -12105,7 +12149,7 @@ export interface components {
             email?: string | null;
             /**
              * Is Active
-             * @description Whether the user can log in. Set to false to deactivate.
+             * @description Legacy account-state toggle. False maps to 'deactivated' and true maps to 'active'. Prefer the explicit status field.
              */
             is_active?: boolean | null;
             /**
@@ -12113,6 +12157,11 @@ export interface components {
              * @description New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
              */
             role?: string | null;
+            /**
+             * Status
+             * @description Explicit account lifecycle state. Pending registrations must use the approve/reject endpoints.
+             */
+            status?: ("active" | "suspended" | "deactivated") | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -12943,6 +12992,7 @@ export interface operations {
                 user_id?: string | null;
                 action?: string | null;
                 resource_type?: string | null;
+                resource_id?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
                 search?: string | null;
@@ -13043,8 +13093,10 @@ export interface operations {
     export_audit_logs_admin_audit_logs_export__format__get: {
         parameters: {
             query?: {
+                user_id?: string | null;
                 action?: string | null;
                 resource_type?: string | null;
+                resource_id?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
                 search?: string | null;
@@ -19636,7 +19688,10 @@ export interface operations {
             query?: {
                 mode?: "merge" | "overwrite";
             };
-            header?: never;
+            header?: {
+                /** @description Signed token returned by the matching dry-run. Required for overwrite mode. */
+                "X-Config-Preview-Token"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

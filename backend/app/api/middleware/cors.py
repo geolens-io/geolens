@@ -99,7 +99,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "GET, POST, PUT, PATCH, DELETE, OPTIONS"
         )
         response.headers["Access-Control-Allow-Headers"] = (
-            "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token"
+            "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token, "
+            "X-Config-Preview-Token"
         )
         response.headers["Access-Control-Expose-Headers"] = (
             "X-Total-Count, Link, Content-Crs, Content-Language, "

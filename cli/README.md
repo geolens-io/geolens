@@ -37,3 +37,16 @@ or `geolens schema -o schema.json`. Its stable `$id` identifies manifest v1.
 This decision should be revisited if multiple consumers need schema releases on
 a cadence independent from the CLI. Until then, schema changes and CLI versions
 ship atomically and the wheel test locks resource inclusion.
+
+## Environment variables
+
+The CLI normally stores its active instance through `geolens login` and keeps
+tokens in the OS keyring. Ephemeral CI jobs can avoid persistent state with:
+
+| Variable | Purpose |
+|---|---|
+| `GEOLENS_INSTANCE` | GeoLens instance URL. The CLI normalizes the URL and appends `/api` when needed. An explicit `--instance` option takes precedence. |
+| `GEOLENS_TOKEN` | Bearer token used instead of the keyring/credentials file. Treat it as a secret and inject it from the CI secret store. |
+
+For load-test and seed-script variables, use the documented Tooling / Load
+Tests section in the repository's `.env.example`.

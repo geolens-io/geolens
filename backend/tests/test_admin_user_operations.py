@@ -142,6 +142,108 @@ async def test_backfill_embeddings_force_admin(
     assert "created" in data
     assert "errors" in data
 
+    audit_resp = await client.get(
+        "/admin/audit-logs/",
+        params={"action": "embedding.backfill"},
+        headers=admin_auth_header,
+    )
+    assert audit_resp.status_code == 200
+    entries = audit_resp.json()["logs"]
+    completed = next(
+        entry for entry in entries if entry["details"]["outcome"] == "completed"
+    )
+    requested = next(
+        entry
+        for entry in entries
+        if entry["details"]["outcome"] == "requested"
+        and entry["details"]["operation_id"] == completed["details"]["operation_id"]
+    )
+    assert completed["resource_type"] == "record_embedding"
+    assert completed["details"]["force"] is True
+    assert completed["details"]["processed"] == data["processed"]
+    assert completed["ip_address"] is not None
+    assert requested["details"]["force"] is True
+    assert requested["ip_address"] is not None
+
+
+@pytest.mark.anyio
+async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    """A committed force-delete remains bracketed by requested/failed audits."""
+    from sqlalchemy import delete, select
+
+    from app.modules.audit.models import AuditLog
+    from app.processing.embeddings import backfill as backfill_module
+    from app.processing.embeddings.models import RecordEmbedding
+
+    secret_error = "provider-secret-token=do-not-expose"
+    requested_was_durable = False
+
+    async def fail_after_committed_delete(session, *, force):
+        nonlocal requested_was_durable
+        assert force is True
+        existing = list(
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "embedding.backfill",
+                        AuditLog.details["outcome"].astext == "requested",
+                    )
+                )
+            ).scalars()
+        )
+        requested_was_durable = bool(existing)
+        await session.execute(delete(RecordEmbedding))
+        await session.commit()
+        raise RuntimeError(secret_error)
+
+    monkeypatch.setattr(
+        backfill_module, "backfill_embeddings", fail_after_committed_delete
+    )
+
+    response = await client.post(
+        "/admin/backfill-embeddings/?force=true",
+        headers=admin_auth_header,
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Embedding backfill failed. See server logs for details."
+    )
+    assert secret_error not in response.text
+    assert requested_was_durable is True
+
+    audit_response = await client.get(
+        "/admin/audit-logs/",
+        params={"action": "embedding.backfill"},
+        headers=admin_auth_header,
+    )
+    assert audit_response.status_code == 200
+    entries = audit_response.json()["logs"]
+    failed = next(entry for entry in entries if entry["details"]["outcome"] == "failed")
+    operation_id = failed["details"]["operation_id"]
+    requested = next(
+        entry
+        for entry in entries
+        if entry["details"]["outcome"] == "requested"
+        and entry["details"]["operation_id"] == operation_id
+    )
+    assert requested["details"] == {
+        "force": True,
+        "operation_id": operation_id,
+        "outcome": "requested",
+    }
+    assert failed["details"] == {
+        "force": True,
+        "operation_id": operation_id,
+        "outcome": "failed",
+        "error_code": "backfill_failed",
+    }
+    assert secret_error not in str(failed["details"])
+
 
 @pytest.mark.anyio
 async def test_backfill_embeddings_forbidden_for_non_admin(
@@ -172,6 +274,96 @@ async def test_backfill_embeddings_without_force(
     assert "created" in data
     assert "skipped" in data
     assert "errors" in data
+
+
+@pytest.mark.anyio
+async def test_ai_status_mutation_requires_manage_settings(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Reading operational AI status does not imply authority to mutate it."""
+    import app.platform.extensions as ext_mod
+    from app.platform.extensions.defaults import DefaultPermissionExtension
+
+    class UsersOnlyPermissionExtension(DefaultPermissionExtension):
+        async def check_permission(
+            self,
+            db,
+            user,
+            capability,
+            *,
+            user_roles,
+            permission_matrix=None,
+            resource=None,
+        ):
+            if capability == "manage_users":
+                return True
+            if capability == "manage_settings":
+                return False
+            return await super().check_permission(
+                db,
+                user,
+                capability,
+                user_roles=user_roles,
+                permission_matrix=permission_matrix,
+                resource=resource,
+            )
+
+    previous = ext_mod._extensions.get("permission")
+    ext_mod._extensions["permission"] = UsersOnlyPermissionExtension()
+    try:
+        read_resp = await client.get("/admin/ai-status/", headers=admin_auth_header)
+        assert read_resp.status_code == 200
+        mutate_resp = await client.patch(
+            "/admin/ai-status/",
+            json={"enabled": not read_resp.json()["enabled"]},
+            headers=admin_auth_header,
+        )
+        assert mutate_resp.status_code == 403
+    finally:
+        if previous is None:
+            ext_mod._extensions.pop("permission", None)
+        else:
+            ext_mod._extensions["permission"] = previous
+
+
+@pytest.mark.anyio
+async def test_ai_status_mutation_audit_includes_client_ip(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Persistent-setting audit context includes the request IP."""
+    current = await client.get("/admin/ai-status/", headers=admin_auth_header)
+    assert current.status_code == 200
+    original = current.json()["enabled"]
+    try:
+        updated = await client.patch(
+            "/admin/ai-status/",
+            json={"enabled": not original},
+            headers=admin_auth_header,
+        )
+        assert updated.status_code == 200, updated.text
+
+        audit_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "update"},
+            headers=admin_auth_header,
+        )
+        entries = [
+            entry
+            for entry in audit_resp.json()["logs"]
+            if entry["resource_type"] == "setting"
+            and entry["details"].get("setting_key") == "ai_enabled"
+        ]
+        assert entries
+        assert entries[0]["details"]["new_value"] == (not original)
+        assert entries[0]["ip_address"] is not None
+    finally:
+        await client.patch(
+            "/admin/ai-status/",
+            json={"enabled": original},
+            headers=admin_auth_header,
+        )
 
 
 # ---------------------------------------------------------------------------

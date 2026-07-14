@@ -474,7 +474,9 @@ async def test_verify_email_does_not_reactivate_suspended_account(
 
     # Admin suspends the still-pending account before the user verifies.
     await test_db_session.execute(
-        update(User).where(User.username == username).values(status="suspended")
+        update(User)
+        .where(User.username == username)
+        .values(status="suspended", is_active=False)
     )
     await test_db_session.commit()
 

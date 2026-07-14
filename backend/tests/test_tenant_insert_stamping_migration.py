@@ -54,7 +54,7 @@ def test_migration_source_pins_revision_and_exact_rls_table_boundary():
     snapshot = _load_snapshot()
 
     assert migration.revision == "0016_tenant_insert_stamping"
-    assert migration.down_revision == "0015_add_ingest_job_heartbeat"
+    assert migration.down_revision == "0016_admin_identity_hardening"
     # 0016 established the original six-table boundary. Later linear
     # migrations may extend the current runtime boundary and snapshot.
     assert migration._TABLES == RLS_TABLES[:6]

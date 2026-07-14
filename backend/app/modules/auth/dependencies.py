@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import jwt
+import structlog
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select, update
@@ -20,6 +21,42 @@ from app.platform.extensions import get_identity_extension, get_permission_exten
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+log = structlog.get_logger()
+
+
+def log_permission_denial(
+    request: Request,
+    user: Identity,
+    capability: str,
+    user_roles: set[str],
+    *,
+    resource_type: str | None = None,
+) -> None:
+    """Emit deliberately narrow telemetry for an authorization denial.
+
+    Centralizing this shape keeps manual, resource-aware authorization checks
+    aligned with ``require_permission``. Do not add request headers, query
+    strings, bodies, resource identifiers, or resource objects here: those can
+    contain credentials or tenant data.
+    """
+    scope = getattr(request, "scope", None)
+    route = scope.get("route") if isinstance(scope, dict) else None
+    route_template = getattr(route, "path", None)
+    if not isinstance(route_template, str) or not route_template.startswith("/"):
+        # Never fall back to request.url.path: concrete paths can contain UUIDs,
+        # tokens, or other tenant-controlled identifiers. This generic value is
+        # intentionally less informative when routing metadata is unavailable.
+        route_template = "<unmatched-route>"
+    fields: dict[str, object] = {
+        "user_id": str(user.id),
+        "capability": capability,
+        "user_roles": sorted(user_roles),
+        "method": request.method,
+        "path": route_template,
+    }
+    if resource_type is not None:
+        fields["resource_type"] = resource_type
+    log.warning("permission_denied", **fields)
 
 
 async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
@@ -351,6 +388,7 @@ def require_permission(*capabilities: str):
                 permission_matrix=matrix,
             )
             if not granted:
+                log_permission_denial(request, current_user, cap, user_roles)
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Missing permission: {cap}",

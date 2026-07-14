@@ -56,17 +56,21 @@ export function useUserNames() {
 }
 
 export function useAuditLogs(params: {
+  user_id?: string;
   action?: string;
+  resource_type?: string;
+  resource_id?: string;
   date_from?: string;
   date_to?: string;
   search?: string;
   skip?: number;
   limit?: number;
-}) {
+}, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.auditLogs(params),
     queryFn: () => listAuditLogs(params),
     placeholderData: keepPreviousData,
+    enabled: options?.enabled,
   });
 }
 
@@ -97,7 +101,7 @@ export function useAdminJobs(params: {
   });
 }
 
-export function useFailedJobCount() {
+export function useFailedJobCount(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.failedJobCount,
     queryFn: async () => {
@@ -105,32 +109,36 @@ export function useFailedJobCount() {
       return result.total;
     },
     staleTime: 60_000,
+    enabled,
   });
 }
 
 // #347 (ADM-02): total counts for the Operations sidebar badges (Users, Published
 // Maps, Audit Log). Each reads `.total` off a 1-row list query.
-export function useUserCount() {
+export function useUserCount(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.userCount,
     queryFn: async () => (await listUsers({ skip: 0, limit: 1 })).total,
     staleTime: 60_000,
+    enabled,
   });
 }
 
-export function usePublishedMapCount() {
+export function usePublishedMapCount(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.publishedMapCount,
     queryFn: async () => (await listShareTokens({ skip: 0, limit: 1 })).total,
     staleTime: 60_000,
+    enabled,
   });
 }
 
-export function useAuditLogCount() {
+export function useAuditLogCount(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.auditLogCount,
     queryFn: async () => (await listAuditLogs({ skip: 0, limit: 1 })).total,
     staleTime: 60_000,
+    enabled,
   });
 }
 
@@ -166,7 +174,7 @@ export function useCreateUser() {
 export function useUpdateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, data }: { userId: string; data: { email?: string; is_active?: boolean; role?: string } }) =>
+    mutationFn: ({ userId, data }: { userId: string; data: { email?: string; is_active?: boolean; status?: 'active' | 'suspended' | 'deactivated'; role?: string } }) =>
       updateUser(userId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
@@ -327,11 +335,9 @@ export function useRevokeApiKey() {
 }
 
 // Embedding stats
-// CR-03/WR-04 (Phase 1050-rev): accept the same options shape as
-// useAIStatus so consumers can gate the admin probe with
-// `{ enabled: !!token && isAdmin }`. Without the gate, anonymous and
-// non-admin authed pages (including the admin → logout transition frame)
-// fire GET /admin/embedding-stats/ → 401, defeating SF-06.
+// Accept an enabled option so consumers can gate this manage_users probe with
+// the effective capability. Without it, settings-only operators and the
+// admin → logout transition frame would issue a guaranteed 401/403 request.
 export function useEmbeddingStats(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.embeddingStats,

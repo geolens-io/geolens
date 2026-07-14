@@ -41,6 +41,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
         id=key.id,
         user_id=key.user_id,
         name=key.name,
+        fingerprint=key.fingerprint,
         is_active=key.is_active,
         created_at=key.created_at,
         last_used_at=key.last_used_at,
@@ -88,14 +89,20 @@ async def create_api_key(
             action="api_key.create",
             resource_type="api_key",
             resource_id=api_key.id,
-            details={"name": body.name, "target_user_id": str(body.user_id)},
+            details={
+                "name": body.name,
+                "fingerprint": api_key.fingerprint,
+                "target_user_id": str(body.user_id),
+            },
             ip_address=get_client_ip(request),
         ),
     )
     await db.commit()
+    assert api_key.fingerprint is not None
     return ApiKeyCreateResponse(
         id=api_key.id,
         key=raw_key,
+        fingerprint=api_key.fingerprint,
         name=api_key.name,
         created_at=api_key.created_at,
     )
@@ -157,7 +164,11 @@ async def revoke_api_key(
             action="api_key.revoke",
             resource_type="api_key",
             resource_id=key_id,
-            details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
+            details={
+                "name": api_key.name,
+                "fingerprint": api_key.fingerprint,
+                "target_user_id": str(api_key.user_id),
+            },
             ip_address=get_client_ip(request),
         ),
     )

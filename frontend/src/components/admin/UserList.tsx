@@ -64,6 +64,7 @@ import { FilterSelect } from './FilterSelect';
 import { RoleSelect } from './RoleSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { useAuthStore } from '@/stores/auth-store';
 
 const PAGE_SIZE = 20;
 
@@ -71,11 +72,13 @@ const STATUS_OPTIONS = [
   { value: '', labelKey: 'users.filters.allUsers' },
   { value: 'pending', labelKey: 'users.filters.pending' },
   { value: 'active', labelKey: 'users.filters.active' },
+  { value: 'suspended', labelKey: 'users.filters.suspended' },
   { value: 'deactivated', labelKey: 'users.filters.deactivated' },
 ];
 
 export function UserList() {
   const { t } = useTranslation('admin');
+  const currentUserId = useAuthStore((state) => state.user?.id);
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -280,12 +283,8 @@ export function UserList() {
                     </TableCell>
                     <TableCell>
                       {(() => {
-                        const colorKey = user.status === 'pending'
-                          ? 'pending'
-                          : !user.is_active ? 'deactivated' : 'active';
-                        const label = user.status === 'pending'
-                          ? t('users.status.pending')
-                          : !user.is_active ? t('users.status.deactivated') : t('users.status.active');
+                        const colorKey = user.status;
+                        const label = t(`users.status.${user.status}`);
                         return (
                           <Badge variant="outline" className={userStatusColors[colorKey]}>
                             {label}
@@ -330,14 +329,16 @@ export function UserList() {
                           <DropdownMenuItem onClick={() => setEditingUser(user)}>
                             <Edit className="me-2 h-4 w-4" /> {t('common:edit')}
                           </DropdownMenuItem>
-                          {user.is_active ? (
+                          {user.is_active && user.id !== currentUserId ? (
                             <DropdownMenuItem onClick={() => handleDeactivate(user)} className="text-destructive">
                               <UserX className="me-2 h-4 w-4" /> {t('users.actions.deactivate')}
                             </DropdownMenuItem>
                           ) : null}
-                          <DropdownMenuItem onClick={() => setDeletingUser(user)} className="text-destructive">
-                            <Trash className="me-2 h-4 w-4" /> {t('common:delete')}
-                          </DropdownMenuItem>
+                          {user.id !== currentUserId && (
+                            <DropdownMenuItem onClick={() => setDeletingUser(user)} className="text-destructive">
+                              <Trash className="me-2 h-4 w-4" /> {t('common:delete')}
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

@@ -20,18 +20,28 @@ export interface SettingChange {
   key: string;
   current: unknown;
   imported: unknown;
-  action: 'update' | 'no_change';
+  action: 'update' | 'no_change' | 'reset' | 'skip_unknown' | 'skip_restricted';
+  reason?: string | null;
 }
 
 export interface OAuthProviderChange {
   slug: string;
-  action: 'create' | 'update' | 'no_change' | 'delete';
+  action: 'create' | 'update' | 'no_change' | 'delete' | 'replace';
   changed_fields?: string[] | null;
+  dependent_accounts_deleted: number;
 }
 
 export interface DryRunResult {
-  settings: { changes: SettingChange[] };
-  oauth_providers: { changes: OAuthProviderChange[] };
+  settings: {
+    changes: SettingChange[];
+    skipped_unknown?: string[];
+    skipped_restricted?: string[];
+  };
+  oauth_providers: {
+    changes: OAuthProviderChange[];
+    dependent_accounts_deleted: number;
+  };
+  preview_token?: string | null;
 }
 
 export interface ImportResult {
@@ -41,6 +51,7 @@ export interface ImportResult {
   oauth_created: number;
   oauth_updated: number;
   oauth_deleted: number;
+  oauth_accounts_deleted: number;
 }
 
 // --- API functions ---
@@ -62,9 +73,13 @@ export async function dryRunImport(
 export async function importConfig(
   data: ConfigImportRequest,
   mode: ImportMode,
+  previewToken?: string | null,
 ): Promise<ImportResult> {
   return apiFetch<ImportResult>(`/config-ops/import/?mode=${mode}`, {
     method: 'POST',
+    headers: previewToken
+      ? { 'X-Config-Preview-Token': previewToken }
+      : undefined,
     body: JSON.stringify(data),
   });
 }

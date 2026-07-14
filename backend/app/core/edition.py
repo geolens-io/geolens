@@ -25,6 +25,25 @@ def _is_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _requested_edition() -> str:
+    """Return the normalized explicit edition, rejecting invalid operator input."""
+    raw_value = os.environ.get("GEOLENS_EDITION")
+    if raw_value is None:
+        # BaseSettings reads bare-metal .env files without exporting their
+        # values into os.environ. Fall back to the validated Settings value so
+        # the startup guards honor the same contract outside Compose.
+        from app.core.config import settings
+
+        raw_value = settings.geolens_edition
+    value = (raw_value or "").lower().strip()
+    if value not in ("", "community", "enterprise"):
+        raise RuntimeError(
+            "GEOLENS_EDITION must be unset, 'community', or 'enterprise'. "
+            "Refusing to infer an edition from an invalid explicit value."
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class EditionInfo:
     """Immutable edition descriptor."""
@@ -57,6 +76,7 @@ def init_edition(loaded_extensions: list[str]) -> None:
     """
     global _info
 
+    env_val = _requested_edition()
     license_info: LicenseInfo | None = load_license()
     enforce = _is_truthy(os.environ.get("GEOLENS_LICENSE_ENFORCE"))
 
@@ -77,8 +97,6 @@ def init_edition(loaded_extensions: list[str]) -> None:
         return
 
     # No valid license from here on.
-    env_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
-
     if enforce:
         if env_val == "enterprise" or loaded_extensions:
             logger.warning(
@@ -167,7 +185,7 @@ def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
             image build rather than attempting a runtime ``uv add`` under a
             read-only rootfs.
     """
-    env_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
+    env_val = _requested_edition()
 
     if env_val != "enterprise":
         # Not explicitly requesting enterprise — OSS default or community explicit.
@@ -218,7 +236,12 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
 
     References: GUARD-01, TSEAM-03, T-1207-06
     """
-    mode_val = os.environ.get("GEOLENS_TENANCY_MODE", "").lower().strip()
+    raw_mode = os.environ.get("GEOLENS_TENANCY_MODE")
+    if raw_mode is None:
+        from app.core.config import settings
+
+        raw_mode = settings.geolens_tenancy_mode
+    mode_val = (raw_mode or "").lower().strip()
 
     if mode_val != "multi_tenant":
         # Not requesting multi_tenant — single_tenant default or not set.

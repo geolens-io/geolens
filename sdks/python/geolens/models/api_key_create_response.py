@@ -20,12 +20,14 @@ class ApiKeyCreateResponse:
     """
     Attributes:
         created_at (datetime.datetime):
+        fingerprint (str): Non-secret key identifier (prefix and last four characters)
         id (UUID):
         key (str): The API key secret (shown only once)
         name (str):
     """
 
     created_at: datetime.datetime
+    fingerprint: str
     id: UUID
     key: str
     name: str
@@ -33,6 +35,8 @@ class ApiKeyCreateResponse:
 
     def to_dict(self) -> dict[str, Any]:
         created_at = self.created_at.isoformat()
+
+        fingerprint = self.fingerprint
 
         id = str(self.id)
 
@@ -45,6 +49,7 @@ class ApiKeyCreateResponse:
         field_dict.update(
             {
                 "created_at": created_at,
+                "fingerprint": fingerprint,
                 "id": id,
                 "key": key,
                 "name": name,
@@ -58,6 +63,8 @@ class ApiKeyCreateResponse:
         d = dict(src_dict)
         created_at = isoparse(d.pop("created_at"))
 
+        fingerprint = d.pop("fingerprint")
+
         id = UUID(d.pop("id"))
 
         key = d.pop("key")
@@ -66,6 +73,7 @@ class ApiKeyCreateResponse:
 
         api_key_create_response = cls(
             created_at=created_at,
+            fingerprint=fingerprint,
             id=id,
             key=key,
             name=name,

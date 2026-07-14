@@ -174,7 +174,9 @@ async def seed_bootstrap_identity() -> None:
     await seed_initial_admin()
 
 
-async def sweep_stale_jobs_once() -> tuple[int, int]:
+async def sweep_stale_jobs_once(
+    *, detailed: bool = False
+) -> tuple[int, int] | dict[str, int]:
     """Run one stale-ingest sweep without issuing an unscoped hosted query.
 
     Single-tenant mode preserves the historical one-session, one-call path.
@@ -187,6 +189,9 @@ async def sweep_stale_jobs_once() -> tuple[int, int]:
 
     if not is_multi_tenant():
         async with async_session() as session:
+            if detailed:
+                outcome = await fail_stale_jobs(session, detailed=True)
+                return outcome.as_dict()
             return await fail_stale_jobs(session)
 
     async with async_session() as registry_session:
@@ -200,13 +205,37 @@ async def sweep_stale_jobs_once() -> tuple[int, int]:
 
     pending_total = 0
     running_total = 0
+    detail_totals: dict[str, int] = dict.fromkeys(
+        (
+            "pending_failed",
+            "running_failed",
+            "total_cleaned",
+            "vrt_assets_recovered",
+            "vrt_generations_failed",
+            "terminal_jobs_purged",
+            "staged_paths_considered",
+            "local_files_reaped",
+            "storage_objects_reaped",
+            "staged_paths_skipped",
+            "staged_cleanup_failures",
+            "total_affected",
+        ),
+        0,
+    )
     for tenant_id in tenant_ids:
         try:
             with tenant_job_context(str(tenant_id)):
                 async with async_session() as session:
-                    pending_failed, running_failed = await fail_stale_jobs(session)
-            pending_total += pending_failed
-            running_total += running_failed
+                    if detailed:
+                        outcome = await fail_stale_jobs(session, detailed=True)
+                    else:
+                        pending_failed, running_failed = await fail_stale_jobs(session)
+            if detailed:
+                for key, value in outcome.as_dict().items():
+                    detail_totals[key] = detail_totals.get(key, 0) + value
+            else:
+                pending_total += pending_failed
+                running_total += running_failed
         except Exception as exc:  # broad: fleet sweep continues tenant-by-tenant
             logger.warning(
                 "Stale jobs sweep failed for tenant",
@@ -214,6 +243,8 @@ async def sweep_stale_jobs_once() -> tuple[int, int]:
                 error=str(exc),
                 exc_info=True,
             )
+    if detailed:
+        return detail_totals
     return pending_total, running_total
 
 

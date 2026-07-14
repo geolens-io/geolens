@@ -274,11 +274,10 @@ endif
 version-check: ## Assert all version sites agree (CI gate)
 	uv run --no-project python scripts/check_version_coherence.py
 
-# `make env-doc-check` — env-doc-drift gate (DOC-01). Parses the env keys
-# install.sh persists (update_env_value <KEY>) and exits non-zero if any are
-# absent from .env.example. Keeps the hand-copy `.env.example` template honest
-# against what the installer actually writes. Plain python3 — no project deps.
-env-doc-check: ## Assert install.sh-written env keys are documented in .env.example
+# `make env-doc-check` — environment-contract drift gate (DOC-01). Keeps
+# Settings, Compose service plumbing, installer writes, and .env.example
+# aligned. Plain python3 — no project dependencies.
+env-doc-check: ## Assert Settings, Compose, installer, and env docs stay aligned
 	python3 scripts/check_env_doc_drift.py
 
 # `make public-surface-check` — public launch-surface wording gate. Plain

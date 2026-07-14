@@ -11,3 +11,9 @@ class ConfigLockedError(Exception):
     """Raised when configuration is locked to environment variables."""
 
     pass
+
+
+class ConfigPreviewError(Exception):
+    """Raised when an overwrite is not backed by a current, matching preview."""
+
+    pass

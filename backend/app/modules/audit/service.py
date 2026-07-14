@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -16,11 +17,47 @@ from app.core.text import escape_ilike
 __all__ = [
     "AuditEvent",
     "audit_emit",
+    "audit_emit_durable",
     "log_action",
     "query_audit_logs",
     "query_column_ddl_history",
     "stream_audit_logs",
 ]
+
+
+async def audit_emit_durable(event: AuditEvent) -> None:
+    """Commit one audit event in a fresh, independently owned session.
+
+    Streaming responses outlive their request handler and must not reuse the
+    request-scoped ``AsyncSession`` for completion/failure bookkeeping. Keeping
+    this helper session-owned also prevents concurrent access when a response
+    generator is reading through its own cursor.
+    """
+    # Resolve lazily so tests/embedders that replace the application session
+    # factory do not leave this streaming helper pinned to a stale engine.
+    from app.core.db import async_session
+    from app.modules.auth.models import User
+
+    async with async_session() as session:
+        try:
+            durable_event = event
+            if event.user_id is not None:
+                # Resolve the actor under a key-share lock in the same
+                # transaction as the insert. If deletion already won, emit an
+                # anonymous historical event; if the actor still exists, the
+                # lock holds a concurrent DELETE until the FK row is committed.
+                actor_id = await session.scalar(
+                    select(User.id)
+                    .where(User.id == event.user_id)
+                    .with_for_update(read=True, key_share=True)
+                )
+                if actor_id is None:
+                    durable_event = replace(event, user_id=None)
+            await audit_emit(session, durable_event)
+            await session.commit()
+        except BaseException:  # includes stream-task cancellation during shutdown
+            await session.rollback()
+            raise
 
 
 def _apply_filters(
@@ -30,8 +67,10 @@ def _apply_filters(
     action: str | None = None,
     resource_type: str | None = None,
     resource_id: uuid.UUID | None = None,
+    exclude_resource_id: uuid.UUID | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    snapshot_at: datetime | None = None,
     search: str | None = None,
 ):
     """Apply common audit log filters to a query."""
@@ -45,10 +84,14 @@ def _apply_filters(
         query = query.where(AuditLog.resource_type == resource_type)
     if resource_id is not None:
         query = query.where(AuditLog.resource_id == resource_id)
+    if exclude_resource_id is not None:
+        query = query.where(AuditLog.resource_id.is_distinct_from(exclude_resource_id))
     if date_from is not None:
         query = query.where(AuditLog.created_at >= date_from)
     if date_to is not None:
         query = query.where(AuditLog.created_at <= date_to)
+    if snapshot_at is not None:
+        query = query.where(AuditLog.created_at <= snapshot_at)
     if search is not None:
         # ADMIN-02 (Phase 279 / M-02; fixed in T-1): rewrite ILIKE to
         # lower(catalog.immutable_unaccent(...)).like so the planner picks the
@@ -121,6 +164,7 @@ async def query_audit_logs(
     resource_id: uuid.UUID | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    snapshot_at: datetime | None = None,
     search: str | None = None,
     skip: int = 0,
     limit: int = 50,
@@ -146,6 +190,7 @@ async def query_audit_logs(
         resource_id=resource_id,
         date_from=date_from,
         date_to=date_to,
+        snapshot_at=snapshot_at,
         search=search,
     )
     query = query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit)
@@ -164,6 +209,7 @@ async def query_audit_logs(
             resource_id=resource_id,
             date_from=date_from,
             date_to=date_to,
+            snapshot_at=snapshot_at,
             search=search,
         )
         count_result = await session.execute(count_query)
@@ -248,10 +294,14 @@ async def query_column_ddl_history(
 async def stream_audit_logs(
     session: AsyncSession,
     *,
+    user_id: uuid.UUID | None = None,
     action: str | None = None,
     resource_type: str | None = None,
+    resource_id: uuid.UUID | None = None,
+    exclude_resource_id: uuid.UUID | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    snapshot_at: datetime | None = None,
     search: str | None = None,
 ) -> AsyncIterator[AuditLog]:
     """Stream audit logs with filters, no pagination.
@@ -262,10 +312,14 @@ async def stream_audit_logs(
     query = select(AuditLog).options(joinedload(AuditLog.user))
     query = _apply_filters(
         query,
+        user_id=user_id,
         action=action,
         resource_type=resource_type,
+        resource_id=resource_id,
+        exclude_resource_id=exclude_resource_id,
         date_from=date_from,
         date_to=date_to,
+        snapshot_at=snapshot_at,
         search=search,
     )
     query = query.order_by(AuditLog.created_at.desc())

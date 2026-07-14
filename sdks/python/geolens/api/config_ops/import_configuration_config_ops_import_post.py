@@ -20,8 +20,11 @@ def _get_kwargs(
     *,
     body: ConfigImportRequest,
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
+    x_config_preview_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_config_preview_token, Unset):
+        headers["X-Config-Preview-Token"] = x_config_preview_token
 
     params: dict[str, Any] = {}
 
@@ -122,6 +125,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ConfigImportRequest,
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
+    x_config_preview_token: None | str | Unset = UNSET,
 ) -> Response[ImportResult | ProblemDetail]:
     """Import Configuration
 
@@ -132,6 +136,8 @@ def sync_detailed(
 
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
+        x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
+            run. Required for overwrite mode.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -145,6 +151,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         body=body,
         mode=mode,
+        x_config_preview_token=x_config_preview_token,
     )
 
     response = client.get_httpx_client().request(
@@ -159,6 +166,7 @@ def sync(
     client: AuthenticatedClient,
     body: ConfigImportRequest,
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
+    x_config_preview_token: None | str | Unset = UNSET,
 ) -> ImportResult | ProblemDetail | None:
     """Import Configuration
 
@@ -169,6 +177,8 @@ def sync(
 
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
+        x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
+            run. Required for overwrite mode.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -183,6 +193,7 @@ def sync(
         client=client,
         body=body,
         mode=mode,
+        x_config_preview_token=x_config_preview_token,
     ).parsed
 
 
@@ -191,6 +202,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ConfigImportRequest,
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
+    x_config_preview_token: None | str | Unset = UNSET,
 ) -> Response[ImportResult | ProblemDetail]:
     """Import Configuration
 
@@ -201,6 +213,8 @@ async def asyncio_detailed(
 
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
+        x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
+            run. Required for overwrite mode.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -214,6 +228,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         body=body,
         mode=mode,
+        x_config_preview_token=x_config_preview_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -226,6 +241,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ConfigImportRequest,
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
+    x_config_preview_token: None | str | Unset = UNSET,
 ) -> ImportResult | ProblemDetail | None:
     """Import Configuration
 
@@ -236,6 +252,8 @@ async def asyncio(
 
     Args:
         mode (ImportConfigurationConfigOpsImportPostMode | Unset):  Default: 'merge'.
+        x_config_preview_token (None | str | Unset): Signed token returned by the matching dry-
+            run. Required for overwrite mode.
         body (ConfigImportRequest): Payload for importing configuration.
 
     Raises:
@@ -251,5 +269,6 @@ async def asyncio(
             client=client,
             body=body,
             mode=mode,
+            x_config_preview_token=x_config_preview_token,
         )
     ).parsed

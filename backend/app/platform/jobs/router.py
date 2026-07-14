@@ -1,33 +1,35 @@
 """Job status API endpoints: poll ingestion job progress and retry."""
 
 import uuid
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, cast, overload
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
     require_mode_permission,
     require_permission,
 )
-from app.core.dependencies import get_db
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
+from app.platform.extensions import get_permission_extension
 from app.platform.jobs.models import IngestJob
-from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobStatusResponse,
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
+from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
 
 log = structlog.get_logger()
@@ -43,6 +45,113 @@ router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUT
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 # Jobs stuck in "pending" longer than this are considered orphaned (never queued).
 PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
+
+
+@dataclass(frozen=True)
+class StaleCleanupOutcome:
+    """Complete result of one stale-job and retained-staging cleanup pass."""
+
+    pending_failed: int
+    running_failed: int
+    vrt_assets_recovered: int
+    vrt_generations_failed: int
+    terminal_jobs_purged: int
+    staged_paths_considered: int
+    local_files_reaped: int
+    storage_objects_reaped: int
+    staged_paths_skipped: int
+    staged_cleanup_failures: int
+    _staged_paths: tuple[str, ...] = field(default=(), repr=False, compare=False)
+
+    @property
+    def total_cleaned(self) -> int:
+        """Legacy count: ingest jobs transitioned from active to failed."""
+        return self.pending_failed + self.running_failed
+
+    @property
+    def total_affected(self) -> int:
+        """Rows and staged objects mutated by the cleanup pass."""
+        return (
+            self.total_cleaned
+            + self.vrt_assets_recovered
+            + self.vrt_generations_failed
+            + self.terminal_jobs_purged
+            + self.local_files_reaped
+            + self.storage_objects_reaped
+        )
+
+    def as_dict(self) -> dict[str, int]:
+        """Return the stable API and audit detail shape."""
+        return {
+            "pending_failed": self.pending_failed,
+            "running_failed": self.running_failed,
+            "total_cleaned": self.total_cleaned,
+            "vrt_assets_recovered": self.vrt_assets_recovered,
+            "vrt_generations_failed": self.vrt_generations_failed,
+            "terminal_jobs_purged": self.terminal_jobs_purged,
+            "staged_paths_considered": self.staged_paths_considered,
+            "local_files_reaped": self.local_files_reaped,
+            "storage_objects_reaped": self.storage_objects_reaped,
+            "staged_paths_skipped": self.staged_paths_skipped,
+            "staged_cleanup_failures": self.staged_cleanup_failures,
+            "total_affected": self.total_affected,
+        }
+
+
+async def _reap_committed_staged_paths(
+    outcome: StaleCleanupOutcome,
+) -> StaleCleanupOutcome:
+    """Delete staging artifacts only after their job-row purge is durable."""
+    from app.core.tenancy import is_multi_tenant
+
+    local_files_reaped = 0
+    storage_objects_reaped = 0
+    staged_paths_skipped = 0
+    staged_cleanup_failures = 0
+    staging_root = Path(settings.upload_staging_dir).resolve()
+
+    for file_path in outcome._staged_paths:
+        try:
+            if is_multi_tenant() and file_path.startswith("staging/"):
+                # Hosted jobs store logical keys. Resolve the active tenant's
+                # provider namespace before deleting the staged object.
+                from app.platform.storage import get_storage
+
+                await get_storage().delete(resolve_current_storage_key(file_path))
+                storage_objects_reaped += 1
+                continue
+
+            local = Path(file_path).resolve()
+            if local.exists():
+                if local.is_relative_to(staging_root):
+                    local.unlink(missing_ok=True)
+                    local_files_reaped += 1
+                else:
+                    staged_paths_skipped += 1
+            elif file_path.startswith("staging/"):
+                # Only presigned-upload staging keys ("staging/{job_id}/…")
+                # may be deleted. Manifest sources can reference arbitrary
+                # same-bucket keys through this column.
+                from app.platform.storage import get_storage
+
+                await get_storage().delete(resolve_current_storage_key(file_path))
+                storage_objects_reaped += 1
+            else:
+                staged_paths_skipped += 1
+        except Exception:  # broad: best-effort staging cleanup
+            staged_cleanup_failures += 1
+            log.warning(
+                "Failed to reap staged file for purged jobs",
+                file_path=file_path,
+            )
+
+    return replace(
+        outcome,
+        local_files_reaped=local_files_reaped,
+        storage_objects_reaped=storage_objects_reaped,
+        staged_paths_skipped=staged_paths_skipped,
+        staged_cleanup_failures=staged_cleanup_failures,
+    )
 
 
 async def sweep_stale_vrt_assets(
@@ -147,8 +256,35 @@ async def sweep_stale_vrt_assets(
     return len(stale_asset_ids), len(stale_generation_ids)
 
 
-async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
-    """Mark stale ingest jobs as failed. Returns (pending_failed, running_failed).
+@overload
+async def fail_stale_jobs(
+    db: AsyncSession,
+    *,
+    commit: bool = True,
+    detailed: Literal[False] = False,
+) -> tuple[int, int]: ...
+
+
+@overload
+async def fail_stale_jobs(
+    db: AsyncSession,
+    *,
+    commit: bool = True,
+    detailed: Literal[True],
+) -> StaleCleanupOutcome: ...
+
+
+async def fail_stale_jobs(
+    db: AsyncSession,
+    *,
+    commit: bool = True,
+    detailed: bool = False,
+) -> tuple[int, int] | StaleCleanupOutcome:
+    """Mark stale jobs failed and reap retained staging artifacts.
+
+    The default two-item tuple preserves the background-sweeper contract.
+    ``detailed=True`` returns the complete operational outcome for the admin
+    endpoint and its audit event.
 
     Stale rules:
       - status='pending' and created_at older than PENDING_TIMEOUT_SECONDS (orphan, never queued)
@@ -199,7 +335,17 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
     running_job_ids = list(running_result.scalars())
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
-    await sweep_stale_vrt_assets(db, running_cutoff)
+    vrt_assets_recovered, vrt_generations_failed = await sweep_stale_vrt_assets(
+        db, running_cutoff
+    )
+
+    terminal_jobs_purged = 0
+    staged_paths_considered = 0
+    local_files_reaped = 0
+    storage_objects_reaped = 0
+    staged_paths_skipped = 0
+    staged_cleanup_failures = 0
+    deleted_paths: set[str] = set()
 
     # fix(#434): purge terminal jobs past retention so the admin Jobs page
     # doesn't accumulate history forever. Cutoff is on finished-at
@@ -263,6 +409,7 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
             .returning(IngestJob.file_path)
         )
         deleted_rows = deleted.all()
+        terminal_jobs_purged = len(deleted_rows)
         deleted_paths = {fp for (fp,) in deleted_rows if fp}
         if deleted_rows:
             log.info(
@@ -291,47 +438,78 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
                 )
             )
             deleted_paths -= set(survivors.scalars())
-        from app.core.tenancy import is_multi_tenant
+        staged_paths_considered = len(deleted_paths)
+    outcome = StaleCleanupOutcome(
+        pending_failed=len(pending_job_ids),
+        running_failed=len(running_job_ids),
+        vrt_assets_recovered=vrt_assets_recovered,
+        vrt_generations_failed=vrt_generations_failed,
+        terminal_jobs_purged=terminal_jobs_purged,
+        staged_paths_considered=staged_paths_considered,
+        local_files_reaped=local_files_reaped,
+        storage_objects_reaped=storage_objects_reaped,
+        staged_paths_skipped=staged_paths_skipped,
+        staged_cleanup_failures=staged_cleanup_failures,
+        _staged_paths=tuple(sorted(deleted_paths)),
+    )
+    if commit:
+        # Never remove an external artifact for a DELETE that may still roll
+        # back. A crash after this commit can leak a staging object, but it
+        # cannot restore a job row whose only retry input has been destroyed.
+        await db.commit()
+        outcome = await _reap_committed_staged_paths(outcome)
+    if detailed:
+        return outcome
+    return outcome.pending_failed, outcome.running_failed
 
-        staging_root = Path(settings.upload_staging_dir).resolve()
-        for file_path in deleted_paths:
-            try:
-                if is_multi_tenant() and file_path.startswith("staging/"):
-                    # A relative staging key is never a local path in hosted
-                    # mode, even if the process cwd happens to contain a
-                    # matching name. Resolve it to this tenant's provider
-                    # namespace before deletion.
-                    from app.platform.storage import get_storage
 
-                    await get_storage().delete(resolve_current_storage_key(file_path))
-                else:
-                    local = Path(file_path).resolve()
-                    if local.exists():
-                        if local.is_relative_to(staging_root):
-                            local.unlink(missing_ok=True)
-                    elif file_path.startswith("staging/"):
-                        # codex P1 (r9): only presigned-upload staging keys
-                        # ("staging/{job_id}/…", see ingest service/router) may
-                        # be deleted from object storage — manifest sources
-                        # store arbitrary same-bucket keys (user-managed
-                        # objects) as relative file_path values too.
-                        from app.platform.storage import get_storage
+async def _can_access_another_users_job(
+    request: Request,
+    db: AsyncSession,
+    user: Identity,
+    job: IngestJob,
+) -> bool:
+    """Delegate cross-user job access to the effective permission policy.
 
-                        await get_storage().delete(
-                            resolve_current_storage_key(file_path)
-                        )
-            except Exception:  # broad: best-effort staging cleanup
-                log.warning(
-                    "Failed to reap staged file for purged jobs",
-                    file_path=file_path,
-                )
+    Owner access is handled by callers before invoking this helper. Passing the
+    job as ``resource`` lets enterprise extensions apply finer-grained policy
+    without core code falling back to a hard-coded role-name check.
+    """
+    # Deferred by design: shared platform code must not import product-domain
+    # policy implementations at module load time (D-17).
+    from app.modules.auth.dependencies import (
+        get_cached_user_roles,
+        log_permission_denial,
+    )
+    from app.modules.auth.permissions import get_effective_permissions
 
-    await db.commit()
-    return len(pending_job_ids), len(running_job_ids)
+    user_roles = await get_cached_user_roles(request, db, user)
+    matrix = getattr(request.state, "_effective_permissions", None)
+    if matrix is None:
+        matrix = await get_effective_permissions(db)
+        request.state._effective_permissions = matrix
+    granted = await get_permission_extension().check_permission(
+        db,
+        user,
+        "manage_users",
+        user_roles=user_roles,
+        permission_matrix=matrix,
+        resource=job,
+    )
+    if not granted:
+        log_permission_denial(
+            request,
+            user,
+            "manage_users",
+            user_roles,
+            resource_type="ingest_job",
+        )
+    return granted
 
 
 @router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
 async def cleanup_stale_jobs(
+    request: Request,
     user: Identity = Depends(
         require_mode_permission(
             single_tenant="manage_users", multi_tenant="manage_tenants"
@@ -349,25 +527,140 @@ async def cleanup_stale_jobs(
     """
     from app.core.tenancy import is_multi_tenant
 
-    if is_multi_tenant():
-        # fix(#507): FORCE RLS makes a request session visible only to its
-        # current tenant. Reuse the lifecycle sweeper so this fleet-level
-        # endpoint opens a separately scoped transaction for every tenant.
-        from app.api.main import sweep_stale_jobs_once
+    # Deferred by design to preserve the platform -> modules layer boundary.
+    from app.modules.audit.service import AuditEvent, audit_emit, audit_emit_durable
 
-        pending_failed, running_failed = await sweep_stale_jobs_once()
-    else:
-        pending_failed, running_failed = await fail_stale_jobs(db)
-    return StaleCleanupResponse(
-        pending_failed=pending_failed,
-        running_failed=running_failed,
-        total_cleaned=pending_failed + running_failed,
+    operation_uuid = uuid.uuid4()
+    operation_id = str(operation_uuid)
+    ip_address = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="job.cleanup_stale",
+            resource_type="ingest_job",
+            resource_id=operation_uuid,
+            details={"operation_id": operation_id, "outcome": "requested"},
+            ip_address=ip_address,
+        ),
     )
+    # Retention cleanup can unlink local files and delete S3 objects. Make the
+    # operator's request durable before entering that irreversible phase.
+    await db.commit()
+
+    try:
+        multi_tenant = is_multi_tenant()
+        if multi_tenant:
+            # FORCE RLS makes a request session visible only to its current
+            # tenant. The lifecycle helper opens a scoped transaction for
+            # every tenant and reaps each tenant's staged objects in context.
+            from app.api.main import sweep_stale_jobs_once
+
+            fleet_details = await sweep_stale_jobs_once(detailed=True)
+            if not isinstance(fleet_details, dict):
+                raise TypeError("Detailed fleet cleanup returned no details")
+            database_details = fleet_details
+        else:
+            outcome = await fail_stale_jobs(db, commit=False, detailed=True)
+            database_details = outcome.as_dict()
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="job.cleanup_stale",
+                resource_type="ingest_job",
+                resource_id=operation_uuid,
+                details={
+                    "operation_id": operation_id,
+                    "outcome": "database_committed",
+                    **database_details,
+                },
+                ip_address=ip_address,
+            ),
+        )
+        # In single-tenant mode, commit database mutations plus a durable phase
+        # marker before touching local/S3 artifacts. The fleet helper applies
+        # that ordering inside each tenant-scoped transaction.
+        await db.commit()
+        if multi_tenant:
+            details = database_details
+        else:
+            outcome = await _reap_committed_staged_paths(outcome)
+            details = outcome.as_dict()
+    except Exception as exc:  # broad: cleanup spans DB and artifact deletion
+        await db.rollback()
+        # Cleanup failures can embed local paths or storage keys in exception
+        # messages. Record only the exception class in operator telemetry; the
+        # correlated audit event likewise carries a stable error code only.
+        log.error(
+            "Stale job cleanup failed",
+            operation_id=operation_id,
+            user_id=str(user.id),
+            error_type=type(exc).__name__,
+        )
+        try:
+            # A failed commit may leave the request session/connection unusable;
+            # persist the terminal outcome through an independently owned session.
+            await audit_emit_durable(
+                AuditEvent(
+                    user_id=user.id,
+                    action="job.cleanup_stale",
+                    resource_type="ingest_job",
+                    resource_id=operation_uuid,
+                    details={
+                        "operation_id": operation_id,
+                        "outcome": "failed",
+                        "error_code": "cleanup_failed",
+                    },
+                    ip_address=ip_address,
+                )
+            )
+        except Exception as audit_exc:  # broad: retain the generic failure response
+            log.error(
+                "Failed to persist stale cleanup failure audit",
+                operation_id=operation_id,
+                user_id=str(user.id),
+                error_type=type(audit_exc).__name__,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stale job cleanup failed. See server logs for details.",
+        ) from None
+
+    # Cleanup has already committed and reaped its artifacts. A bookkeeping
+    # outage must not turn that successful mutation into a retryable 500 or
+    # emit a contradictory ``failed`` event; the committed phase marker still
+    # provides a durable recovery trail.
+    try:
+        await audit_emit_durable(
+            AuditEvent(
+                user_id=user.id,
+                action="job.cleanup_stale",
+                resource_type="ingest_job",
+                resource_id=operation_uuid,
+                details={
+                    "operation_id": operation_id,
+                    "outcome": "completed",
+                    **details,
+                },
+                ip_address=ip_address,
+            )
+        )
+    except Exception as audit_exc:  # broad: cleanup itself has succeeded
+        log.error(
+            "Failed to persist stale cleanup completion audit",
+            operation_id=operation_id,
+            user_id=str(user.id),
+            error_type=type(audit_exc).__name__,
+        )
+
+    return StaleCleanupResponse(**details)
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
     job_id: uuid.UUID,
+    request: Request,
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
@@ -384,16 +677,15 @@ async def get_job_status(
             detail="Job not found",
         )
 
-    # Authorization: only creator or admin
-    if job.created_by != user.id:
-        from app.modules.catalog.authorization import get_user_roles
-
-        user_roles = await get_user_roles(db, user)
-        if "admin" not in user_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to view this job",
-            )
+    # Owners always retain access. Cross-user access follows the active
+    # capability policy rather than assuming a hard-coded "admin" role.
+    if job.created_by != user.id and not await _can_access_another_users_job(
+        request, db, user, job
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this job",
+        )
 
     now = datetime.now(timezone.utc)
 
@@ -662,6 +954,7 @@ async def get_job_status_by_dataset(
 )
 async def retry_job(
     job_id: uuid.UUID,
+    request: Request,
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
@@ -670,6 +963,9 @@ async def retry_job(
     Only callable on jobs with status 'failed'. The staging file must
     still exist (preserved on failure for retry).
     """
+    # Deferred by design to preserve the platform -> modules layer boundary.
+    from app.modules.audit.service import AuditEvent, audit_emit
+
     result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
     job = result.scalar_one_or_none()
 
@@ -679,16 +975,15 @@ async def retry_job(
             detail="Job not found",
         )
 
-    # Authorization: only creator or admin
-    if job.created_by != user.id:
-        from app.modules.catalog.authorization import get_user_roles
-
-        user_roles = await get_user_roles(db, user)
-        if "admin" not in user_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to retry this job",
-            )
+    # Owners always retain access. Cross-user retries additionally require the
+    # effective manage_users capability through PermissionExtension.
+    if job.created_by != user.id and not await _can_access_another_users_job(
+        request, db, user, job
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to retry this job",
+        )
 
     if job.status != "failed":
         raise HTTPException(
@@ -736,6 +1031,28 @@ async def retry_job(
             status_code=status.HTTP_409_CONFLICT,
             detail="Job was already retried by another request",
         )
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="job.retry",
+            resource_type="ingest_job",
+            resource_id=job.id,
+            details={
+                "job_owner_id": (
+                    str(job.created_by) if job.created_by is not None else None
+                ),
+                "previous_attempt_id": (
+                    str(previous_attempt_id)
+                    if previous_attempt_id is not None
+                    else None
+                ),
+                "next_attempt_id": str(next_attempt_id),
+                "cross_user": job.created_by != user.id,
+            },
+            ip_address=get_client_ip(request),
+        ),
+    )
     await db.commit()
     await db.refresh(job)
 

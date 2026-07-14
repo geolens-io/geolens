@@ -55,6 +55,8 @@ export async function listAuditLogs(
   params: {
     user_id?: string;
     action?: string;
+    resource_type?: string;
+    resource_id?: string;
     date_from?: string;
     date_to?: string;
     search?: string;
@@ -65,6 +67,8 @@ export async function listAuditLogs(
   const query = new URLSearchParams();
   if (params.user_id) query.set('user_id', params.user_id);
   if (params.action) query.set('action', params.action);
+  if (params.resource_type) query.set('resource_type', params.resource_type);
+  if (params.resource_id) query.set('resource_id', params.resource_id);
   if (params.date_from) query.set('date_from', params.date_from);
   if (params.date_to) query.set('date_to', params.date_to);
   if (params.search) query.set('search', params.search);
@@ -87,6 +91,7 @@ export async function createUser(data: {
 export async function updateUser(userId: string, data: {
   email?: string;
   is_active?: boolean;
+  status?: 'active' | 'suspended' | 'deactivated';
   role?: string;
 }): Promise<UserResponse> {
   return apiFetch<UserResponse>(`/admin/users/${userId}`, { method: 'PATCH', body: JSON.stringify(data) });
@@ -199,14 +204,20 @@ export async function updateSemanticSearch(enabled: boolean): Promise<void> {
 export async function exportAuditLogs(
   format: 'csv' | 'json',
   filters: {
+    user_id?: string;
     action?: string;
+    resource_type?: string;
+    resource_id?: string;
     date_from?: string;
     date_to?: string;
     search?: string;
   } = {},
 ): Promise<Blob> {
   const query = new URLSearchParams();
+  if (filters.user_id) query.set('user_id', filters.user_id);
   if (filters.action) query.set('action', filters.action);
+  if (filters.resource_type) query.set('resource_type', filters.resource_type);
+  if (filters.resource_id) query.set('resource_id', filters.resource_id);
   if (filters.date_from) query.set('date_from', filters.date_from);
   if (filters.date_to) query.set('date_to', filters.date_to);
   if (filters.search) query.set('search', filters.search);

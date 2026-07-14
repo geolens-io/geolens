@@ -209,6 +209,9 @@ class ApiKeyCreateRequest(BaseModel):
 class ApiKeyCreateResponse(BaseModel):
     id: uuid.UUID
     key: str = Field(description="The API key secret (shown only once)")
+    fingerprint: str = Field(
+        description="Non-secret key identifier (prefix and last four characters)"
+    )
     name: str
     created_at: datetime
 
@@ -216,6 +219,9 @@ class ApiKeyCreateResponse(BaseModel):
 class ApiKeyListItem(BaseModel):
     id: uuid.UUID
     name: str
+    fingerprint: str | None = Field(
+        description="Non-secret key identifier; null for keys created before fingerprint support"
+    )
     is_active: bool
     created_at: datetime
     last_used_at: datetime | None

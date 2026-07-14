@@ -121,8 +121,90 @@ class TestGetJobStatus:
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(test_db_session, created_by=admin_id)
 
-        resp = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
+        from unittest.mock import patch
+
+        with patch(
+            "app.modules.auth.dependencies.log_permission_denial"
+        ) as denial_telemetry:
+            resp = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
+
         assert resp.status_code == 403
+        denial_telemetry.assert_called_once()
+        assert denial_telemetry.call_args.args[2] == "manage_users"
+        assert denial_telemetry.call_args.kwargs == {"resource_type": "ingest_job"}
+
+    async def test_denied_parameterized_route_logs_template_not_job_id(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        """Denial telemetry must not expose identifiers embedded in URL paths."""
+        from unittest.mock import patch
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+
+        with patch("app.modules.auth.dependencies.log") as denial_log:
+            response = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
+
+        assert response.status_code == 403
+        denial_log.warning.assert_called_once()
+        fields = denial_log.warning.call_args.kwargs
+        assert fields["path"] == "/jobs/{job_id}"
+        assert str(job.id) not in repr(fields)
+
+    async def test_cross_user_access_delegates_to_permission_extension(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        """A capability extension can grant cross-user access without an admin role."""
+        import app.platform.extensions as ext_mod
+        from app.platform.extensions.defaults import DefaultPermissionExtension
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+        seen_resource = None
+
+        class JobManagerExtension(DefaultPermissionExtension):
+            async def check_permission(
+                self,
+                db,
+                user,
+                capability,
+                *,
+                user_roles,
+                permission_matrix=None,
+                resource=None,
+            ):
+                nonlocal seen_resource
+                if capability == "manage_users":
+                    seen_resource = resource
+                    return True
+                return await super().check_permission(
+                    db,
+                    user,
+                    capability,
+                    user_roles=user_roles,
+                    permission_matrix=permission_matrix,
+                    resource=resource,
+                )
+
+        previous = ext_mod._extensions.get("permission")
+        ext_mod._extensions["permission"] = JobManagerExtension()
+        try:
+            resp = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
+        finally:
+            if previous is None:
+                ext_mod._extensions.pop("permission", None)
+            else:
+                ext_mod._extensions["permission"] = previous
+
+        assert resp.status_code == 200
+        assert seen_resource is not None
+        assert seen_resource.id == job.id
 
     async def test_get_job_auto_fails_stale_running(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -682,6 +764,36 @@ class TestRetryJob:
         )
         assert resp.status_code == 403
 
+    async def test_cross_user_retry_denial_emits_safe_telemetry(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        """Manual cross-user retry checks share permission-denial telemetry."""
+        from unittest.mock import patch
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="failed",
+            source_url="https://example.com/FeatureServer/0",
+            error_message="Transient worker failure",
+        )
+
+        with patch(
+            "app.modules.auth.dependencies.log_permission_denial"
+        ) as denial_telemetry:
+            response = await client.post(
+                f"/jobs/{job.id}/retry", headers=editor_auth_header
+            )
+
+        assert response.status_code == 403
+        denial_telemetry.assert_called_once()
+        assert denial_telemetry.call_args.args[2] == "manage_users"
+        assert denial_telemetry.call_args.kwargs == {"resource_type": "ingest_job"}
+
     async def test_retry_failed_job_missing_file(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
@@ -727,6 +839,64 @@ class TestRetryJob:
 
         assert resp.status_code == 202, resp.text
         storage.exists.assert_awaited_once_with(job.file_path)
+        queued.assert_awaited_once()
+
+        audit_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "job.retry", "resource_id": str(job.id)},
+            headers=admin_auth_header,
+        )
+        assert audit_resp.status_code == 200
+        audit = audit_resp.json()["logs"][0]
+        assert audit["resource_id"] == str(job.id)
+        assert (
+            audit["details"]["previous_attempt_id"]
+            != audit["details"]["next_attempt_id"]
+        )
+        assert audit["details"]["cross_user"] is False
+        assert audit["ip_address"] is not None
+
+    async def test_retry_legacy_null_attempt_and_deleted_owner_audit_as_json_null(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Legacy nullable identifiers remain machine-readable in retry audits."""
+        from unittest.mock import AsyncMock
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        staged_file = tmp_path / "legacy-retry.geojson"
+        staged_file.write_text("{}")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="failed",
+            file_path=str(staged_file),
+            error_message="Legacy worker failure",
+        )
+        job.created_by = None
+        job.attempt_id = None
+        await test_db_session.commit()
+
+        queued = AsyncMock()
+        monkeypatch.setattr("app.platform.jobs.router.queue_ingest_job", queued)
+
+        response = await client.post(f"/jobs/{job.id}/retry", headers=admin_auth_header)
+
+        assert response.status_code == 202, response.text
+        audit_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "job.retry", "resource_id": str(job.id)},
+            headers=admin_auth_header,
+        )
+        details = audit_resp.json()["logs"][0]["details"]
+        assert details["job_owner_id"] is None
+        assert details["previous_attempt_id"] is None
+        assert details["next_attempt_id"] is not None
+        assert details["next_attempt_id"] != "None"
         queued.assert_awaited_once()
 
     async def test_authenticated_service_job_requires_fresh_credentials(
@@ -820,6 +990,220 @@ class TestCleanupStaleJobs:
         resp = await client.post("/jobs/cleanup/stale/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
-        assert "total_cleaned" in data
-        assert "pending_failed" in data
-        assert "running_failed" in data
+        expected_counts = {
+            "pending_failed",
+            "running_failed",
+            "total_cleaned",
+            "vrt_assets_recovered",
+            "vrt_generations_failed",
+            "terminal_jobs_purged",
+            "staged_paths_considered",
+            "local_files_reaped",
+            "storage_objects_reaped",
+            "staged_paths_skipped",
+            "staged_cleanup_failures",
+            "total_affected",
+        }
+        assert expected_counts <= data.keys()
+        assert data["total_cleaned"] == (
+            data["pending_failed"] + data["running_failed"]
+        )
+
+        audit_resp = await client.get(
+            "/admin/audit-logs/",
+            params={"action": "job.cleanup_stale"},
+            headers=admin_auth_header,
+        )
+        assert audit_resp.status_code == 200
+        audits = audit_resp.json()["logs"]
+        completed = next(
+            audit for audit in audits if audit["details"].get("outcome") == "completed"
+        )
+        operation_id = completed["details"]["operation_id"]
+        assert completed["details"] == {
+            "operation_id": operation_id,
+            "outcome": "completed",
+            **{key: data[key] for key in expected_counts},
+        }
+        requested = next(
+            audit
+            for audit in audits
+            if audit["details"].get("operation_id") == operation_id
+            and audit["details"].get("outcome") == "requested"
+        )
+        assert requested["details"] == {
+            "operation_id": operation_id,
+            "outcome": "requested",
+        }
+        assert completed["resource_id"] == requested["resource_id"]
+        assert completed["resource_id"] == operation_id
+        assert completed["ip_address"] is not None
+        assert requested["ip_address"] is not None
+
+    async def test_cleanup_commit_failure_preserves_requested_and_records_safe_failure(
+        self, monkeypatch
+    ):
+        """A failed DB commit never starts irreversible staging cleanup."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from fastapi import HTTPException
+
+        import app.modules.audit.service as audit_service
+        import app.platform.jobs.router as jobs_router
+        from app.platform.jobs.router import StaleCleanupOutcome
+
+        secret_path = "/tmp/private/tenant-secret-upload.geojson"
+
+        class RecordingSession:
+            def __init__(self):
+                self.pending = []
+                self.committed = []
+                self.commit_count = 0
+
+            async def commit(self):
+                self.commit_count += 1
+                if self.commit_count == 2:
+                    raise RuntimeError(f"commit failed after deleting {secret_path}")
+                self.committed.extend(self.pending)
+                self.pending.clear()
+
+            async def rollback(self):
+                self.pending.clear()
+
+        db = RecordingSession()
+        durable_events = []
+
+        async def record_audit(_db, event):
+            _db.pending.append(event)
+
+        async def record_durable(event):
+            durable_events.append(event)
+
+        outcome = StaleCleanupOutcome(
+            pending_failed=1,
+            running_failed=0,
+            vrt_assets_recovered=0,
+            vrt_generations_failed=0,
+            terminal_jobs_purged=1,
+            staged_paths_considered=1,
+            local_files_reaped=1,
+            storage_objects_reaped=0,
+            staged_paths_skipped=0,
+            staged_cleanup_failures=0,
+        )
+        cleanup = AsyncMock(return_value=outcome)
+        reap = AsyncMock(return_value=outcome)
+        monkeypatch.setattr(audit_service, "audit_emit", record_audit)
+        monkeypatch.setattr(audit_service, "audit_emit_durable", record_durable)
+        monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
+        monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
+        error_logs = []
+        monkeypatch.setattr(
+            jobs_router.log,
+            "error",
+            lambda *_args, **kwargs: error_logs.append(kwargs),
+        )
+
+        request = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
+        user = SimpleNamespace(id=uuid.uuid4())
+
+        with pytest.raises(HTTPException) as exc_info:
+            await jobs_router.cleanup_stale_jobs(request, user, db)
+
+        assert exc_info.value.status_code == 500
+        cleanup.assert_awaited_once_with(db, commit=False, detailed=True)
+        reap.assert_not_awaited()
+        assert [event.details["outcome"] for event in db.committed] == ["requested"]
+        assert [event.details["outcome"] for event in durable_events] == ["failed"]
+        recorded_events = [*db.committed, *durable_events]
+        operation_ids = {event.details["operation_id"] for event in recorded_events}
+        assert len(operation_ids) == 1
+        assert len({event.resource_id for event in recorded_events}) == 1
+        recorded = repr([event.details for event in recorded_events])
+        assert secret_path not in recorded
+        assert "tenant-secret" not in recorded
+        assert durable_events[-1].details["error_code"] == "cleanup_failed"
+        assert error_logs == [
+            {
+                "operation_id": next(iter(operation_ids)),
+                "user_id": str(user.id),
+                "error_type": "RuntimeError",
+            }
+        ]
+        assert secret_path not in repr(error_logs)
+
+    async def test_completion_audit_failure_does_not_fail_completed_cleanup(
+        self, monkeypatch
+    ):
+        """A terminal telemetry outage cannot make a committed cleanup retryable."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        import app.modules.audit.service as audit_service
+        import app.platform.jobs.router as jobs_router
+        from app.platform.jobs.router import StaleCleanupOutcome
+
+        class RecordingSession:
+            def __init__(self):
+                self.pending = []
+                self.committed = []
+
+            async def commit(self):
+                self.committed.extend(self.pending)
+                self.pending.clear()
+
+            async def rollback(self):
+                self.pending.clear()
+
+        async def record_audit(db, event):
+            db.pending.append(event)
+
+        async def fail_durable(_event):
+            raise RuntimeError("audit database unavailable")
+
+        outcome = StaleCleanupOutcome(
+            pending_failed=1,
+            running_failed=0,
+            vrt_assets_recovered=0,
+            vrt_generations_failed=0,
+            terminal_jobs_purged=0,
+            staged_paths_considered=1,
+            local_files_reaped=1,
+            storage_objects_reaped=0,
+            staged_paths_skipped=0,
+            staged_cleanup_failures=0,
+        )
+        cleanup = AsyncMock(return_value=outcome)
+        reap = AsyncMock(return_value=outcome)
+        monkeypatch.setattr(audit_service, "audit_emit", record_audit)
+        monkeypatch.setattr(audit_service, "audit_emit_durable", fail_durable)
+        monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
+        monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
+        error_logs = []
+        monkeypatch.setattr(
+            jobs_router.log,
+            "error",
+            lambda *_args, **kwargs: error_logs.append(kwargs),
+        )
+
+        db = RecordingSession()
+        request = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
+        user = SimpleNamespace(id=uuid.uuid4())
+
+        result = await jobs_router.cleanup_stale_jobs(request, user, db)
+
+        assert result.total_cleaned == 1
+        cleanup.assert_awaited_once_with(db, commit=False, detailed=True)
+        reap.assert_awaited_once_with(outcome)
+        assert [event.details["outcome"] for event in db.committed] == [
+            "requested",
+            "database_committed",
+        ]
+        assert error_logs == [
+            {
+                "operation_id": db.committed[0].details["operation_id"],
+                "user_id": str(user.id),
+                "error_type": "RuntimeError",
+            }
+        ]

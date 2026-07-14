@@ -121,6 +121,12 @@ export type AdminApiKeyListItem = {
      */
     created_at: string;
     /**
+     * Fingerprint
+     *
+     * Non-secret key identifier; null for legacy keys.
+     */
+    fingerprint: string | null;
+    /**
      * Id
      *
      * Unique API key identifier.
@@ -465,6 +471,12 @@ export type ApiKeyCreateResponse = {
      */
     created_at: string;
     /**
+     * Fingerprint
+     *
+     * Non-secret key identifier (prefix and last four characters)
+     */
+    fingerprint: string;
+    /**
      * Id
      */
     id: string;
@@ -488,6 +500,12 @@ export type ApiKeyListItem = {
      * Created At
      */
     created_at: string;
+    /**
+     * Fingerprint
+     *
+     * Non-secret key identifier; null for keys created before fingerprint support
+     */
+    fingerprint: string | null;
     /**
      * Id
      */
@@ -3320,6 +3338,12 @@ export type DryRunResponse = {
         [key: string]: unknown;
     };
     /**
+     * Preview Token
+     *
+     * Short-lived signed confirmation token required to apply an overwrite. Bound to the normalized payload, overwrite mode, and current configuration state.
+     */
+    preview_token?: string | null;
+    /**
      * Settings
      *
      * Per-setting diff result keyed by setting name.
@@ -4014,6 +4038,12 @@ export type HealthResponse = {
  * Summary of what was applied during an import.
  */
 export type ImportResult = {
+    /**
+     * Oauth Accounts Deleted
+     *
+     * Number of dependent OAuth account links cascade-deleted in overwrite mode.
+     */
+    oauth_accounts_deleted?: number;
     /**
      * Oauth Created
      *
@@ -9135,6 +9165,10 @@ export type StacSearchResponse = {
  */
 export type StaleCleanupResponse = {
     /**
+     * Local Files Reaped
+     */
+    local_files_reaped: number;
+    /**
      * Pending Failed
      */
     pending_failed: number;
@@ -9143,9 +9177,41 @@ export type StaleCleanupResponse = {
      */
     running_failed: number;
     /**
+     * Staged Cleanup Failures
+     */
+    staged_cleanup_failures: number;
+    /**
+     * Staged Paths Considered
+     */
+    staged_paths_considered: number;
+    /**
+     * Staged Paths Skipped
+     */
+    staged_paths_skipped: number;
+    /**
+     * Storage Objects Reaped
+     */
+    storage_objects_reaped: number;
+    /**
+     * Terminal Jobs Purged
+     */
+    terminal_jobs_purged: number;
+    /**
+     * Total Affected
+     */
+    total_affected: number;
+    /**
      * Total Cleaned
      */
     total_cleaned: number;
+    /**
+     * Vrt Assets Recovered
+     */
+    vrt_assets_recovered: number;
+    /**
+     * Vrt Generations Failed
+     */
+    vrt_generations_failed: number;
 };
 
 /**
@@ -9691,7 +9757,7 @@ export type UserUpdate = {
     /**
      * Is Active
      *
-     * Whether the user can log in. Set to false to deactivate.
+     * Legacy account-state toggle. False maps to 'deactivated' and true maps to 'active'. Prefer the explicit status field.
      */
     is_active?: boolean | null;
     /**
@@ -9700,6 +9766,12 @@ export type UserUpdate = {
      * New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
      */
     role?: string | null;
+    /**
+     * Status
+     *
+     * Explicit account lifecycle state. Pending registrations must use the approve/reject endpoints.
+     */
+    status?: 'active' | 'suspended' | 'deactivated' | null;
 };
 
 /**
@@ -10437,6 +10509,10 @@ export type ListAuditLogsAdminAuditLogsGetData = {
          */
         resource_type?: string | null;
         /**
+         * Resource Id
+         */
+        resource_id?: string | null;
+        /**
          * Date From
          */
         date_from?: string | null;
@@ -10516,6 +10592,10 @@ export type ExportAuditLogsAdminAuditLogsExportFormatGetData = {
     };
     query?: {
         /**
+         * User Id
+         */
+        user_id?: string | null;
+        /**
          * Action
          */
         action?: string | null;
@@ -10523,6 +10603,10 @@ export type ExportAuditLogsAdminAuditLogsExportFormatGetData = {
          * Resource Type
          */
         resource_type?: string | null;
+        /**
+         * Resource Id
+         */
+        resource_id?: string | null;
         /**
          * Date From
          */
@@ -14590,6 +14674,14 @@ export type ExportConfigurationConfigOpsExportGetResponses = {
 
 export type ImportConfigurationConfigOpsImportPostData = {
     body: ConfigImportRequest;
+    headers?: {
+        /**
+         * X-Config-Preview-Token
+         *
+         * Signed token returned by the matching dry-run. Required for overwrite mode.
+         */
+        'X-Config-Preview-Token'?: string | null;
+    };
     path?: never;
     query?: {
         /**

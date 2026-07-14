@@ -43,6 +43,7 @@
       "allUsers": "Todos los usuarios",
       "pending": "Pendientes",
       "active": "Activos",
+      "suspended": "Suspendidos",
       "deactivated": "Desactivados"
     },
     "table": {
@@ -58,6 +59,7 @@
     "status": {
       "pending": "Pendiente",
       "active": "Activo",
+      "suspended": "Suspendido",
       "deactivated": "Desactivado"
     },
     "actions": {
@@ -205,6 +207,12 @@
       "datasetCreate": "Creación de conjunto de datos",
       "datasetDelete": "Eliminación de conjunto de datos",
       "action": "Acción",
+      "userId": "ID de usuario",
+      "resourceType": "Tipo de recurso",
+      "resourceId": "ID del recurso",
+      "uuidPlaceholder": "UUID",
+      "invalidUuid": "Introduce un UUID completo.",
+      "resourceTypePlaceholder": "p. ej., dataset, user o map…",
       "from": "Desde",
       "to": "Hasta",
       "clear": "Limpiar"
