@@ -116,6 +116,12 @@ def _build_alembic_config() -> Config:
     return cfg
 
 
+def build_alembic_config() -> Config:
+    """Supported external entry point for overlay tooling to build the merged
+    alembic ``Config`` (OSS base + installed overlay version dirs)."""
+    return _build_alembic_config()
+
+
 def get_script_heads() -> set[str]:
     """Return the set of head revisions the image's migration scripts declare."""
     script = ScriptDirectory.from_config(_build_alembic_config())
