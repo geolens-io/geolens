@@ -7,6 +7,70 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-07-15
+
+This release hardens the platform after a full portfolio audit — access
+control, the open-core boundary, containers, migrations, and the admin
+control plane — and completes the internationalization pass across all four
+locales.
+
+### Added
+
+- **Community administrators can download up to 100,000 audit events as CSV
+  or JSON.** Share links can expire after 1, 7, 30, or 90 days, and
+  non-expiring links remain available.
+
+### Changed
+
+- **Optional distributions now connect to GeoLens through typed extension
+  interfaces.** Community images contain only the Apache-2.0 application, and
+  the default single-tenant configuration does not load an extension.
+- **An installed version covered by a valid commercial license keeps working
+  after its maintenance date.** The date controls access to updates and
+  support; it does not shut down the installation.
+- **The AI assistant defaults to Anthropic's Claude Sonnet 5 model.**
+  Deployments that set `LLM_MODEL` explicitly keep their configured model.
+- **Updated dependencies across the backend and frontend**, including
+  security releases of Pillow (12.3.0) and click (8.4.2).
+
+### Fixed
+
+- **Role-based grants on restricted records now take effect.** The visibility
+  filter compared record identifiers against dataset identifiers, so a role
+  grant could never surface a restricted record. The gap failed closed
+  (nothing was over-exposed); granted users simply did not see the records
+  they were entitled to.
+- **Restored OGC API Features/Records, STAC, and DCAT conformance.**
+  Conformance regressions found by the standards audit are fixed, and the
+  suites gate CI again.
+- **The published OpenAPI document matches runtime behavior again**, so
+  generated SDKs and API clients reflect the deployed contract.
+- **Accessibility and design-system fixes across the frontend**, from the
+  frontend audit: keyboard navigation, contrast, and component-consistency
+  issues.
+- **Spanish, French, and German localizations are complete.** The
+  internationalization audit closed the remaining untranslated and
+  inconsistent strings in all four locales.
+- **Enterprise-edition workers no longer refuse to boot.** The worker's
+  startup assertion demanded cloud-only extensions under a single-tenant
+  enterprise deployment; each overlay tier is now checked only for the
+  extensions it actually provides.
+- **Ingestion lifecycle hardening.** Stalled ingests are reaped reliably and
+  ingest work is isolated per tenant context.
+
+### Security
+
+- **Admin control-plane governance and lifecycle hardened** following the
+  admin audit, including tighter authorization on administrative operations.
+- **Container images remediated against a Docker audit**, reducing the
+  runtime attack surface of the published images.
+- **Environment contracts aligned and validated**, so misconfigured
+  deployments fail loudly at boot instead of running with silently ignored
+  settings.
+- **Migration rollback and online schema changes hardened**, with
+  lock-sensitive steps bounded so they cannot stall a busy production
+  database indefinitely.
+
 ### Upgrade notes
 
 - **Database SSL modes now fail closed.** Undocumented `allow` and `verify-ca`
@@ -22,21 +86,6 @@ and releases use semantic versioning.
   On a busy database, lock-sensitive steps stop after five seconds instead of
   waiting behind application traffic. Retry the migration during a quieter
   window if that happens.
-
-### Added
-
-- Community administrators can download up to 100,000 audit events as CSV or
-  JSON. Share links can expire after 1, 7, 30, or 90 days, and non-expiring
-  links remain available.
-
-### Changed
-
-- Optional distributions now connect to GeoLens through typed extension
-  interfaces. Community images contain only the Apache-2.0 application, and
-  the default single-tenant configuration does not load an extension.
-- An installed version covered by a valid commercial license keeps working
-  after its maintenance date. The date controls access to updates and support;
-  it does not shut down the installation.
 
 ## [1.4.6] - 2026-07-12
 
