@@ -72,8 +72,9 @@
   --input: oklch(0.65 0.006 85);
   /* Focus-ring color. fix(#438): DS-10 — the standard focus treatment is
      `ring-2 ring-ring`. `ring-primary` was folded into `ring-ring` (same hue).
-     The residual `ring-1` width one-offs and unmapped shadow-xs/xl are a
-     visible-weight change left for a dedicated design pass, not swept here. */
+     The residual `ring-1` width one-offs are a visible-weight change left for
+     a dedicated design pass, not swept here. (shadow-xs has since been mapped
+     through --elevation-xs; shadow-xl remains unmapped and unused.) */
   --ring: oklch(0.55 0.18 250);
 
   /* ─ Surface hierarchy (light mode — warm) ─ */

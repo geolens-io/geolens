@@ -293,10 +293,10 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                     role="radio"
                     aria-checked={isActive}
                     className={[
-                      'rounded-full border border-transparent px-[10px] py-[5px] text-xs transition-colors',
+                      'rounded-md border border-transparent px-2.5 py-1 text-xs transition-colors',
                       isActive
                         ? 'bg-primary text-primary-foreground border-transparent'
-                        : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
+                        : 'bg-surface-2 text-foreground hover:bg-surface-3',
                     ].join(' ')}
                     onClick={() => {
                       if (!isActive) onSetProjection(pill.id);

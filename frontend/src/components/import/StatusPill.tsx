@@ -1,17 +1,19 @@
 import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { fileEntryStatusColors } from '@/lib/status-colors';
 import type { FileEntryStatus } from '@/types/api';
 
-const STATUS_CONFIG: Partial<Record<FileEntryStatus | 'detected', { key: string; cls: string; pulse?: boolean }>> = {
-  uploading: { key: 'status.uploading', cls: 'bg-info/15 text-info', pulse: true },
-  previewing: { key: 'status.detecting', cls: 'bg-info/15 text-info', pulse: true },
-  preview: { key: 'status.detected', cls: 'bg-success/15 text-success' },
-  committing: { key: 'status.importing', cls: 'bg-primary/12 text-primary', pulse: true },
-  tracking: { key: 'status.ready', cls: 'bg-success/18 text-success' },
-  complete: { key: 'status.ready', cls: 'bg-success/18 text-success' },
-  'upload-failed': { key: 'status.failed', cls: 'bg-destructive/15 text-destructive' },
-  'commit-failed': { key: 'status.failed', cls: 'bg-destructive/15 text-destructive' },
-  failed: { key: 'status.failed', cls: 'bg-destructive/15 text-destructive' },
+const STATUS_CONFIG: Partial<Record<FileEntryStatus | 'detected', { key: string; pulse?: boolean }>> = {
+  uploading: { key: 'status.uploading', pulse: true },
+  previewing: { key: 'status.detecting', pulse: true },
+  preview: { key: 'status.detected' },
+  committing: { key: 'status.importing', pulse: true },
+  tracking: { key: 'status.ready' },
+  complete: { key: 'status.ready' },
+  'upload-failed': { key: 'status.failed' },
+  'commit-failed': { key: 'status.failed' },
+  failed: { key: 'status.failed' },
 };
 
 interface StatusPillProps {
@@ -26,10 +28,10 @@ export function StatusPill({ status }: StatusPillProps) {
   const label = c ? (t(c.key) as string) : status;
 
   return (
-    <span
+    <Badge
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-2xs font-medium uppercase tracking-wider',
-        c?.cls ?? 'bg-muted text-muted-foreground',
+        'gap-1.5 font-mono text-2xs uppercase tracking-wider',
+        fileEntryStatusColors[status] ?? 'border-border bg-muted text-muted-foreground',
       )}
     >
       <span
@@ -39,6 +41,6 @@ export function StatusPill({ status }: StatusPillProps) {
         )}
       />
       {label}
-    </span>
+    </Badge>
   );
 }

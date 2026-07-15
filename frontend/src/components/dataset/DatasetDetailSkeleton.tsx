@@ -22,7 +22,7 @@ export function DatasetDetailSkeleton({ isTable }: DatasetDetailSkeletonProps = 
 
       {/* Stats line skeleton */}
       <div className="flex items-center gap-2">
-        <Skeleton className="h-5 w-16 rounded-full" />
+        <Skeleton className="h-5 w-16 rounded-md" />
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-4 w-20" />
         <Skeleton className="h-4 w-16" />
@@ -78,7 +78,7 @@ export function DatasetDetailSkeleton({ isTable }: DatasetDetailSkeletonProps = 
         <div className="rounded-lg border p-6 space-y-3">
           <div className="flex items-center justify-between">
             <Skeleton className="h-5 w-28" />
-            <Skeleton className="h-6 w-10 rounded-full" />
+            <Skeleton className="h-6 w-10 rounded-md" />
           </div>
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="space-y-1">

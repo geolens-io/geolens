@@ -598,7 +598,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             {t('unifiedStack.title', { defaultValue: 'Layers' })}
           </h2>
           {visibleStackLayers.length > 0 && (
-            <Badge variant="secondary" className="rounded-full px-2 text-xs font-semibold">
+            <Badge variant="secondary" className="px-2 text-xs font-semibold">
               {visibleStackLayers.length}
             </Badge>
           )}
