@@ -18,7 +18,7 @@ Carto Concepts, LLC offers optional paid support and add-ons. Enterprise include
 
 A valid commercial license grants perpetual use of the installed version. The maintenance term controls access to updates and support. When maintenance ends, the installed version keeps working, data and backups remain accessible, and local administrators keep their login path.
 
-GeoLens core also contains dormant, generic multi-tenant infrastructure: nullable tenant columns, mode-gated RLS and tenant schemas, request and worker context, and typed extension ports. This code is Apache-2.0 and remains inactive in the default single-tenant mode. The vendor-hosted Cloud product, tenant provisioning, billing, and private provider implementations are separate commercial work. GeoLens refuses to start in multi-tenant mode without an isolation overlay.
+GeoLens core also contains dormant, generic multi-tenant infrastructure: nullable tenant columns, mode-gated RLS and tenant schemas, request and worker context, and typed extension ports. This code is Apache-2.0 and remains inactive in the default single-tenant mode. Any future vendor-hosted Cloud offering, along with tenant provisioning, billing, and private provider implementations, is separate commercial work. GeoLens refuses to start in multi-tenant mode without an isolation overlay.
 
 CI prevents public application code from importing private paid or Cloud packages. Optional behavior uses typed extension protocols, and the Community defaults preserve the free product.
 
