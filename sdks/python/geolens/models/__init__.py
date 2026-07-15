@@ -158,6 +158,21 @@ from .create_empty_dataset_request import CreateEmptyDatasetRequest
 from .create_feature_datasets_dataset_id_features_post_geo_json_feature import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature,
 )
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry_type import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryType,
+)
 from .create_feature_datasets_dataset_id_features_post_geo_json_feature_properties import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties,
 )
@@ -227,6 +242,15 @@ from .geo_json_geometry_type import GeoJSONGeometryType
 from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response import (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse,
 )
+from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_geo_json_geometry import (
+    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry,
+)
+from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_geo_json_geometry_type import (
+    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometryType,
+)
+from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_ogc_link import (
+    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink,
+)
 from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_properties_type_0 import (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0,
 )
@@ -236,6 +260,9 @@ from .get_collection_items_collections_dataset_id_items_get_ogc_feature_items_re
 from .get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_features_item import (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem,
 )
+from .get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_ogc_link import (
+    GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink,
+)
 from .get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get_response_get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get import (
     GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet,
 )
@@ -244,6 +271,21 @@ from .get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get_response_g
 )
 from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature import (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature,
+)
+from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry import (
+    GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry,
+)
+from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_collection import (
+    GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection,
+)
+from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+    GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+)
+from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
+)
+from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_type import (
+    GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryType,
 )
 from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
@@ -259,14 +301,6 @@ from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
 from .infrastructure_response_oidc_providers import InfrastructureResponseOidcProviders
-from .inline_def_geo_json_feature_adc_353e4 import InlineDefGeoJSONFeatureAdc353E4
-from .inline_def_geo_json_feature_adc_353e4_properties import (
-    InlineDefGeoJSONFeatureAdc353E4Properties,
-)
-from .inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
-    InlineDefGeoJSONGeometryCollectionD6B7Eb76,
-)
-from .inline_def_link_900f1c94 import InlineDefLink900F1C94
 from .job_status_response import JobStatusResponse
 from .job_status_response_current_step_type_0 import JobStatusResponseCurrentStepType0
 from .job_status_response_status import JobStatusResponseStatus
@@ -285,6 +319,30 @@ from .layer_preview import LayerPreview
 from .lineage_draft_response import LineageDraftResponse
 from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection import (
     ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeature,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature_geo_json_geometry import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometry,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature_geo_json_geometry_collection import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryCollection,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature_geo_json_geometry_type import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryType,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_geo_json_feature_properties import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureProperties,
+)
+from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection_link import (
+    ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink,
 )
 from .list_maps_endpoint_maps_get_sort_by import ListMapsEndpointMapsGetSortBy
 from .list_maps_endpoint_maps_get_sort_dir import ListMapsEndpointMapsGetSortDir
@@ -409,6 +467,21 @@ from .ogc_record_response_time import OGCRecordResponseTime
 from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature import (
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature,
 )
+from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry import (
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometry,
+)
+from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection import (
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollection,
+)
+from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+)
+from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
+)
+from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_type import (
+    PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryType,
+)
 from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_properties import (
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties,
 )
@@ -452,6 +525,21 @@ from .related_datasets_response import RelatedDatasetsResponse
 from .rename_column_request import RenameColumnRequest
 from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature import (
     ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature,
+)
+from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometry,
+)
+from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection,
+)
+from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+)
+from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
+)
+from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_geo_json_geometry_type import (
+    ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryType,
 )
 from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_properties import (
     ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties,
@@ -747,6 +835,11 @@ __all__ = (
     "ContactUpdateExtraJsonType0",
     "CreateEmptyDatasetRequest",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryType",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties",
     "CreateLayerRequest",
     "CreateLayerResponse",
@@ -810,12 +903,21 @@ __all__ = (
     "GeoJSONGeometryCollection",
     "GeoJSONGeometryType",
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse",
+    "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry",
+    "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometryType",
+    "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink",
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0",
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse",
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem",
+    "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink",
     "GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet",
     "GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetAdditionalProperty",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature",
+    "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry",
+    "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection",
+    "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
+    "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
+    "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryType",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties",
     "HealthResponse",
     "HealthResponseProviders",
@@ -826,10 +928,6 @@ __all__ = (
     "InfrastructureResponse",
     "InfrastructureResponseHealth",
     "InfrastructureResponseOidcProviders",
-    "InlineDefGeoJSONFeatureAdc353E4",
-    "InlineDefGeoJSONFeatureAdc353E4Properties",
-    "InlineDefGeoJSONGeometryCollectionD6B7Eb76",
-    "InlineDefLink900F1C94",
     "JobStatusResponse",
     "JobStatusResponseCurrentStepType0",
     "JobStatusResponseStatus",
@@ -845,6 +943,14 @@ __all__ = (
     "LayerPreview",
     "LineageDraftResponse",
     "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeature",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometry",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryCollection",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureGeoJSONGeometryType",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionGeoJSONFeatureProperties",
+    "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink",
     "ListMapsEndpointMapsGetSortBy",
     "ListMapsEndpointMapsGetSortDir",
     "ManifestApplyEntryResult",
@@ -938,6 +1044,11 @@ __all__ = (
     "OGCRecordResponseTime",
     "OgImageUploadRequest",
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature",
+    "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometry",
+    "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollection",
+    "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
+    "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
+    "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryType",
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties",
     "PermissionsResponse",
     "PermissionsResponsePermissions",
@@ -972,6 +1083,11 @@ __all__ = (
     "RelatedDatasetsResponse",
     "RenameColumnRequest",
     "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature",
+    "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometry",
+    "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollection",
+    "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
+    "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
+    "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureGeoJSONGeometryType",
     "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties",
     "ResendVerificationRequest",
     "ReservedRenameDetail",

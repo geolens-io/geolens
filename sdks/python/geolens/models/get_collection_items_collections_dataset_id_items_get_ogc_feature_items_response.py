@@ -15,7 +15,9 @@ if TYPE_CHECKING:
     from ..models.get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_features_item import (
         GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem,
     )
-    from ..models.ogc_link import OGCLink
+    from ..models.get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_ogc_link import (
+        GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink,
+    )
 
 
 T = TypeVar(
@@ -30,7 +32,8 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
     Attributes:
         features (list[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem]): GeoJSON
             features returned by the query.
-        links (list[OGCLink]): Pagination and self-reference links.
+        links (list[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink]): Pagination and self-
+            reference links.
         number_matched (int): Total number of features matching the query (across all pages).
         number_returned (int): Number of features in this response page.
         time_stamp (str | Unset): ISO 8601 timestamp the response was generated.
@@ -40,7 +43,9 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
     features: list[
         GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem
     ]
-    links: list[OGCLink]
+    links: list[
+        GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink
+    ]
     number_matched: int
     number_returned: int
     time_stamp: str | Unset = UNSET
@@ -88,7 +93,9 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
         from ..models.get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_features_item import (
             GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem,
         )
-        from ..models.ogc_link import OGCLink
+        from ..models.get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_ogc_link import (
+            GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink,
+        )
 
         d = dict(src_dict)
         features = []
@@ -103,7 +110,9 @@ class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
         links = []
         _links = d.pop("links")
         for links_item_data in _links:
-            links_item = OGCLink.from_dict(links_item_data)
+            links_item = GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseOGCLink.from_dict(
+                links_item_data
+            )
 
             links.append(links_item)
 

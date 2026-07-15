@@ -17,6 +17,7 @@ from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
+from app.modules.catalog.features.schemas import inline_json_schema
 from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_features,
@@ -407,7 +408,7 @@ async def get_dataset_collection(
         200: {
             "content": {
                 "application/geo+json": {
-                    "schema": OGCFeatureItemsResponse.model_json_schema()
+                    "schema": inline_json_schema(OGCFeatureItemsResponse)
                 }
             }
         },
@@ -422,7 +423,7 @@ async def get_dataset_collection(
         200: {
             "content": {
                 "application/geo+json": {
-                    "schema": OGCFeatureItemsResponse.model_json_schema()
+                    "schema": inline_json_schema(OGCFeatureItemsResponse)
                 }
             }
         },
@@ -705,7 +706,7 @@ async def get_collection_items(
         200: {
             "content": {
                 "application/geo+json": {
-                    "schema": OGCSingleFeatureResponse.model_json_schema()
+                    "schema": inline_json_schema(OGCSingleFeatureResponse)
                 }
             }
         },

@@ -7965,60 +7965,6 @@ export interface components {
                 [key: string]: components["schemas"]["ProviderHealth"];
             };
         };
-        /**
-         * InlineDef_GeoJSONFeature_adc353e4
-         * @description A single GeoJSON Feature.
-         */
-        InlineDef_GeoJSONFeature_adc353e4: {
-            /** Geometry */
-            geometry?: components["schemas"]["InlineDef_GeoJSONGeometryCollection_d6b7eb76"] | components["schemas"]["GeoJSONGeometry"] | null;
-            /** Id */
-            id: number;
-            /** Properties */
-            properties: {
-                [key: string]: unknown;
-            };
-            /**
-             * Type
-             * @default Feature
-             * @constant
-             */
-            type: "Feature";
-        };
-        /**
-         * InlineDef_GeoJSONGeometryCollection_d6b7eb76
-         * @description A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
-         *
-         *     fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
-         *     it needs its own model — only generic-GEOMETRY datasets accept it on write
-         *     (enforced in the service), and any stored collection must serialize back
-         *     out on read.
-         *
-         *     Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
-         *     nested collections through the GeoJSON boundary in either direction —
-         *     ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
-         *     'GeoJson: geometry not supported' on read — so a recursive model could
-         *     never receive one and would only convert the write-side 422 into a raw
-         *     database 500. The write schemas add a raw-payload guard for a clear 422.
-         */
-        InlineDef_GeoJSONGeometryCollection_d6b7eb76: {
-            /** Geometries */
-            geometries: components["schemas"]["GeoJSONGeometry"][];
-            /**
-             * Type
-             * @constant
-             */
-            type: "GeometryCollection";
-        };
-        /** InlineDef_Link_900f1c94 */
-        InlineDef_Link_900f1c94: {
-            /** Href */
-            href: string;
-            /** Rel */
-            rel: string;
-            /** Type */
-            type: string;
-        };
         /** JobStatusResponse */
         JobStatusResponse: {
             /**
@@ -19312,7 +19258,28 @@ export interface operations {
                          * Links
                          * @description Pagination and self-reference links.
                          */
-                        links: components["schemas"]["OGCLink"][];
+                        links: {
+                            /**
+                             * Href
+                             * @description Target URL of the link.
+                             */
+                            href: string;
+                            /**
+                             * Rel
+                             * @description Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').
+                             */
+                            rel: string;
+                            /**
+                             * Title
+                             * @description Optional human-readable label for the link.
+                             */
+                            title?: string | null;
+                            /**
+                             * Type
+                             * @description Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
+                             */
+                            type: string;
+                        }[];
                         /**
                          * Numbermatched
                          * @description Total number of features matching the query (across all pages).
@@ -19410,7 +19377,15 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /** @description GeoJSON geometry of the feature, or null for geometry-less features. */
-                        geometry: components["schemas"]["GeoJSONGeometry"] | null;
+                        geometry: {
+                            /** Coordinates */
+                            coordinates: unknown[];
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                        } | null;
                         /**
                          * Id
                          * @description Feature identifier within the collection.
@@ -19421,7 +19396,28 @@ export interface operations {
                          * @description Self-reference and related-resource links.
                          * @default []
                          */
-                        links: components["schemas"]["OGCLink"][];
+                        links: {
+                            /**
+                             * Href
+                             * @description Target URL of the link.
+                             */
+                            href: string;
+                            /**
+                             * Rel
+                             * @description Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').
+                             */
+                            rel: string;
+                            /**
+                             * Title
+                             * @description Optional human-readable label for the link.
+                             */
+                            title?: string | null;
+                            /**
+                             * Type
+                             * @description Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
+                             */
+                            type: string;
+                        }[];
                         /**
                          * Properties
                          * @description Feature attributes as a JSON object.
@@ -22344,9 +22340,55 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /** Features */
-                        features: components["schemas"]["InlineDef_GeoJSONFeature_adc353e4"][];
+                        features: {
+                            /** Geometry */
+                            geometry?: {
+                                /** Geometries */
+                                geometries: {
+                                    /** Coordinates */
+                                    coordinates: unknown[];
+                                    /**
+                                     * Type
+                                     * @enum {string}
+                                     */
+                                    type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                }[];
+                                /**
+                                 * Type
+                                 * @constant
+                                 */
+                                type: "GeometryCollection";
+                            } | {
+                                /** Coordinates */
+                                coordinates: unknown[];
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            } | null;
+                            /** Id */
+                            id: number;
+                            /** Properties */
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                            /**
+                             * Type
+                             * @default Feature
+                             * @constant
+                             */
+                            type: "Feature";
+                        }[];
                         /** Links */
-                        links: components["schemas"]["InlineDef_Link_900f1c94"][];
+                        links: {
+                            /** Href */
+                            href: string;
+                            /** Rel */
+                            rel: string;
+                            /** Type */
+                            type: string;
+                        }[];
                         /** Numbermatched */
                         numberMatched: number;
                         /** Numberreturned */
@@ -22460,7 +22502,31 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /** Geometry */
-                        geometry?: components["schemas"]["InlineDef_GeoJSONGeometryCollection_d6b7eb76"] | components["schemas"]["GeoJSONGeometry"] | null;
+                        geometry?: {
+                            /** Geometries */
+                            geometries: {
+                                /** Coordinates */
+                                coordinates: unknown[];
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            }[];
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                        } | {
+                            /** Coordinates */
+                            coordinates: unknown[];
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                        } | null;
                         /** Id */
                         id: number;
                         /** Properties */
@@ -22582,7 +22648,31 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /** Geometry */
-                        geometry?: components["schemas"]["InlineDef_GeoJSONGeometryCollection_d6b7eb76"] | components["schemas"]["GeoJSONGeometry"] | null;
+                        geometry?: {
+                            /** Geometries */
+                            geometries: {
+                                /** Coordinates */
+                                coordinates: unknown[];
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            }[];
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                        } | {
+                            /** Coordinates */
+                            coordinates: unknown[];
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                        } | null;
                         /** Id */
                         id: number;
                         /** Properties */
@@ -22699,7 +22789,31 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /** Geometry */
-                        geometry?: components["schemas"]["InlineDef_GeoJSONGeometryCollection_d6b7eb76"] | components["schemas"]["GeoJSONGeometry"] | null;
+                        geometry?: {
+                            /** Geometries */
+                            geometries: {
+                                /** Coordinates */
+                                coordinates: unknown[];
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            }[];
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                        } | {
+                            /** Coordinates */
+                            coordinates: unknown[];
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                        } | null;
                         /** Id */
                         id: number;
                         /** Properties */
@@ -22929,7 +23043,31 @@ export interface operations {
                 content: {
                     "application/geo+json": {
                         /** Geometry */
-                        geometry?: components["schemas"]["InlineDef_GeoJSONGeometryCollection_d6b7eb76"] | components["schemas"]["GeoJSONGeometry"] | null;
+                        geometry?: {
+                            /** Geometries */
+                            geometries: {
+                                /** Coordinates */
+                                coordinates: unknown[];
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            }[];
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                        } | {
+                            /** Coordinates */
+                            coordinates: unknown[];
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                        } | null;
                         /** Id */
                         id: number;
                         /** Properties */

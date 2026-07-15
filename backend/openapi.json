@@ -27337,46 +27337,6 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "OGCLink": {
-                      "properties": {
-                        "href": {
-                          "description": "Target URL of the link.",
-                          "title": "Href",
-                          "type": "string"
-                        },
-                        "rel": {
-                          "description": "Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').",
-                          "title": "Rel",
-                          "type": "string"
-                        },
-                        "title": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "description": "Optional human-readable label for the link.",
-                          "title": "Title"
-                        },
-                        "type": {
-                          "description": "Media type of the linked resource (e.g. 'application/json', 'application/geo+json').",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "href",
-                        "rel",
-                        "type"
-                      ],
-                      "title": "OGCLink",
-                      "type": "object"
-                    }
-                  },
                   "description": "OGC API Features compliant feature collection response.",
                   "properties": {
                     "features": {
@@ -27391,7 +27351,42 @@
                     "links": {
                       "description": "Pagination and self-reference links.",
                       "items": {
-                        "$ref": "#/$defs/OGCLink"
+                        "properties": {
+                          "href": {
+                            "description": "Target URL of the link.",
+                            "title": "Href",
+                            "type": "string"
+                          },
+                          "rel": {
+                            "description": "Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').",
+                            "title": "Rel",
+                            "type": "string"
+                          },
+                          "title": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional human-readable label for the link.",
+                            "title": "Title"
+                          },
+                          "type": {
+                            "description": "Media type of the linked resource (e.g. 'application/json', 'application/geo+json').",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "href",
+                          "rel",
+                          "type"
+                        ],
+                        "title": "OGCLink",
+                        "type": "object"
                       },
                       "title": "Links",
                       "type": "array"
@@ -27559,80 +27554,37 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "GeoJSONGeometry": {
-                      "description": "A GeoJSON geometry object (RFC 7946).",
-                      "properties": {
-                        "coordinates": {
-                          "items": {},
-                          "title": "Coordinates",
-                          "type": "array"
-                        },
-                        "type": {
-                          "enum": [
-                            "Point",
-                            "MultiPoint",
-                            "LineString",
-                            "MultiLineString",
-                            "Polygon",
-                            "MultiPolygon"
-                          ],
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "coordinates"
-                      ],
-                      "title": "GeoJSONGeometry",
-                      "type": "object"
-                    },
-                    "OGCLink": {
-                      "properties": {
-                        "href": {
-                          "description": "Target URL of the link.",
-                          "title": "Href",
-                          "type": "string"
-                        },
-                        "rel": {
-                          "description": "Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').",
-                          "title": "Rel",
-                          "type": "string"
-                        },
-                        "title": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "description": "Optional human-readable label for the link.",
-                          "title": "Title"
-                        },
-                        "type": {
-                          "description": "Media type of the linked resource (e.g. 'application/json', 'application/geo+json').",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "href",
-                        "rel",
-                        "type"
-                      ],
-                      "title": "OGCLink",
-                      "type": "object"
-                    }
-                  },
                   "description": "Single GeoJSON Feature response.",
                   "properties": {
                     "geometry": {
                       "anyOf": [
                         {
-                          "$ref": "#/$defs/GeoJSONGeometry"
+                          "description": "A GeoJSON geometry object (RFC 7946).",
+                          "properties": {
+                            "coordinates": {
+                              "items": {},
+                              "title": "Coordinates",
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "Point",
+                                "MultiPoint",
+                                "LineString",
+                                "MultiLineString",
+                                "Polygon",
+                                "MultiPolygon"
+                              ],
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "coordinates"
+                          ],
+                          "title": "GeoJSONGeometry",
+                          "type": "object"
                         },
                         {
                           "type": "null"
@@ -27649,7 +27601,42 @@
                       "default": [],
                       "description": "Self-reference and related-resource links.",
                       "items": {
-                        "$ref": "#/$defs/OGCLink"
+                        "properties": {
+                          "href": {
+                            "description": "Target URL of the link.",
+                            "title": "Href",
+                            "type": "string"
+                          },
+                          "rel": {
+                            "description": "Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').",
+                            "title": "Rel",
+                            "type": "string"
+                          },
+                          "title": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional human-readable label for the link.",
+                            "title": "Title"
+                          },
+                          "type": {
+                            "description": "Media type of the linked resource (e.g. 'application/json', 'application/geo+json').",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "href",
+                          "rel",
+                          "type"
+                        ],
+                        "title": "OGCLink",
+                        "type": "object"
                       },
                       "title": "Links",
                       "type": "array"
@@ -31970,134 +31957,145 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "GeoJSONFeature": {
-                      "description": "A single GeoJSON Feature.",
-                      "properties": {
-                        "geometry": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/GeoJSONGeometryCollection"
-                            },
-                            {
-                              "$ref": "#/$defs/GeoJSONGeometry"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "title": "Geometry"
-                        },
-                        "id": {
-                          "title": "Id",
-                          "type": "integer"
-                        },
-                        "properties": {
-                          "additionalProperties": true,
-                          "title": "Properties",
-                          "type": "object"
-                        },
-                        "type": {
-                          "const": "Feature",
-                          "default": "Feature",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "properties"
-                      ],
-                      "title": "GeoJSONFeature",
-                      "type": "object"
-                    },
-                    "GeoJSONGeometry": {
-                      "description": "A GeoJSON geometry object (RFC 7946).",
-                      "properties": {
-                        "coordinates": {
-                          "items": {},
-                          "title": "Coordinates",
-                          "type": "array"
-                        },
-                        "type": {
-                          "enum": [
-                            "Point",
-                            "MultiPoint",
-                            "LineString",
-                            "MultiLineString",
-                            "Polygon",
-                            "MultiPolygon"
-                          ],
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "coordinates"
-                      ],
-                      "title": "GeoJSONGeometry",
-                      "type": "object"
-                    },
-                    "GeoJSONGeometryCollection": {
-                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
-                      "properties": {
-                        "geometries": {
-                          "items": {
-                            "$ref": "#/$defs/GeoJSONGeometry"
-                          },
-                          "title": "Geometries",
-                          "type": "array"
-                        },
-                        "type": {
-                          "const": "GeometryCollection",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "geometries"
-                      ],
-                      "title": "GeoJSONGeometryCollection",
-                      "type": "object"
-                    },
-                    "Link": {
-                      "properties": {
-                        "href": {
-                          "title": "Href",
-                          "type": "string"
-                        },
-                        "rel": {
-                          "title": "Rel",
-                          "type": "string"
-                        },
-                        "type": {
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "rel",
-                        "href",
-                        "type"
-                      ],
-                      "title": "Link",
-                      "type": "object"
-                    }
-                  },
                   "description": "A GeoJSON FeatureCollection with OGC API Features pagination fields.",
                   "properties": {
                     "features": {
                       "items": {
-                        "$ref": "#/$defs/GeoJSONFeature"
+                        "description": "A single GeoJSON Feature.",
+                        "properties": {
+                          "geometry": {
+                            "anyOf": [
+                              {
+                                "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                                "properties": {
+                                  "geometries": {
+                                    "items": {
+                                      "description": "A GeoJSON geometry object (RFC 7946).",
+                                      "properties": {
+                                        "coordinates": {
+                                          "items": {},
+                                          "title": "Coordinates",
+                                          "type": "array"
+                                        },
+                                        "type": {
+                                          "enum": [
+                                            "Point",
+                                            "MultiPoint",
+                                            "LineString",
+                                            "MultiLineString",
+                                            "Polygon",
+                                            "MultiPolygon"
+                                          ],
+                                          "title": "Type",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "coordinates"
+                                      ],
+                                      "title": "GeoJSONGeometry",
+                                      "type": "object"
+                                    },
+                                    "title": "Geometries",
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "const": "GeometryCollection",
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "geometries"
+                                ],
+                                "title": "GeoJSONGeometryCollection",
+                                "type": "object"
+                              },
+                              {
+                                "description": "A GeoJSON geometry object (RFC 7946).",
+                                "properties": {
+                                  "coordinates": {
+                                    "items": {},
+                                    "title": "Coordinates",
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "enum": [
+                                      "Point",
+                                      "MultiPoint",
+                                      "LineString",
+                                      "MultiLineString",
+                                      "Polygon",
+                                      "MultiPolygon"
+                                    ],
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "title": "GeoJSONGeometry",
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Geometry"
+                          },
+                          "id": {
+                            "title": "Id",
+                            "type": "integer"
+                          },
+                          "properties": {
+                            "additionalProperties": true,
+                            "title": "Properties",
+                            "type": "object"
+                          },
+                          "type": {
+                            "const": "Feature",
+                            "default": "Feature",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "properties"
+                        ],
+                        "title": "GeoJSONFeature",
+                        "type": "object"
                       },
                       "title": "Features",
                       "type": "array"
                     },
                     "links": {
                       "items": {
-                        "$ref": "#/$defs/Link"
+                        "properties": {
+                          "href": {
+                            "title": "Href",
+                            "type": "string"
+                          },
+                          "rel": {
+                            "title": "Rel",
+                            "type": "string"
+                          },
+                          "type": {
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "rel",
+                          "href",
+                          "type"
+                        ],
+                        "title": "Link",
+                        "type": "object"
                       },
                       "title": "Links",
                       "type": "array"
@@ -32269,68 +32267,85 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "GeoJSONGeometry": {
-                      "description": "A GeoJSON geometry object (RFC 7946).",
-                      "properties": {
-                        "coordinates": {
-                          "items": {},
-                          "title": "Coordinates",
-                          "type": "array"
-                        },
-                        "type": {
-                          "enum": [
-                            "Point",
-                            "MultiPoint",
-                            "LineString",
-                            "MultiLineString",
-                            "Polygon",
-                            "MultiPolygon"
-                          ],
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "coordinates"
-                      ],
-                      "title": "GeoJSONGeometry",
-                      "type": "object"
-                    },
-                    "GeoJSONGeometryCollection": {
-                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
-                      "properties": {
-                        "geometries": {
-                          "items": {
-                            "$ref": "#/$defs/GeoJSONGeometry"
-                          },
-                          "title": "Geometries",
-                          "type": "array"
-                        },
-                        "type": {
-                          "const": "GeometryCollection",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "geometries"
-                      ],
-                      "title": "GeoJSONGeometryCollection",
-                      "type": "object"
-                    }
-                  },
                   "description": "A single GeoJSON Feature.",
                   "properties": {
                     "geometry": {
                       "anyOf": [
                         {
-                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "properties": {
+                            "geometries": {
+                              "items": {
+                                "description": "A GeoJSON geometry object (RFC 7946).",
+                                "properties": {
+                                  "coordinates": {
+                                    "items": {},
+                                    "title": "Coordinates",
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "enum": [
+                                      "Point",
+                                      "MultiPoint",
+                                      "LineString",
+                                      "MultiLineString",
+                                      "Polygon",
+                                      "MultiPolygon"
+                                    ],
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "title": "GeoJSONGeometry",
+                                "type": "object"
+                              },
+                              "title": "Geometries",
+                              "type": "array"
+                            },
+                            "type": {
+                              "const": "GeometryCollection",
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "geometries"
+                          ],
+                          "title": "GeoJSONGeometryCollection",
+                          "type": "object"
                         },
                         {
-                          "$ref": "#/$defs/GeoJSONGeometry"
+                          "description": "A GeoJSON geometry object (RFC 7946).",
+                          "properties": {
+                            "coordinates": {
+                              "items": {},
+                              "title": "Coordinates",
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "Point",
+                                "MultiPoint",
+                                "LineString",
+                                "MultiLineString",
+                                "Polygon",
+                                "MultiPolygon"
+                              ],
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "coordinates"
+                          ],
+                          "title": "GeoJSONGeometry",
+                          "type": "object"
                         },
                         {
                           "type": "null"
@@ -32659,68 +32674,85 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "GeoJSONGeometry": {
-                      "description": "A GeoJSON geometry object (RFC 7946).",
-                      "properties": {
-                        "coordinates": {
-                          "items": {},
-                          "title": "Coordinates",
-                          "type": "array"
-                        },
-                        "type": {
-                          "enum": [
-                            "Point",
-                            "MultiPoint",
-                            "LineString",
-                            "MultiLineString",
-                            "Polygon",
-                            "MultiPolygon"
-                          ],
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "coordinates"
-                      ],
-                      "title": "GeoJSONGeometry",
-                      "type": "object"
-                    },
-                    "GeoJSONGeometryCollection": {
-                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
-                      "properties": {
-                        "geometries": {
-                          "items": {
-                            "$ref": "#/$defs/GeoJSONGeometry"
-                          },
-                          "title": "Geometries",
-                          "type": "array"
-                        },
-                        "type": {
-                          "const": "GeometryCollection",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "geometries"
-                      ],
-                      "title": "GeoJSONGeometryCollection",
-                      "type": "object"
-                    }
-                  },
                   "description": "A single GeoJSON Feature.",
                   "properties": {
                     "geometry": {
                       "anyOf": [
                         {
-                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "properties": {
+                            "geometries": {
+                              "items": {
+                                "description": "A GeoJSON geometry object (RFC 7946).",
+                                "properties": {
+                                  "coordinates": {
+                                    "items": {},
+                                    "title": "Coordinates",
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "enum": [
+                                      "Point",
+                                      "MultiPoint",
+                                      "LineString",
+                                      "MultiLineString",
+                                      "Polygon",
+                                      "MultiPolygon"
+                                    ],
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "title": "GeoJSONGeometry",
+                                "type": "object"
+                              },
+                              "title": "Geometries",
+                              "type": "array"
+                            },
+                            "type": {
+                              "const": "GeometryCollection",
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "geometries"
+                          ],
+                          "title": "GeoJSONGeometryCollection",
+                          "type": "object"
                         },
                         {
-                          "$ref": "#/$defs/GeoJSONGeometry"
+                          "description": "A GeoJSON geometry object (RFC 7946).",
+                          "properties": {
+                            "coordinates": {
+                              "items": {},
+                              "title": "Coordinates",
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "Point",
+                                "MultiPoint",
+                                "LineString",
+                                "MultiLineString",
+                                "Polygon",
+                                "MultiPolygon"
+                              ],
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "coordinates"
+                          ],
+                          "title": "GeoJSONGeometry",
+                          "type": "object"
                         },
                         {
                           "type": "null"
@@ -32903,68 +32935,85 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "GeoJSONGeometry": {
-                      "description": "A GeoJSON geometry object (RFC 7946).",
-                      "properties": {
-                        "coordinates": {
-                          "items": {},
-                          "title": "Coordinates",
-                          "type": "array"
-                        },
-                        "type": {
-                          "enum": [
-                            "Point",
-                            "MultiPoint",
-                            "LineString",
-                            "MultiLineString",
-                            "Polygon",
-                            "MultiPolygon"
-                          ],
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "coordinates"
-                      ],
-                      "title": "GeoJSONGeometry",
-                      "type": "object"
-                    },
-                    "GeoJSONGeometryCollection": {
-                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
-                      "properties": {
-                        "geometries": {
-                          "items": {
-                            "$ref": "#/$defs/GeoJSONGeometry"
-                          },
-                          "title": "Geometries",
-                          "type": "array"
-                        },
-                        "type": {
-                          "const": "GeometryCollection",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "geometries"
-                      ],
-                      "title": "GeoJSONGeometryCollection",
-                      "type": "object"
-                    }
-                  },
                   "description": "A single GeoJSON Feature.",
                   "properties": {
                     "geometry": {
                       "anyOf": [
                         {
-                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "properties": {
+                            "geometries": {
+                              "items": {
+                                "description": "A GeoJSON geometry object (RFC 7946).",
+                                "properties": {
+                                  "coordinates": {
+                                    "items": {},
+                                    "title": "Coordinates",
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "enum": [
+                                      "Point",
+                                      "MultiPoint",
+                                      "LineString",
+                                      "MultiLineString",
+                                      "Polygon",
+                                      "MultiPolygon"
+                                    ],
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "title": "GeoJSONGeometry",
+                                "type": "object"
+                              },
+                              "title": "Geometries",
+                              "type": "array"
+                            },
+                            "type": {
+                              "const": "GeometryCollection",
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "geometries"
+                          ],
+                          "title": "GeoJSONGeometryCollection",
+                          "type": "object"
                         },
                         {
-                          "$ref": "#/$defs/GeoJSONGeometry"
+                          "description": "A GeoJSON geometry object (RFC 7946).",
+                          "properties": {
+                            "coordinates": {
+                              "items": {},
+                              "title": "Coordinates",
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "Point",
+                                "MultiPoint",
+                                "LineString",
+                                "MultiLineString",
+                                "Polygon",
+                                "MultiPolygon"
+                              ],
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "coordinates"
+                          ],
+                          "title": "GeoJSONGeometry",
+                          "type": "object"
                         },
                         {
                           "type": "null"
@@ -33157,68 +33206,85 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "$defs": {
-                    "GeoJSONGeometry": {
-                      "description": "A GeoJSON geometry object (RFC 7946).",
-                      "properties": {
-                        "coordinates": {
-                          "items": {},
-                          "title": "Coordinates",
-                          "type": "array"
-                        },
-                        "type": {
-                          "enum": [
-                            "Point",
-                            "MultiPoint",
-                            "LineString",
-                            "MultiLineString",
-                            "Polygon",
-                            "MultiPolygon"
-                          ],
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "coordinates"
-                      ],
-                      "title": "GeoJSONGeometry",
-                      "type": "object"
-                    },
-                    "GeoJSONGeometryCollection": {
-                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
-                      "properties": {
-                        "geometries": {
-                          "items": {
-                            "$ref": "#/$defs/GeoJSONGeometry"
-                          },
-                          "title": "Geometries",
-                          "type": "array"
-                        },
-                        "type": {
-                          "const": "GeometryCollection",
-                          "title": "Type",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "geometries"
-                      ],
-                      "title": "GeoJSONGeometryCollection",
-                      "type": "object"
-                    }
-                  },
                   "description": "A single GeoJSON Feature.",
                   "properties": {
                     "geometry": {
                       "anyOf": [
                         {
-                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                          "properties": {
+                            "geometries": {
+                              "items": {
+                                "description": "A GeoJSON geometry object (RFC 7946).",
+                                "properties": {
+                                  "coordinates": {
+                                    "items": {},
+                                    "title": "Coordinates",
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "enum": [
+                                      "Point",
+                                      "MultiPoint",
+                                      "LineString",
+                                      "MultiLineString",
+                                      "Polygon",
+                                      "MultiPolygon"
+                                    ],
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "coordinates"
+                                ],
+                                "title": "GeoJSONGeometry",
+                                "type": "object"
+                              },
+                              "title": "Geometries",
+                              "type": "array"
+                            },
+                            "type": {
+                              "const": "GeometryCollection",
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "geometries"
+                          ],
+                          "title": "GeoJSONGeometryCollection",
+                          "type": "object"
                         },
                         {
-                          "$ref": "#/$defs/GeoJSONGeometry"
+                          "description": "A GeoJSON geometry object (RFC 7946).",
+                          "properties": {
+                            "coordinates": {
+                              "items": {},
+                              "title": "Coordinates",
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "Point",
+                                "MultiPoint",
+                                "LineString",
+                                "MultiLineString",
+                                "Polygon",
+                                "MultiPolygon"
+                              ],
+                              "title": "Type",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "coordinates"
+                          ],
+                          "title": "GeoJSONGeometry",
+                          "type": "object"
                         },
                         {
                           "type": "null"

@@ -12,6 +12,34 @@ MAX_GEOMETRY_COLLECTION_MEMBERS = 1_000
 MAX_POSITION_DIMENSIONS = 4
 
 
+def inline_json_schema(model: type[BaseModel]) -> dict:
+    """``model_json_schema()`` with local ``$defs`` inlined.
+
+    Schemas passed raw through route ``responses=`` are embedded verbatim in
+    the exported OpenAPI document, where pydantic's ``#/$defs/...`` pointers
+    resolve against the document root and dangle — strict consumers (docs
+    generators, ref bundlers) reject the whole document. Only safe for
+    non-recursive models; the GeoJSON models here are deliberately acyclic.
+    """
+    schema = model.model_json_schema()
+    defs = schema.pop("$defs", {})
+
+    def resolve(node: Any) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                target = resolve(defs[ref.rsplit("/", 1)[-1]])
+                # Keep sibling keys (description, default) over the target's.
+                extras = {k: resolve(v) for k, v in node.items() if k != "$ref"}
+                return {**target, **extras}
+            return {k: resolve(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [resolve(item) for item in node]
+        return node
+
+    return resolve(schema)
+
+
 def _coordinate_tuple_count(coordinates: object) -> int:
     """Validate a GeoJSON coordinate tree and return its position count."""
     if not isinstance(coordinates, list):
