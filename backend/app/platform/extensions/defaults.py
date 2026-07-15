@@ -75,11 +75,16 @@ class DefaultPermissionExtension:
         ]
 
         if grant_cls is not None:
+            # fix(#515): grants key catalog.datasets.id, not records.id — route
+            # through Dataset.record_id so granted restricted records resolve.
+            from app.modules.catalog.datasets.domain.models import Dataset
+
             conditions.append(
                 and_(
                     record_cls.visibility == "restricted",
                     record_cls.id.in_(
-                        select(grant_cls.dataset_id)
+                        select(Dataset.record_id)
+                        .join(grant_cls, grant_cls.dataset_id == Dataset.id)
                         .join(UserRole, grant_cls.role_id == UserRole.role_id)
                         .where(UserRole.user_id == user.id)
                     ),
