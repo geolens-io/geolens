@@ -317,7 +317,7 @@ export function BulkReviewList({
                       <span className="font-mono font-normal text-muted-foreground">{ext}</span>
                     </span>
                     {entry.status === 'tracking' && (
-                      <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-2xs">
+                      <Badge variant="success" className="text-2xs">
                         {t('bulk.committed')}
                       </Badge>
                     )}
