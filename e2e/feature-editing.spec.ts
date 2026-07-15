@@ -30,61 +30,101 @@ function getAuthToken(): string {
 
 let datasetId: string;
 let datasetTitle: string;
-let editingWasEnabled: boolean;
+let editingWasEnabled: boolean | undefined;
 let headers: Record<string, string>;
 
-test.describe('Feature editing round-trips', () => {
-  test.beforeAll(async () => {
-    const token = getAuthToken();
-    headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
-
-    // Editing is deployment-gated (enable_dataset_editing, default off).
-    const flags = await fetch(`${BASE_URL}/api/settings/feature-flags/`, { headers });
-    expect(flags.ok).toBe(true);
-    editingWasEnabled = (await flags.json()).enable_dataset_editing === true;
-    if (!editingWasEnabled) {
-      const res = await fetch(`${BASE_URL}/api/settings/`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ settings: { enable_dataset_editing: true } }),
-      });
-      expect(res.ok).toBe(true);
-    }
-
-    // Throwaway layer with a text and an integer column + one feature.
-    datasetTitle = `E2E Feature Editing ${Date.now()}`;
-    const layer = await fetch(`${BASE_URL}/api/layers/`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        title: datasetTitle,
-        geometry_type: 'Point',
-        columns: [
-          { name: 'name', type: 'text' },
-          { name: 'population', type: 'integer' },
-        ],
-      }),
-    });
-    expect(layer.ok).toBe(true);
-    datasetId = (await layer.json()).id;
-
-    const feature = await fetch(`${BASE_URL}/api/datasets/${datasetId}/features/`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        geometry: { type: 'Point', coordinates: [-73.9857, 40.7484] },
-        properties: { name: 'alpha', population: 100 },
-      }),
-    });
-    expect(feature.ok).toBe(true);
+async function createEditingDataset() {
+  datasetTitle = `E2E Feature Editing ${Date.now()}`;
+  const layer = await fetch(`${BASE_URL}/api/layers/`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      title: datasetTitle,
+      geometry_type: 'Point',
+      columns: [
+        { name: 'name', type: 'text' },
+        { name: 'population', type: 'integer' },
+      ],
+    }),
   });
+  expect(layer.ok).toBe(true);
+  datasetId = (await layer.json()).id;
+
+  const feature = await fetch(`${BASE_URL}/api/datasets/${datasetId}/features/`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      geometry: { type: 'Point', coordinates: [-73.9857, 40.7484] },
+      properties: { name: 'alpha', population: 100 },
+    }),
+  });
+  expect(feature.ok).toBe(true);
+}
+
+async function waitForPersistedValue(column: string, expectedValue: string | number) {
+  await expect.poll(async () => {
+    const response = await fetch(`${BASE_URL}/api/datasets/${datasetId}/rows/?limit=1`, {
+      headers,
+    });
+    if (!response.ok) return undefined;
+    const body = await response.json() as { rows?: Array<Record<string, unknown>> };
+    return body.rows?.[0]?.[column];
+  }, {
+    message: `wait for ${column} edit to persist before reloading`,
+    timeout: 15_000,
+  }).toBe(expectedValue);
+}
+
+test.beforeAll(async () => {
+  const token = getAuthToken();
+  headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+
+  const flags = await fetch(`${BASE_URL}/api/settings/feature-flags/`, { headers });
+  expect(flags.ok).toBe(true);
+  editingWasEnabled = (await flags.json()).enable_dataset_editing === true;
+  if (!editingWasEnabled) {
+    const response = await fetch(`${BASE_URL}/api/settings/`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ settings: { enable_dataset_editing: true } }),
+    });
+    expect(response.ok).toBe(true);
+  }
+});
+
+test.beforeEach(async () => {
+  await createEditingDataset();
+});
+
+test.afterEach(async () => {
+  if (!datasetId) return;
+  const response = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
+    method: 'DELETE',
+    headers,
+    body: JSON.stringify({ confirm_title: datasetTitle }),
+  });
+  expect(response.ok).toBe(true);
+  datasetId = '';
+});
+
+test.afterAll(async () => {
+  if (editingWasEnabled === false) {
+    const response = await fetch(`${BASE_URL}/api/settings/`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ settings: { enable_dataset_editing: false } }),
+    });
+    expect(response.ok).toBe(true);
+  }
+});
+
+test.describe('Feature editing round-trips', () => {
 
   async function openDataTab(page: import('@playwright/test').Page) {
-    await page.goto(`/datasets/${datasetId}`);
-    await page.getByRole('tab', { name: 'Data', exact: true }).click();
+    await page.goto(`/datasets/${datasetId}#data`);
   }
 
   async function editCell(
@@ -107,9 +147,9 @@ test.describe('Feature editing round-trips', () => {
   test('text cell edit persists across reload', async ({ page }) => {
     await openDataTab(page);
     await editCell(page, 'alpha', 'bravo');
+    await waitForPersistedValue('name', 'bravo');
 
     await page.reload();
-    await page.getByRole('tab', { name: 'Data', exact: true }).click();
     await expect(
       page.getByRole('button', { name: 'bravo', exact: true }),
     ).toBeVisible({ timeout: 15_000 });
@@ -118,9 +158,9 @@ test.describe('Feature editing round-trips', () => {
   test('integer cell edit persists across reload (E-03 live)', async ({ page }) => {
     await openDataTab(page);
     await editCell(page, '100', '250');
+    await waitForPersistedValue('population', 250);
 
     await page.reload();
-    await page.getByRole('tab', { name: 'Data', exact: true }).click();
     await expect(
       page.getByRole('button', { name: '250', exact: true }),
     ).toBeVisible({ timeout: 15_000 });
@@ -130,7 +170,7 @@ test.describe('Feature editing round-trips', () => {
     page,
   }) => {
     await openDataTab(page);
-    const cell = page.getByRole('button', { name: '250', exact: true });
+    const cell = page.getByRole('button', { name: '100', exact: true });
     await expect(cell).toBeVisible({ timeout: 15_000 });
     await cell.click();
     const input = page.locator('tbody input');
@@ -141,37 +181,14 @@ test.describe('Feature editing round-trips', () => {
     });
     // Value unchanged after reload.
     await page.reload();
-    await page.getByRole('tab', { name: 'Data', exact: true }).click();
     await expect(
-      page.getByRole('button', { name: '250', exact: true }),
+      page.getByRole('button', { name: '100', exact: true }),
     ).toBeVisible({ timeout: 15_000 });
   });
 });
 
 test.describe('Feature editing affordances (anonymous)', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
-
-  // Cleanup for the whole file lives here: workers=1 runs describes in file
-  // order, so this afterAll is the last hook to fire.
-  test.afterAll(async () => {
-    if (datasetId) {
-      // The delete API demands title confirmation; assert cleanup worked so
-      // repeated runs can't silently accrete published throwaway datasets.
-      const res = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
-        method: 'DELETE',
-        headers,
-        body: JSON.stringify({ confirm_title: datasetTitle }),
-      });
-      expect(res.ok).toBe(true);
-    }
-    if (!editingWasEnabled) {
-      await fetch(`${BASE_URL}/api/settings/`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ settings: { enable_dataset_editing: false } }),
-      });
-    }
-  });
 
   test('anonymous viewer of a public dataset sees no editable cells', async ({
     page,
@@ -184,14 +201,13 @@ test.describe('Feature editing affordances (anonymous)', () => {
     });
     expect(res.ok).toBe(true);
 
-    await page.goto(`/datasets/${datasetId}`);
-    await page.getByRole('tab', { name: 'Data', exact: true }).click();
+    await page.goto(`/datasets/${datasetId}#data`);
     // Value renders as plain text, not as an edit button.
-    await expect(page.getByText('bravo', { exact: true })).toBeVisible({
+    await expect(page.getByText('alpha', { exact: true })).toBeVisible({
       timeout: 15_000,
     });
     await expect(
-      page.getByRole('button', { name: 'bravo', exact: true }),
+      page.getByRole('button', { name: 'alpha', exact: true }),
     ).toHaveCount(0);
   });
 });

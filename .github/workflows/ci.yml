@@ -1239,10 +1239,18 @@ jobs:
   # CI signal.
   e2e-test:
     name: E2E Tests
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Path-filtered prerequisites may be skipped on a test-only branch. Evaluate
+    # this job anyway for scheduled and manual runs, but preserve their failures.
+    if: >-
+      always()
+      && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
-    timeout-minutes: 15
+    # A clean run includes fixture ingestion, 150+ checks, retries, and cleanup.
+    # Keep enough headroom for the whole suite to finish on a shared runner.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 

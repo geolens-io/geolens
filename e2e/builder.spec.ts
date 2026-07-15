@@ -1,10 +1,17 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Response } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
 const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
+
+function isMapUpdateResponse(response: Response, mapId: string): boolean {
+  return (
+    response.request().method() === 'PUT' &&
+    new URL(response.url()).pathname === `/api/maps/${mapId}`
+  );
+}
 
 interface DatasetListItem {
   id?: string;
@@ -169,7 +176,9 @@ test.describe.serial('Map Builder', () => {
       (ds) => ds.record_type === 'vector_dataset' && hasTextColumn(ds.column_info ?? null),
     );
     let datasetId = suitable?.id ?? datasets[0]?.id;
-    if (!datasetId) {
+    // Keep one dataset out of the map so the Add Dataset tests always have a
+    // catalog row to inspect on a clean installation.
+    if (datasets.length < 2) {
       const fallback = await createFallbackVectorDataset(authHeaders);
       datasetId = fallback.datasetId;
       fallbackDatasetId = fallback.datasetId;
@@ -259,7 +268,9 @@ test.describe.serial('Map Builder', () => {
       } else {
         await expect(sidebar.getByRole('button', { name: /add data/i }).first()).toBeVisible();
       }
-      await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Share', exact: true }),
+      ).toBeVisible();
       await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
       await expect(page.locator('[inert]')).toHaveCount(0);
 
@@ -440,7 +451,7 @@ test.describe.serial('Map Builder', () => {
       .toHaveCount(beforeLayerIdentity.length);
 
     const saveResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+      (response) => isMapUpdateResponse(response, mapId),
     );
     await page.getByRole('button', { name: /save/i }).first().click();
     expect((await saveResponsePromise).status()).toBe(200);
@@ -502,7 +513,7 @@ test.describe.serial('Map Builder', () => {
       (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'PATCH',
     );
     const mapSavePromise = page.waitForResponse(
-      (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+      (response) => isMapUpdateResponse(response, mapId),
     );
     await page.getByRole('button', { name: /save/i }).first().click();
     expect((await layerPatchPromise).status()).toBe(200);
@@ -557,7 +568,7 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    const shareButton = page.getByRole('button', { name: 'Share' });
+    const shareButton = page.getByRole('button', { name: 'Share', exact: true });
     await expect(shareButton).toBeVisible();
     await shareButton.click();
     await expect(page.getByRole('heading', { name: 'Share' })).toBeVisible();
@@ -579,7 +590,7 @@ test.describe.serial('Map Builder', () => {
 
     // Set up response listener before clicking
     const saveResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes('/api/maps/') && resp.request().method() === 'PUT',
+      (response) => isMapUpdateResponse(response, mapId),
     );
     await saveBtn.click();
 
@@ -856,8 +867,7 @@ test.describe.serial('Map Builder', () => {
 
     // Save — no popup-config-invalid toast, success toast appears (FOLLOWUP-01 round-trip)
     const saveResponsePromise = page.waitForResponse(
-      (resp) =>
-        resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+      (response) => isMapUpdateResponse(response, mapId),
     );
     await page.getByRole('button', { name: /save/i }).first().click();
     const saveResp = await saveResponsePromise;

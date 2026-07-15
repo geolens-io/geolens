@@ -5,7 +5,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/overview');
 
     await expect(
-      page.getByRole('heading', { name: 'Overview' }),
+      page.getByRole('heading', { level: 1, name: 'Overview' }),
     ).toBeVisible();
     await expect(page.getByText('Total Datasets')).toBeVisible({
       timeout: 10_000,
@@ -16,7 +16,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/users');
 
     await expect(
-      page.getByRole('heading', { name: 'Users' }),
+      page.getByRole('heading', { level: 1, name: 'Users' }),
     ).toBeVisible();
     // Column headers asserted by role: plain getByText('Email') strict-collides
     // with the "Export emails (CSV)" toolbar button (substring match).
@@ -36,7 +36,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/jobs');
 
     await expect(
-      page.getByRole('heading', { name: 'Jobs' }),
+      page.getByRole('heading', { level: 1, name: 'Jobs' }),
     ).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'Status' })).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'User' })).toBeVisible();
@@ -70,16 +70,37 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/audit');
 
     await expect(
-      page.getByRole('heading', { name: 'Audit Logs' }),
+      page.getByRole('heading', { level: 1, name: 'Audit Logs' }),
     ).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'Action' })).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'From' })).toBeVisible();
     await expect(page.locator('label').filter({ hasText: 'To' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Clear' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Timestamp' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'IP Address' })).toBeVisible();
+
+    const emptyState = page.getByText('No audit logs found');
     const detailsToggles = page.getByTestId('audit-details-toggle');
     const firstToggle = detailsToggles.first();
+
+    // Wait for loading to finish before deciding whether the clean installation
+    // needs a seed row. Exporting an empty result records its own audit.export event.
+    await expect
+      .poll(
+        async () =>
+          (await emptyState.isVisible()) || (await firstToggle.isVisible()),
+        { message: 'audit table did not reach an empty or populated state' },
+      )
+      .toBe(true);
+
+    if (await emptyState.isVisible()) {
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Export CSV' }).click();
+      const download = await downloadPromise;
+      await download.path();
+      await page.reload();
+    }
+
+    await expect(page.getByRole('columnheader', { name: 'Timestamp' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'IP Address' })).toBeVisible();
     await expect(firstToggle).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear' }).focus();
@@ -106,7 +127,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/settings/general');
 
     await expect(
-      page.getByRole('heading', { name: 'General' }),
+      page.getByRole('heading', { level: 1, name: 'General' }),
     ).toBeVisible();
     await expect(page.getByText('Require Metadata for Publishing')).toBeVisible({
       timeout: 10_000,
@@ -120,7 +141,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/settings/auth');
 
     await expect(
-      page.getByRole('heading', { name: 'Auth', exact: true }),
+      page.getByRole('heading', { level: 1, name: 'Auth', exact: true }),
     ).toBeVisible();
     await expect(page.getByRole('heading', { name: 'OAuth Providers' })).toBeVisible({
       timeout: 10_000,
@@ -133,7 +154,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/settings/network');
 
     await expect(
-      page.getByRole('heading', { name: 'Network' }),
+      page.getByRole('heading', { level: 1, name: 'Network' }),
     ).toBeVisible();
     await expect(page.getByText('CORS Allowed Origins')).toBeVisible({
       timeout: 10_000,
@@ -145,7 +166,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/settings/storage');
 
     await expect(
-      page.getByRole('heading', { name: 'Storage' }),
+      page.getByRole('heading', { level: 1, name: 'Storage' }),
     ).toBeVisible();
     await expect(page.getByText('Maximum file size (MB)')).toBeVisible({
       timeout: 10_000,
@@ -158,7 +179,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/settings/map');
 
     await expect(
-      page.getByRole('heading', { name: 'Map', exact: true }),
+      page.getByRole('heading', { level: 1, name: 'Map', exact: true }),
     ).toBeVisible();
     await expect(page.getByText('Basemap Presets')).toBeVisible({
       timeout: 10_000,
@@ -171,7 +192,7 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/shared-maps');
 
     await expect(
-      page.getByRole('heading', { name: 'Published Maps' }),
+      page.getByRole('heading', { level: 1, name: 'Published Maps' }),
     ).toBeVisible();
     await expect(page.getByPlaceholder('Search by map name...')).toBeVisible({
       timeout: 10_000,
@@ -184,37 +205,37 @@ test.describe('Admin Panel', () => {
     await page.goto('/admin/overview');
 
     await expect(
-      page.getByRole('heading', { name: 'Overview' }),
+      page.getByRole('heading', { level: 1, name: 'Overview' }),
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Users' }).click();
     await page.waitForURL('/admin/users');
     await expect(
-      page.getByRole('heading', { name: 'Users' }),
+      page.getByRole('heading', { level: 1, name: 'Users' }),
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Jobs' }).click();
     await page.waitForURL('/admin/jobs');
     await expect(
-      page.getByRole('heading', { name: 'Jobs' }),
+      page.getByRole('heading', { level: 1, name: 'Jobs' }),
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Audit Log' }).click();
     await page.waitForURL('/admin/audit');
     await expect(
-      page.getByRole('heading', { name: 'Audit Logs' }),
+      page.getByRole('heading', { level: 1, name: 'Audit Logs' }),
     ).toBeVisible();
 
     await page.getByRole('link', { name: 'Published Maps' }).click();
     await page.waitForURL('/admin/shared-maps');
     await expect(
-      page.getByRole('heading', { name: 'Published Maps' }),
+      page.getByRole('heading', { level: 1, name: 'Published Maps' }),
     ).toBeVisible();
 
     await page.locator('a[href="/admin/settings/map"]').click();
     await page.waitForURL('/admin/settings/map');
     await expect(
-      page.getByRole('heading', { name: 'Map', exact: true }),
+      page.getByRole('heading', { level: 1, name: 'Map', exact: true }),
     ).toBeVisible();
   });
 });

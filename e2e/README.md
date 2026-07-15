@@ -24,6 +24,11 @@ npm run e2e:smoke        # the smoke subset (core + builder + fixtures)
 - `playwright.builder-hardening.config.ts`: a separate config that runs only
   `builder-hardening.spec.ts` across Chromium, Firefox, and WebKit.
 
+The browser projects in both configs create one temporary vector dataset for
+catalog-dependent flows. The cleanup project removes it after the browser tests
+finish, including failed runs. The API-only export suite manages its own fixture
+and does not require a browser install.
+
 ## Smoke groups
 
 The `e2e:smoke:*` scripts in the root `package.json` group specs by area

@@ -18,7 +18,15 @@ export default defineConfig({
     video: 'on-first-retry',
   },
   projects: [
-    { name: 'setup', testMatch: /.*\.setup\.ts/ },
+    {
+      name: 'setup',
+      testMatch: /.*\.setup\.ts/,
+      teardown: 'cleanup',
+    },
+    {
+      name: 'cleanup',
+      testMatch: /.*\.teardown\.ts/,
+    },
     {
       name: 'chromium',
       testIgnore: /export-runtime\.spec\.ts/,

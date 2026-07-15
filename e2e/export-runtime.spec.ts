@@ -7,10 +7,6 @@ import {
 
 type BBox = [number, number, number, number];
 
-type SearchFeatureCollection = {
-  features?: Array<{ id?: string }>;
-};
-
 type DatasetDetail = {
   id: string;
   title: string;
@@ -59,6 +55,11 @@ type AuditLogEntry = {
 type AuditLogListResponse = {
   logs?: AuditLogEntry[];
   total?: number;
+};
+
+type OwnedDataset = {
+  id: string;
+  title: string;
 };
 
 const adminUser = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
@@ -353,6 +354,101 @@ async function loginAsAdmin(request: APIRequestContext): Promise<string> {
   return payload.access_token as string;
 }
 
+async function seedRuntimeDataset(
+  request: APIRequestContext,
+  authHeader: Record<string, string>,
+): Promise<OwnedDataset> {
+  const title = `E2E Runtime Export ${Date.now()}`;
+  const fixture = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-100, 30] },
+        properties: { name: 'west', value: 10 },
+      },
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-95, 35] },
+        properties: { name: 'center', value: 20 },
+      },
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-90, 40] },
+        properties: { name: 'east', value: 30 },
+      },
+    ],
+  };
+
+  const uploadResponse = await request.post('/api/ingest/upload', {
+    headers: authHeader,
+    multipart: {
+      file: {
+        name: 'runtime-export.geojson',
+        mimeType: 'application/geo+json',
+        buffer: Buffer.from(JSON.stringify(fixture)),
+      },
+    },
+  });
+  if (!uploadResponse.ok()) {
+    throw new Error(`Runtime export fixture upload failed (${uploadResponse.status()})`);
+  }
+
+  const uploadPayload = (await uploadResponse.json()) as { job_id?: string };
+  if (!uploadPayload.job_id) {
+    throw new Error('Runtime export fixture upload did not return a job id');
+  }
+
+  const commitResponse = await request.post(
+    `/api/ingest/commit/${uploadPayload.job_id}`,
+    {
+      headers: authHeader,
+      data: { title },
+    },
+  );
+  if (!commitResponse.ok()) {
+    throw new Error(`Runtime export fixture commit failed (${commitResponse.status()})`);
+  }
+
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const jobResponse = await request.get(`/api/jobs/${uploadPayload.job_id}`, {
+      headers: authHeader,
+    });
+    if (jobResponse.ok()) {
+      const job = (await jobResponse.json()) as {
+        status?: string;
+        dataset_id?: string | null;
+      };
+      if (
+        job.dataset_id &&
+        ['complete', 'completed', 'succeeded'].includes(job.status ?? '')
+      ) {
+        return { id: job.dataset_id, title };
+      }
+      if (['failed', 'error'].includes(job.status ?? '')) {
+        throw new Error(`Runtime export fixture ingest failed with status ${job.status}`);
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  throw new Error('Runtime export fixture ingest did not complete in time');
+}
+
+async function deleteRuntimeDataset(
+  request: APIRequestContext,
+  authHeader: Record<string, string>,
+  dataset: OwnedDataset,
+): Promise<void> {
+  const response = await request.delete(`/api/datasets/${dataset.id}`, {
+    headers: authHeader,
+    data: { confirm_title: dataset.title },
+  });
+  if (!response.ok() && response.status() !== 404) {
+    throw new Error(`Runtime export fixture cleanup failed (${response.status()})`);
+  }
+}
+
 async function exportDataset(
   request: APIRequestContext,
   authHeader: Record<string, string>,
@@ -391,6 +487,7 @@ async function exportGeoJson(
 async function resolveRuntimeDataset(
   request: APIRequestContext,
   authHeader: Record<string, string>,
+  datasetId: string,
 ): Promise<{ dataset: DatasetDetail; baseline: GeoJsonFeatureCollection }> {
   async function resolveCandidate(
     datasetId: string,
@@ -476,39 +573,13 @@ async function resolveRuntimeDataset(
     return { dataset: detail, baseline };
   }
 
-  const preferredDatasetId = process.env.E2E_EXPORT_DATASET_ID?.trim();
-  if (preferredDatasetId) {
-    const preferred = await resolveCandidate(preferredDatasetId);
-    if (preferred) {
-      return preferred;
-    }
-    throw new Error(
-      `E2E_EXPORT_DATASET_ID=${preferredDatasetId} did not satisfy runtime semantic preconditions`,
-    );
-  }
-
-  // Trailing slash required — see loginAsAdmin() above for the rationale.
-  const searchResponse = await request.get('/api/search/datasets/?limit=10', {
-    headers: authHeader,
-  });
-  expect(searchResponse.ok()).toBeTruthy();
-
-  const searchPayload = (await searchResponse.json()) as SearchFeatureCollection;
-  const candidates = searchPayload.features ?? [];
-  expect(candidates.length).toBeGreaterThan(0);
-
-  for (const feature of candidates) {
-    if (!feature.id) {
-      continue;
-    }
-    const resolved = await resolveCandidate(feature.id);
-    if (resolved) {
-      return resolved;
-    }
+  const resolved = await resolveCandidate(datasetId);
+  if (resolved) {
+    return resolved;
   }
 
   throw new Error(
-    'No runtime dataset satisfied format + target_crs semantic preconditions; set E2E_EXPORT_DATASET_ID to a known-good dataset id to skip discovery',
+    `Runtime export dataset ${datasetId} did not satisfy format and target_crs semantic preconditions`,
   );
 }
 
@@ -522,13 +593,27 @@ test.describe('Runtime export integrity', () => {
   let auditDateFrom: string;
   let lastBboxFilter: string | null = null;
   let lastWhereFilter: string | null = null;
+  let ownedDataset: OwnedDataset | null = null;
 
   test.beforeAll(async ({ request }) => {
     const token = await loginAsAdmin(request);
     authHeader = { Authorization: `Bearer ${token}` };
     auditDateFrom = new Date(Date.now() - 5_000).toISOString();
 
-    const runtimeContext = await resolveRuntimeDataset(request, authHeader);
+    const preferredDatasetId = process.env.E2E_EXPORT_DATASET_ID?.trim();
+    if (!preferredDatasetId) {
+      ownedDataset = await seedRuntimeDataset(request, authHeader);
+    }
+    const runtimeDatasetId = preferredDatasetId ?? ownedDataset?.id;
+    if (!runtimeDatasetId) {
+      throw new Error('Runtime export fixture setup did not produce a dataset id');
+    }
+
+    const runtimeContext = await resolveRuntimeDataset(
+      request,
+      authHeader,
+      runtimeDatasetId,
+    );
     dataset = runtimeContext.dataset;
     baseline = runtimeContext.baseline;
 
@@ -539,6 +624,12 @@ test.describe('Runtime export integrity', () => {
 
     expect(extentFromDataset ?? extentFromFeatures).toBeTruthy();
     baselineExtent = (extentFromDataset ?? extentFromFeatures) as BBox;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (ownedDataset) {
+      await deleteRuntimeDataset(request, authHeader, ownedDataset);
+    }
   });
 
   test('exports gpkg with SQLite payload header', async ({ request }) => {
