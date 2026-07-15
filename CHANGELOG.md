@@ -10,7 +10,7 @@ and releases use semantic versioning.
 ## [1.4.7] - 2026-07-15
 
 This release hardens the platform after a full portfolio audit — access
-control, the open-core boundary, containers, migrations, and the admin
+control, the extension boundary, containers, migrations, and the admin
 control plane — and completes the internationalization pass across all four
 locales.
 
@@ -51,10 +51,10 @@ locales.
 - **Spanish, French, and German localizations are complete.** The
   internationalization audit closed the remaining untranslated and
   inconsistent strings in all four locales.
-- **Enterprise-edition workers no longer refuse to boot.** The worker's
-  startup assertion demanded cloud-only extensions under a single-tenant
-  enterprise deployment; each overlay tier is now checked only for the
-  extensions it actually provides.
+- **Workers with a commercial extension installed no longer refuse to
+  boot.** The worker's startup assertion demanded extensions from a different
+  distribution tier; each tier is now checked only for the extensions it
+  actually provides.
 - **Ingestion lifecycle hardening.** Stalled ingests are reaped reliably and
   ingest work is isolated per tenant context.
 
