@@ -26,10 +26,9 @@ test.describe('Accessibility - WCAG 2AA', () => {
   let collectionName: string;
 
   test.beforeAll(async () => {
-    // Seed a real dataset so the dataset-detail test has something to render.
-    // This spec runs standalone in the Accessibility CI job (empty stack), so
-    // nothing else creates catalog data.
-    const seeded = await seedDataset();
+    // Use a separate dataset because this suite publishes it for anonymous
+    // checks and must not change the shared catalog fixture.
+    const seeded = await seedDataset('A11y Seed Dataset');
     datasetId = seeded.id;
     datasetTitle = seeded.title;
 

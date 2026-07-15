@@ -22,7 +22,7 @@ test.describe('Permissions', () => {
 
     // Verify permissions page heading
     await expect(
-      page.getByRole('heading', { name: 'Permissions' }),
+      page.getByRole('heading', { level: 1, name: 'Permissions' }),
     ).toBeVisible();
 
     // Verify matrix card
@@ -80,7 +80,7 @@ test.describe('Permissions', () => {
     request,
   }) => {
     // Login to get token
-    const loginResp = await request.post('http://localhost:8080/api/auth/login', {
+    const loginResp = await request.post('/api/auth/login', {
       form: {
         username: process.env.GEOLENS_ADMIN_USERNAME ?? 'admin',
         password: process.env.GEOLENS_ADMIN_PASSWORD ?? 'admin',
@@ -90,7 +90,7 @@ test.describe('Permissions', () => {
     const { access_token } = await loginResp.json();
 
     // Fetch permissions
-    const permResp = await request.get('http://localhost:8080/api/auth/me/permissions/', {
+    const permResp = await request.get('/api/auth/me/permissions/', {
       headers: { Authorization: `Bearer ${access_token}` },
     });
     expect(permResp.ok()).toBeTruthy();

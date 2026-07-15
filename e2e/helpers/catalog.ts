@@ -162,15 +162,13 @@ export interface SeededDataset {
 /**
  * Ingest the sample fixture as a real dataset and return its id + title.
  *
- * Specs that need a dataset to exist but don't run alongside the upload flow
- * (e.g. the accessibility job, which runs only the a11y specs against a fresh,
- * empty stack) must seed their own — otherwise `getSearchSeed()` / a
- * dataset-detail visit has nothing to find. Drives the same upload → commit →
- * poll sequence the import UI uses. Pair every call with `deleteDataset()` in
- * `afterAll`.
+ * The default Playwright setup uses this helper to give every project one
+ * catalog fixture. Specs may also create an isolated fixture when they need to
+ * publish or mutate it. The helper follows the same upload, commit, and poll
+ * sequence as the import UI. Pair each call with `deleteDataset()`.
  */
-export async function seedDataset(): Promise<SeededDataset> {
-  return seedFixtureDataset('sample.geojson', 'application/geo+json', `A11y Seed Dataset ${Date.now()}`);
+export async function seedDataset(titlePrefix = 'E2E Seed Dataset'): Promise<SeededDataset> {
+  return seedFixtureDataset('sample.geojson', 'application/geo+json', `${titlePrefix} ${Date.now()}`);
 }
 
 /**
@@ -225,13 +223,23 @@ async function seedFixtureDataset(
   throw new Error(`ingest job ${jobId} did not produce a dataset in time`);
 }
 
-/** Best-effort teardown for a `seedDataset()` result (DELETE requires confirm_title). */
-export async function deleteDataset(id: string, title: string): Promise<void> {
-  await fetch(`${BASE_URL}/api/datasets/${id}`, {
-    method: 'DELETE',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ confirm_title: title }),
-  }).catch(() => {
-    /* teardown is best-effort; the CI stack is torn down anyway */
-  });
+/** Delete a seeded dataset. Returns false when best-effort cleanup fails. */
+export async function deleteDataset(id: string, title: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(`${BASE_URL}/api/datasets/${id}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_title: title }),
+      });
+      if (response.ok || response.status === 404) return true;
+      if (response.status < 500 && response.status !== 429) return false;
+    } catch {
+      // Retry transient network failures before reporting cleanup failure.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  }
+
+  return false;
 }

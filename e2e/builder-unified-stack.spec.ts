@@ -451,10 +451,10 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
   });
 
   // =========================================================================
-  // Test 6: Empty-state entry shows search input + suggestions
+  // Test 6: Empty-state entry shows search and browse controls
   // =========================================================================
 
-  test('6. empty-state entry shows search input + suggestions', async ({ page }) => {
+  test('6. empty-state entry shows search input and browse control', async ({ page }) => {
     const gate = attachConsoleGate(page);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -473,18 +473,13 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     const searchInput = emptyRegion.getByRole('searchbox');
     await expect(searchInput, 'Inline search input should be present in empty state').toBeVisible();
 
-    // EmptyStackState branches: when SUGGESTED_DATASETS is populated it renders
-    // a <ul aria-label="Suggested datasets"> scaffold; when empty (the default
-    // for operator-curated deployments), it renders an empty-help fallback
-    // with a "Browse catalog" CTA. Either branch is valid empty-state UX.
-    const suggestedList = emptyRegion.getByRole('list', { name: /suggested datasets/i });
-    const browseFallback = emptyRegion.getByRole('button', { name: /^browse catalog$/i });
-    const listCount = await suggestedList.count();
-    const fallbackCount = await browseFallback.count();
-    expect(
-      listCount + fallbackCount,
-      'Empty state must render either the suggested-datasets list or the browse-catalog fallback',
-    ).toBeGreaterThanOrEqual(1);
+    // Suggestions are optional. The browse control is always available and is
+    // the fallback when no operator-curated suggestions are configured.
+    await expect(
+      emptyRegion.getByRole('button', {
+        name: 'Browse all datasets in the Add Data modal',
+      }),
+    ).toBeVisible();
 
     assertConsoleClean(gate);
   });

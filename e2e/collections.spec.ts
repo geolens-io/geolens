@@ -112,14 +112,16 @@ test.describe.serial('Collections', () => {
       page.getByRole('heading', { name: 'Collections' }),
     ).toBeVisible();
     await expect(
-      page.getByRole('button', { name: 'New Collection' }),
+      page.getByRole('button', {
+        name: /^(New Collection|Create your first collection)$/,
+      }),
     ).toBeVisible();
   });
 
   test('create a new collection from the global create menu', async ({ page }) => {
     await page.goto('/collections');
 
-    await page.getByRole('button', { name: 'Create' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Collection' }).click();
 
     await expect(
@@ -134,7 +136,7 @@ test.describe.serial('Collections', () => {
         response.request().method() === 'POST' &&
         response.url().includes('/api/catalog/collections/'),
     );
-    await page.getByRole('button', { name: 'Create' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
 
     const createResponse = await createResponsePromise;
     const createdCollection = await createResponse.json();

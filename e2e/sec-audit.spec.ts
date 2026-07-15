@@ -285,15 +285,23 @@ test('hygiene — malformed bbox is rejected', async ({ request }) => {
   expect([400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
 });
 
-test('hygiene — CORS allow_origins=* is never reflected', async ({ request }) => {
-  // No Origin header → no CORS headers
-  const res = await request.get(`${API}/`, {
+test('hygiene — CORS does not grant credentials to an untrusted origin', async ({ request }) => {
+  const origin = 'http://attacker.example';
+  const appResponse = await request.get(`${API}/auth/me/`, {
+    headers: { Origin: origin },
+  });
+  expect(appResponse.headers()['access-control-allow-origin']).toBeUndefined();
+  expect(appResponse.headers()['access-control-allow-credentials']).toBeUndefined();
+
+  // Anonymous standards routes may use a wildcard, but never with credentials.
+  const standardsResponse = await request.get(`${API}/`, {
     headers: { Origin: 'http://attacker.example' },
   });
-  const acao = res.headers()['access-control-allow-origin'];
-  // Should NOT echo a non-allowlisted origin and never be `*` with credentials
-  if (acao) {
-    expect(acao).not.toBe('*');
-    expect(acao).not.toBe('http://attacker.example');
+  const standardsOrigin = standardsResponse.headers()['access-control-allow-origin'];
+  expect(standardsOrigin).not.toBe(origin);
+  if (standardsOrigin === '*') {
+    expect(
+      standardsResponse.headers()['access-control-allow-credentials'],
+    ).toBeUndefined();
   }
 });

@@ -275,9 +275,21 @@ test.describe('Builder residual-risk hardening', () => {
       const dragHandle = page
         .locator(`#stack-row-${looseB.id}`)
         .getByRole('button', { name: /drag to reorder/i });
+      const rowIdsBeforeReorder = await stackRows.evaluateAll((elements) =>
+        elements.map((element) => element.id),
+      );
+      const looseAIndex = rowIdsBeforeReorder.indexOf(`stack-row-${looseA.id}`);
+      const looseBIndex = rowIdsBeforeReorder.indexOf(`stack-row-${looseB.id}`);
+      expect(looseAIndex).toBeGreaterThanOrEqual(0);
+      expect(looseBIndex).toBeGreaterThan(looseAIndex);
+
+      // Duplicating looseA inserts a row between these layers. Move looseB far
+      // enough to cross both the duplicate and looseA, whatever their distance.
       await dragHandle.focus();
       await page.keyboard.press('Space');
-      await page.keyboard.press('ArrowUp');
+      for (let step = looseAIndex; step < looseBIndex; step += 1) {
+        await page.keyboard.press('ArrowUp');
+      }
       await page.keyboard.press('Space');
 
       await expect.poll(async () => {

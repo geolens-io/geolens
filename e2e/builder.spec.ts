@@ -169,7 +169,9 @@ test.describe.serial('Map Builder', () => {
       (ds) => ds.record_type === 'vector_dataset' && hasTextColumn(ds.column_info ?? null),
     );
     let datasetId = suitable?.id ?? datasets[0]?.id;
-    if (!datasetId) {
+    // Keep one dataset out of the map so the Add Dataset tests always have a
+    // catalog row to inspect on a clean installation.
+    if (datasets.length < 2) {
       const fallback = await createFallbackVectorDataset(authHeaders);
       datasetId = fallback.datasetId;
       fallbackDatasetId = fallback.datasetId;
@@ -259,7 +261,9 @@ test.describe.serial('Map Builder', () => {
       } else {
         await expect(sidebar.getByRole('button', { name: /add data/i }).first()).toBeVisible();
       }
-      await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Share', exact: true }),
+      ).toBeVisible();
       await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
       await expect(page.locator('[inert]')).toHaveCount(0);
 
@@ -557,7 +561,7 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    const shareButton = page.getByRole('button', { name: 'Share' });
+    const shareButton = page.getByRole('button', { name: 'Share', exact: true });
     await expect(shareButton).toBeVisible();
     await shareButton.click();
     await expect(page.getByRole('heading', { name: 'Share' })).toBeVisible();
