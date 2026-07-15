@@ -14,7 +14,7 @@ These commitments define the free and paid boundary:
 - Capabilities released for free in this repository will stay free. Paid modules will add separate capabilities instead of taking existing ones away.
 - Your data and catalog remain exportable through open standards.
 
-Carto Concepts, LLC offers optional paid support and add-ons. Enterprise includes SAML identity, SIEM streaming, compliance automation, branding controls, arbitrary share-link expiration, origin-restricted embeds, and support with an SLA. Community includes OIDC and OAuth, bounded CSV and JSON audit export, share creation and revocation, fixed expiration presets, non-expiring links, and default-lifetime embeds. The paid modules ship in a separately licensed, immutable Enterprise image. You do not need them to build or run this repository.
+Carto Concepts, LLC offers optional paid support and add-ons. Enterprise includes SAML identity, SIEM audit streaming, branding controls, arbitrary share-link expiration, origin-restricted embeds, and support with an SLA. Community includes OIDC and OAuth, bounded CSV and JSON audit export, share creation and revocation, fixed expiration presets, non-expiring links, and default-lifetime embeds. The paid modules ship in a separately licensed, immutable Enterprise image. You do not need them to build or run this repository.
 
 A valid commercial license grants perpetual use of the installed version. The maintenance term controls access to updates and support. When maintenance ends, the installed version keeps working, data and backups remain accessible, and local administrators keep their login path.
 
