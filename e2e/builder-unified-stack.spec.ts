@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Response } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
@@ -8,6 +8,13 @@ import path from 'path';
 
 const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+
+function isMapUpdateResponse(response: Response, mapId: string): boolean {
+  return (
+    response.request().method() === 'PUT' &&
+    new URL(response.url()).pathname === `/api/maps/${mapId}`
+  );
+}
 
 /** Extract JWT token from the Playwright storage state file. */
 function getAuthToken(): string {
@@ -565,7 +572,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     if (initialCount < 2) {
       // Cannot test reorder with fewer than 2 rows — just verify save works
       const saveResponsePromise = page.waitForResponse(
-        (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+        (response) => isMapUpdateResponse(response, mapId),
       );
       await page.getByRole('button', { name: /save/i }).first().click();
       expect((await saveResponsePromise).status()).toBe(200);
@@ -579,7 +586,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
 
     // Save the map
     const saveResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+      (response) => isMapUpdateResponse(response, mapId),
     );
     await page.getByRole('button', { name: /save/i }).first().click();
     const saveResponse = await saveResponsePromise;
@@ -666,7 +673,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
         (resp) => resp.url().includes(`/api/maps/${groupMapId}/layers`) && resp.request().method() === 'PATCH',
       );
       const metadataResponsePromise = page.waitForResponse(
-        (resp) => resp.url().includes(`/api/maps/${groupMapId}`) && resp.request().method() === 'PUT',
+        (response) => isMapUpdateResponse(response, groupMapId),
       );
       await page.getByRole('button', { name: /save/i }).first().click();
       expect((await patchResponsePromise).status()).toBe(200);

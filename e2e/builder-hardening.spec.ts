@@ -1,9 +1,22 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+  type Response,
+} from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
 const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+
+function isMapUpdateResponse(response: Response, mapId: string): boolean {
+  return (
+    response.request().method() === 'PUT' &&
+    new URL(response.url()).pathname === `/api/maps/${mapId}`
+  );
+}
 
 interface DatasetListItem {
   id: string;
@@ -301,7 +314,7 @@ test.describe('Builder residual-risk hardening', () => {
         (response) => response.url().includes(`/api/maps/${mapId}/layers`) && response.request().method() === 'PATCH',
       );
       const metadataResponse = page.waitForResponse(
-        (response) => response.url().includes(`/api/maps/${mapId}`) && response.request().method() === 'PUT',
+        (response) => isMapUpdateResponse(response, mapId),
       );
       await page.getByRole('button', { name: /save/i }).first().click();
       expect((await patchResponse).status()).toBe(200);
@@ -358,7 +371,8 @@ test.describe('Builder residual-risk hardening', () => {
       await expect(page.getByTestId('builder-save-status')).toHaveAttribute('data-save-status', 'failed');
 
       const retryResponse = page.waitForResponse(
-        (response) => response.url().includes(`/api/maps/${mapId}`) && response.request().method() === 'PUT' && response.status() === 200,
+        (response) =>
+          isMapUpdateResponse(response, mapId) && response.status() === 200,
       );
       await page.getByTestId('builder-save-status').click();
       await retryResponse;
