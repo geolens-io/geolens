@@ -191,7 +191,7 @@ export function RegisterForm() {
           </div>
         </div>
 
-        <div className="px-3.5 py-1.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+        <div className="eyebrow px-3.5 py-1.5 flex items-center gap-1.5">
           <Database className="size-2.5" />
           {t('register.tableCount', { schema: 'public', count: filtered.length })}
         </div>
@@ -258,7 +258,7 @@ function TableDetail({
 
   return (
     <>
-      <p className="font-mono text-mini uppercase tracking-widest text-muted-foreground mb-2.5">
+      <p className="eyebrow mb-2.5">
         public / <span className="font-medium text-foreground normal-case">{table.table_name}</span>
       </p>
       <h2 className="text-xl font-medium tracking-tight mb-1.5">{table.table_name}</h2>
@@ -277,7 +277,7 @@ function TableDetail({
           { label: t('register.stats.type'), value: table.geometry_type ? t('register.stats.spatial') : t('register.stats.nonSpatial') },
         ].map((stat) => (
           <div key={stat.label} className="bg-card px-3.5 py-2.5">
-            <dt className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1">{stat.label}</dt>
+            <dt className="eyebrow mb-1">{stat.label}</dt>
             <dd className="text-sm font-medium tracking-tight">{stat.value}</dd>
           </div>
         ))}

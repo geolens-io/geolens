@@ -186,7 +186,7 @@ export function AccessibleMapDataPanel({
                                 })
                               : t('viewer.data.geometryType', { type: feature.geometryType })}
                         </p>
-                        <h5 className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        <h5 className="eyebrow mt-3">
                           {t('viewer.data.attributes')}
                         </h5>
                         {feature.properties.length === 0 ? (

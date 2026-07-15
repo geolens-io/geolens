@@ -47,7 +47,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
     <aside className="sticky top-28 flex flex-col gap-4">
       {/* Workflow steps */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-3 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <p className="eyebrow mb-3">
           {t('rail.workflow', { defaultValue: 'Workflow' })}
         </p>
         <div className="flex flex-col gap-3.5">
@@ -84,7 +84,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
 
       {/* What gets imported */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-3 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <p className="eyebrow mb-3">
           {t('rail.whatImported', { defaultValue: 'What gets imported' })}
         </p>
         <div className="flex flex-col gap-2 text-xs">
@@ -103,7 +103,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
 
       {/* Tip */}
       <div className="rounded-lg border border-border bg-surface-0 p-4">
-        <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <p className="eyebrow mb-2">
           {t('rail.tip', { defaultValue: 'Tip' })}
         </p>
         <p className="text-xs text-muted-foreground">
@@ -124,7 +124,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
   return (
     <aside className="sticky top-28 flex flex-col gap-4">
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <p className="eyebrow mb-2">
           {isRegister
             ? t('rail.registerHint', { defaultValue: 'Registering existing infrastructure' })
             : isStac
@@ -148,7 +148,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <p className="eyebrow mb-2">
           {t('rail.comparedToUpload', { defaultValue: 'Compared to Upload' })}
         </p>
         <p className="text-xs text-muted-foreground leading-relaxed">

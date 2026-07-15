@@ -223,7 +223,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         <div className="px-4 py-2">
           <p
             id={`section-appearance-dem-${layer.id}`}
-            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            className="eyebrow mb-2"
           >
             {t('demEditor.reliefShadingLabel', { defaultValue: 'RELIEF SHADING' })}
           </p>
@@ -251,7 +251,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             <div className="space-y-4">
               {/* Sub-section: SUN POSITION */}
               <div>
-                <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
+                <p className="eyebrow mb-3">
                   {t('demEditor.sunPositionLabel', { defaultValue: 'SUN POSITION' })}
                 </p>
 
@@ -291,7 +291,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
               {/* Sub-section: SHADING COLORS */}
               <div>
-                <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                <p className="eyebrow mb-2">
                   {t('demEditor.shadingColorsLabel', { defaultValue: 'SHADING COLORS' })}
                 </p>
                 <div className="space-y-2">
@@ -326,7 +326,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         <div className="px-4 py-2">
           <p
             id={`section-terrain-dem-${layer.id}`}
-            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            className="eyebrow mb-2"
           >
             {t('demEditor.terrainSectionLabel', { defaultValue: '3D TERRAIN' })}
           </p>

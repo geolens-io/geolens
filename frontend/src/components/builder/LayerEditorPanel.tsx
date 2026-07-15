@@ -427,7 +427,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     >
                       <p
                         id={`section-renderas-${layer.id}`}
-                        className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                        className="eyebrow mb-2"
                       >
                         {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
                       </p>

@@ -148,7 +148,7 @@ export function ServiceUrlForm() {
       <div className="space-y-5">
         {/* Probe input — detected state */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <label className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
+          <label className="eyebrow mb-2.5 block">
             {t('serviceUrl.detectedLabel', { defaultValue: 'Service URL — detected' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
@@ -258,7 +258,7 @@ export function ServiceUrlForm() {
     <div className="rounded-xl border border-border bg-card p-5">
       <form onSubmit={handleConnect} className="space-y-5">
         <div>
-          <label className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
+          <label className="eyebrow mb-2.5 block">
             {t('serviceUrl.label', { defaultValue: 'Service URL — we\'ll auto-detect the type' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">

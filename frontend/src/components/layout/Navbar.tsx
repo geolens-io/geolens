@@ -307,7 +307,7 @@ function MobileNav() {
               return (
                 <>
                   <Separator className="my-2" />
-                  <p className="px-3 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
+                  <p className="eyebrow px-3 mb-1">
                     {t('create')}
                   </p>
                   {canCreateDataset && (

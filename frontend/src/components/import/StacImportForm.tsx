@@ -210,13 +210,13 @@ export function StacImportForm() {
 
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border">
             <div className="bg-surface-0 px-4 py-3">
-              <dt className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1">
+              <dt className="eyebrow mb-1">
                 {t('stac.confirm.itemsLabel')}
               </dt>
               <dd className="text-lg font-medium tracking-tight">{itemsToImport.length}</dd>
             </div>
             <div className="bg-surface-0 px-4 py-3">
-              <dt className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1">
+              <dt className="eyebrow mb-1">
                 {t('stac.confirm.totalSizeLabel')}
               </dt>
               <dd className="text-lg font-medium tracking-tight">
@@ -343,7 +343,7 @@ export function StacImportForm() {
       <div className="space-y-5">
         {/* Connected state header */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <span className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
+          <span className="eyebrow mb-2.5 block">
             {t('stac.catalogConnected')}
           </span>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
@@ -554,7 +554,7 @@ export function StacImportForm() {
     <div className="rounded-xl border border-border bg-card p-5">
       <form onSubmit={handleConnect} className="space-y-5">
         <div>
-          <label className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
+          <label className="eyebrow mb-2.5 block">
             {t('stac.label', { defaultValue: "STAC API URL — paste the catalog root endpoint" })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">
