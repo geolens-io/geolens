@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The OpenAPI document no longer contains unresolvable schema references.**
+  GeoJSON response schemas on the feature and collection-items endpoints
+  embedded `#/$defs/...` pointers that dangled at document scope, so strict
+  OpenAPI consumers (documentation generators, reference bundlers) rejected
+  the whole contract. Those schemas are now fully inlined, and a contract
+  test guards every `$ref` in the exported document.
+
 ## [1.4.7] - 2026-07-15
 
 This release hardens the platform after a full portfolio audit — access

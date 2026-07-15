@@ -363,3 +363,39 @@ def test_direct_route_http_exceptions_are_documented() -> None:
                 missing.append(f"{method} {route.path_format}: {status_code}")
 
     assert missing == []
+
+
+def test_openapi_has_no_dangling_local_ref_pointers() -> None:
+    """Every $ref in the exported document must resolve within the document.
+
+    Raw ``responses=`` schemas built with ``model_json_schema()`` carry
+    ``#/$defs/...`` pointers that dangle at document scope and make strict
+    consumers (docs generators, ref bundlers) reject the whole contract —
+    use ``inline_json_schema()`` for those instead.
+    """
+    spec = _openapi()
+    dangling: list[str] = []
+
+    def resolve(pointer: str) -> bool:
+        node: object = spec
+        for token in pointer.lstrip("#/").split("/"):
+            token = token.replace("~1", "/").replace("~0", "~")
+            if not isinstance(node, dict) or token not in node:
+                return False
+            node = node[token]
+        return True
+
+    def walk(node: object, path: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "$ref" and isinstance(value, str) and value.startswith("#"):
+                    if not resolve(value):
+                        dangling.append(f"{path}: {value}")
+                else:
+                    walk(value, f"{path}/{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{path}/{index}")
+
+    walk(spec, "")
+    assert dangling == []

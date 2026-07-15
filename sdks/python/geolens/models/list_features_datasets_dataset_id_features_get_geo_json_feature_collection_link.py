@@ -7,29 +7,61 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-T = TypeVar("T", bound="InlineDefGeoJSONFeatureAdc353E4Properties")
+T = TypeVar(
+    "T", bound="ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink"
+)
 
 
 @_attrs_define
-class InlineDefGeoJSONFeatureAdc353E4Properties:
-    """ """
+class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollectionLink:
+    """
+    Attributes:
+        href (str):
+        rel (str):
+        type_ (str):
+    """
 
+    href: str
+    rel: str
+    type_: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        href = self.href
+
+        rel = self.rel
+
+        type_ = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "href": href,
+                "rel": rel,
+                "type": type_,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        inline_def_geo_json_feature_adc_353e4_properties = cls()
+        href = d.pop("href")
 
-        inline_def_geo_json_feature_adc_353e4_properties.additional_properties = d
-        return inline_def_geo_json_feature_adc_353e4_properties
+        rel = d.pop("rel")
+
+        type_ = d.pop("type")
+
+        list_features_datasets_dataset_id_features_get_geo_json_feature_collection_link = cls(
+            href=href,
+            rel=rel,
+            type_=type_,
+        )
+
+        list_features_datasets_dataset_id_features_get_geo_json_feature_collection_link.additional_properties = d
+        return list_features_datasets_dataset_id_features_get_geo_json_feature_collection_link
 
     @property
     def additional_keys(self) -> list[str]:

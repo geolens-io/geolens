@@ -4157,78 +4157,6 @@ export type InfrastructureResponse = {
 };
 
 /**
- * InlineDef_GeoJSONFeature_adc353e4
- *
- * A single GeoJSON Feature.
- */
-export type InlineDefGeoJsonFeatureAdc353E4 = {
-    /**
-     * Geometry
-     */
-    geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
-    /**
-     * Id
-     */
-    id: number;
-    /**
-     * Properties
-     */
-    properties: {
-        [key: string]: unknown;
-    };
-    /**
-     * Type
-     */
-    type?: 'Feature';
-};
-
-/**
- * InlineDef_GeoJSONGeometryCollection_d6b7eb76
- *
- * A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
- *
- * fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
- * it needs its own model — only generic-GEOMETRY datasets accept it on write
- * (enforced in the service), and any stored collection must serialize back
- * out on read.
- *
- * Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
- * nested collections through the GeoJSON boundary in either direction —
- * ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
- * 'GeoJson: geometry not supported' on read — so a recursive model could
- * never receive one and would only convert the write-side 422 into a raw
- * database 500. The write schemas add a raw-payload guard for a clear 422.
- */
-export type InlineDefGeoJsonGeometryCollectionD6B7Eb76 = {
-    /**
-     * Geometries
-     */
-    geometries: Array<GeoJsonGeometry>;
-    /**
-     * Type
-     */
-    type: 'GeometryCollection';
-};
-
-/**
- * InlineDef_Link_900f1c94
- */
-export type InlineDefLink900F1C94 = {
-    /**
-     * Href
-     */
-    href: string;
-    /**
-     * Rel
-     */
-    rel: string;
-    /**
-     * Type
-     */
-    type: string;
-};
-
-/**
  * JobStatusResponse
  */
 export type JobStatusResponse = {
@@ -14445,7 +14373,32 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
          *
          * Pagination and self-reference links.
          */
-        links: Array<OgcLink>;
+        links: Array<{
+            /**
+             * Href
+             *
+             * Target URL of the link.
+             */
+            href: string;
+            /**
+             * Rel
+             *
+             * Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').
+             */
+            rel: string;
+            /**
+             * Title
+             *
+             * Optional human-readable label for the link.
+             */
+            title?: string | null;
+            /**
+             * Type
+             *
+             * Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
+             */
+            type: string;
+        }>;
         /**
          * Numbermatched
          *
@@ -14531,7 +14484,16 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
         /**
          * GeoJSON geometry of the feature, or null for geometry-less features.
          */
-        geometry: GeoJsonGeometry | null;
+        geometry: {
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+        } | null;
         /**
          * Id
          *
@@ -14543,7 +14505,32 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
          *
          * Self-reference and related-resource links.
          */
-        links?: Array<OgcLink>;
+        links?: Array<{
+            /**
+             * Href
+             *
+             * Target URL of the link.
+             */
+            href: string;
+            /**
+             * Rel
+             *
+             * Link relation type per RFC 8288 (e.g. 'self', 'next', 'prev', 'data', 'collection').
+             */
+            rel: string;
+            /**
+             * Title
+             *
+             * Optional human-readable label for the link.
+             */
+            title?: string | null;
+            /**
+             * Type
+             *
+             * Media type of the linked resource (e.g. 'application/json', 'application/geo+json').
+             */
+            type: string;
+        }>;
         /**
          * Properties
          *
@@ -16393,11 +16380,70 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetResponses = {
         /**
          * Features
          */
-        features: Array<InlineDefGeoJsonFeatureAdc353E4>;
+        features: Array<{
+            /**
+             * Geometry
+             */
+            geometry?: {
+                /**
+                 * Geometries
+                 */
+                geometries: Array<{
+                    /**
+                     * Coordinates
+                     */
+                    coordinates: Array<unknown>;
+                    /**
+                     * Type
+                     */
+                    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                }>;
+                /**
+                 * Type
+                 */
+                type: 'GeometryCollection';
+            } | {
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            } | null;
+            /**
+             * Id
+             */
+            id: number;
+            /**
+             * Properties
+             */
+            properties: {
+                [key: string]: unknown;
+            };
+            /**
+             * Type
+             */
+            type?: 'Feature';
+        }>;
         /**
          * Links
          */
-        links: Array<InlineDefLink900F1C94>;
+        links: Array<{
+            /**
+             * Href
+             */
+            href: string;
+            /**
+             * Rel
+             */
+            rel: string;
+            /**
+             * Type
+             */
+            type: string;
+        }>;
         /**
          * Numbermatched
          */
@@ -16478,7 +16524,34 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
+        geometry?: {
+            /**
+             * Geometries
+             */
+            geometries: Array<{
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            }>;
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
+        } | {
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+        } | null;
         /**
          * Id
          */
@@ -16627,7 +16700,34 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
+        geometry?: {
+            /**
+             * Geometries
+             */
+            geometries: Array<{
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            }>;
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
+        } | {
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+        } | null;
         /**
          * Id
          */
@@ -16714,7 +16814,34 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
+        geometry?: {
+            /**
+             * Geometries
+             */
+            geometries: Array<{
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            }>;
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
+        } | {
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+        } | null;
         /**
          * Id
          */
@@ -16801,7 +16928,34 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
+        geometry?: {
+            /**
+             * Geometries
+             */
+            geometries: Array<{
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            }>;
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
+        } | {
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+        } | null;
         /**
          * Id
          */

@@ -12,12 +12,14 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.geo_json_geometry import GeoJSONGeometry
+    from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry import (
+        GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry,
+    )
+    from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_collection import (
+        GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection,
+    )
     from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
         GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
-    )
-    from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
-        InlineDefGeoJSONGeometryCollectionD6B7Eb76,
     )
 
 
@@ -31,22 +33,28 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
     Attributes:
         id (int):
         properties (GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties):
-        geometry (GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset):
+        geometry (GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry |
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection | None | Unset):
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
     """
 
     id: int
     properties: GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties
     geometry: (
-        GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset
+        GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry
+        | GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection
+        | None
+        | Unset
     ) = UNSET
     type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.geo_json_geometry import GeoJSONGeometry
-        from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
-            InlineDefGeoJSONGeometryCollectionD6B7Eb76,
+        from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry import (
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry,
+        )
+        from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_collection import (
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection,
         )
 
         id = self.id
@@ -56,9 +64,15 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
             geometry = UNSET
-        elif isinstance(self.geometry, InlineDefGeoJSONGeometryCollectionD6B7Eb76):
+        elif isinstance(
+            self.geometry,
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection,
+        ):
             geometry = self.geometry.to_dict()
-        elif isinstance(self.geometry, GeoJSONGeometry):
+        elif isinstance(
+            self.geometry,
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry,
+        ):
             geometry = self.geometry.to_dict()
         else:
             geometry = self.geometry
@@ -82,12 +96,14 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry import (
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry,
+        )
+        from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_geo_json_geometry_collection import (
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection,
+        )
         from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
             GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
-        )
-        from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
-            InlineDefGeoJSONGeometryCollectionD6B7Eb76,
         )
 
         d = dict(src_dict)
@@ -100,7 +116,10 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         def _parse_geometry(
             data: object,
         ) -> (
-            GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset
+            GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry
+            | GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection
+            | None
+            | Unset
         ):
             if data is None:
                 return data
@@ -109,24 +128,26 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_0 = InlineDefGeoJSONGeometryCollectionD6B7Eb76.from_dict(
+                geometry_geo_json_geometry_collection = GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection.from_dict(
                     data
                 )
 
-                return geometry_type_0
+                return geometry_geo_json_geometry_collection
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_1 = GeoJSONGeometry.from_dict(data)
+                geometry_geo_json_geometry = GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry.from_dict(
+                    data
+                )
 
-                return geometry_type_1
+                return geometry_geo_json_geometry
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(
-                GeoJSONGeometry
-                | InlineDefGeoJSONGeometryCollectionD6B7Eb76
+                GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometry
+                | GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollection
                 | None
                 | Unset,
                 data,

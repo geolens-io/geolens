@@ -11,14 +11,19 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.geo_json_geometry import GeoJSONGeometry
+    from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+    )
 
 
-T = TypeVar("T", bound="InlineDefGeoJSONGeometryCollectionD6B7Eb76")
+T = TypeVar(
+    "T",
+    bound="PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollection",
+)
 
 
 @_attrs_define
-class InlineDefGeoJSONGeometryCollectionD6B7Eb76:
+class PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollection:
     """A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
 
     fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
@@ -34,11 +39,14 @@ class InlineDefGeoJSONGeometryCollectionD6B7Eb76:
     database 500. The write schemas add a raw-payload guard for a clear 422.
 
         Attributes:
-            geometries (list[GeoJSONGeometry]):
+            geometries (list[PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJS
+                ONGeometry]):
             type_ (Literal['GeometryCollection']):
     """
 
-    geometries: list[GeoJSONGeometry]
+    geometries: list[
+        PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry
+    ]
     type_: Literal["GeometryCollection"]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -63,13 +71,17 @@ class InlineDefGeoJSONGeometryCollectionD6B7Eb76:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+            PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+        )
 
         d = dict(src_dict)
         geometries = []
         _geometries = d.pop("geometries")
         for geometries_item_data in _geometries:
-            geometries_item = GeoJSONGeometry.from_dict(geometries_item_data)
+            geometries_item = PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry.from_dict(
+                geometries_item_data
+            )
 
             geometries.append(geometries_item)
 
@@ -79,13 +91,13 @@ class InlineDefGeoJSONGeometryCollectionD6B7Eb76:
                 f"type must match const 'GeometryCollection', got '{type_}'"
             )
 
-        inline_def_geo_json_geometry_collection_d6b7_eb_76 = cls(
+        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection = cls(
             geometries=geometries,
             type_=type_,
         )
 
-        inline_def_geo_json_geometry_collection_d6b7_eb_76.additional_properties = d
-        return inline_def_geo_json_geometry_collection_d6b7_eb_76
+        patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection.additional_properties = d
+        return patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_feature_geo_json_geometry_collection
 
     @property
     def additional_keys(self) -> list[str]:

@@ -12,11 +12,15 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.geo_json_geometry import GeoJSONGeometry
+    from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_geo_json_geometry import (
+        GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry,
+    )
+    from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_ogc_link import (
+        GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink,
+    )
     from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_properties_type_0 import (
         GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0,
     )
-    from ..models.ogc_link import OGCLink
 
 
 T = TypeVar(
@@ -30,32 +34,47 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
     """Single GeoJSON Feature response.
 
     Attributes:
-        geometry (GeoJSONGeometry | None): GeoJSON geometry of the feature, or null for geometry-less features.
+        geometry (GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry |
+            None): GeoJSON geometry of the feature, or null for geometry-less features.
         id (int): Feature identifier within the collection.
         properties (GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0
             | None): Feature attributes as a JSON object.
-        links (list[OGCLink] | Unset): Self-reference and related-resource links.
+        links (list[GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink] |
+            Unset): Self-reference and related-resource links.
         type_ (Literal['Feature'] | Unset): GeoJSON object type. Default: 'Feature'.
     """
 
-    geometry: GeoJSONGeometry | None
+    geometry: (
+        GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry
+        | None
+    )
     id: int
     properties: (
         GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0
         | None
     )
-    links: list[OGCLink] | Unset = UNSET
+    links: (
+        list[
+            GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink
+        ]
+        | Unset
+    ) = UNSET
     type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_geo_json_geometry import (
+            GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry,
+        )
         from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_properties_type_0 import (
             GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0,
         )
 
         geometry: dict[str, Any] | None
-        if isinstance(self.geometry, GeoJSONGeometry):
+        if isinstance(
+            self.geometry,
+            GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry,
+        ):
             geometry = self.geometry.to_dict()
         else:
             geometry = self.geometry
@@ -98,26 +117,41 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_geo_json_geometry import (
+            GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry,
+        )
+        from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_ogc_link import (
+            GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink,
+        )
         from ..models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response_properties_type_0 import (
             GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0,
         )
-        from ..models.ogc_link import OGCLink
 
         d = dict(src_dict)
 
-        def _parse_geometry(data: object) -> GeoJSONGeometry | None:
+        def _parse_geometry(
+            data: object,
+        ) -> (
+            GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry
+            | None
+        ):
             if data is None:
                 return data
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_0 = GeoJSONGeometry.from_dict(data)
+                geometry_geo_json_geometry = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry.from_dict(
+                    data
+                )
 
-                return geometry_type_0
+                return geometry_geo_json_geometry
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(GeoJSONGeometry | None, data)
+            return cast(
+                GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseGeoJSONGeometry
+                | None,
+                data,
+            )
 
         geometry = _parse_geometry(d.pop("geometry"))
 
@@ -150,11 +184,18 @@ class GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeat
         properties = _parse_properties(d.pop("properties"))
 
         _links = d.pop("links", UNSET)
-        links: list[OGCLink] | Unset = UNSET
+        links: (
+            list[
+                GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink
+            ]
+            | Unset
+        ) = UNSET
         if _links is not UNSET:
             links = []
             for links_item_data in _links:
-                links_item = OGCLink.from_dict(links_item_data)
+                links_item = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponseOGCLink.from_dict(
+                    links_item_data
+                )
 
                 links.append(links_item)
 

@@ -42,6 +42,7 @@ from app.modules.catalog.features.schemas import (
     FeatureUpdate,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
+    inline_json_schema,
 )
 from app.modules.catalog.features.service import (
     delete_feature,
@@ -240,7 +241,7 @@ async def get_features_geojson_z_endpoint(
         200: {
             "content": {
                 "application/geo+json": {
-                    "schema": GeoJSONFeatureCollection.model_json_schema()
+                    "schema": inline_json_schema(GeoJSONFeatureCollection)
                 }
             }
         },
@@ -404,7 +405,7 @@ async def list_features(
     responses={
         200: {
             "content": {
-                "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
+                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
             }
         },
         **ERROR_RESPONSES_AUTH,
@@ -476,7 +477,7 @@ async def get_single_feature(
     responses={
         201: {
             "content": {
-                "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
+                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
             }
         },
         **ERROR_RESPONSES_WRITE,
@@ -567,7 +568,7 @@ async def create_feature(
     responses={
         200: {
             "content": {
-                "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
+                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
             }
         },
         **ERROR_RESPONSES_WRITE,
@@ -657,7 +658,7 @@ async def replace_single_feature(
     responses={
         200: {
             "content": {
-                "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
+                "application/geo+json": {"schema": inline_json_schema(GeoJSONFeature)}
             }
         },
         **ERROR_RESPONSES_WRITE,
