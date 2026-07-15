@@ -139,7 +139,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
             e.stopPropagation();
             onDirectAdd(suggestion.id);
           }}
-          className="h-[22px] w-[22px] flex items-center justify-center rounded-sm text-primary hover:bg-[var(--primary-50,oklch(0.97_0.02_250))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-[22px] w-[22px] flex items-center justify-center rounded-sm text-primary hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {isAdding ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />

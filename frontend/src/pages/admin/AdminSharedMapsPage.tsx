@@ -173,18 +173,18 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
         </AlertDialog>
       )}
 
-      <Table>
+      <Table aria-label={t('embedTokens.tableLabel', { defaultValue: 'Embed tokens' })}>
         <TableHeader>
           <TableRow>
             <TableHead className="w-8">
               <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} aria-label={t('common:selectAll')} />
             </TableHead>
-            <TableHead className="text-xs">{t('embedTokens.tokenHint')}</TableHead>
-            <TableHead className="text-xs">{t('embedTokens.status')}</TableHead>
-            <TableHead className="text-xs">{t('embedTokens.useCount')}</TableHead>
-            <TableHead className="text-xs">{t('embedTokens.lastUsed')}</TableHead>
-            <TableHead className="text-xs">{t('embedTokens.expires')}</TableHead>
-            <TableHead className="text-xs">{t('embedTokens.origins')}</TableHead>
+            <TableHead>{t('embedTokens.tokenHint')}</TableHead>
+            <TableHead>{t('embedTokens.status')}</TableHead>
+            <TableHead>{t('embedTokens.useCount')}</TableHead>
+            <TableHead>{t('embedTokens.lastUsed')}</TableHead>
+            <TableHead>{t('embedTokens.expires')}</TableHead>
+            <TableHead>{t('embedTokens.origins')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -280,7 +280,7 @@ export function AdminSharedMapsPage() {
               ))}
             </div>
           </div>
-          <Table>
+          <Table aria-label={t('sharedMaps.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10" />
@@ -415,9 +415,9 @@ export function AdminSharedMapsPage() {
                         <TableRow>
                           <TableCell colSpan={8} className="p-0">
                             <div className="border-t bg-muted/30 px-6 py-4">
-                              <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              <p className="eyebrow mb-2">
                                 {t('sharedMaps.embedTokensFor', { map: token.map_name })}
-                              </h4>
+                              </p>
                               <EmbedTokensSubTable mapId={token.map_id} />
                             </div>
                           </TableCell>

@@ -328,7 +328,10 @@
         "moreColumns": "weitere Spalten"
       }
     },
-    "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann."
+    "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann.",
+    "map": {
+      "ariaLabel": "Kartenansicht"
+    }
   },
   "maps": {
     "title": "Karten",
@@ -437,7 +440,8 @@
       "statusOk": "Verbunden",
       "statusError": "Fehlgeschlagen",
       "latency": "{{ms}}ms",
-      "noOidc": "Keine OIDC-Anbieter konfiguriert"
+      "noOidc": "Keine OIDC-Anbieter konfiguriert",
+      "resultsLabel": "Konnektivitätsergebnisse"
     },
     "import": {
       "title": "Konfiguration importieren",

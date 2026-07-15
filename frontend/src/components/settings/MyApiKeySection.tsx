@@ -5,6 +5,7 @@ import { formatDate } from '@/lib/format';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
 import type { MyApiKeyResponse, ApiKeyCreateResponse } from '@/types/api';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FieldLabel } from '@/components/ui/field-label';
@@ -151,14 +152,14 @@ export function MyApiKeySection() {
                   />
                   {/* fix(#305): replace dot+title+sr-only with a visible status badge so state is
                       conveyed as visible text, not color alone. The dot stays as a secondary visual cue. */}
-                  <span
+                  <Badge
                     className={cn(
-                      'inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium',
+                      'px-1.5',
                       key.is_active ? semanticBadgeColors.success : semanticBadgeColors.destructive,
                     )}
                   >
                     {key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
-                  </span>
+                  </Badge>
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {relativeTime(key.last_used_at, t)}

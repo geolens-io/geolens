@@ -299,7 +299,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
             <span>{t('vrt.sourcesLoadError', { defaultValue: 'Failed to load VRT sources.' })}</span>
           </div>
         ) : (
-          <Table>
+          <Table aria-label={t('vrt.sourcesTableLabel', { defaultValue: 'VRT sources' })}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-24">{t('vrt.sourceTableHealth', { defaultValue: 'Health' })}</TableHead>
@@ -431,7 +431,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
             <h2 className="text-sm font-medium text-muted-foreground">
               {t('vrt.generationHistory', { defaultValue: 'Generation History' })}
             </h2>
-            <Table>
+            <Table aria-label={t('vrt.generationHistory', { defaultValue: 'Generation History' })}>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-24">{t('vrt.genStatus', { defaultValue: 'Status' })}</TableHead>

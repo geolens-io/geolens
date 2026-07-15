@@ -567,7 +567,7 @@ export function DatasetPage() {
             </Suspense>
           </MapErrorBoundary>
           {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
-            <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded-sm bg-muted/80 text-xs text-muted-foreground">
+            <div className="absolute bottom-2 start-2 z-10 px-2 py-1 rounded-sm bg-muted/80 text-xs text-muted-foreground">
               {t('raster.noTiles')}
             </div>
           )}

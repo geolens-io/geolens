@@ -128,7 +128,7 @@ export function RasterAppearanceSliders({
         />
       )}
       {hasBrightnessRangeError && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning">
           {t('style.raster.brightnessRangeError', { defaultValue: 'Brightness min must be less than or equal to brightness max.' })}
         </p>
       )}

@@ -1020,7 +1020,7 @@ export function ChatPanel({
                 <button
                   key={suggestion}
                   type="button"
-                  className="cursor-pointer text-xs px-2.5 py-1 rounded-full border border-border hover:bg-accent hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                  className="cursor-pointer text-xs px-2.5 py-1 rounded-md border border-border hover:bg-accent hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => {
                     setInput(suggestion);
                     requestAnimationFrame(() => {

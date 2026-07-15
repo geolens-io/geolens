@@ -78,7 +78,7 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
           {data.keywords.map((kw) => (
             <span
               key={kw.id}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted border text-xs font-medium text-muted-foreground"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-muted border text-xs font-medium text-muted-foreground"
             >
               <span className="text-muted-foreground/60">#</span>
               {kw.keyword}
@@ -478,7 +478,7 @@ export function OverviewTab({
                       </Button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <Table>
+                      <Table aria-label={t('overview.bandDetails', { defaultValue: 'Band Details' })}>
                         <TableHeader>
                           <TableRow>
                             <TableHead>#</TableHead>

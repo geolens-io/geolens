@@ -202,7 +202,10 @@
         "moreColumns": "more columns"
       }
     },
-    "anonMapRecovery": "This map may be private. Sign in to check whether your account can open it."
+    "anonMapRecovery": "This map may be private. Sign in to check whether your account can open it.",
+    "map": {
+      "ariaLabel": "Map viewer"
+    }
   },
   "actions": {
     "editGeometry": "Edit Features",
@@ -453,7 +456,8 @@
       "statusOk": "Connected",
       "statusError": "Failed",
       "latency": "{{ms}}ms",
-      "noOidc": "No OIDC providers configured"
+      "noOidc": "No OIDC providers configured",
+      "resultsLabel": "Connectivity results"
     },
     "import": {
       "title": "Import Configuration",

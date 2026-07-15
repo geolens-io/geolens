@@ -389,7 +389,8 @@
     "bulkRevokeConfirm": "Revoquer",
     "bulkRevokeCancel": "Annuler",
     "bulkRevokeSuccess": "{{count}} jetons d'integration revoques",
-    "bulkRevokeFailed": "Echec de la revocation des jetons d'integration"
+    "bulkRevokeFailed": "Echec de la revocation des jetons d'integration",
+    "tableLabel": "Jetons d'intégration"
   },
   "settings": {
     "copySPEntityId": "Copier l'ID d'entité SP",

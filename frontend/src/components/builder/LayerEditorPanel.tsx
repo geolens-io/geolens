@@ -91,8 +91,8 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
   return (
     <span className={cn(
       'inline-flex items-center rounded-sm px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em]',
-      caps.kind === 'vector' && 'bg-[var(--type-vector-bg)] text-[var(--type-vector)]',
-      (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-[var(--type-raster-bg)] text-[var(--type-raster)]',
+      caps.kind === 'vector' && 'bg-type-vector-bg text-type-vector',
+      (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-type-raster-bg text-type-raster',
     )}>
       {label}
     </span>
@@ -298,8 +298,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               type="button"
               aria-label={t('basemapSublayer.breadcrumbLabel', { defaultValue: 'Back to basemap group' })}
               onClick={onBreadcrumbClick}
-              style={{ fontSize: '11px', lineHeight: 1.2, letterSpacing: '0.04em' }}
-              className="text-muted-foreground hover:text-foreground hover:underline block"
+              className="block text-mini leading-tight tracking-[0.04em] text-muted-foreground hover:text-foreground hover:underline"
             >
               Basemap · {breadcrumbPresetName ?? 'Untitled'} ›
             </button>
@@ -427,7 +426,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     >
                       <p
                         id={`section-renderas-${layer.id}`}
-                        className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                        className="eyebrow mb-2"
                       >
                         {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
                       </p>
@@ -441,10 +440,10 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                               data-active={isActive ? 'true' : 'false'}
                               onClick={() => handleRenderAsClick(option.id)}
                               className={cn(
-                                'rounded-full border border-transparent px-[10px] py-[5px] text-xs transition-colors',
+                                'rounded-md border border-transparent px-2.5 py-1 text-xs transition-colors',
                                 isActive
                                   ? 'bg-primary text-primary-foreground border-transparent'
-                                  : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
+                                  : 'bg-surface-2 text-foreground hover:bg-surface-3',
                               )}
                             >
                               {option.label}

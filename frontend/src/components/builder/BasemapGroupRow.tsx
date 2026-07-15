@@ -162,8 +162,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         <span
           className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-xs font-medium"
           style={{
-            backgroundColor: 'var(--primary-50, oklch(0.97 0.02 250))',
-            color: 'var(--primary-700, oklch(0.46 0.16 250))',
+            backgroundColor: 'var(--primary-50)',
+            color: 'var(--primary-700)',
           }}
           aria-hidden="true"
         >

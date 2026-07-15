@@ -147,7 +147,7 @@ export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, re
         </div>
       )}
 
-      <p className="font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+      <p className="eyebrow">
         {maxSizeMb != null
           ? t('dropzone.sizeLimitDynamic', { size: maxSizeMb, defaultValue: `Max ${maxSizeMb} MB per file` })
           : t('dropzone.sizeLimit')}{' '}

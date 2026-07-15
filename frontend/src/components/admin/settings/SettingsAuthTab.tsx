@@ -347,7 +347,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
             {t('settings.oauth.emptyState')}
           </p>
         ) : (
-          <Table>
+          <Table aria-label={t('settings.oauth.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('settings.oauth.provider')}</TableHead>

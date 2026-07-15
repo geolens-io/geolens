@@ -179,7 +179,7 @@ export function PublicViewerPage() {
           value={basemapId ?? data.basemap_style}
           onChange={setBasemapId}
           title={t('viewer.changeBasemap')}
-          className="absolute bottom-8 left-3 z-10"
+          className="absolute bottom-8 start-3 z-10"
         />
       )}
 

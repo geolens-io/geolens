@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { qualityScoreClasses } from '@/lib/status-colors';
 import {
   Tooltip,
@@ -13,11 +15,9 @@ export function QualityBadge({ score }: { score: number | null | undefined }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
-          className={`text-xs px-2 py-0.5 border rounded-full font-medium transition-colors duration-150 cursor-help ${qualityScoreClasses(score)}`}
-        >
+        <Badge className={cn('cursor-help', qualityScoreClasses(score))}>
           {t('quality.label', { score })}
-        </span>
+        </Badge>
       </TooltipTrigger>
       <TooltipContent>
         <p className="text-xs">{t('qualityBadge.tooltip')}</p>

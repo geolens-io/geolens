@@ -115,7 +115,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-label={t('filters.toggle', { defaultValue: 'Show or hide active filters' })}
-          className="inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-1 text-xs shadow-sm backdrop-blur-sm transition-colors hover:bg-accent"
+          className="inline-flex items-center gap-1.5 rounded-md border bg-background/90 px-2.5 py-1 text-xs shadow-sm backdrop-blur-sm transition-colors hover:bg-accent"
         >
           <Filter className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           <span className="font-medium text-foreground">
@@ -130,7 +130,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
           chips.map((chip) => (
             <span
               key={chip.layerId}
-              className="inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-1 text-xs shadow-sm backdrop-blur-sm"
+              className="inline-flex items-center gap-1.5 rounded-md border bg-background/90 px-2.5 py-1 text-xs shadow-sm backdrop-blur-sm"
               title={`${chip.layerName}: ${chip.label}`}
             >
               <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
@@ -152,7 +152,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
           <button
             type="button"
             onClick={() => chips.forEach((chip) => onClearFilter(chip.layerId))}
-            className="rounded-full border bg-background/90 px-2.5 py-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-destructive"
+            className="rounded-md border bg-background/90 px-2.5 py-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-destructive"
           >
             {t('filters.clearAll', { defaultValue: 'Clear all' })}
           </button>

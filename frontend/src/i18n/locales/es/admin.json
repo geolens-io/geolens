@@ -389,7 +389,8 @@
     "bulkRevokeConfirm": "Revocar",
     "bulkRevokeCancel": "Cancelar",
     "bulkRevokeSuccess": "{{count}} tokens de insercion revocados",
-    "bulkRevokeFailed": "No se pudieron revocar los tokens de insercion"
+    "bulkRevokeFailed": "No se pudieron revocar los tokens de insercion",
+    "tableLabel": "Tokens de inserción"
   },
   "settings": {
     "copySPEntityId": "Copiar ID de entidad SP",

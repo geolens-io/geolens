@@ -839,13 +839,13 @@ export function DataDrivenStyleEditor({
       )}
 
       {selectedColumnMissing && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning">
           {t('dataDriven.missingColumnHelp', { column })}
         </p>
       )}
 
       {graduatedStatsUnavailable && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning">
           {t('dataDriven.statsUnavailableHelp')}
         </p>
       )}
@@ -1041,7 +1041,7 @@ export function DataDrivenStyleEditor({
                 {t('dataDriven.manualBreaksAddRow')}
               </Button>
               {manualBreaksInvalid && (
-                <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
+                <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning">
                   {t('dataDriven.manualBreaksInvalid')}
                 </p>
               )}
@@ -1051,7 +1051,7 @@ export function DataDrivenStyleEditor({
       )}
 
       {hasTooManyCategories && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning">
           {t('dataDriven.categoriesWarning', { count: valuesData.values.length })}
         </p>
       )}

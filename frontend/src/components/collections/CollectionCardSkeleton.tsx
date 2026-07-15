@@ -11,8 +11,8 @@ export function CollectionCardSkeleton() {
           <Skeleton className="h-3 w-2/3" />
         </div>
         <div className="flex gap-2">
-          <Skeleton className="h-4 w-20 rounded-full" />
-          <Skeleton className="h-4 w-24 rounded-full" />
+          <Skeleton className="h-4 w-20 rounded-md" />
+          <Skeleton className="h-4 w-24 rounded-md" />
         </div>
       </div>
       <div className="sm:w-48 sm:flex-shrink-0 p-3 sm:p-4 sm:border-s border-t sm:border-t-0 border-border/50">

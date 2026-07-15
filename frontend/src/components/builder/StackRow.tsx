@@ -15,6 +15,7 @@ import {
 import { LayerTypeIcon } from '@/components/map/layer-icons';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
+import { semanticBadgeColors } from '@/lib/status-colors';
 import {
   DragGripButton,
   STACK_ROW_GRID,
@@ -321,7 +322,7 @@ export const StackRow = memo(function StackRow({
               <span
                 title={t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}
                 data-testid="stack-row-disambiguation"
-                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm border border-warning/30 px-1 text-2xs font-medium leading-tight bg-warning/10 text-warning"
+                className={cn('min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-2xs font-medium leading-tight', semanticBadgeColors.warning)}
               >
                 <span className="truncate">{disambiguationLabel}</span>
                 <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
@@ -334,7 +335,7 @@ export const StackRow = memo(function StackRow({
               <span
                 title={t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
                 data-testid="stack-row-audience-hidden"
-                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm border border-warning/30 px-1 text-2xs font-medium leading-tight bg-warning/10 text-warning"
+                className={cn('min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-2xs font-medium leading-tight', semanticBadgeColors.warning)}
               >
                 <span className="truncate">
                   {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
@@ -347,7 +348,7 @@ export const StackRow = memo(function StackRow({
               <span
                 title={t('stackRow.drawsNothing', { defaultValue: 'Not shown — enable Hillshade or 3D terrain' })}
                 data-testid="stack-row-draws-nothing"
-                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm border border-warning/30 px-1 text-2xs font-medium leading-tight bg-warning/10 text-warning"
+                className={cn('min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-2xs font-medium leading-tight', semanticBadgeColors.warning)}
               >
                 <span className="truncate">
                   {t('stackRow.drawsNothing', { defaultValue: 'Not shown — enable Hillshade or 3D terrain' })}

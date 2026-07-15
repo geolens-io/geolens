@@ -81,7 +81,7 @@ export function BasemapGroupEditorScene({
       {/* 1. Preset section */}
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="eyebrow mb-2">
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
           {/* fix(#394) UX-03/B-017: expose selected-state to assistive tech —
@@ -168,7 +168,7 @@ export function BasemapGroupEditorScene({
       {sublayers.length > 0 && (
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="eyebrow mb-2">
             {t('basemapGroup.sublayersSectionLabel', { defaultValue: 'SUBLAYERS' })}
           </p>
           <p className="text-xs text-muted-foreground mb-2">

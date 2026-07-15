@@ -277,7 +277,7 @@ export function LoginPage() {
   return (
     <main className="grid min-h-screen grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
       {/* ───────── LEFT — brand / map panel (hidden ≤880px) ───────── */}
-      <section className="relative hidden overflow-hidden border-r border-border bg-map-paper px-14 py-12 min-[880px]:flex min-[880px]:flex-col min-[880px]:justify-between">
+      <section className="relative hidden overflow-hidden border-e border-border bg-map-paper px-14 py-12 min-[880px]:flex min-[880px]:flex-col min-[880px]:justify-between">
         <BrandMapBackdrop />
         {/* Paper scrim keeps the left-aligned text legible over the map. */}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-map-paper/90 via-map-paper/70 to-map-paper/30" />
@@ -291,7 +291,7 @@ export function LoginPage() {
             >
               <GeoLensLogo size="lg" />
             </Link>
-            <p className="mt-2.5 font-mono text-mini uppercase tracking-[0.08em] text-muted-foreground">
+            <p className="eyebrow mt-2.5">
               {t('geospatialDataCatalog')}
             </p>
           </div>
@@ -333,7 +333,7 @@ export function LoginPage() {
         {/* Persistent top-right browse link — the immediate escape hatch. */}
         <Button
           variant="ghost"
-          className="absolute right-[14px] top-[14px] h-auto gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground min-[880px]:right-[26px] min-[880px]:top-[22px]"
+          className="absolute end-[14px] top-[14px] h-auto gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground min-[880px]:end-[26px] min-[880px]:top-[22px]"
           onClick={handleBrowseCatalog}
         >
           {t('browseCatalogCta')}

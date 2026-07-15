@@ -15,7 +15,7 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+      <div className="eyebrow flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5">
         <span>
           {t('bulk.uploading', { count: entries.length })}
         </span>

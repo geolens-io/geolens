@@ -141,7 +141,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               { label: t('complete.statTabular', { defaultValue: 'Tabular' }), value: completedEntries.filter((e) => e.kind === 'table').length },
             ].map((stat, i) => (
               <div key={i} className="px-5 py-4">
-                <dt className="mb-1.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground">{stat.label}</dt>
+                <dt className="eyebrow mb-1.5">{stat.label}</dt>
                 <dd className="text-xl font-medium tracking-tight">{stat.value}</dd>
               </div>
             ))}

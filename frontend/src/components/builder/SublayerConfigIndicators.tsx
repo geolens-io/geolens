@@ -89,7 +89,7 @@ export function SublayerConfigIndicators({ layer }: Props) {
         <span
           key={id}
           title={label}
-          className="inline-flex items-center justify-center h-4 w-4 rounded-sm bg-[var(--primary-50)] text-[var(--primary-600)]"
+          className="inline-flex items-center justify-center h-4 w-4 rounded-sm bg-primary-50 text-primary-600"
         >
           <Icon className="h-3 w-3" aria-hidden="true" />
           <span className="sr-only">{label}</span>

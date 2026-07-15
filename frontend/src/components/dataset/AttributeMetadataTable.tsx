@@ -146,7 +146,7 @@ export function AttributeMetadataTable({ datasetId, canEdit }: AttributeMetadata
 
   return (
     <div className="rounded-md border">
-      <Table>
+      <Table aria-label={t('attributeMetadata.title')}>
         <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm">
           <TableRow>
             <TableHead className="w-[140px]">{t('attributeMetadata.fieldName')}</TableHead>

@@ -328,7 +328,10 @@
         "moreColumns": "más columnas"
       }
     },
-    "anonMapRecovery": "Puede que este mapa sea privado. Inicia sesión para comprobar si tu cuenta puede abrirlo."
+    "anonMapRecovery": "Puede que este mapa sea privado. Inicia sesión para comprobar si tu cuenta puede abrirlo.",
+    "map": {
+      "ariaLabel": "Visor del mapa"
+    }
   },
   "maps": {
     "title": "Mapas",
@@ -437,7 +440,8 @@
       "statusOk": "Conectado",
       "statusError": "Fallido",
       "latency": "{{ms}}ms",
-      "noOidc": "No hay proveedores OIDC configurados"
+      "noOidc": "No hay proveedores OIDC configurados",
+      "resultsLabel": "Resultados de conectividad"
     },
     "import": {
       "title": "Importar configuración",

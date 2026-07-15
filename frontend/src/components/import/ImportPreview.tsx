@@ -143,7 +143,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
               )}
             </p>
             <div className="overflow-x-auto">
-              <Table>
+              <Table aria-label={t('preview.sampleData')}>
                 <TableHeader>
                   <TableRow>
                     {visibleColumns.map((col) => (

@@ -427,7 +427,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       {isStyleDirty && <StylePreview layer={layer} onRevert={handleRevertToSaved} />}
 
       {unsupportedBuilderState && (
-        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning-foreground">
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{t('style.unsupportedBuilderState')}</span>
         </div>

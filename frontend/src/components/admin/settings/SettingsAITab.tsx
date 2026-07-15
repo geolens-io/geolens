@@ -119,7 +119,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
     <div className="space-y-6">
       {/* --- Inference (LLM) Configuration --- */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+        <h3 className="eyebrow mb-4">
           {t('ai.sectionInference')}
         </h3>
 
@@ -236,7 +236,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
 
       {/* --- Semantic Search & Embeddings --- */}
       <div>
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+        <h3 className="eyebrow mb-4">
           {t('ai.sectionSemanticSearch')}
         </h3>
 
@@ -412,7 +412,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
 
       {/* --- API Key Status --- */}
       <div>
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+        <h3 className="eyebrow mb-4">
           {t('ai.sectionApiKeys')}
         </h3>
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-3 max-w-md mb-4">

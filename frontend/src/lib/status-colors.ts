@@ -100,6 +100,23 @@ export const experimentalBadgeColor = 'border-warning/50 text-warning';
 export const syntheticBadgeColor =
   'border-synthetic/30 bg-synthetic-bg text-synthetic';
 
+/**
+ * Import file-entry lifecycle (upload → detect → commit → track). The
+ * `committing` state deliberately uses the primary action color rather than a
+ * status hue — it marks "acting on your request", not a health state.
+ */
+export const fileEntryStatusColors: Record<string, string> = {
+  uploading: semanticBadgeColors.info,
+  previewing: semanticBadgeColors.info,
+  preview: semanticBadgeColors.success,
+  committing: 'border-primary/30 bg-primary/10 text-primary',
+  tracking: semanticBadgeColors.success,
+  complete: semanticBadgeColors.success,
+  'upload-failed': semanticBadgeColors.destructive,
+  'commit-failed': semanticBadgeColors.destructive,
+  failed: semanticBadgeColors.destructive,
+};
+
 export const vrtRasterStatusColors: Record<string, string> = {
   ready: 'border-success/50 text-success',
   regenerating: 'border-warning/50 text-warning',

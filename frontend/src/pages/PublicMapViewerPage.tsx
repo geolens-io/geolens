@@ -185,7 +185,7 @@ export function PublicMapViewerPage() {
         value={basemapId ?? data.basemap_style}
         onChange={setBasemapId}
         title={t('viewer.changeBasemap')}
-        className="absolute bottom-8 left-3 z-10"
+        className="absolute bottom-8 start-3 z-10"
       />
 
       {/* Read-only "Ask AI" — self-gates on AI availability + use_ai_chat, so anonymous

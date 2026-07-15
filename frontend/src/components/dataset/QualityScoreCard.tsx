@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { qualityScoreClasses } from '@/lib/status-colors';
+import { qualityScoreClasses, semanticBadgeColors } from '@/lib/status-colors';
 import { Badge } from '@/components/ui/badge';
 import { deriveQualityFreshness } from '@/lib/quality-freshness';
 
@@ -26,8 +26,8 @@ function barColor(score: number): string {
 }
 
 function freshnessBadgeClass(state: 'fresh' | 'stale' | 'missing'): string {
-  if (state === 'fresh') return 'bg-success/10 text-success border-success/30';
-  if (state === 'stale') return 'bg-warning/10 text-warning border-warning/30';
+  if (state === 'fresh') return semanticBadgeColors.success;
+  if (state === 'stale') return semanticBadgeColors.warning;
   return 'bg-muted text-muted-foreground border-border';
 }
 

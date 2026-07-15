@@ -28,7 +28,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
     <div className="col-span-full mt-3 grid gap-5 border-t border-dashed border-border pt-4 md:grid-cols-2">
       {/* Geometry & projection */}
       <div>
-        <h5 className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <h5 className="eyebrow mb-2">
           {raster ? t('detect.rasterInfo') : t('detect.geometry')}
         </h5>
         <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1 text-xs">
@@ -46,7 +46,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
               <dd className="font-mono text-mini">
                 {preview.is_cog_compliant
                   ? <span className="text-success">{t('detect.validCog')}</span>
-                  : <span className="text-warning-foreground">{t('detect.willConvert')}</span>}
+                  : <span className="text-warning">{t('detect.willConvert')}</span>}
               </dd>
             </>
           ) : file ? (
@@ -76,7 +76,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
       {/* Schema columns */}
       {file && file.columns.length > 0 && (
         <div>
-          <h5 className="mb-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+          <h5 className="eyebrow mb-2">
             {t('detect.schema')} · {t('detect.columnCount', { count: file.columns.length, value: formatNumber(file.columns.length) })}
           </h5>
           <div className="max-h-44 overflow-y-auto rounded-sm border border-border">
@@ -265,7 +265,7 @@ export function BulkReviewList({
       {/* File list card */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+        <div className="eyebrow flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5">
           <span>
             {t('review.headerStatus')} · <span className="text-success">{t('review.readyCount', { count: readyCount, value: formatNumber(readyCount) })}</span>
           </span>
@@ -317,7 +317,7 @@ export function BulkReviewList({
                       <span className="font-mono font-normal text-muted-foreground">{ext}</span>
                     </span>
                     {entry.status === 'tracking' && (
-                      <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-2xs">
+                      <Badge variant="success" className="text-2xs">
                         {t('bulk.committed')}
                       </Badge>
                     )}

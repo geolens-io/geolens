@@ -444,7 +444,7 @@ function ShareLinkSettings({
                         <span
                           key={o}
                           role="listitem"
-                          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-xs"
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-3 py-1 text-xs"
                         >
                           <span className="font-mono truncate max-w-[16rem]" title={o}>{o}</span>
                           <button

@@ -313,7 +313,7 @@ export function SamlProvidersSection() {
         ) : providers.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">{t('saml.emptyState')}</p>
         ) : (
-          <Table>
+          <Table aria-label={t('saml.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('saml.provider')}</TableHead>

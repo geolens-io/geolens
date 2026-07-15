@@ -205,7 +205,8 @@
     "showingExact": "Mostrando {{start}}-{{end}} de {{total}} filas",
     "rowsPerPage": "Filas por página",
     "columns": "Columnas",
-    "loadFailed": "No se pudieron cargar los datos. Inténtalo de nuevo."
+    "loadFailed": "No se pudieron cargar los datos. Inténtalo de nuevo.",
+    "tableLabel": "Atributos de entidades"
   },
   "changeHistory": {
     "title": "Historial de cambios ({{count}})",
@@ -275,7 +276,8 @@
     "noSources": "Sin fuentes",
     "searchError": "No se pudieron buscar conjuntos de datos.",
     "sourcesLoadError": "No se pudieron cargar las fuentes VRT.",
-    "sourceTableHealth": "Salud"
+    "sourceTableHealth": "Salud",
+    "sourcesTableLabel": "Fuentes del VRT"
   },
   "deleteDialog": {
     "title": "Eliminar conjunto de datos",
@@ -326,12 +328,14 @@
         "name": "Nombre",
         "geometry": "Geometría",
         "featureCount": "Entidades"
-      }
+      },
+      "tableLabel": "Capas del servicio"
     },
     "fileLayer": {
       "layerStep": "Seleccione una capa",
       "missingLayerWarning": "La capa original '{{layer}}' no está presente en el nuevo archivo. Seleccione un reemplazo para continuar.",
-      "previewLayer": "Vista previa de la capa"
+      "previewLayer": "Vista previa de la capa",
+      "tableLabel": "Capas del archivo"
     },
     "dropzone": "Arrastre y suelte un archivo aquí, o haga clic para explorar",
     "uploadingMessage": "Subiendo y analizando archivo...",

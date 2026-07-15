@@ -389,7 +389,8 @@
     "bulkRevokeConfirm": "Widerrufen",
     "bulkRevokeCancel": "Abbrechen",
     "bulkRevokeSuccess": "{{count}} Einbettungstokens widerrufen",
-    "bulkRevokeFailed": "Einbettungstokens konnten nicht widerrufen werden"
+    "bulkRevokeFailed": "Einbettungstokens konnten nicht widerrufen werden",
+    "tableLabel": "Einbettungstokens"
   },
   "settings": {
     "copySPEntityId": "SP-Entitäts-ID kopieren",

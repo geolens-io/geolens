@@ -161,7 +161,7 @@ export function ZoomExpressionEditor({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground w-20">{label}</span>
-          <p className="flex-1 text-xs text-warning-foreground bg-warning/15 rounded-sm px-2 py-1">
+          <p className="flex-1 text-xs text-warning bg-warning/15 rounded-sm px-2 py-1">
             {t('style.zoomExpression.unsupported')}
           </p>
         </div>

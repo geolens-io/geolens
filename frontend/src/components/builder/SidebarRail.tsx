@@ -70,7 +70,7 @@ export const SidebarRail = memo(function SidebarRail({
               'flex h-10 w-10 items-center justify-center rounded-md',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isSettingsOpen
-                ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
+                ? 'bg-primary-50 text-primary'
                 : 'text-muted-foreground hover:bg-[var(--surface-2)] hover:text-foreground',
             )}
             onClick={onSettingsClick}
@@ -119,7 +119,7 @@ export const SidebarRail = memo(function SidebarRail({
                 className={cn(
                   'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isSelected
-                    ? 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] selection-inset'
+                    ? 'bg-primary-50 selection-inset'
                     : 'hover:bg-[var(--surface-2)]',
                 )}
                 onClick={() => onSelectLayer(layer.id)}
@@ -147,7 +147,7 @@ export const SidebarRail = memo(function SidebarRail({
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 basemapGroup.id === selectedLayerId
-                  ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] selection-inset'
+                  ? 'bg-primary-50 selection-inset'
                   : 'hover:bg-[var(--surface-2)] text-muted-foreground hover:text-foreground',
               )}
               onClick={() => onSelectLayer(basemapGroup.id)}

@@ -11,7 +11,7 @@ export function DatasetCardSkeleton() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_160px]">
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-2">
-                  <Skeleton className="h-6 w-16 rounded-full" />
+                  <Skeleton className="h-6 w-16 rounded-md" />
                 </div>
                 <Skeleton className="h-6 w-4/5" />
                 <Skeleton className="h-4 w-2/3" />
@@ -29,13 +29,13 @@ export function DatasetCardSkeleton() {
             </div>
             {/* Band 3 — Tags */}
             <div className="flex flex-wrap gap-1.5">
-              <Skeleton className="h-6 w-16 rounded-full" />
-              <Skeleton className="h-6 w-20 rounded-full" />
+              <Skeleton className="h-6 w-16 rounded-md" />
+              <Skeleton className="h-6 w-20 rounded-md" />
             </div>
             {/* Band 4 — Footer */}
             <div className="flex items-center justify-between">
               <Skeleton className="h-4 w-36" />
-              <Skeleton className="h-5 w-14 rounded-full" />
+              <Skeleton className="h-5 w-14 rounded-md" />
             </div>
           </div>
         </div>

@@ -179,7 +179,7 @@ function ValidateSection() {
 
         {result && (
           <div className="space-y-2">
-            <Table>
+            <Table aria-label={t('configOps.validate.resultsLabel', { defaultValue: 'Connectivity results' })}>
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('configOps.validate.serviceHeader')}</TableHead>
@@ -475,7 +475,7 @@ function ImportSection() {
                 <h3 className="text-sm font-medium">
                   {t('configOps.import.settingsChanges')}
                 </h3>
-                <Table>
+                <Table aria-label={t('configOps.import.settingsChanges')}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('configOps.import.key')}</TableHead>
@@ -522,7 +522,7 @@ function ImportSection() {
                     })}
                   </p>
                 )}
-                <Table>
+                <Table aria-label={t('configOps.import.oauthChanges')}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('configOps.import.slug')}</TableHead>

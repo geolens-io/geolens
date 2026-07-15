@@ -11,7 +11,7 @@ export function MapCardSkeleton() {
         <Skeleton className="h-5 w-2/3" />
         <Skeleton className="h-3 w-full" />
         <div className="flex gap-2">
-          <Skeleton className="h-4 w-16 rounded-full" />
+          <Skeleton className="h-4 w-16 rounded-md" />
           <Skeleton className="h-4 w-24" />
         </div>
       </div>
