@@ -217,7 +217,11 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     awscli \
     procps \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # fix(#517): drop the base image's gosu — the backup entrypoint never
+    # invokes it, and its Go-built binary trips Trivy's CRITICAL/HIGH gate
+    # (Go stdlib CVEs) independently of our own code.
+    && rm -f /usr/local/bin/gosu
 
 # Bake the backup and restore scripts so the image is self-contained and
 # runnable without a host bind-mount. The compose bind-mount
