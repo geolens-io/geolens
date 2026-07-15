@@ -437,7 +437,8 @@
       "statusOk": "Connecté",
       "statusError": "Échoué",
       "latency": "{{ms}}ms",
-      "noOidc": "Aucun fournisseur OIDC configuré"
+      "noOidc": "Aucun fournisseur OIDC configuré",
+      "resultsLabel": "Résultats de connectivité"
     },
     "import": {
       "title": "Importer la configuration",

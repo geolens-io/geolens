@@ -46,7 +46,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
               <dd className="font-mono text-mini">
                 {preview.is_cog_compliant
                   ? <span className="text-success">{t('detect.validCog')}</span>
-                  : <span className="text-warning-foreground">{t('detect.willConvert')}</span>}
+                  : <span className="text-warning">{t('detect.willConvert')}</span>}
               </dd>
             </>
           ) : file ? (

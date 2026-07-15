@@ -55,7 +55,7 @@ function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
       {summary.warnings.length > 0 && (
         <div className="space-y-1">
           {summary.warnings.map((warning, index) => (
-            <div key={`${warning.code}-${index}`} className="flex items-start gap-1.5 text-warning-foreground">
+            <div key={`${warning.code}-${index}`} className="flex items-start gap-1.5 text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{warning.message}</span>
             </div>

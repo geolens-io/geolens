@@ -205,7 +205,8 @@
     "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
     "rowsPerPage": "Lignes par page",
     "columns": "Colonnes",
-    "loadFailed": "Impossible de charger les données. Veuillez réessayer."
+    "loadFailed": "Impossible de charger les données. Veuillez réessayer.",
+    "tableLabel": "Attributs des entités"
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",
@@ -275,7 +276,8 @@
     "noSources": "Aucune source",
     "searchError": "Impossible de rechercher des jeux de données.",
     "sourcesLoadError": "Impossible de charger les sources VRT.",
-    "sourceTableHealth": "Santé"
+    "sourceTableHealth": "Santé",
+    "sourcesTableLabel": "Sources du VRT"
   },
   "deleteDialog": {
     "title": "Supprimer le jeu de données",
@@ -326,12 +328,14 @@
         "name": "Nom",
         "geometry": "Géométrie",
         "featureCount": "Entités"
-      }
+      },
+      "tableLabel": "Couches du service"
     },
     "fileLayer": {
       "layerStep": "Sélectionnez une couche",
       "missingLayerWarning": "La couche d'origine '{{layer}}' n'est pas présente dans le nouveau fichier. Sélectionnez un remplacement pour continuer.",
-      "previewLayer": "Prévisualiser la couche"
+      "previewLayer": "Prévisualiser la couche",
+      "tableLabel": "Couches du fichier"
     },
     "dropzone": "Glissez-déposez un fichier ici, ou cliquez pour parcourir",
     "uploadingMessage": "Téléchargement et analyse du fichier...",

@@ -173,7 +173,7 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
         </AlertDialog>
       )}
 
-      <Table>
+      <Table aria-label={t('embedTokens.tableLabel', { defaultValue: 'Embed tokens' })}>
         <TableHeader>
           <TableRow>
             <TableHead className="w-8">
@@ -280,7 +280,7 @@ export function AdminSharedMapsPage() {
               ))}
             </div>
           </div>
-          <Table>
+          <Table aria-label={t('sharedMaps.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10" />

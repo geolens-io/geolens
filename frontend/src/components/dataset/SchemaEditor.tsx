@@ -120,7 +120,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
         {/* Existing columns */}
         {displayColumns.length > 0 ? (
           <div className="max-h-60 overflow-y-auto">
-            <Table>
+            <Table aria-label={t('schema.title')}>
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('schema.columnName')}</TableHead>

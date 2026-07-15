@@ -453,7 +453,8 @@
       "statusOk": "Connected",
       "statusError": "Failed",
       "latency": "{{ms}}ms",
-      "noOidc": "No OIDC providers configured"
+      "noOidc": "No OIDC providers configured",
+      "resultsLabel": "Connectivity results"
     },
     "import": {
       "title": "Import Configuration",

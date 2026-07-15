@@ -684,7 +684,7 @@ export function ReuploadDialog({
               </p>
             ) : (
               <div className="max-h-64 overflow-y-auto rounded-md border">
-                <Table>
+                <Table aria-label={t('reupload.service.tableLabel', { defaultValue: 'Service layers' })}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('reupload.service.columns.name', { defaultValue: 'Name' })}</TableHead>
@@ -757,7 +757,7 @@ export function ReuploadDialog({
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="max-h-64 overflow-y-auto rounded-md border">
-              <Table>
+              <Table aria-label={t('reupload.fileLayer.tableLabel', { defaultValue: 'File layers' })}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('reupload.service.columns.name', { defaultValue: 'Name' })}</TableHead>

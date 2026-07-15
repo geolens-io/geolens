@@ -205,7 +205,8 @@
     "showingExact": "Showing {{start}}-{{end}} of {{total}} rows",
     "rowsPerPage": "Rows per page",
     "columns": "Columns",
-    "loadFailed": "Failed to load data. Please try again."
+    "loadFailed": "Failed to load data. Please try again.",
+    "tableLabel": "Feature attributes"
   },
   "changeHistory": {
     "title": "Change History ({{count}})",
@@ -278,12 +279,14 @@
         "name": "Name",
         "geometry": "Geometry",
         "featureCount": "Features"
-      }
+      },
+      "tableLabel": "Service layers"
     },
     "fileLayer": {
       "layerStep": "Select a layer",
       "missingLayerWarning": "Original layer '{{layer}}' is not present in the new file. Pick a replacement to continue.",
-      "previewLayer": "Preview Layer"
+      "previewLayer": "Preview Layer",
+      "tableLabel": "File layers"
     },
     "dropzone": "Drag and drop a file here, or click to browse",
     "uploadingMessage": "Uploading and analyzing file...",
@@ -727,7 +730,8 @@
     "noSources": "No sources",
     "searchError": "Failed to search datasets.",
     "sourcesLoadError": "Failed to load VRT sources.",
-    "sourceTableHealth": "Health"
+    "sourceTableHealth": "Health",
+    "sourcesTableLabel": "VRT sources"
   },
   "ai": {
     "assist": "AI Assist",

@@ -205,7 +205,8 @@
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
     "rowsPerPage": "Zeilen pro Seite",
     "columns": "Spalten",
-    "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen."
+    "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen.",
+    "tableLabel": "Feature-Attribute"
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",
@@ -275,7 +276,8 @@
     "noSources": "Keine Quellen",
     "searchError": "Datensätze konnten nicht durchsucht werden.",
     "sourcesLoadError": "VRT-Quellen konnten nicht geladen werden.",
-    "sourceTableHealth": "Gesundheit"
+    "sourceTableHealth": "Gesundheit",
+    "sourcesTableLabel": "VRT-Quellen"
   },
   "deleteDialog": {
     "title": "Datensatz löschen",
@@ -326,12 +328,14 @@
         "name": "Name",
         "geometry": "Geometrie",
         "featureCount": "Features"
-      }
+      },
+      "tableLabel": "Dienst-Layer"
     },
     "fileLayer": {
       "layerStep": "Layer auswählen",
       "missingLayerWarning": "Der ursprüngliche Layer '{{layer}}' ist in der neuen Datei nicht vorhanden. Wählen Sie einen Ersatz, um fortzufahren.",
-      "previewLayer": "Layer prüfen"
+      "previewLayer": "Layer prüfen",
+      "tableLabel": "Datei-Layer"
     },
     "dropzone": "Datei hierher ziehen oder klicken zum Durchsuchen",
     "uploadingMessage": "Datei wird hochgeladen und analysiert...",

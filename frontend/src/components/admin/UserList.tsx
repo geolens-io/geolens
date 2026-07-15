@@ -210,7 +210,7 @@ export function UserList() {
           </CardAction>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table aria-label={t('users.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('users.table.username')}</TableHead>

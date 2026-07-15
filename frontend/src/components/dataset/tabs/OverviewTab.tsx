@@ -478,7 +478,7 @@ export function OverviewTab({
                       </Button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <Table>
+                      <Table aria-label={t('overview.bandDetails', { defaultValue: 'Band Details' })}>
                         <TableHeader>
                           <TableRow>
                             <TableHead>#</TableHead>

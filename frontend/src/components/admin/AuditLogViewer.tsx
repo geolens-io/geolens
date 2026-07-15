@@ -333,7 +333,7 @@ export function AuditLogViewer() {
 
         {/* Loading skeleton */}
         {isLoading && !data ? (
-          <Table>
+          <Table aria-label={t('audit.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">
@@ -372,7 +372,7 @@ export function AuditLogViewer() {
                     defaultValue: 'Tab to the details control, then use Up and Down arrows to move between rows.',
                   })}
                 </p>
-                <Table containerFocusable={false}>
+                <Table aria-label={t('audit.title')} containerFocusable={false}>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">

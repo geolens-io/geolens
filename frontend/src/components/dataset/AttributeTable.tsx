@@ -343,7 +343,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
               : { height: `${virtualizer.getTotalSize()}px`, width: '100%' }
           }
         >
-          <Table className="w-max">
+          <Table aria-label={t('attributes.tableLabel')} className="w-max">
             <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>

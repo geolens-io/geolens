@@ -158,7 +158,7 @@ export function JobList() {
 
         {/* Job entries */}
         {isLoading && !data ? (
-          <Table>
+          <Table aria-label={t('jobs.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">
@@ -195,7 +195,7 @@ export function JobList() {
                     defaultValue: 'Tab to the details control, then use Up and Down arrows to move between rows.',
                   })}
                 </p>
-                <Table containerFocusable={false}>
+                <Table aria-label={t('jobs.title')} containerFocusable={false}>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">

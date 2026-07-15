@@ -437,7 +437,8 @@
       "statusOk": "Verbunden",
       "statusError": "Fehlgeschlagen",
       "latency": "{{ms}}ms",
-      "noOidc": "Keine OIDC-Anbieter konfiguriert"
+      "noOidc": "Keine OIDC-Anbieter konfiguriert",
+      "resultsLabel": "Konnektivitätsergebnisse"
     },
     "import": {
       "title": "Konfiguration importieren",

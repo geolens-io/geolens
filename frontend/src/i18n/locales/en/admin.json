@@ -414,7 +414,8 @@
     "bulkRevokeConfirm": "Revoke",
     "bulkRevokeCancel": "Cancel",
     "bulkRevokeSuccess": "{{count}} embed tokens revoked",
-    "bulkRevokeFailed": "Failed to revoke embed tokens"
+    "bulkRevokeFailed": "Failed to revoke embed tokens",
+    "tableLabel": "Embed tokens"
   },
   "settings": {
     "copySPEntityId": "Copy SP Entity ID",

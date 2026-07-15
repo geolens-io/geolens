@@ -443,7 +443,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
                   <div className="text-xs text-destructive">{t('style.lineGradient.invalidPosition')}</div>
                 )}
                 {positionValid && !monotonic && (
-                  <div className="text-xs text-warning-foreground">{t('style.lineGradient.duplicatePosition')}</div>
+                  <div className="text-xs text-warning">{t('style.lineGradient.duplicatePosition')}</div>
                 )}
               </div>
             );

@@ -88,7 +88,7 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <Table>
+          <Table aria-label={t('settings.permissions.title')}>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('settings.permissions.capabilityHeader')}</TableHead>
