@@ -10,9 +10,11 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { walkExpressionPairs } from '@/lib/zoom-expressions';
 import { Textarea } from '@/components/ui/textarea';
 
+// Seed endpoints come from the shared categorical palette (blue -> pink) so
+// user-editable gradient defaults trace to MAP_COLORS, not fresh literals.
 export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: string }> = [
-  { position: 0, color: '#0066cc' },
-  { position: 1, color: '#cc3300' },
+  { position: 0, color: MAP_COLORS.categorical[0] },
+  { position: 1, color: MAP_COLORS.categorical[5] },
 ];
 
 // Hydrated working-set stop type — id is REQUIRED at runtime once liveStops is

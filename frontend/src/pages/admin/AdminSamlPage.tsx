@@ -41,7 +41,7 @@ export function AdminSamlPage() {
           breadcrumbs={[{ label: t('common:adminNav.admin'), to: '/admin' }]}
         />
         <div className="rounded-xl border border-border bg-card p-6 max-w-2xl">
-          <h2 className="text-lg font-medium mb-2">{t('saml.enterpriseOnly.heading')}</h2>
+          <h2 className="text-lg font-semibold mb-2">{t('saml.enterpriseOnly.heading')}</h2>
           <p className="text-sm text-muted-foreground mb-4">
             {t('saml.enterpriseOnly.body')}
           </p>

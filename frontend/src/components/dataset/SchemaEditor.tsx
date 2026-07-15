@@ -9,6 +9,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -134,37 +144,15 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                     <TableCell className="font-mono text-xs">{col.name}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{col.type}</TableCell>
                     <TableCell>
-                      {confirmDelete === col.name ? (
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => handleDropColumn(col.name)}
-                            disabled={dropColumnMutation.isPending}
-                          >
-                            {t('common:confirm')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => setConfirmDelete(null)}
-                          >
-                            {t('common:cancel')}
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={() => setConfirmDelete(col.name)}
-                          title={t('schema.removeColumn', { name: col.name })}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={() => setConfirmDelete(col.name)}
+                        title={t('schema.removeColumn', { name: col.name })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -177,18 +165,44 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
           </p>
         )}
 
-        {confirmDelete != null && (
-          <div className="space-y-1 text-xs" role="alert">
-            <p className="text-destructive">
-              {t('schema.dropWarning', { name: confirmDelete })}
-            </p>
+        {/* Dropping a column is irreversible — confirm through an AlertDialog
+            so dismissal must be explicit (DESIGN-GUIDE §6). */}
+        <AlertDialog
+          open={confirmDelete != null}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setConfirmDelete(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t('schema.removeColumn', { name: confirmDelete ?? '' })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('schema.dropWarning', { name: confirmDelete ?? '' })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
             {(columnReferences.data?.map_count ?? 0) > 0 && (
-              <p className="text-warning">
+              <p className="text-xs text-warning">
                 {t('schema.usedByMaps', { mapCount: columnReferences.data!.map_count })}
               </p>
             )}
-          </div>
-        )}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={dropColumnMutation.isPending}>
+                {t('common:cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={dropColumnMutation.isPending}
+                onClick={() => {
+                  if (confirmDelete) handleDropColumn(confirmDelete);
+                }}
+              >
+                {t('common:confirm')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Add column form */}
         <div className="border-t pt-4 space-y-3">

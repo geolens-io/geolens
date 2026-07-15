@@ -298,8 +298,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               type="button"
               aria-label={t('basemapSublayer.breadcrumbLabel', { defaultValue: 'Back to basemap group' })}
               onClick={onBreadcrumbClick}
-              style={{ fontSize: '11px', lineHeight: 1.2, letterSpacing: '0.04em' }}
-              className="text-muted-foreground hover:text-foreground hover:underline block"
+              className="block text-mini leading-tight tracking-[0.04em] text-muted-foreground hover:text-foreground hover:underline"
             >
               Basemap · {breadcrumbPresetName ?? 'Untitled'} ›
             </button>

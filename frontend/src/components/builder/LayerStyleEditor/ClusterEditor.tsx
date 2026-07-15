@@ -20,9 +20,10 @@ type ClusterColorStop = { count: number; color: string };
 // min zoom, dropping into the low tens by the default view).
 // Seed reachable breaks so enabling the ramp produces a visible gradient out of
 // the box; the user can raise them for denser data.
+// Ramp seeds trace to the shared categorical palette (amber -> pink).
 const DEFAULT_RAMP_TIERS: ClusterColorStop[] = [
-  { count: 10, color: '#f1f075' },
-  { count: 50, color: '#f28cb1' },
+  { count: 10, color: MAP_COLORS.categorical[6] },
+  { count: 50, color: MAP_COLORS.categorical[5] },
 ];
 
 export function ClusterEditor({

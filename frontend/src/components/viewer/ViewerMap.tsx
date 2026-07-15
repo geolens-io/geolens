@@ -1033,7 +1033,7 @@ export const ViewerMap = memo(function ViewerMap({
         attributionControl={false}
         minZoom={1}
         onLoad={handleLoad}
-        aria-label={t('viewer.legend.title')}
+        aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
       >
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />

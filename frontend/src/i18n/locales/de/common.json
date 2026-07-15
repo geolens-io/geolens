@@ -328,7 +328,10 @@
         "moreColumns": "weitere Spalten"
       }
     },
-    "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann."
+    "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann.",
+    "map": {
+      "ariaLabel": "Kartenansicht"
+    }
   },
   "maps": {
     "title": "Karten",
