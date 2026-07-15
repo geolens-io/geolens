@@ -77,9 +77,21 @@ test.describe('Admin Panel', () => {
     await expect(page.locator('label').filter({ hasText: 'To' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Clear' })).toBeVisible();
 
-    // A clean installation may not have an audit row yet. Exporting the empty
-    // result records its own audit.export event and gives the table a stable row.
-    if (await page.getByText('No audit logs found').isVisible()) {
+    const emptyState = page.getByText('No audit logs found');
+    const detailsToggles = page.getByTestId('audit-details-toggle');
+    const firstToggle = detailsToggles.first();
+
+    // Wait for loading to finish before deciding whether the clean installation
+    // needs a seed row. Exporting an empty result records its own audit.export event.
+    await expect
+      .poll(
+        async () =>
+          (await emptyState.isVisible()) || (await firstToggle.isVisible()),
+        { message: 'audit table did not reach an empty or populated state' },
+      )
+      .toBe(true);
+
+    if (await emptyState.isVisible()) {
       const downloadPromise = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Export CSV' }).click();
       const download = await downloadPromise;
@@ -89,8 +101,6 @@ test.describe('Admin Panel', () => {
 
     await expect(page.getByRole('columnheader', { name: 'Timestamp' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'IP Address' })).toBeVisible();
-    const detailsToggles = page.getByTestId('audit-details-toggle');
-    const firstToggle = detailsToggles.first();
     await expect(firstToggle).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear' }).focus();
