@@ -15,17 +15,17 @@ export function CatalogDragGhost({
   let swatchColor: string;
   let swatchGlyph: string;
   if (recordType === 'basemap') {
-    swatchBg = 'var(--primary-50, oklch(0.97 0.02 250))';
-    swatchColor = 'var(--primary-700, oklch(0.40 0.15 250))';
+    swatchBg = 'var(--primary-50)';
+    swatchColor = 'var(--primary-700)';
     swatchGlyph = 'B';
   } else if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
-    swatchBg = 'var(--type-raster-bg, oklch(0.95 0.04 60))';
-    swatchColor = 'var(--type-raster, oklch(0.55 0.12 60))';
+    swatchBg = 'var(--type-raster-bg)';
+    swatchColor = 'var(--type-raster)';
     swatchGlyph = 'R';
   } else {
     // vector_dataset or unknown
-    swatchBg = 'var(--type-vector-bg, oklch(0.95 0.04 145))';
-    swatchColor = 'var(--type-vector, oklch(0.45 0.12 145))';
+    swatchBg = 'var(--type-vector-bg)';
+    swatchColor = 'var(--type-vector)';
     swatchGlyph = 'V';
   }
 

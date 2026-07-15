@@ -91,8 +91,8 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
   return (
     <span className={cn(
       'inline-flex items-center rounded-sm px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em]',
-      caps.kind === 'vector' && 'bg-[var(--type-vector-bg)] text-[var(--type-vector)]',
-      (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-[var(--type-raster-bg)] text-[var(--type-raster)]',
+      caps.kind === 'vector' && 'bg-type-vector-bg text-type-vector',
+      (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-type-raster-bg text-type-raster',
     )}>
       {label}
     </span>
