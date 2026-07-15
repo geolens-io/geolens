@@ -13,7 +13,7 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 - `make test` / `make test-cov`: run backend pytest and coverage.
 - `npm run e2e` or `npm run e2e:smoke`: run Playwright suites.
 - `cd frontend && npm ci && npm run dev`: install frontend dependencies and start Vite.
-- `cd frontend && npm run build && npm run lint && npm run test:coverage`: run frontend gates.
+- `cd frontend && npm run build && npm run lint && npm run typecheck && npm run test:coverage`: run frontend gates (`npx tsc --noEmit` is a no-op here; `npm run typecheck` is the real type gate).
 - `make openapi-check`, `make sdks-check`, `make cli-test`: validate API snapshots and SDK/CLI drift.
 - `make bump VERSION=X.Y.Z`: rewrite every version site atomically. Never edit a version string by hand; `make version-check` is the CI gate.
 
@@ -28,7 +28,7 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 
 Services (`docker-compose.yml`): Nginx (prod proxy; Vite proxy in dev) fronts the FastAPI `api` (catalog, search, OGC/STAC, vector tiles) and Titiler (COG raster tiles). A `worker` runs GDAL/ogr2ogr ingestion, dispatched via the Procrastinate job queue that lives *inside* PostgreSQL (no separate broker). PostgreSQL 17 (PostGIS + pgvector + pg_trgm) is the single source of truth; object storage is MinIO/S3; Valkey is the tile/query cache.
 
-Backend `backend/app/`: `modules/` (domain areas — `catalog` is the core, with `datasets`/`collections`/`records`/`features`/`maps`/`layers`/`search`/`sources`), `platform/` (shared services), `processing/` (ingest/export/raster/tiles/embeddings/ai), `standards/` (OGC/STAC/DCAT), `core/` (config, DB, permissions, edition). Access control is in `catalog/authorization.py`. The `datasets` domain is split into `service_X` sub-modules behind a re-export façade in `service.py` — import via the façade, never the sub-modules (architecture-guard test enforces this).
+Backend `backend/app/`: `modules/` (domain areas — `catalog` is the core, with `datasets`/`collections`/`records`/`features`/`maps`/`layers`/`search`/`sources`/`validation`), `platform/` (shared services), `processing/` (ingest/export/raster/tiles/embeddings/ai), `standards/` (OGC/STAC/DCAT), `core/` (config, DB, permissions, edition). Access control is in `catalog/authorization.py`. The `datasets` domain is split into `api/` (routers) and `domain/`, where service logic lives in `service_X` sub-modules behind a re-export façade in `domain/service.py` — import via the façade, never the sub-modules (`backend/tests/test_layering.py` enforces this).
 
 Frontend `frontend/src/` (React 19, `@vis.gl/react-maplibre` v8 / maplibre-gl v5, TanStack Query, zustand, Tailwind): the map builder is `builder/`; all API calls go through `apiFetch()` in `api/client.ts`; the auth token lives in `useAuthStore` (persisted `geolens-auth`, read outside React via `useAuthStore.getState().token`); reuse UI primitives from `components/ui/`.
 
@@ -86,6 +86,7 @@ Any new FastAPI handler that fetches a `Record`, `Dataset`, `Map`, or `RecordEmb
 
 - Call `check_dataset_access_or_anonymous(db, dataset, dataset_id, user)` from `backend/app/modules/catalog/authorization.py` (read-side endpoints), OR
 - Call `check_dataset_access(db, dataset, dataset_id, user)` from the same module (write/destructive endpoints; raises 404 on access denial), OR
+- Call `check_dataset_write_access(db, dataset, dataset_id, user)` from the same module (owner-or-admin mutation endpoints), OR
 - Apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying SQLAlchemy `Select` (list endpoints with their own query construction).
 
 Reference implementations:
