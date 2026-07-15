@@ -108,8 +108,8 @@ describe('LineGradientControls — UI', () => {
       {
         lineGradient: {
           stops: expect.arrayContaining([
-            expect.objectContaining({ position: 0, color: '#0066cc' }),
-            expect.objectContaining({ position: 1, color: '#cc3300' }),
+            expect.objectContaining({ position: 0, color: DEFAULT_GRADIENT_STOPS[0].color }),
+            expect.objectContaining({ position: 1, color: DEFAULT_GRADIENT_STOPS[1].color }),
           ]),
         },
       },
