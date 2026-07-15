@@ -103,9 +103,14 @@
    * #305: light fg darkened so text-warning/info/success clear WCAG AA
    * (>=4.5:1) on card AND soft 10-percent-tint surfaces. Measured ratios:
    * warning 6.01 and 5.05, info 5.41 and 4.54, success 5.5 and 4.64 (was
-   * 2.19, 4.07, 4.07). --warning-foreground stays DARK: it is used as text
-   * on light/soft surfaces (e.g. BulkReviewList, LayerStyleEditor), not on a
-   * solid warning fill, so a dark foreground keeps those readable. */
+   * 2.19, 4.07, 4.07).
+   * --warning-foreground is DARK in BOTH themes and is reserved for text on a
+   * solid bg-warning fill. Never use it as standalone text on card or tint
+   * surfaces — in dark mode it composites to ~1:1 (illegible); use
+   * text-warning there instead. A source-scan test
+   * (warning-foreground-usage.test.ts) enforces this. No component renders a
+   * solid warning fill today; retune the light value (~2.4:1 on solid
+   * warning) before introducing one. */
   --success: oklch(0.49 0.16 150);
   --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.50 0.13 68);
@@ -604,7 +609,9 @@
   border-bottom-color: var(--popover);
 }
 
-/* Popup close button — 32×32 visible, 44×44 touch target via padding */
+/* Popup close button — 32×32 visible (border-box, so the padding is inside
+   that box); coarse pointers get a ≥44px hit target via the pointer-coarse
+   rule further down. */
 .maplibregl-popup-close-button {
   color: var(--popover-foreground);
   font-size: 18px;
@@ -693,7 +700,8 @@ html.dragging-active {
    target. Scoped to pointer:coarse so fine-pointer desktop density is
    unchanged (mirrors the existing maplibre popup-close 44px treatment). */
 @media (pointer: coarse) {
-  .maplibregl-ctrl-group button {
+  .maplibregl-ctrl-group button,
+  .maplibregl-popup-close-button {
     min-width: 44px;
     min-height: 44px;
   }
