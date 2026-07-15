@@ -157,7 +157,15 @@ export function AdminSidebar() {
   const capBadge = (n: number) => (n > 999 ? '999+' : String(n));
 
   return (
-    <Sidebar collapsible="icon" variant="sidebar" side="left">
+    // top-14 + height calc keep the viewport-fixed sidebar below the sticky
+    // h-14 navbar: without the offset the navbar buries the sidebar header and
+    // slides over the sidebar during macOS elastic overscroll.
+    <Sidebar
+      collapsible="icon"
+      variant="sidebar"
+      side="left"
+      className="top-14 h-[calc(100svh-3.5rem)]"
+    >
       <SidebarHeader className="px-4 py-3 group-data-[collapsible=icon]:hidden">
         <span className="eyebrow">{t('adminNav.admin')}</span>
       </SidebarHeader>
