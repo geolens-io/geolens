@@ -148,6 +148,15 @@ class TestParquetInfo:
             await parquet_info(str(p))
 
     @pytest.mark.anyio
+    async def test_nan_and_inf_sample_values_become_null(self, tmp_path):
+        # Starlette serializes JSON with allow_nan=False; non-finite floats in
+        # sample rows must not 500 the preview endpoint (PR #543 review).
+        p = tmp_path / "nan.parquet"
+        pq.write_table(pa.table({"v": [float("nan"), float("inf"), 1.5]}), p)
+        info = await parquet_info(str(p), sample_limit=3)
+        assert [r["v"] for r in info["sample_rows"]] == [None, None, 1.5]
+
+    @pytest.mark.anyio
     async def test_corrupt_parquet_raises(self, tmp_path):
         # The preview route maps any failure here to a clean 422.
         p = tmp_path / "corrupt.parquet"

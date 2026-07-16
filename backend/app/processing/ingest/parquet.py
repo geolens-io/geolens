@@ -15,6 +15,7 @@ Supports GeoParquet 1.0/1.1 with WKB geometry encoding. Parquet files without
 
 import asyncio
 import json
+import math
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -179,6 +180,10 @@ def _launder(name: str) -> str:
 
 
 def _json_safe(v: Any) -> Any:
+    # fix(#543 review): NaN/Infinity would 500 the preview response —
+    # Starlette serializes JSON with allow_nan=False. Render them as null.
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
     if v is None or isinstance(v, (bool, int, float, str)):
         return v
     return str(v)
