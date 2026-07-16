@@ -247,3 +247,49 @@ describe('InlineEdit multiline (E-32)', () => {
     expect(container.querySelector('textarea')).toBeNull();
   });
 });
+
+/**
+ * fix(#528 review): Tab from the textarea to the editor's own Save/Cancel
+ * buttons must not blur-cancel — keyboard users need to reach the buttons.
+ */
+describe('InlineEdit multiline keyboard reachability (#528 review)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('keeps the editor open when focus moves to its own Save button, and Save commits', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const { container, getByText } = render(
+      <InlineEdit value="original" onSave={onSave} canEdit multiline />,
+    );
+    fireEvent.click(container.querySelector('[role="button"]') as HTMLElement);
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'edited value' } });
+
+    const saveBtn = getByText('common:save');
+    // Simulate Tab: blur with focus landing on the editor's own button.
+    fireEvent.blur(textarea, { relatedTarget: saveBtn });
+    expect(container.querySelector('textarea')).not.toBeNull();
+
+    fireEvent.click(saveBtn);
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith('edited value');
+    });
+  });
+
+  it('still cancels when focus leaves the editor entirely', () => {
+    const onSave = vi.fn();
+    const { container } = render(
+      <InlineEdit value="original" onSave={onSave} canEdit multiline />,
+    );
+    fireEvent.click(container.querySelector('[role="button"]') as HTMLElement);
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'edited value' } });
+    fireEvent.blur(textarea, { relatedTarget: document.body });
+
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});

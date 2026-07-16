@@ -66,3 +66,15 @@ async def test_tile_columns_noop_patch_does_not_bump_tile_version(
     assert resp.status_code == 200, resp.text
     await test_db_session.refresh(ds)
     assert ds.tile_cache_version > version_after_change
+    version_after_clear = ds.tile_cache_version
+
+    # fix(#528) codex r1: None (per-zoom defaults) and [] (never project
+    # attributes) render DIFFERENT tiles, so a None→[] flip must bump too.
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"tile_columns": []},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    await test_db_session.refresh(ds)
+    assert ds.tile_cache_version > version_after_clear

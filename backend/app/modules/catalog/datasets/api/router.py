@@ -295,7 +295,12 @@ async def update_dataset_metadata(
 
     # fix(#458 E-48): capture the pre-update value so a PATCH that echoes the
     # same tile_columns doesn't roll the tile version / purge the tile cache.
-    tile_columns_before = list(dataset.tile_columns or [])
+    # None and [] are captured distinctly (fix(#528) codex r1): None means
+    # per-zoom defaults while [] means "never project attributes"
+    # (_select_tile_columns), so a None↔[] flip IS a tile-content change.
+    tile_columns_before = (
+        list(dataset.tile_columns) if dataset.tile_columns is not None else None
+    )
 
     try:
         dataset = await update_user_metadata(
@@ -338,7 +343,7 @@ async def update_dataset_metadata(
     # to purge every cached tile for the table.
     tile_columns_changed = (
         "tile_columns" in meta.model_fields_set
-        and list(dataset.tile_columns or []) != tile_columns_before
+        and dataset.tile_columns != tile_columns_before
     )
     if tile_columns_changed:
         dataset.bump_tile_cache_version()

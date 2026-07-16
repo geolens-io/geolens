@@ -36,6 +36,7 @@ export function InlineEdit({
   const [editing, setEditing] = useState(initialEditing);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const multilineContainerRef = useRef<HTMLDivElement>(null);
   const isDirtyRef = useRef(false);
 
   const emitDirtyChange = useCallback(
@@ -158,12 +159,21 @@ export function InlineEdit({
 
     if (multiline) {
       return (
-        <div>
+        <div ref={multilineContainerRef}>
           <textarea
             ref={inputRef as React.RefObject<HTMLTextAreaElement>}
             value={draft}
             onChange={(e) => handleDraftChange(e.target.value)}
-            onBlur={cancel}
+            // fix(#528 review): don't cancel when focus moves to the editor's
+            // own Save/Cancel buttons — Tab from the textarea used to fire
+            // blur→cancel and unmount the buttons before a keyboard user
+            // could reach them (mousedown-preventDefault only covers pointers).
+            onBlur={(e) => {
+              if (multilineContainerRef.current?.contains(e.relatedTarget as Node)) {
+                return;
+              }
+              cancel();
+            }}
             onKeyDown={handleKeyDown}
             // fix(#438): DS-03 — deliberately shares inputClasses with its
             // sibling <input> so the inline editor looks identical in both modes;
