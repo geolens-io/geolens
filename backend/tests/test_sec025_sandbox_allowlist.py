@@ -403,6 +403,53 @@ class TestLegitimateQueriesAllowed:
         _assert_allows("SELECT MD5(name) FROM data.cities")
 
 
+class TestBooleanOperatorsAllowed:
+    """AND/OR are boolean operators, not callables — sqlglot models them as
+    exp.Connector (a Func subclass), so the fail-closed walk rejected every
+    compound condition as an unlisted "function" (found by the live NL→SQL
+    evals; fix skips Connector nodes, whose operands are still walked)."""
+
+    def test_allows_where_and(self):
+        _assert_allows("SELECT name FROM data.cities WHERE pop > 1 AND area < 2")
+
+    def test_allows_where_or(self):
+        _assert_allows("SELECT name FROM data.cities WHERE pop > 1 OR area < 2")
+
+    def test_allows_join_on_compound_condition(self):
+        _assert_allows(
+            "SELECT 1 FROM data.cities a JOIN data.cities b "
+            "ON a.name = 'x' AND b.name = 'y'"
+        )
+
+    def test_allows_case_when_and(self):
+        _assert_allows(
+            "SELECT CASE WHEN pop > 1 AND area < 2 THEN 'y' ELSE 'n' END "
+            "FROM data.cities"
+        )
+
+    def test_allows_having_and(self):
+        _assert_allows(
+            "SELECT name, COUNT(*) FROM data.cities "
+            "GROUP BY name HAVING COUNT(*) > 1 AND name != 'x'"
+        )
+
+    def test_rejects_blocked_function_inside_and(self):
+        """Skipping the Connector node must NOT hide functions in its operands."""
+        _assert_rejects(
+            "SELECT name FROM data.cities WHERE pg_sleep(1) IS NULL AND pop > 1"
+        )
+
+    def test_rejects_unlisted_function_inside_or(self):
+        _assert_rejects(
+            "SELECT name FROM data.cities WHERE dblink('a','b') IS NULL OR pop > 1"
+        )
+
+    def test_rejects_unlisted_spatial_function_inside_and(self):
+        _assert_rejects(
+            "SELECT name FROM data.cities WHERE ST_EvilThing(geom_4326) AND pop > 1"
+        )
+
+
 class TestResourceAmplificationRejected:
     """One-row SELECTs must not create attacker-sized intermediate values."""
 
