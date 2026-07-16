@@ -83,6 +83,7 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
   ],
   boolean: [
     { labelKey: 'filters.operators.equals', value: '==' },
+    { labelKey: 'filters.operators.notEquals', value: '!=' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
     { value: 'has', labelKey: 'filters.operators.exists' },
   ],
@@ -153,6 +154,10 @@ export function buildFilterExpression(
       const coerced = values
         .map(v => coerceValue(v, pgType))
         .filter(v => !numericColumn || typeof v === 'number');
+      // fix(#TBD B-054/F-05): a list of only separators (",, ,") coerces to
+      // an empty literal — an always-false filter that silently hides every
+      // feature. Drop the condition instead.
+      if (coerced.length === 0) continue;
       const inExpr = ['in', ['get', cond.field], ['literal', coerced]];
       expressions.push(cond.operator === 'in_list' ? inExpr : ['!', inExpr]);
     } else if (cond.operator === 'contains') {
@@ -173,6 +178,7 @@ export function buildFilterExpression(
     }
   }
 
+  if (expressions.length === 0) return null;
   // Always wrap to preserve combinator intent on round-trip
   return [combinator, ...expressions] as FilterSpecification;
 }

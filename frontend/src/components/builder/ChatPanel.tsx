@@ -465,11 +465,15 @@ export function ChatPanel({
       geojson.type === 'FeatureCollection' &&
       Array.isArray(action.bbox) &&
       action.bbox.length === 4 &&
-      action.bbox.every((n: unknown) => typeof n === 'number')
+      // fix(#TBD B-054/C-06): Number.isFinite — NaN passes typeof and every
+      // range comparison below, then throws in fitBounds.
+      action.bbox.every((n: unknown) => Number.isFinite(n))
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
       // Phase 20260526-builder-audit #338 BLD-20260526-11: reject bbox values outside WGS84 bounds.
       if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
+      // fix(#TBD B-054/C-06): inverted bounds also throw in fitBounds.
+      if (minX > maxX || minY > maxY) return;
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
         [minX, minY, maxX, maxY],

@@ -135,6 +135,34 @@ describe('ChatPanel', () => {
     });
   });
 
+  // fix(#TBD B-054/C-06): NaN and inverted bboxes pass the range comparisons
+  // and throw in fitBounds downstream — both must be rejected.
+  it.each([
+    ['NaN bbox', [NaN, 40, -73, 41]],
+    ['inverted bbox', [-73, 40, -74, 41]],
+  ])('does not call onQueryResult for a %s', async (_name, bbox) => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [{ type: 'show_query_result', geojson, bbox }],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Results' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'find features');
+
+    await waitFor(() => {
+      expect(screen.getByText('Results')).toBeInTheDocument();
+    });
+    expect(props.onQueryResult).not.toHaveBeenCalled();
+  });
+
   it('shows cancel button while loading and hides send button', async () => {
     let resolve!: () => void;
     const hang = new Promise<void>((r) => {

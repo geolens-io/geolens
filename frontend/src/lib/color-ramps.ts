@@ -264,10 +264,17 @@ export function buildCategoricalExpression(
   column: string,
   valueColorMap: [unknown, string][],
   fallback: string,
-): unknown[] {
+): unknown[] | string {
   const pairs: unknown[] = [];
   for (const [value, color] of valueColorMap) {
     pairs.push(value, color);
+  }
+  if (pairs.length === 0) {
+    // fix(#TBD B-054/S-03): an empty/all-null column yields a zero-pair
+    // ['match', input, fallback] — below the spec's minimum arity, so
+    // addLayer throws (swallowed) and the layer silently never renders.
+    // Mirror of the symbol-adapter guard (B-024): emit the bare fallback.
+    return fallback;
   }
   const matchExpr = ['match', ['get', column], ...pairs, fallback];
   return ['case', ['==', ['get', column], null], fallback, matchExpr];

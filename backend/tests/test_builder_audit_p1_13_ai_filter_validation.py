@@ -133,3 +133,19 @@ async def test_malformed_arity_rejected():
     assert validated == []
     assert len(dropped) == 1
     assert "invalid filter expression" in dropped[0]
+
+
+# fix(#TBD B-054/F-04): ["has", col] refs are validated like ["get", col] —
+# a hallucinated has-column filter previously passed and hid every feature.
+@pytest.mark.anyio
+async def test_has_ref_against_known_column_accepted():
+    validated, dropped = await _run(_set_filter(["has", "status"]))
+    assert dropped == []
+    assert len(validated) == 1
+
+
+@pytest.mark.anyio
+async def test_has_ref_against_unknown_column_dropped():
+    validated, dropped = await _run(_set_filter(["has", "not_a_column"]))
+    assert validated == []
+    assert len(dropped) == 1

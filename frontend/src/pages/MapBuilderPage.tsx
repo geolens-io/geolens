@@ -1768,7 +1768,13 @@ export function MapBuilderPage() {
       </div>
 
       {/* Right rail + panel */}
-      {!isEditorHidden && <BuilderRail {...railProps} />}
+      {/* fix(#TBD B-054/U-08): boundary parity with the sidebar/map — a
+          HistoryPanel/Notes render error must not take down the builder. */}
+      {!isEditorHidden && (
+        <PanelErrorBoundary panelId="builder-rail">
+          <BuilderRail {...railProps} />
+        </PanelErrorBoundary>
+      )}
 
       {/* Mobile rail as Sheet overlay */}
       {isEditorHidden && railPanel && (
@@ -1789,7 +1795,9 @@ export function MapBuilderPage() {
               <SheetTitle>{railSheetTitle}</SheetTitle>
               <SheetDescription>{railSheetDescription}</SheetDescription>
             </SheetHeader>
-            <BuilderRail {...railProps} showRail={false} />
+            <PanelErrorBoundary panelId="builder-rail-sheet">
+              <BuilderRail {...railProps} showRail={false} />
+            </PanelErrorBoundary>
           </SheetContent>
         </Sheet>
       )}

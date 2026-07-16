@@ -2064,3 +2064,37 @@ def test_export_omits_default_zoom_range():
     primary = next(entry for entry in exported if entry["id"].startswith("layer-"))
     assert "minzoom" not in primary
     assert "maxzoom" not in primary
+
+
+# fix(#TBD B-054/S-05 + LB-04): symbol export parity — master opacity drives
+# icon-opacity, and the label overlap toggle governs the icon.
+def test_symbol_export_emits_icon_opacity_from_master_opacity():
+    layer = _layer(
+        style_config={"render_mode": "symbol"},
+        opacity=0.4,
+        label_config=None,
+        paint={},
+    )
+    exported = style_json._style_layer_for_map_layer(layer, "src-1")
+    primary = next(e for e in exported if e["type"] == "symbol")
+    assert primary["paint"]["icon-opacity"] == 0.4
+
+
+def test_symbol_export_icon_allow_overlap_follows_label_toggle():
+    off = _layer(
+        style_config={"render_mode": "symbol"},
+        label_config={"column": "name", "allowOverlap": False},
+        paint={},
+    )
+    exported_off = style_json._style_layer_for_map_layer(off, "src-1")
+    primary_off = next(e for e in exported_off if e["type"] == "symbol")
+    assert primary_off["layout"]["icon-allow-overlap"] is False
+
+    default = _layer(
+        style_config={"render_mode": "symbol"},
+        label_config={"column": "name"},
+        paint={},
+    )
+    exported_default = style_json._style_layer_for_map_layer(default, "src-1")
+    primary_default = next(e for e in exported_default if e["type"] == "symbol")
+    assert primary_default["layout"]["icon-allow-overlap"] is True

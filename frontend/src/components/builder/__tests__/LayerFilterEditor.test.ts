@@ -668,3 +668,22 @@ describe('LayerFilterEditor - stale debounce cancellation (B-033)', () => {
     expect(lastEmitted).toEqual(['all', ['==', ['get', 'name'], 'typed']]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// fix(#TBD B-054/F-05 + F-06): separators-only lists drop cleanly; boolean
+// columns support != end-to-end.
+// ---------------------------------------------------------------------------
+describe('separator-only in_list and boolean != (B-054/F-05, F-06)', () => {
+  it('drops an in_list of only separators instead of an always-false empty literal', () => {
+    const conditions = [{ id: '1', field: 'name', operator: 'in_list', value: ',, ,' }];
+    expect(buildFilterExpression(conditions, columns, 'all')).toBeNull();
+  });
+
+  it('emits != for boolean columns', () => {
+    const conditions = [{ id: '1', field: 'active', operator: '!=', value: 'true' }];
+    expect(buildFilterExpression(conditions, columns, 'all')).toEqual([
+      'all',
+      ['!=', ['get', 'active'], true],
+    ]);
+  });
+});
