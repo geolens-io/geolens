@@ -297,7 +297,7 @@ Toute la configuration est gérée par des variables d’environnement dans `.en
 
 ### Budget du pool de connexions
 
-GeoLens est réglé pour une **instance PostgreSQL unique** : les pools API, worker et administration tiennent dans **30 sur 30 max_connections** par défaut (`max_connections` de Postgres vaut 30), dimensionnés par `DB_POOL_SIZE` (`pool_size`) et `DB_MAX_OVERFLOW` (`max_overflow`, valeur par défaut 3). Consultez [Réglage du pool de connexions](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning) pour le budget par processus et le relèvement de la limite.
+GeoLens est réglé pour une **instance PostgreSQL unique** : les pools API, worker et administration tiennent dans **70 sur 80 max_connections** par défaut (`max_connections` de Postgres vaut 80), dimensionnés par `DB_POOL_SIZE` (`pool_size`) et `DB_MAX_OVERFLOW` (`max_overflow`, valeur par défaut 3). Consultez [Réglage du pool de connexions](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning) pour le budget par processus et le relèvement de la limite.
 
 ### Sauvegardes
 

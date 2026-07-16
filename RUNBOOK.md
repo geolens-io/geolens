@@ -76,9 +76,11 @@ Also set `S3_SECRET_ACCESS_KEY` to your access secret. See `.env.example` for al
 available S3 options including `S3_ALLOW_HTTP`.
 
 The built-in uploader signs requests with **AWS Signature V4** (awscli), compatible
-with Cloudflare R2, modern AWS S3, and MinIO. A failed upload returns non-zero and
-is logged as `ERROR: S3 upload failed for <key>` — a failed offsite upload aborts
-the current backup cycle so the failure is immediately visible in container logs.
+with Cloudflare R2, modern AWS S3, and MinIO. A failed upload is logged as
+`ERROR: S3 upload failed for <key>` and fails the cycle (non-zero exit) **after**
+local retention pruning has run — the local dump is kept and pruned normally even
+when the offsite copy fails, so the failure is visible in container logs without
+sacrificing the local backup.
 
 ### Scope caveat
 
@@ -320,11 +322,11 @@ The `backup` service exposes a Docker healthcheck:
 
 ```bash
 docker compose ps backup    # Status column: healthy / unhealthy / starting
-docker compose inspect backup --format '{{.State.Health.Status}}'
+docker inspect --format '{{.State.Health.Status}}' $(docker compose ps -q backup)
 ```
 
 The check (`pgrep -f backup-entrypoint || pgrep -f sleep`) confirms the entrypoint
-process is running. `start_period` is 30 s; the check runs every 60 s.
+process is running. `start_period` is 30 s; the check runs every 30 s.
 
 ### Log markers
 
@@ -340,7 +342,7 @@ docker compose logs -f backup
 | `Object-storage archive complete: staging-<ts>.tar.gz (<size>)` | `upload_staging` archived alongside the dump |
 | `Backup cycle complete` | Full cycle (dump + staging + S3 if enabled) finished |
 | `ERROR: S3 upload failed for <key>` | Offsite upload failed; cycle returns non-zero |
-| `WARNING: object-storage archive failed (non-fatal)` | Staging tar failed; DB dump is still good |
+| `WARNING: object-storage archive failed — staging backup skipped` | Staging tar failed; DB dump is still good |
 | `ERROR: pg_dump failed` | DB dump failed; no artifacts written for this cycle |
 
 A healthy cycle produces at least `Backup complete` and `Backup cycle complete`.
@@ -370,6 +372,22 @@ docker compose logs backup | grep 'ERROR: S3 upload failed'
 A failed S3 upload causes the backup cycle to exit non-zero (visible as an
 `ERROR: backup S3 upload failed` log line). Investigate S3 credentials and
 endpoint reachability before the next scheduled run.
+
+### PostgreSQL server logs
+
+`docker compose logs db` shows **nothing** by design: the shipped
+`db/postgresql.conf` sets `logging_collector = on`, which routes all PostgreSQL
+output — slow-query lines (`log_min_duration_statement = 1000`), `auto_explain`
+plans, checkpoint activity — into daily-rotated files inside the pgdata volume.
+Read them with:
+
+```bash
+docker compose exec db sh -c 'ls -t /var/lib/postgresql/data/log/'
+docker compose exec db sh -c 'tail -100 "/var/lib/postgresql/data/log/$(ls -t /var/lib/postgresql/data/log/ | head -1)"'
+```
+
+An empty `docker compose logs db` does **not** mean there are no slow queries —
+always check the collector files.
 
 ---
 

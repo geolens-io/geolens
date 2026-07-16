@@ -33,6 +33,7 @@ from app.processing.ingest.tasks_common import (
     _resolve_effective_srid,
     _run_service_import_with_wfs_fallback,
     _validate_upload_file_safety,
+    rename_pkey_to_match_table,
     resolve_service_type,
     task_app,
 )
@@ -67,6 +68,8 @@ async def _publish_attempt_staging_table(
             f'RENAME TO "{live_table}"'
         )
     )
+    # RENAME TO keeps the staging-era pkey name; fix it while we hold the lock.
+    await rename_pkey_to_match_table(session, live_table)
 
 
 async def _drop_attempt_staging_table(staging_table: str) -> None:

@@ -51,6 +51,52 @@ def _current_tenant_schema() -> str:
     return tenant_data_schema(tenant_id)
 
 
+async def rename_pkey_to_match_table(session: "AsyncSession", table_name: str) -> None:
+    """Rename a just-published table's PK constraint to ``<table>_pkey``.
+
+    ALTER TABLE ... RENAME TO keeps the constraint (and its backing index)
+    named after the attempt-scoped staging table (``*_staging_<uuid>_pkey``),
+    which is what QGIS/pgAdmin/DBeaver users see on a direct connection
+    (db-audit-20260716). Call inside the publish transaction, which already
+    holds the table's AccessExclusiveLock from the rename, so this cannot
+    block. Failure is cosmetic and must never fail the ingest — it is
+    swallowed under a SAVEPOINT and logged.
+    """
+    from sqlalchemy import text
+
+    from app.processing.ingest.metadata import _qtable
+
+    schema = _current_tenant_schema()
+    desired = f"{table_name[:58]}_pkey"
+    try:
+        async with session.begin_nested():
+            result = await session.execute(
+                text(
+                    "SELECT con.conname FROM pg_constraint con "
+                    "JOIN pg_class c ON c.oid = con.conrelid "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = :schema AND c.relname = :tn "
+                    "AND con.contype = 'p'"
+                ),
+                {"schema": schema, "tn": table_name},
+            )
+            current = result.scalar()
+            if current and current != desired:
+                await session.execute(
+                    text(
+                        f"ALTER TABLE {_qtable(table_name, schema=schema)} "
+                        f'RENAME CONSTRAINT "{current}" TO "{desired}"'
+                    )
+                )
+    except Exception:  # broad: cosmetic rename must never fail the publish
+        structlog.get_logger().warning(
+            "pkey_rename_failed",
+            table_name=table_name,
+            schema=schema,
+            exc_info=True,
+        )
+
+
 def _current_tenant_role() -> str:
     """Return the reader role for the current tenant (or 'geolens_reader' in single_tenant).
 
@@ -1408,6 +1454,9 @@ async def _apply_reupload_swap(
                     f"DROP TABLE IF EXISTS {_qtable(table_name + '_old', schema=_tenant_schema)}"
                 )
             )
+        # After the _old table (and its identically-named pkey index) is gone,
+        # give the new live table's PK its final name.
+        await rename_pkey_to_match_table(session, table_name)
 
     _FIRST_TIMEOUT = "5s"
     _RETRY_TIMEOUT = "15s"
