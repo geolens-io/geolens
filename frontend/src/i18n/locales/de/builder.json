@@ -676,7 +676,6 @@
     "createEmbedToken": "Einbettungs-Token erstellen"
   },
   "chat": {
-    "experimental": "Experimentell",
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
     "placeholder": "Kartenänderung beschreiben...",
     "thinking": "Denkt nach...",

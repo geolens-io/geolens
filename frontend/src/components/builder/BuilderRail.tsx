@@ -4,9 +4,7 @@ import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff } from 'luci
 import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { experimentalBadgeColor } from '@/lib/status-colors';
 import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
@@ -213,11 +211,6 @@ export function BuilderRail({
                   ? t('dock.askAi', { defaultValue: 'Ask AI' })
                   : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' }))}
               </span>
-              {activePanel === 'ai' && aiAvailable && (
-                <Badge variant="outline" className={`text-2xs px-1.5 py-0 ${experimentalBadgeColor}`}>
-                  {t('chat.experimental', { defaultValue: 'Experimental' })}
-                </Badge>
-              )}
             </div>
             <button
               onClick={() => onPanelChange(null)}

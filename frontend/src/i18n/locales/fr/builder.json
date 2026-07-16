@@ -676,7 +676,6 @@
     "createEmbedToken": "Créer un jeton d’intégration"
   },
   "chat": {
-    "experimental": "Expérimental",
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
     "placeholder": "Décrivez une modification de carte...",
     "thinking": "Réflexion...",
