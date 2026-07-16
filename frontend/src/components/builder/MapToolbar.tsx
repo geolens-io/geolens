@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from 'react';
+import { useEffect, useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Hand, Ruler, Layers, FileJson, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -76,6 +76,34 @@ export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarPro
     }
     return tools;
   }, [activePlugins, close, measureActive, measurementPlugin, toggle, t]);
+
+  // fix(#526 B-041): the shortcuts sheet and these buttons' own tooltips
+  // advertise V/M/L, but no handler was ever wired -- two surfaces
+  // misinformed (audit U-02). Guarded like MapBuilderPage's '?' hotkey:
+  // no-op while typing, with modifier keys held, or when a dialog is open.
+  useEffect(() => {
+    function handleToolHotkey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'v' && key !== 'm' && key !== 'l') return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (target.isContentEditable) return;
+      }
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+      if (key === 'v') {
+        if (activePlugins.has('measurement')) close('measurement');
+      } else if (key === 'm') {
+        if (measurementPlugin) toggle('measurement');
+      } else if (legendPlugin) {
+        toggle('legend');
+      }
+    }
+    window.addEventListener('keydown', handleToolHotkey);
+    return () => window.removeEventListener('keydown', handleToolHotkey);
+  }, [activePlugins, close, toggle, measurementPlugin, legendPlugin]);
 
   return (
     <TooltipProvider delayDuration={300}>

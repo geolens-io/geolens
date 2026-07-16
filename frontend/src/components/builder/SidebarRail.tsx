@@ -115,6 +115,10 @@ export const SidebarRail = memo(function SidebarRail({
               <button
                 type="button"
                 aria-label={displayName}
+                // fix(#526 B-049): at <1100px this rail is the ONLY layer list;
+                // selection was visual-only (data-selected). Mirror the Settings
+                // button's aria-pressed so AT users can tell which editor is open.
+                aria-pressed={isSelected}
                 data-selected={isSelected ? 'true' : undefined}
                 className={cn(
                   'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -143,6 +147,7 @@ export const SidebarRail = memo(function SidebarRail({
             <button
               type="button"
               aria-label={t('basemapGroup.railLabel', { defaultValue: 'Basemap group' })}
+              aria-pressed={basemapGroup.id === selectedLayerId}
               data-selected={basemapGroup.id === selectedLayerId ? 'true' : undefined}
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',

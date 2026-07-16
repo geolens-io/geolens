@@ -171,8 +171,13 @@ describe('useFilteredFeatureCount', () => {
       useFilteredFeatureCount(mockMap as never, layer),
     );
     expect(mockMap.getLayer).toHaveBeenCalledWith('layer-abc');
+    // fix(#526 B-046): the count now spans the adapter's FULL sublayer set
+    // (this fill layer: primary + outline + extrusion companions; the mock
+    // getLayer reports every id present) — a mixed layer's points/lines and a
+    // cluster's bubbles render on siblings, so the primary-only count read 0
+    // while the map plainly showed features.
     expect(mockMap.queryRenderedFeatures).toHaveBeenCalledWith(undefined, {
-      layers: ['layer-abc'],
+      layers: ['layer-abc', 'layer-abc-outline', 'layer-abc-extrusion'],
     });
     expect(result.current).toBe(2);
   });

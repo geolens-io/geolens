@@ -3,7 +3,7 @@ import type { AdapterLayerInput, LayerAdapter } from './types';
 import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { SymbolStyleConfig } from '@/types/api';
-import { LABEL_FONT_STACK } from '../label-layer-utils';
+import { DEFAULT_POINT_LABEL_OFFSET, LABEL_FONT_STACK } from '../label-layer-utils';
 
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
@@ -110,8 +110,13 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
     layout['text-field'] = ['get', lc.column];
     layout['text-size'] = lc.fontSize ?? 12;
     layout['text-font'] = [...LABEL_FONT_STACK];
-    layout['text-anchor'] = lc.textAnchor ?? 'top';
-    layout['text-offset'] = lc.textOffset ?? [0, 1.2];
+    // fix(#526 B-042): default anchor/offset must match the companion-label
+    // path AND what LabelEditor displays (center / DEFAULT_POINT_LABEL_OFFSET).
+    // The old 'top'/[0,1.2] defaults meant the editor showed Center/0/-1.5
+    // while the map drew top/0/1.2, and the first Offset-X drag snapped the
+    // text across the point.
+    layout['text-anchor'] = lc.textAnchor ?? 'center';
+    layout['text-offset'] = lc.textOffset ?? [...DEFAULT_POINT_LABEL_OFFSET];
     layout['text-allow-overlap'] = lc.allowOverlap ?? false;
     layout['text-max-width'] = 10;
   }

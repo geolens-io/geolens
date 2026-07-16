@@ -73,8 +73,8 @@ export function KeyboardShortcutsSheet({
     },
     {
       id: 'reorder-toggle',
-      label: t('a11y.shortcuts.reorderToggle', { defaultValue: 'Toggle reorder mode (focused layer row)' }),
-      chord: 'Enter',
+      label: t('a11y.shortcuts.reorderToggle', { defaultValue: 'Toggle reorder mode (focused drag handle)' }),
+      chord: 'Space / Enter',
     },
     {
       id: 'reorder-move',

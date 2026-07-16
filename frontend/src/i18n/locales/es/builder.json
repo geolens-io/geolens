@@ -747,7 +747,8 @@
     "bannerUnavailableTitle": "La IA no está disponible",
     "bannerUnavailableBody": "El servicio de IA no está disponible temporalmente. Inténtalo de nuevo en un momento.",
     "bannerRetry": "Reintentar",
-    "bannerDismiss": "Descartar"
+    "bannerDismiss": "Descartar",
+    "errorRateLimited": "Se alcanzó el límite diario de uso de IA. Inténtalo de nuevo mañana o pide a un administrador que aumente el presupuesto."
   },
   "basemap": {
     "title": "Mapa base",
@@ -1031,7 +1032,7 @@
       "measure": "Herramienta de medición",
       "legend": "Mostrar/ocultar leyenda",
       "showSheet": "Mostrar este diálogo",
-      "reorderToggle": "Alternar modo de reordenación (fila de capa enfocada)",
+      "reorderToggle": "Alternar modo de reordenación (asa de arrastre enfocada)",
       "reorderMove": "Mover capa arriba / abajo (modo de reordenación)",
       "escape": "Cerrar panel / borrar selección / salir de reordenación",
       "multiSelect": "Alternar capa en la selección",

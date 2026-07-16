@@ -32,6 +32,8 @@ interface BuilderDialogsProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
+  // fix(#526 B-050): dataset id currently being added (per-row spinner).
+  addingDatasetId?: string | null;
   addDataInitialQuery?: string;
   // Share
   showShare: boolean;
@@ -56,6 +58,7 @@ export function BuilderDialogs({
   onDuplicateRendering,
   layers,
   isAdding,
+  addingDatasetId,
   addDataInitialQuery,
   showShare,
   onShowShareChange,
@@ -84,6 +87,7 @@ export function BuilderDialogs({
               onDuplicateRendering={onDuplicateRendering}
               layers={layers}
               isAdding={isAdding}
+              addingDatasetId={addingDatasetId}
               initialQuery={addDataInitialQuery}
             />
           </Suspense>

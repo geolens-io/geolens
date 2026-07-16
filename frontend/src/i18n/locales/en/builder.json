@@ -747,7 +747,8 @@
     "bannerUnavailableTitle": "AI is unavailable",
     "bannerUnavailableBody": "The AI service is temporarily unavailable. Try again in a moment.",
     "bannerRetry": "Retry",
-    "bannerDismiss": "Dismiss"
+    "bannerDismiss": "Dismiss",
+    "errorRateLimited": "Daily AI usage limit reached. Try again tomorrow or ask an admin to raise the budget."
   },
   "basemap": {
     "title": "Basemap",
@@ -1035,7 +1036,7 @@
       "measure": "Measure tool",
       "legend": "Toggle legend",
       "showSheet": "Show this dialog",
-      "reorderToggle": "Toggle reorder mode (focused layer row)",
+      "reorderToggle": "Toggle reorder mode (focused drag handle)",
       "reorderMove": "Move layer up / down (reorder mode)",
       "escape": "Close panel / clear selection / exit reorder",
       "multiSelect": "Toggle layer in selection",

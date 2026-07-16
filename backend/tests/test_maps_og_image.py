@@ -377,19 +377,24 @@ class TestCardRoute:
         )
         assert upd.status_code == 200
 
+        # fix(#526 B-048): the card route now returns a 200 HTML shell that
+        # meta-refreshes into /m/{token} so the SPA renders the friendly
+        # expired/unavailable view (previously: bare JSON 404 on the PRIMARY
+        # "Copy Link" affordance). Map details must still never leak.
         resp = await client.get(f"/maps/shared/{token}/card")
-        assert resp.status_code == 404, (
-            f"Expected 404 for private map, got {resp.status_code}: {resp.text}"
-        )
-        # Private title must NOT appear in any error body
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["cache-control"] == "no-store"
+        assert f"0;url=/m/{token}" in resp.text
+        # Private title / social-card metadata must NOT appear in the shell
         assert "Secret Private Map" not in resp.text
+        assert "og:title" not in resp.text
 
     async def test_card_route_404_for_invalid_token(self, client: AsyncClient) -> None:
-        """T-1142-02 [BLOCKING]: bogus token returns 404."""
+        """fix(#526 B-048): bogus token returns the 200 SPA-redirect shell."""
         resp = await client.get("/maps/shared/bogus-invalid-token-xyz/card")
-        assert resp.status_code == 404, (
-            f"Expected 404 for invalid token, got {resp.status_code}"
-        )
+        assert resp.status_code == 200, resp.text
+        assert "0;url=/m/bogus-invalid-token-xyz" in resp.text
+        assert "og:title" not in resp.text
 
     async def test_card_route_404_for_expired_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -407,10 +412,12 @@ class TestCardRoute:
         )
         assert revoke_resp.status_code == 204, f"Revoke failed: {revoke_resp.text}"
 
+        # fix(#526 B-048): revoked/expired links get the 200 SPA-redirect
+        # shell so the recipient lands on the friendly "link expired" view.
         resp = await client.get(f"/maps/shared/{token}/card")
-        assert resp.status_code == 404, (
-            f"Expected 404 for revoked token, got {resp.status_code}: {resp.text}"
-        )
+        assert resp.status_code == 200, resp.text
+        assert f"0;url=/m/{token}" in resp.text
+        assert "og:title" not in resp.text
 
     @pytest.mark.parametrize(
         ("api_base", "expected_prefix"),

@@ -59,7 +59,10 @@ function classifyChatError(
   if (err instanceof ApiError && (err.status === 403 || err.status === 503)) {
     return { kind: 'banner', bannerKind: err.status === 403 ? 'forbidden' : 'unavailable' };
   }
-  if (err instanceof ApiError && (err.status === 401 || err.status === 500 || err.status === 502)) {
+  // fix(#526 B-047): 429 = daily AI token budget / rate limit — retrying is a
+  // guaranteed second 429 (and previously surfaced as the generic "something
+  // went wrong" after a wasted duplicate POST). Show the real message inline.
+  if (err instanceof ApiError && (err.status === 401 || err.status === 429 || err.status === 500 || err.status === 502)) {
     return { kind: 'inline' };
   }
   // StreamModelError: model errored mid-stream — nothing to retry, show inline.
@@ -445,6 +448,9 @@ export function ChatPanel({
     if (err instanceof ApiError) {
       if (err.status === 401) return t('chat.errorSessionExpired');
       if (err.status === 403) return t('chat.errorForbidden');
+      // fix(#526 B-047): surface the over-budget/rate-limit reason instead of
+      // the generic fallback.
+      if (err.status === 429) return t('chat.errorRateLimited');
       if (err.status === 502 || err.status === 503) return t('chat.errorAiUnavailable');
     }
     return t('chat.errorFriendly');
