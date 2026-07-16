@@ -129,9 +129,16 @@ test.describe('Dataset AI chat', () => {
     const mapId = page.url().match(/\/maps\/([0-9a-f-]{36})/)?.[1];
     expect(mapId).toBeTruthy();
 
-    // The staged layer for this dataset appears in the builder stack.
+    // The staged layer for this dataset appears in the builder stack. Scope
+    // to a stack row — the map itself is named "<datasetTitle> Map", so a
+    // bare text match could pass on the header alone (#535 review).
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(datasetTitle).first()).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page
+        .locator('[id^="stack-row-"]')
+        .filter({ hasText: datasetTitle })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
 
     // Cleanup: delete the map created by the click.
     const token = getAuthToken();
