@@ -103,6 +103,7 @@ import { PluginHost, PluginSidebar, getDefaultPluginIds, resolveAvailablePluginI
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import { readStorage, removeStorage, storageKeys } from '@/lib/storage';
+import { takeChatResult } from '@/lib/chat-result-handoff';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -112,7 +113,7 @@ export function MapBuilderPage() {
   // reactively can flip to false before the capture path runs (WR-01). Freeze
   // the mount-time value in a ref so the deferred path is honored regardless of
   // whether the API or the canvas init wins the race.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const pendingLayerAddRef = useRef(searchParams.has('add_dataset'));
   const pendingLayerAdd = pendingLayerAddRef.current;
   const { t } = useTranslation('builder');
@@ -315,6 +316,21 @@ export function MapBuilderPage() {
     if (map) save.maybeAutoCaptureThumbnail(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the method reference matters, not the whole `save` object
   }, [save.maybeAutoCaptureThumbnail]);
+
+  // feat(#531 follow-up): ?chat_result=1 — DatasetChatPanel stashed its last
+  // spatial query result in sessionStorage before navigating here; render it
+  // through the ephemeral-layer path. Gated on mapInstance (not mapData) so
+  // the ephemeral effect never fires against a null map ref.
+  const handleChatQueryResult = layers.handleQueryResult;
+  useEffect(() => {
+    if (!mapInstance || !searchParams.has('chat_result')) return;
+    setSearchParams((prev) => {
+      prev.delete('chat_result');
+      return prev;
+    }, { replace: true });
+    const result = takeChatResult();
+    if (result) handleChatQueryResult(result.geojson, result.bbox);
+  }, [mapInstance, searchParams, setSearchParams, handleChatQueryResult]);
 
   const pluginCtx = useMemo(
     () => ({
