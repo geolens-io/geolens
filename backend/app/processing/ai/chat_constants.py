@@ -1,9 +1,54 @@
 """Constants and lookup tables for chat-edit (Phase 276 CODE-02).
 
 Holds the chat-edit error catalogue, edit-tool name set, color-ramp palettes,
-and ISO-639-1 language-name lookup. No external imports beyond stdlib so this
-module can be safely imported by every other ``chat_*`` sibling.
+ISO-639-1 language-name lookup, and the prompt-injection sanitizer shared by
+the system-prompt builders. No external imports beyond stdlib so this module
+can be safely imported by every other ``chat_*`` sibling.
 """
+
+import re as _re
+
+# Prompt sizing caps shared by the system-prompt builders (chat_service /
+# chat_dataset): bound layer/column/sample context so prompts can't grow
+# unboundedly with user data.
+_MAX_SYSTEM_PROMPT_LAYERS = 15
+_MAX_COLUMNS_PER_LAYER = 30
+_MAX_SAMPLE_COLS = 3
+
+# Layer-name sanitization for prompt-injection defense: layer names are
+# user-controlled and embedded verbatim in the chat system prompt. Strip
+# control chars, role markers, and obvious prompt-injection seeds before
+# inlining. 80-char cap is generous for human-readable names while bounding
+# token cost.
+_MAX_LAYER_NAME_LEN = 80
+
+_PROMPT_INJECTION_PATTERNS = _re.compile(
+    r"(?i)\b(system|assistant|user)\s*:\s*|"  # role markers
+    r"<\|[^|>]*\|>|"  # special tokens like <|im_start|>
+    r"```|"  # code-fence boundaries
+    r"\bignore\s+(all\s+)?previous\b|"  # classic injection seed
+    r"\bdisregard\s+(all\s+)?previous\b"
+)
+_CONTROL_CHARS = _re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _sanitize_layer_name(name: str | None) -> str:
+    """Sanitize a user-controlled layer name for embedding in a system prompt.
+
+    Strips control characters, neutralizes role markers and injection seeds,
+    and caps length. The result is wrapped in backticks at the call site so
+    even after sanitization the LLM treats it as quoted text rather than
+    instructions.
+    """
+    if not name:
+        return "unnamed"
+    s = _CONTROL_CHARS.sub("", name)
+    s = _PROMPT_INJECTION_PATTERNS.sub("[redacted] ", s)
+    s = s.strip()
+    if len(s) > _MAX_LAYER_NAME_LEN:
+        s = s[: _MAX_LAYER_NAME_LEN - 1] + "…"
+    return s or "unnamed"
+
 
 ERROR_MESSAGES = {
     "query_timeout": "Query took too long. Try narrowing your question to fewer features or a smaller area.",

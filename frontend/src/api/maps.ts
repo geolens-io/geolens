@@ -19,6 +19,7 @@ import type {
   ChatHistoryMessage,
   ChatRequest,
   ChatResponse,
+  DatasetChatRequest,
   VisibilityCheckResponse,
   MapStyleImportResponse,
   MapIconListResponse,
@@ -337,6 +338,66 @@ export async function generateMap(data: MapGenerateRequest): Promise<MapGenerate
   });
 }
 
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Parse an SSE response body into StreamEvents.
+ *
+ * SSE spec allows \r\n, \n, or \r as line terminators. sse-starlette uses
+ * \r\n, so after splitting on \n every line carries a trailing \r that must
+ * be stripped before the empty-line frame boundary check. Blank line = SSE
+ * frame boundary (AI-08); accumulated data lines are joined and JSON-parsed
+ * (malformed frames are skipped).
+ */
+async function* parseSSEBody(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let eventType = 'message';
+  let dataLines: string[] = [];
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const rawLines = buffer.split('\n');
+      buffer = rawLines.pop() ?? '';
+
+      for (const rawLine of rawLines) {
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7);
+        } else if (line.startsWith('data: ')) {
+          dataLines.push(line.slice(6));
+        } else if (line === '' && dataLines.length > 0) {
+          try {
+            const data = JSON.parse(dataLines.join('\n'));
+            yield { event: eventType, data };
+          } catch {
+            // Skip malformed JSON
+          }
+          dataLines = [];
+          eventType = 'message';
+        }
+      }
+    }
+    // Flush any remaining data lines at end of stream
+    if (dataLines.length > 0) {
+      try {
+        const data = JSON.parse(dataLines.join('\n'));
+        yield { event: eventType, data };
+      } catch { /* skip */ }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function* streamGenerateMap(
   data: MapGenerateRequest,
   signal?: AbortSignal,
@@ -366,53 +427,7 @@ export async function* streamGenerateMap(
   if (!response.body) {
     throw new Error(i18n.t('common:errors.emptyResponse'));
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let eventType = 'message';
-  let dataLines: string[] = [];
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const rawLines = buffer.split('\n');
-      buffer = rawLines.pop() ?? '';
-
-      for (const rawLine of rawLines) {
-        // SSE spec allows \r\n, \n, or \r as line terminators. sse-starlette
-        // uses \r\n, so after splitting on \n every line carries a trailing
-        // \r that must be stripped before the empty-line frame boundary check.
-        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-        if (line.startsWith('event: ')) {
-          eventType = line.slice(7);
-        } else if (line.startsWith('data: ')) {
-          dataLines.push(line.slice(6));
-        } else if (line === '' && dataLines.length > 0) {
-          // AI-08: Blank line = SSE frame boundary; join accumulated data lines
-          try {
-            const eventData = JSON.parse(dataLines.join('\n'));
-            yield { event: eventType, data: eventData };
-          } catch {
-            // Skip malformed JSON
-          }
-          dataLines = [];
-          eventType = 'message';
-        }
-      }
-    }
-    // Flush any remaining data lines at end of stream
-    if (dataLines.length > 0) {
-      try {
-        const eventData = JSON.parse(dataLines.join('\n'));
-        yield { event: eventType, data: eventData };
-      } catch { /* skip */ }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+  yield* parseSSEBody(response.body);
 }
 
 export async function fetchColumnValues(
@@ -491,32 +506,22 @@ export async function sendChatMessage(
   });
 }
 
-export interface StreamEvent {
-  event: string;
-  data: Record<string, unknown>;
-}
-
-export async function* streamChatMessage(
-  mapId: string,
-  message: string,
-  layers: MapLayerResponse[],
-  language?: string,
-  history?: ChatHistoryMessage[],
+/**
+ * POST an AI chat SSE request and yield its parsed events.
+ *
+ * Shared by the map-scoped and dataset-scoped chat streams: refresh-aware raw
+ * fetch (BUG-035), ApiError classification on non-OK pre-flight responses,
+ * then SSE frame parsing via parseSSEBody.
+ */
+async function* streamChatSSE(
+  path: string,
+  payload: unknown,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  const chatLayers = toChatLayers(layers);
-
-  // BUG-035: refresh-aware raw fetch (see streamGenerateMap).
-  const response = await authenticatedRawFetch(`${API_BASE}/ai/chat/stream/`, {
+  const response = await authenticatedRawFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      map_id: mapId,
-      layers: chatLayers,
-      language,
-      history,
-    }),
+    body: JSON.stringify(payload),
     signal,
   });
 
@@ -536,51 +541,49 @@ export async function* streamChatMessage(
   if (!response.body) {
     throw new Error(i18n.t('common:errors.emptyResponse'));
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let eventType = 'message';
-  let dataLines: string[] = [];
+  yield* parseSSEBody(response.body);
+}
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+export async function* streamChatMessage(
+  mapId: string,
+  message: string,
+  layers: MapLayerResponse[],
+  language?: string,
+  history?: ChatHistoryMessage[],
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  yield* streamChatSSE(
+    '/ai/chat/stream/',
+    {
+      message,
+      map_id: mapId,
+      layers: toChatLayers(layers),
+      language,
+      history,
+    },
+    signal,
+  );
+}
 
-      buffer += decoder.decode(value, { stream: true });
-      const rawLines = buffer.split('\n');
-      buffer = rawLines.pop() ?? '';
-
-      for (const rawLine of rawLines) {
-        // SSE spec allows \r\n, \n, or \r as line terminators. sse-starlette
-        // uses \r\n, so after splitting on \n every line carries a trailing
-        // \r that must be stripped before the empty-line frame boundary check.
-        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-        if (line.startsWith('event: ')) {
-          eventType = line.slice(7);
-        } else if (line.startsWith('data: ')) {
-          dataLines.push(line.slice(6));
-        } else if (line === '' && dataLines.length > 0) {
-          // AI-08: Blank line = SSE frame boundary; join accumulated data lines
-          try {
-            const data = JSON.parse(dataLines.join('\n'));
-            yield { event: eventType, data };
-          } catch {
-            // Skip malformed JSON lines
-          }
-          dataLines = [];
-          eventType = 'message';
-        }
-      }
-    }
-    // Flush any remaining data lines at end of stream
-    if (dataLines.length > 0) {
-      try {
-        const data = JSON.parse(dataLines.join('\n'));
-        yield { event: eventType, data };
-      } catch { /* skip */ }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+/**
+ * Dataset-scoped AI chat stream (read-only query_data over one dataset).
+ * The server resolves all dataset context authoritatively from the DB.
+ */
+export async function* streamDatasetChatMessage(
+  datasetId: string,
+  message: string,
+  language?: string,
+  history?: ChatHistoryMessage[],
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  yield* streamChatSSE(
+    '/ai/chat/dataset/stream/',
+    {
+      message,
+      dataset_id: datasetId,
+      language,
+      history,
+    } satisfies DatasetChatRequest,
+    signal,
+  );
 }

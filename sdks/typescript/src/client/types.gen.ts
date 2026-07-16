@@ -2480,6 +2480,33 @@ export type CreateLayerResponse = {
 };
 
 /**
+ * DatasetChatRequest
+ *
+ * Dataset-scoped chat: no map, no client-supplied layer state.
+ *
+ * The server resolves ALL dataset context (table name, columns, samples)
+ * authoritatively from the DB — the client only names the dataset.
+ */
+export type DatasetChatRequest = {
+    /**
+     * Dataset Id
+     */
+    dataset_id: string;
+    /**
+     * History
+     */
+    history?: Array<ChatHistoryMessage>;
+    /**
+     * Language
+     */
+    language?: string | null;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
  * DatasetDeleteRequest
  */
 export type DatasetDeleteRequest = {
@@ -11852,6 +11879,59 @@ export type ChatEndpointAiChatPostResponses = {
 };
 
 export type ChatEndpointAiChatPostResponse = ChatEndpointAiChatPostResponses[keyof ChatEndpointAiChatPostResponses];
+
+export type DatasetChatStreamEndpointAiChatDatasetStreamPostData = {
+    body: DatasetChatRequest;
+    path?: never;
+    query?: never;
+    url: '/ai/chat/dataset/stream/';
+};
+
+export type DatasetChatStreamEndpointAiChatDatasetStreamPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DatasetChatStreamEndpointAiChatDatasetStreamPostError = DatasetChatStreamEndpointAiChatDatasetStreamPostErrors[keyof DatasetChatStreamEndpointAiChatDatasetStreamPostErrors];
+
+export type DatasetChatStreamEndpointAiChatDatasetStreamPostResponses = {
+    /**
+     * UTF-8 server-sent event frames. Each data field contains one JSON event payload described by x-geolens-event-schema.
+     */
+    200: string;
+};
+
+export type DatasetChatStreamEndpointAiChatDatasetStreamPostResponse = DatasetChatStreamEndpointAiChatDatasetStreamPostResponses[keyof DatasetChatStreamEndpointAiChatDatasetStreamPostResponses];
 
 export type ChatStreamEndpointAiChatStreamPostData = {
     body: ChatRequest;

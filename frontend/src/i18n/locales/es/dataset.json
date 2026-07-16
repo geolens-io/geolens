@@ -751,7 +751,14 @@
     "qualityStatementFailed": "No se pudo generar la declaración de calidad",
     "generateSummary": "Generar resumen",
     "draftLineage": "Redactar linaje",
-    "draftQualityStatement": "Redactar declaración de calidad"
+    "draftQualityStatement": "Redactar declaración de calidad",
+    "chat": {
+      "title": "Pregunta a la IA sobre este dataset",
+      "emptyHint": "Haz una pregunta sobre los datos de este dataset.",
+      "readOnlyNote": "Las respuestas son de solo lectura; los datos nunca se modifican.",
+      "placeholder": "p. ej. ¿Cuántas entidades superan las 5 acres?",
+      "openInBuilder": "Abrir en el editor"
+    }
   },
   "common": {
     "cancel": "Cancelar"

@@ -733,6 +733,7 @@ async def stream_chat_edit(
     port: "ProcessingPort",
     map_id: str | None = None,
     can_edit: bool = True,
+    system_prompt_override: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts.
 
@@ -741,10 +742,14 @@ async def stream_chat_edit(
 
     can_edit gates the tool set: a view-only caller gets read-only tools so the
     AI answers questions but cannot emit edit actions (see select_chat_tools).
+
+    system_prompt_override replaces the map-framed system prompt for non-map
+    surfaces (dataset-scoped chat builds its own via
+    build_dataset_chat_system_prompt); tool selection still follows can_edit.
     """
     try:
         provider, model, runtime_config = await resolve_provider(db)
-        system_prompt = build_chat_system_prompt(
+        system_prompt = system_prompt_override or build_chat_system_prompt(
             layers, language=language, basemap_style=basemap_style, can_edit=can_edit
         )
 

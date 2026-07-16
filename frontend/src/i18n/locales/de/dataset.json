@@ -751,7 +751,14 @@
     "qualityStatementFailed": "Qualitätsbeschreibung konnte nicht erstellt werden",
     "generateSummary": "Zusammenfassung generieren",
     "draftLineage": "Herkunft entwerfen",
-    "draftQualityStatement": "Qualitätsaussage entwerfen"
+    "draftQualityStatement": "Qualitätsaussage entwerfen",
+    "chat": {
+      "title": "KI zu diesem Datensatz befragen",
+      "emptyHint": "Stellen Sie eine Frage zu den Daten dieses Datensatzes.",
+      "readOnlyNote": "Antworten sind schreibgeschützt; die Daten werden nie verändert.",
+      "placeholder": "z. B. Wie viele Objekte sind größer als 5 Acres?",
+      "openInBuilder": "Im Editor öffnen"
+    }
   },
   "common": {
     "cancel": "Abbrechen"

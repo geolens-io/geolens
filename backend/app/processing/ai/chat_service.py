@@ -31,7 +31,6 @@ via this module — see chat_actions.py for the rationale).
 """
 
 import json
-import re as _re
 from typing import TYPE_CHECKING
 
 import structlog
@@ -51,11 +50,18 @@ from app.processing.ai.chat_actions import (
 )
 from app.processing.ai.chat_constants import (
     _EDIT_TOOLS,
+    _MAX_COLUMNS_PER_LAYER,
+    _MAX_SAMPLE_COLS,
+    _MAX_SYSTEM_PROMPT_LAYERS,
     ERROR_MESSAGES,
     RAMP_COLORS,
     _get_ramp_colors,
+    _sanitize_layer_name,
     lang_name,
 )
+from app.processing.ai.chat_dataset import (
+    build_dataset_chat_system_prompt,
+)  # re-exported (facade contract — router imports via this module)
 from app.processing.ai.chat_geojson import (
     _detect_geom_column,
     _extract_geojson,
@@ -93,9 +99,10 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 __all__ = [
-    # Public orchestrator + prompt builder
+    # Public orchestrator + prompt builders
     "chat_edit_map",
     "build_chat_system_prompt",
+    "build_dataset_chat_system_prompt",
     # Constants / language utilities (used by service.py + metadata_service.py)
     "ERROR_MESSAGES",
     "RAMP_COLORS",
@@ -130,46 +137,6 @@ __all__ = [
     "_EDIT_TOOLS",
     "_get_ramp_colors",
 ]
-
-
-# Maximum tokens to budget for the system prompt (cap layer context to fit)
-_MAX_SYSTEM_PROMPT_LAYERS = 15
-_MAX_COLUMNS_PER_LAYER = 30
-_MAX_SAMPLE_COLS = 3
-
-# Layer-name sanitization for prompt-injection defense: layer names are
-# user-controlled and embedded verbatim in the chat system prompt. Strip
-# control chars, role markers, and obvious prompt-injection seeds before
-# inlining. 80-char cap is generous for human-readable names while bounding
-# token cost.
-_MAX_LAYER_NAME_LEN = 80
-
-_PROMPT_INJECTION_PATTERNS = _re.compile(
-    r"(?i)\b(system|assistant|user)\s*:\s*|"  # role markers
-    r"<\|[^|>]*\|>|"  # special tokens like <|im_start|>
-    r"```|"  # code-fence boundaries
-    r"\bignore\s+(all\s+)?previous\b|"  # classic injection seed
-    r"\bdisregard\s+(all\s+)?previous\b"
-)
-_CONTROL_CHARS = _re.compile(r"[\x00-\x1f\x7f]")
-
-
-def _sanitize_layer_name(name: str | None) -> str:
-    """Sanitize a user-controlled layer name for embedding in a system prompt.
-
-    Strips control characters, neutralizes role markers and injection seeds,
-    and caps length. The result is wrapped in backticks at the call site so
-    even after sanitization the LLM treats it as quoted text rather than
-    instructions.
-    """
-    if not name:
-        return "unnamed"
-    s = _CONTROL_CHARS.sub("", name)
-    s = _PROMPT_INJECTION_PATTERNS.sub("[redacted] ", s)
-    s = s.strip()
-    if len(s) > _MAX_LAYER_NAME_LEN:
-        s = s[: _MAX_LAYER_NAME_LEN - 1] + "…"
-    return s or "unnamed"
 
 
 def build_chat_system_prompt(

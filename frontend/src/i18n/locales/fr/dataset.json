@@ -751,7 +751,14 @@
     "qualityStatementFailed": "Impossible de générer la déclaration de qualité",
     "generateSummary": "Générer un résumé",
     "draftLineage": "Rédiger la lignée",
-    "draftQualityStatement": "Rédiger une déclaration de qualité"
+    "draftQualityStatement": "Rédiger une déclaration de qualité",
+    "chat": {
+      "title": "Interroger l'IA sur ce jeu de données",
+      "emptyHint": "Posez une question sur les données de ce jeu de données.",
+      "readOnlyNote": "Les réponses sont en lecture seule ; les données ne sont jamais modifiées.",
+      "placeholder": "p. ex. Combien d'entités dépassent 5 acres ?",
+      "openInBuilder": "Ouvrir dans l'éditeur"
+    }
   },
   "common": {
     "cancel": "Annuler"
