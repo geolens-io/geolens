@@ -265,7 +265,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         <section
           role="dialog"
           aria-label={t('viewer.ai.title')}
-          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
+          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-4.75rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
         >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
