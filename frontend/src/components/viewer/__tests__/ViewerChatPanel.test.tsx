@@ -40,6 +40,31 @@ beforeEach(() => {
 });
 
 describe('ViewerChatPanel', () => {
+  it('fix(#542): shows a dismissible query-result badge when the overlay is active', async () => {
+    setAvailable(true);
+    const handleDismissEphemeral = vi.fn();
+    mockEphemeral.mockReturnValue({
+      ephemeralResult: {
+        geojson: {
+          type: 'FeatureCollection',
+          features: [
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} },
+            { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 1] }, properties: {} },
+          ],
+        },
+        bbox: [0, 0, 1, 1],
+      },
+      handleQueryResult,
+      handleDismissEphemeral,
+    });
+
+    renderPanel();
+
+    expect(screen.getByText(/Query result/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss query result' }));
+    expect(handleDismissEphemeral).toHaveBeenCalled();
+  });
+
   it('renders nothing when AI is unavailable (anon / no use_ai_chat)', () => {
     setAvailable(false);
     renderPanel();

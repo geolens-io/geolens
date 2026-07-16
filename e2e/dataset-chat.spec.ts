@@ -63,6 +63,41 @@ const SSE_FRAMES = [
   '',
 ].join('\n');
 
+// Spatial result for the builder-carryover test (#533/#542). The bbox centers
+// at exactly (40.75, -73.95) — values chosen to round cleanly in the builder's
+// coordinate readout so the camera-fit assertion is deterministic.
+const CARRYOVER_BBOX = [-74.0, 40.7, -73.9, 40.8];
+const CARRYOVER_GEOJSON = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.98, 40.72] }, properties: { name: 'Alpha' } },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.92, 40.78] }, properties: { name: 'Beta' } },
+  ],
+};
+const CARRYOVER_SSE_FRAMES = [
+  'event: token',
+  'data: {"text": "Found 2 stations."}',
+  '',
+  'event: actions',
+  `data: ${JSON.stringify({
+    actions: [
+      {
+        type: 'show_query_result',
+        rows: [['Alpha'], ['Beta']],
+        columns: ['name'],
+        row_count: 2,
+        geojson: CARRYOVER_GEOJSON,
+        bbox: CARRYOVER_BBOX,
+      },
+    ],
+  })}`,
+  '',
+  'event: done',
+  'data: {"explanation": "Found 2 stations."}',
+  '',
+  '',
+].join('\n');
+
 test.describe('Dataset AI chat', () => {
   test.beforeAll(async () => {
     const token = getAuthToken();
@@ -153,5 +188,44 @@ test.describe('Dataset AI chat', () => {
         .filter({ hasText: datasetTitle })
         .first(),
     ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('carries a spatial result into the builder as an ephemeral overlay (#533/#542)', async ({
+    page,
+  }) => {
+    await mockAIAvailable(page, true);
+    await page.route('**/api/ai/chat/dataset/stream/', (route) =>
+      route.fulfill({
+        contentType: 'text/event-stream',
+        body: CARRYOVER_SSE_FRAMES,
+      }),
+    );
+
+    await page.goto(`/datasets/${datasetId}`);
+    await page.getByRole('button', { name: 'Ask AI' }).click();
+
+    const composer = page.getByPlaceholder('Ask about this data...');
+    await composer.fill('show me the stations');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Found 2 stations.')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Open in builder' }).click();
+    await page.waitForURL(/\/maps\/[0-9a-f-]{36}/);
+    createdMapId = page.url().match(/\/maps\/([0-9a-f-]{36})/)?.[1] ?? null;
+    expect(createdMapId).toBeTruthy();
+
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    // Two independent assertions on purpose: the badge is React state, the
+    // camera fit is map state. The fix(#542) race kept the badge visible while
+    // the overlay and fitBounds silently never applied. The race itself is
+    // timing-dependent (it needs the style transiently unloaded at pickup, so
+    // a fast local run may not reproduce it — the deterministic regression
+    // test lives in use-ephemeral-layers.test.ts); what this spec pins down is
+    // the full stash → pickup → overlay integration, which jsdom cannot.
+    await expect(page.getByText(/Query result · 2 features/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-coord-readout="true"]')).toContainText(
+      '40.75° N · 73.95° W',
+      { timeout: 15_000 },
+    );
   });
 });

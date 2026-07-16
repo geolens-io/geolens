@@ -10,7 +10,6 @@ import {
   ingestionStatusColors,
   validationLevelColors,
   healthDotColors,
-  experimentalBadgeColor,
   syntheticBadgeColor,
   vrtRasterStatusColors,
 } from '@/lib/status-colors';
@@ -153,12 +152,6 @@ describe('vrtRasterStatusColors', () => {
   });
 });
 
-describe('experimentalBadgeColor', () => {
-  it('uses the warning token', () => {
-    expect(experimentalBadgeColor).toContain('warning');
-  });
-});
-
 describe('syntheticBadgeColor', () => {
   it('uses the synthetic provenance token', () => {
     expect(syntheticBadgeColor).toContain('synthetic');
@@ -183,7 +176,6 @@ describe('token discipline (DS-01)', () => {
     ...Object.values(validationLevelColors),
     ...Object.values(healthDotColors),
     ...Object.values(vrtRasterStatusColors),
-    experimentalBadgeColor,
     syntheticBadgeColor,
     qualityScoreClasses(95),
     qualityScoreClasses(70),

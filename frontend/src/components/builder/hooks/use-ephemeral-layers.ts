@@ -107,6 +107,14 @@ export function useEphemeralLayers(
 
     if (map.isStyleLoaded()) {
       addLayersAndMaybeZoom();
+    } else {
+      // fix(#533 follow-up): on the ?chat_result=1 cold-load pickup the
+      // dataset-layer sync leaves the style transiently not-loaded while the
+      // initial `style.load` has ALREADY fired, so the subscription below
+      // never fires and the overlay is silently dropped (badge shows, map
+      // stays at world view). One-shot `idle` retries once the map settles —
+      // same idiom as BuilderMap's SP-03 layer-sync gate.
+      map.once('idle', addLayersAndMaybeZoom);
     }
     // fix(#394) LM-02/B-028: subscribe for the LIFETIME of the result — a
     // basemap/style reload wipes the overlay from the map while the result
@@ -115,6 +123,7 @@ export function useEphemeralLayers(
     map.on('style.load', addLayersAndMaybeZoom);
 
     return () => {
+      map.off('idle', addLayersAndMaybeZoom);
       map.off('style.load', addLayersAndMaybeZoom);
     };
   }, [ephemeralResult, mapInstanceRef]);

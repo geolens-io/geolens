@@ -94,8 +94,6 @@ export const healthDotColors = {
   unknown: 'bg-muted-foreground',
 } as const;
 
-export const experimentalBadgeColor = 'border-warning/50 text-warning';
-
 /** Provenance marker, not a record type — hence its own token pair. */
 export const syntheticBadgeColor =
   'border-synthetic/30 bg-synthetic-bg text-synthetic';

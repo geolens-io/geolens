@@ -676,7 +676,6 @@
     "createEmbedToken": "Create embed token"
   },
   "chat": {
-    "experimental": "Experimental",
     "emptyState": "Describe changes to your map using natural language.",
     "placeholder": "Describe a map change...",
     "thinking": "Thinking...",

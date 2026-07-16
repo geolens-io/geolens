@@ -12,7 +12,6 @@ import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -158,9 +157,6 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
               <TabsTrigger value="ai">
                 <Sparkles className="me-1 size-3.5" />
                 {t('mapCreate.tabAI')}
-                <Badge variant="outline" className="ms-1.5 border-warning/50 px-1.5 py-0 text-2xs font-medium text-warning">
-                  {t('chat.experimental')}
-                </Badge>
               </TabsTrigger>
             )}
           </TabsList>

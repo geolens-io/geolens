@@ -19,6 +19,8 @@ interface MockMap {
   off: (event: string, cb: () => void) => void;
   /** fix(#394) LM-02/B-028: registered style.load handlers — call to simulate a basemap/style reload. */
   styleLoadHandlers: Array<() => void>;
+  /** fix(#533 follow-up): one-shot idle handlers — call to simulate the map settling. */
+  idleHandlers: Array<() => void>;
   fitBounds: (bounds: unknown, options: unknown) => void;
 }
 
@@ -27,9 +29,11 @@ function createMockMap(): MockMap {
   const sources = new Set<string>();
   const fitBoundsCalls: MockMap['fitBoundsCalls'] = [];
   const styleLoadHandlers: Array<() => void> = [];
+  const idleHandlers: Array<() => void> = [];
 
-  return {
+  const mock: MockMap = {
     styleLoadHandlers,
+    idleHandlers,
     layers,
     sources,
     styleLoaded: true,
@@ -48,21 +52,26 @@ function createMockMap(): MockMap {
     removeSource: (id) => {
       sources.delete(id);
     },
-    isStyleLoaded: () => true,
-    once: (_event, cb) => cb(),
+    isStyleLoaded: () => mock.styleLoaded,
+    once: (event, cb) => {
+      if (event === 'idle') idleHandlers.push(cb);
+      else cb();
+    },
     on: (event, cb) => {
       if (event === 'style.load') styleLoadHandlers.push(cb);
     },
     off: (event, cb) => {
-      if (event === 'style.load') {
-        const idx = styleLoadHandlers.indexOf(cb);
-        if (idx >= 0) styleLoadHandlers.splice(idx, 1);
+      const pool = event === 'style.load' ? styleLoadHandlers : event === 'idle' ? idleHandlers : null;
+      if (pool) {
+        const idx = pool.indexOf(cb);
+        if (idx >= 0) pool.splice(idx, 1);
       }
     },
     fitBounds: (bounds, options) => {
       fitBoundsCalls.push({ bounds, options });
     },
   };
+  return mock;
 }
 
 function sampleGeoJSON(): GeoJSON.FeatureCollection {
@@ -194,6 +203,53 @@ describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
     expect(map.layers.has('ephemeral-result-circle')).toBe(true);
     // No second auto-zoom — the viewport belongs to the user after first show.
     expect(map.fitBoundsCalls).toHaveLength(1);
+  });
+
+  it('fix(#533 follow-up): retries on idle when the style is transiently not loaded', () => {
+    const map = createMockMap();
+    // Reproduce the cold-load pickup race: style transiently reports
+    // not-loaded and the initial style.load has already fired (so the
+    // style.load subscription alone would never run).
+    map.styleLoaded = false;
+    const ref = { current: map as unknown as maplibregl.Map };
+    const { result } = renderHook(() => useEphemeralLayers(ref));
+
+    act(() => {
+      result.current.handleQueryResult(sampleGeoJSON(), [-1, -1, 1, 1]);
+    });
+
+    // Nothing applied yet — the overlay must wait for the map to settle.
+    expect(map.sources.has('ephemeral-result')).toBe(false);
+    expect(map.fitBoundsCalls).toHaveLength(0);
+    expect(map.idleHandlers).toHaveLength(1);
+
+    // Map settles.
+    map.styleLoaded = true;
+    act(() => {
+      map.idleHandlers.forEach((cb) => cb());
+    });
+
+    expect(map.sources.has('ephemeral-result')).toBe(true);
+    expect(map.layers.has('ephemeral-result-circle')).toBe(true);
+    expect(map.fitBoundsCalls).toHaveLength(1);
+    expect(map.fitBoundsCalls[0].bounds).toEqual([[-1, -1], [1, 1]]);
+  });
+
+  it('fix(#533 follow-up): unsubscribes the idle handler on dismiss', () => {
+    const map = createMockMap();
+    map.styleLoaded = false;
+    const ref = { current: map as unknown as maplibregl.Map };
+    const { result } = renderHook(() => useEphemeralLayers(ref));
+
+    act(() => {
+      result.current.handleQueryResult(sampleGeoJSON(), [0, 0, 1, 1]);
+    });
+    expect(map.idleHandlers).toHaveLength(1);
+
+    act(() => {
+      result.current.handleDismissEphemeral();
+    });
+    expect(map.idleHandlers).toHaveLength(0);
   });
 
   it('unsubscribes the style.load handler on dismiss', () => {

@@ -7,6 +7,7 @@ import { ApiError } from '@/api/client';
 import { streamChatMessage } from '@/api/maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { cn } from '@/lib/utils';
 import type { ChatAction, ChatHistoryMessage, MapLayerResponse } from '@/types/api';
 
@@ -116,7 +117,7 @@ interface ViewerChatPanelProps {
 export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPanelProps) {
   const { t, i18n } = useTranslation('common');
   const { isAIAvailable } = useAIAvailability();
-  const { handleQueryResult } = useEphemeralLayers(mapInstanceRef);
+  const { ephemeralResult, handleQueryResult, handleDismissEphemeral } = useEphemeralLayers(mapInstanceRef);
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -243,12 +244,28 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
   if (!isAIAvailable) return null;
 
   return (
-    <div className="absolute bottom-8 right-3 z-10 flex flex-col items-end gap-2">
+    <>
+      {/* fix(#542): the viewer applied the query overlay with no legend entry,
+          badge, or dismissal — orange highlights persisted unexplained. Reuse
+          the builder's badge; the viewer's bottom-left column is occupied by
+          BasemapToggle (bottom-8) and the Map data button (bottom-20). */}
+      {ephemeralResult && (
+        <EphemeralBadge
+          featureCount={ephemeralResult.geojson.features.length}
+          onDismiss={handleDismissEphemeral}
+          className="bottom-32 start-3"
+        />
+      )}
+    {/* fix(#542): end-16, not end-3 — the problem-reporter lifebuoy (fixed
+        bottom-10 right-4, size-10) appears in the bottom-right corner once
+        errors are captured and overlapped the FAB (same class of bug as the
+        dataset-page fix in #540). */}
+    <div className="absolute bottom-8 end-16 z-10 flex flex-col items-end gap-2">
       {open && (
         <section
           role="dialog"
           aria-label={t('viewer.ai.title')}
-          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
+          className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-4.75rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
         >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
@@ -364,5 +381,6 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         </Button>
       )}
     </div>
+    </>
   );
 }
