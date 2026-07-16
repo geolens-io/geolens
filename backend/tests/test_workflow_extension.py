@@ -75,6 +75,9 @@ def _context(from_status: str, to_status: str, *, mode: str = "status"):
 def _dataset(record_status: str):
     return SimpleNamespace(
         id=uuid.uuid4(),
+        # fix(#458 E-48): the PATCH handler snapshots tile_columns pre-update
+        # to detect no-op echoes, so the fake needs the attribute.
+        tile_columns=None,
         record=SimpleNamespace(record_status=record_status),
     )
 
