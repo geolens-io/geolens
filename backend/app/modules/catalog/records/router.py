@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
@@ -72,7 +73,14 @@ _LANGUAGE_PATH = Path(
 )
 
 
-async def _propagate_record_write(record_id: uuid.UUID, *, reembed: bool) -> None:
+async def _propagate_record_write(
+    record_id: uuid.UUID,
+    *,
+    reembed: bool,
+    db: AsyncSession | None = None,
+    user: Identity | None = None,
+    details: dict | None = None,
+) -> None:
     """Keep downstream surfaces coherent after a record sub-resource write.
 
     fix(#458 E-15): contacts/keywords/distributions feed the DCAT-US/STAC feeds
@@ -81,6 +89,12 @@ async def _propagate_record_write(record_id: uuid.UUID, *, reembed: bool) -> Non
     metadata PATCH already does both; these sibling writes did neither. Both
     steps are best-effort — the write is already committed and must not fail on a
     cache/broker hiccup.
+
+    fix(#458 E-47): when db/user/details are passed, also emit a metadata.edit
+    audit event against the backing dataset, so contact/keyword/distribution/
+    translation changes appear in GET /datasets/{id}/history like top-level
+    metadata PATCHes do. Best-effort and post-commit for the same reason as the
+    cache bust; records without a backing dataset (mid-ingest orphans) skip it.
     """
     try:
         await invalidate_catalog_cache()
@@ -92,6 +106,29 @@ async def _propagate_record_write(record_id: uuid.UUID, *, reembed: bool) -> Non
         except Exception:  # broad: embedding catches up on next edit or backfill
             logger.warning(
                 "record.write embed defer failed for %s", record_id, exc_info=True
+            )
+    if db is not None and user is not None and details is not None:
+        try:
+            dataset_id = (
+                await db.execute(
+                    select(Dataset.id).where(Dataset.record_id == record_id)
+                )
+            ).scalar_one_or_none()
+            if dataset_id is not None:
+                await audit_emit(
+                    db,
+                    AuditEvent(
+                        user_id=user.id,
+                        action="metadata.edit",
+                        resource_type="dataset",
+                        resource_id=dataset_id,
+                        details=details,
+                    ),
+                )
+                await db.commit()
+        except Exception:  # broad: audit is best-effort here; the write is committed
+            logger.warning(
+                "record.write audit emit failed for %s", record_id, exc_info=True
             )
 
 
@@ -237,7 +274,17 @@ async def upsert_translation_endpoint(
     record.updated_by = user.id
     await db.commit()
     await db.refresh(translation)
-    await _propagate_record_write(record_id, reembed=True)
+    await _propagate_record_write(
+        record_id,
+        reembed=True,
+        db=db,
+        user=user,
+        details={
+            "resource": "translation",
+            "op": "upsert",
+            "language": normalized_language,
+        },
+    )
     return TranslationResponse.model_validate(translation)
 
 
@@ -263,7 +310,17 @@ async def delete_translation_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Record translation not found",
         )
-    await _propagate_record_write(record_id, reembed=True)
+    await _propagate_record_write(
+        record_id,
+        reembed=True,
+        db=db,
+        user=user,
+        details={
+            "resource": "translation",
+            "op": "delete",
+            "language": normalize_language_tag(language),
+        },
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -330,7 +387,13 @@ async def create_contact_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid contact data (check role value against ISO CI_RoleCode codelist)",
         )
-    await _propagate_record_write(record_id, reembed=False)
+    await _propagate_record_write(
+        record_id,
+        reembed=False,
+        db=db,
+        user=user,
+        details={"resource": "contact", "op": "create", "role": body.role},
+    )
     return ContactResponse.model_validate(contact)
 
 
@@ -345,8 +408,11 @@ async def update_contact_endpoint(
     """Update a contact."""
     await _check_record_ownership(db, record_id, user)
     try:
+        # fix(#458 E-46): exclude_unset, not exclude_none — an explicitly-set
+        # null clears the field (dataset E-04 contract); the schema already
+        # 422s nulls on non-clearable fields.
         contact = await update_contact(
-            db, contact_id, record_id, **body.model_dump(exclude_none=True)
+            db, contact_id, record_id, **body.model_dump(exclude_unset=True)
         )
         await db.commit()
         await db.refresh(contact)
@@ -360,7 +426,17 @@ async def update_contact_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid contact data (check role value against ISO CI_RoleCode codelist)",
         )
-    await _propagate_record_write(record_id, reembed=False)
+    await _propagate_record_write(
+        record_id,
+        reembed=False,
+        db=db,
+        user=user,
+        details={
+            "resource": "contact",
+            "op": "update",
+            "fields": sorted(body.model_fields_set),
+        },
+    )
     return ContactResponse.model_validate(contact)
 
 
@@ -382,7 +458,17 @@ async def delete_contact_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
         )
-    await _propagate_record_write(record_id, reembed=False)
+    await _propagate_record_write(
+        record_id,
+        reembed=False,
+        db=db,
+        user=user,
+        details={
+            "resource": "contact",
+            "op": "delete",
+            "contact_id": str(contact_id),
+        },
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -445,7 +531,13 @@ async def create_keyword_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate keyword for this record",
         )
-    await _propagate_record_write(record_id, reembed=True)
+    await _propagate_record_write(
+        record_id,
+        reembed=True,
+        db=db,
+        user=user,
+        details={"resource": "keyword", "op": "create", "keyword": body.keyword},
+    )
     return KeywordResponse.model_validate(kw)
 
 
@@ -467,7 +559,17 @@ async def delete_keyword_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Keyword not found"
         )
-    await _propagate_record_write(record_id, reembed=True)
+    await _propagate_record_write(
+        record_id,
+        reembed=True,
+        db=db,
+        user=user,
+        details={
+            "resource": "keyword",
+            "op": "delete",
+            "keyword_id": str(keyword_id),
+        },
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -535,7 +637,17 @@ async def create_distribution_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate distribution (same record, type, and format)",
         )
-    await _propagate_record_write(record_id, reembed=False)
+    await _propagate_record_write(
+        record_id,
+        reembed=False,
+        db=db,
+        user=user,
+        details={
+            "resource": "distribution",
+            "op": "create",
+            "distribution_type": body.distribution_type,
+        },
+    )
     return DistributionResponse.model_validate(dist)
 
 
@@ -553,8 +665,9 @@ async def update_distribution_endpoint(
     """Update a distribution (manual only; auto-generated distributions are immutable)."""
     await _check_record_ownership(db, record_id, user)
     try:
+        # fix(#458 E-46): exclude_unset, not exclude_none — see update_contact.
         dist = await update_distribution(
-            db, distribution_id, record_id, **body.model_dump(exclude_none=True)
+            db, distribution_id, record_id, **body.model_dump(exclude_unset=True)
         )
         await db.commit()
         await db.refresh(dist)
@@ -573,7 +686,17 @@ async def update_distribution_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate distribution (same record, type, and format)",
         )
-    await _propagate_record_write(record_id, reembed=False)
+    await _propagate_record_write(
+        record_id,
+        reembed=False,
+        db=db,
+        user=user,
+        details={
+            "resource": "distribution",
+            "op": "update",
+            "fields": sorted(body.model_fields_set),
+        },
+    )
     return DistributionResponse.model_validate(dist)
 
 
@@ -601,5 +724,15 @@ async def delete_distribution_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
         )
-    await _propagate_record_write(record_id, reembed=False)
+    await _propagate_record_write(
+        record_id,
+        reembed=False,
+        db=db,
+        user=user,
+        details={
+            "resource": "distribution",
+            "op": "delete",
+            "distribution_id": str(distribution_id),
+        },
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

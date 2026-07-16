@@ -101,3 +101,34 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).toMatch(/columnVisibility/);
   });
 });
+
+// ── fix(#458 E-35/E-39/E-51) source contracts ────────────────────────────────
+// The body rows are virtualized, and jsdom computes no layout, so the cell
+// editor can't be rendered here (same constraint as PERF-07 above). Lock the
+// contracts against the source instead; the live flow is covered by
+// e2e/feature-editing.spec.ts.
+describe('AttributeTable editing contracts (E-35/E-39/E-51)', () => {
+  it('E-35: an unchanged cell value commits as a cancel, not a PATCH', () => {
+    // commit() guards on value === initialValue and routes to onCancel —
+    // removing the guard reintroduces no-op writes (tile purge + audit noise).
+    expect(attributeTableSrc).toMatch(
+      /if \(value === initialValue\) \{\s*onCancel\(\);\s*return;\s*\}/,
+    );
+    // blur goes through commit, never straight to onSave
+    expect(attributeTableSrc).toContain('onBlur={commit}');
+    expect(attributeTableSrc).not.toContain('onBlur={() => onSave(value)}');
+  });
+
+  it('E-39: the cell editor is named and carries invalid-state wiring', () => {
+    expect(attributeTableSrc).toContain('aria-label={label}');
+    expect(attributeTableSrc).toContain('aria-invalid={error ? true : undefined}');
+    expect(attributeTableSrc).toContain('aria-describedby={error ? errorId : undefined}');
+    expect(attributeTableSrc).toContain("t('attributes.cellEditorLabel'");
+  });
+
+  it('E-51: an open cell edit closes when the row set changes', () => {
+    expect(attributeTableSrc).toMatch(
+      /setEditingCell\(null\);\s*setEditError\(null\);\s*\}, \[cursor, activeFilters, pageSize\]\)/,
+    );
+  });
+});

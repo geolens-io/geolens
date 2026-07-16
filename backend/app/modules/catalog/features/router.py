@@ -19,7 +19,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.core.db.sqlstate import is_operational
+from app.core.db.sqlstate import BAD_QUERY_INPUT, TABLE_ABSENT, is_operational, sqlstate
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -106,16 +106,33 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     tabular datasets) used to surface as an unhandled 500. Classify by SQLSTATE:
     a request the table cannot answer is the caller's fault (400); a database
     outage stays a 503.
+
+    fix(#458 E-41): don't collapse every non-operational state to 400 — a
+    missing backing table (42P01, schema-provisioning drift) is a 503 like the
+    read path reports it, and an unrecognized state (our own bad SQL, 42601) is
+    an honest 500, not the caller's fault.
     """
     if is_operational(exc):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database temporarily unavailable.",
         )
+    state = sqlstate(exc)
+    if state in TABLE_ABSENT:
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is temporarily unavailable.",
+        )
+    if state in BAD_QUERY_INPUT or (state or "")[:2] in ("22", "23"):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Feature could not be written: a value is incompatible with a "
+            "column's type or constraints.",
+        )
+    logger.error("feature.write unexpected DB error", sqlstate=state, exc_info=exc)
     return HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Feature could not be written: a value is incompatible with a "
-        "column's type or constraints.",
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Feature write failed unexpectedly.",
     )
 
 
@@ -265,7 +282,14 @@ async def list_features(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Get paginated GeoJSON features for a dataset."""
+    """Get paginated GeoJSON features for a dataset.
+
+    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    skip or duplicate across pages under concurrent writes, though feature ids
+    stay stable (ORDER BY gid, the primary key). Clients that need stable
+    cursoring should use the OGC API Features endpoint, which supports keyset
+    pagination via ``after_gid``.
+    """
     # Fetch dataset
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:

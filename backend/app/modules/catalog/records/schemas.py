@@ -4,7 +4,15 @@ import re
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 from app.core.text import normalize_nfc as _nfc
 
@@ -96,6 +104,16 @@ class ContactUpdate(BaseModel):
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
+    @model_validator(mode="after")
+    def _reject_null_required(self) -> "ContactUpdate":
+        # fix(#458 E-46): PATCH follows the dataset E-04 contract — an
+        # explicitly-set null clears the field. `role` is NOT NULL in the
+        # model, so an explicit null there is a 422, not a silent drop.
+        for field in ("role", "sort_order"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be cleared to null")
+        return self
 
 
 class ContactResponse(BaseModel):
@@ -204,10 +222,29 @@ class DistributionUpdate(BaseModel):
     media_type: str | None = Field(default=None, max_length=100)
     is_primary: bool | None = None
 
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str | None) -> str | None:
+        # fix(#458 E-45): the update path skipped the HTTP(S) validation the
+        # create path enforces, letting javascript:/file:// strings re-enter
+        # the DCAT/STAC feeds as accessURL/downloadURL.
+        if v is not None:
+            HttpUrl(v)
+        return v
+
     @field_validator("title", "description", mode="before")
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
+    @model_validator(mode="after")
+    def _reject_null_required(self) -> "DistributionUpdate":
+        # fix(#458 E-46): explicit null clears optional fields (E-04 contract);
+        # the NOT NULL trio must 422 instead of silently dropping the null.
+        for field in ("distribution_type", "format", "url", "is_primary"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be cleared to null")
+        return self
 
 
 class DistributionResponse(BaseModel):

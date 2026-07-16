@@ -293,6 +293,10 @@ async def update_dataset_metadata(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
+    # fix(#458 E-48): capture the pre-update value so a PATCH that echoes the
+    # same tile_columns doesn't roll the tile version / purge the tile cache.
+    tile_columns_before = list(dataset.tile_columns or [])
+
     try:
         dataset = await update_user_metadata(
             db,
@@ -330,13 +334,19 @@ async def update_dataset_metadata(
     # fix(#525 B-038): a tile_columns change alters the attribute set embedded
     # in vector tiles — roll the _v= URL cache-buster in the same transaction
     # (the post-commit Valkey purge cannot reach CDN/browser caches).
-    if "tile_columns" in meta.model_fields_set:
+    # fix(#458 E-48): only when the value actually changed — a no-op echo used
+    # to purge every cached tile for the table.
+    tile_columns_changed = (
+        "tile_columns" in meta.model_fields_set
+        and list(dataset.tile_columns or []) != tile_columns_before
+    )
+    if tile_columns_changed:
         dataset.bump_tile_cache_version()
     await db.commit()
     await db.refresh(dataset)
     await db.refresh(dataset.record)
     await invalidate_catalog_cache()
-    if "tile_columns" in meta.model_fields_set:
+    if tile_columns_changed:
         tile_cache = get_tile_cache()
         if tile_cache is not None:
             await tile_cache.invalidate_table(dataset.table_name)

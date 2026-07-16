@@ -143,6 +143,12 @@ def sync_detailed(
 
      Get paginated GeoJSON features for a dataset.
 
+    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    skip or duplicate across pages under concurrent writes, though feature ids
+    stay stable (ORDER BY gid, the primary key). Clients that need stable
+    cursoring should use the OGC API Features endpoint, which supports keyset
+    pagination via ``after_gid``.
+
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
@@ -191,6 +197,12 @@ def sync(
 
      Get paginated GeoJSON features for a dataset.
 
+    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    skip or duplicate across pages under concurrent writes, though feature ids
+    stay stable (ORDER BY gid, the primary key). Clients that need stable
+    cursoring should use the OGC API Features endpoint, which supports keyset
+    pagination via ``after_gid``.
+
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
@@ -231,6 +243,12 @@ async def asyncio_detailed(
     """List Features
 
      Get paginated GeoJSON features for a dataset.
+
+    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    skip or duplicate across pages under concurrent writes, though feature ids
+    stay stable (ORDER BY gid, the primary key). Clients that need stable
+    cursoring should use the OGC API Features endpoint, which supports keyset
+    pagination via ``after_gid``.
 
     Args:
         dataset_id (UUID):
@@ -277,6 +295,12 @@ async def asyncio(
     """List Features
 
      Get paginated GeoJSON features for a dataset.
+
+    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    skip or duplicate across pages under concurrent writes, though feature ids
+    stay stable (ORDER BY gid, the primary key). Clients that need stable
+    cursoring should use the OGC API Features endpoint, which supports keyset
+    pagination via ``after_gid``.
 
     Args:
         dataset_id (UUID):

@@ -184,9 +184,10 @@ async def update_contact(
     if contact is None:
         raise ValueError(f"Contact {contact_id} not found")
 
+    # fix(#458 E-46): kwargs carry only explicitly-set fields (exclude_unset
+    # at the router), so apply nulls too — that's how a field is cleared.
     for key, value in kwargs.items():
-        if value is not None:
-            setattr(contact, key, value)
+        setattr(contact, key, value)
 
     await session.flush()
     return contact
@@ -379,7 +380,7 @@ async def update_distribution(
     record_id: uuid.UUID,
     **kwargs,
 ) -> RecordDistribution:
-    """Update a distribution. Only non-None fields are updated.
+    """Update a distribution. Explicitly-set fields are applied, nulls included.
 
     Auto-generated distributions cannot be updated (raises ValueError).
     """
@@ -396,9 +397,9 @@ async def update_distribution(
     if dist.auto_generated:
         raise ValueError("Cannot update auto-generated distributions")
 
+    # fix(#458 E-46): apply explicitly-set nulls too — see update_contact.
     for key, value in kwargs.items():
-        if value is not None:
-            setattr(dist, key, value)
+        setattr(dist, key, value)
 
     await session.flush()
     return dist

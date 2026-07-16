@@ -379,6 +379,15 @@ class DefaultProcessingPort:
             session, dataset, dataset_id, user, user_roles=user_roles
         )
 
+    async def check_dataset_write_access(
+        self, session, dataset, dataset_id, user, *, user_roles=None
+    ):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.authorization import check_dataset_write_access
+
+        return await check_dataset_write_access(
+            session, dataset, dataset_id, user, user_roles=user_roles
+        )
+
     async def get_user_roles(self, session, user):  # type: ignore[no-untyped-def]
         from app.modules.catalog.authorization import get_user_roles
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useReactTable,
@@ -47,29 +47,50 @@ interface AttributeTableProps {
   compact?: boolean;
 }
 
+/** Postgres numeric types get a decimal input mode on touch keyboards. */
+const NUMERIC_COL_TYPES = /^(smallint|integer|bigint|numeric|decimal|real|double precision)/;
+
 function InlineCellEditor({
   initialValue,
+  label,
+  colType,
+  error,
   onSave,
   onCancel,
   isSaving,
 }: {
   initialValue: string;
+  label: string;
+  colType: string;
+  error?: string | null;
   onSave: (value: string) => void;
   onCancel: () => void;
   isSaving: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(initialValue);
+  const errorId = useId();
 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
 
+  // fix(#458 E-35): an unchanged value is a cancel, not a save — blur used to
+  // commit a no-op PATCH that bumped updated_at, rolled the tile version, and
+  // wrote an attribute.edit audit event for a non-change.
+  const commit = () => {
+    if (value === initialValue) {
+      onCancel();
+      return;
+    }
+    onSave(value);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      onSave(value);
+      commit();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onCancel();
@@ -81,14 +102,27 @@ function InlineCellEditor({
   }
 
   return (
-    <Input
-      ref={inputRef}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onSave(value)}
-      onKeyDown={handleKeyDown}
-      className="h-7 text-xs px-1"
-    />
+    <>
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        className="h-7 text-xs px-1"
+        // fix(#458 E-39): name the editor (column + row) and tie the rejection
+        // reason to the field so it isn't just a transient toast for SR users.
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        inputMode={NUMERIC_COL_TYPES.test(colType) ? 'decimal' : undefined}
+      />
+      {error ? (
+        <span id={errorId} className="sr-only" role="alert">
+          {error}
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -97,6 +131,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [cursor, setCursor] = useState(0);
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const editingCellRef = useRef<EditingCell | null>(null);
   editingCellRef.current = editingCell;
   // Scroll container ref used by the row virtualizer (PERF-07).
@@ -125,6 +160,14 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     setCursorHistory([0]);
   }, [debouncedFilters]);
 
+  // fix(#458 E-51): an open cell editor survives a page/filter/page-size
+  // change; if the edited row leaves the result set the in-progress edit
+  // silently vanishes. Close it (and clear any error) when the row set moves.
+  useEffect(() => {
+    setEditingCell(null);
+    setEditError(null);
+  }, [cursor, activeFilters, pageSize]);
+
   const { data, isLoading, isFetching, isError } = useDatasetRows(
     datasetId,
     pageSize,
@@ -141,9 +184,14 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     // column's wire type instead of sending a string into a typed column.
     const coerced = coerceAttributeValue(newValue, colType);
     if (!coerced.ok) {
-      toast.error(t('attributes.editInvalidValue', { type: colType }));
+      const msg = t('attributes.editInvalidValue', { type: colType });
+      // fix(#458 E-39): mirror the toast into field-associated state so the
+      // open editor carries aria-invalid/aria-describedby.
+      setEditError(msg);
+      toast.error(msg);
       return; // keep the editor open so the value can be corrected
     }
+    setEditError(null);
     // fix(#458 E-22): keep the cell in edit mode through the await so the saving
     // spinner (InlineCellEditor isSaving) actually renders; clearing editingCell
     // before awaiting made that branch unreachable and showed the stale value.
@@ -196,8 +244,18 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           return (
             <InlineCellEditor
               initialValue={String(info.getValue() ?? '')}
+              label={t('attributes.cellEditorLabel', {
+                column: col.name,
+                gid,
+                defaultValue: 'Edit {{column}} for feature {{gid}}',
+              })}
+              colType={col.type}
+              error={editError}
               onSave={(val) => handleCellSave(gid, col.name, col.type, val)}
-              onCancel={() => setEditingCell(null)}
+              onCancel={() => {
+                setEditError(null);
+                setEditingCell(null);
+              }}
               isSaving={updateFeature.isPending}
             />
           );
@@ -234,7 +292,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         return cellValue;
       },
     }));
-  }, [data?.columns, canEdit, handleCellSave, updateFeature.isPending]);
+  }, [data?.columns, canEdit, handleCellSave, updateFeature.isPending, editError, t]);
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns imperative helpers; this component keeps table state local.
   const table = useReactTable({

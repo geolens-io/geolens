@@ -413,10 +413,13 @@ async def get_column_ddl_feed(
     to dataset owners so they can detect editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
-    - Owner + granted roles: 200 with their own dataset's DDL history
-    - Non-owner editor (no grant): 404 (check_dataset_access raises 404 for
-      private datasets)
+    - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
+    - Anyone else — including authenticated readers of a PUBLIC dataset: 404
+      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      check_dataset_access (read visibility), which let any logged-in user
+      enumerate editor usernames/user_ids on public datasets, contradicting
+      this owner-facing contract.
     - Anonymous: 401 (get_current_active_user dependency)
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
@@ -433,10 +436,9 @@ async def get_column_ddl_feed(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    # Step 2: enforce visibility / ownership gate
-    # check_dataset_access raises HTTPException(404) for non-owners of private datasets,
-    # consistent with the column-DDL write endpoints from Phase 1061 Plan 02.
-    await port.check_dataset_access(db, dataset, dataset_id, user)
+    # Step 2: enforce ownership gate (owner-or-admin, 404 on denial), matching
+    # the column-DDL write endpoints this feed reports on (fix(#458 E-37)).
+    await port.check_dataset_write_access(db, dataset, dataset_id, user)
 
     # Step 3: fetch DDL history. Preserve the old offset parameter while new
     # clients converge on the repository-wide skip/limit convention.

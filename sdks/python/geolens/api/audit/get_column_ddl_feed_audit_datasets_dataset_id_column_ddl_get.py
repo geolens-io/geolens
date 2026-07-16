@@ -129,10 +129,13 @@ def sync_detailed(
     to dataset owners so they can detect editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
-    - Owner + granted roles: 200 with their own dataset's DDL history
-    - Non-owner editor (no grant): 404 (check_dataset_access raises 404 for
-      private datasets)
+    - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
+    - Anyone else — including authenticated readers of a PUBLIC dataset: 404
+      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      check_dataset_access (read visibility), which let any logged-in user
+      enumerate editor usernames/user_ids on public datasets, contradicting
+      this owner-facing contract.
     - Anonymous: 401 (get_current_active_user dependency)
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
@@ -182,10 +185,13 @@ def sync(
     to dataset owners so they can detect editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
-    - Owner + granted roles: 200 with their own dataset's DDL history
-    - Non-owner editor (no grant): 404 (check_dataset_access raises 404 for
-      private datasets)
+    - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
+    - Anyone else — including authenticated readers of a PUBLIC dataset: 404
+      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      check_dataset_access (read visibility), which let any logged-in user
+      enumerate editor usernames/user_ids on public datasets, contradicting
+      this owner-facing contract.
     - Anonymous: 401 (get_current_active_user dependency)
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
@@ -230,10 +236,13 @@ async def asyncio_detailed(
     to dataset owners so they can detect editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
-    - Owner + granted roles: 200 with their own dataset's DDL history
-    - Non-owner editor (no grant): 404 (check_dataset_access raises 404 for
-      private datasets)
+    - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
+    - Anyone else — including authenticated readers of a PUBLIC dataset: 404
+      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      check_dataset_access (read visibility), which let any logged-in user
+      enumerate editor usernames/user_ids on public datasets, contradicting
+      this owner-facing contract.
     - Anonymous: 401 (get_current_active_user dependency)
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
@@ -281,10 +290,13 @@ async def asyncio(
     to dataset owners so they can detect editor-initiated schema changes.
 
     Access control (AGENTS.md Pre-Commit Checklist Rule 1):
-    - Owner + granted roles: 200 with their own dataset's DDL history
-    - Non-owner editor (no grant): 404 (check_dataset_access raises 404 for
-      private datasets)
+    - Owner: 200 with their own dataset's DDL history
     - Admin: 200 (admin access is always allowed)
+    - Anyone else — including authenticated readers of a PUBLIC dataset: 404
+      via check_dataset_write_access. fix(#458 E-37): the feed previously used
+      check_dataset_access (read visibility), which let any logged-in user
+      enumerate editor usernames/user_ids on public datasets, contradicting
+      this owner-facing contract.
     - Anonymous: 401 (get_current_active_user dependency)
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets

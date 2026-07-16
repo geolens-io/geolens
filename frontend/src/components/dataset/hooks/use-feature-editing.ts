@@ -12,6 +12,7 @@ import { useCreateFeature, useUpdateFeature, useDeleteFeature } from '@/hooks/us
 import { getFeature } from '@/api/features';
 import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/components/drawing/hooks/use-terra-draw';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { formatMutationError } from '@/lib/error-map';
 import { getEnvConfig } from '@/lib/env';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
@@ -175,8 +176,10 @@ export function useFeatureEditing({
             clearTimer: () => clearTimeout(fallbackTimer),
           };
         }
-      } catch {
-        toast.error(t('map.featureSaveFailed'));
+      } catch (err) {
+        // fix(#458 E-36): surface the backend's reason (invalid geometry,
+        // type mismatch) like the table path does, not a bare "failed".
+        toast.error(formatMutationError('dataset:map.featureSaveFailed', err));
         overlayFeaturesRef.current = overlayFeaturesRef.current.filter((f) => f !== overlayFeature);
         if (map) {
           const src = map.getSource('drawn-overlay') as maplibregl.GeoJSONSource | undefined;
@@ -220,8 +223,9 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
-    } catch {
-      toast.error(t('map.featureUpdateFailed'));
+    } catch (err) {
+      // fix(#458 E-36): keep the backend detail.
+      toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
     }
   }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, t]);
 
@@ -238,8 +242,9 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
-    } catch {
-      toast.error(t('map.featureDeleteFailed'));
+    } catch (err) {
+      // fix(#458 E-36): keep the backend detail.
+      toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
     }
   }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, t]);
 
@@ -258,8 +263,9 @@ export function useFeatureEditing({
         // Cache-bust the vector tiles so the edited attributes render. Geometry
         // is unchanged, so the selection is intentionally kept.
         reloadTiles();
-      } catch {
-        toast.error(t('map.attributesUpdateFailed'));
+      } catch (err) {
+        // fix(#458 E-36): keep the backend detail.
+        toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
       }
     },
     [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, t],

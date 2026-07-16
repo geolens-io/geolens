@@ -227,3 +227,76 @@ async def test_column_references_counts_saved_maps(
     )
     assert unreferenced.status_code == 200
     assert unreferenced.json()["map_count"] == 0
+
+
+@pytest.mark.anyio
+async def test_reserved_word_column_full_ddl_lifecycle(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """fix(#458 E-33): SQL reserved words as column names (desc, order — routine
+    ogr2ogr output from DBF fields) must survive every DDL op and the
+    distinct-values probe; unquoted interpolation used to raise syntax errors."""
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title="Reserved Word DDL"
+    )
+
+    resp = await client.post(
+        f"/layers/{dataset_id}/columns/",
+        json={"column": {"name": "desc", "type": "text"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    assert "desc" in {c["name"] for c in resp.json()["columns"]}
+
+    resp = await client.get(
+        f"/datasets/{dataset_id}/columns/desc/values/",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/desc/type",
+        json={"new_type": "integer"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/desc/name",
+        json={"new_name": "order"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "order" in {c["name"] for c in resp.json()["columns"]}
+
+    resp = await client.delete(
+        f"/layers/{dataset_id}/columns/order",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "order" not in {c["name"] for c in resp.json()["columns"]}
+
+
+@pytest.mark.anyio
+async def test_column_ddl_recomputes_quality_detail(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """fix(#458 E-34): column DDL recomputes the stored quality score like
+    reupload does; it used to stay stale until the next reupload."""
+    dataset_id = await _create_layer(client, admin_auth_header, title="Quality Refresh")
+
+    before = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert before.status_code == 200
+    computed_before = before.json()["quality_detail"]["computed_at"]
+
+    resp = await client.post(
+        f"/layers/{dataset_id}/columns/",
+        json={"column": {"name": "extra", "type": "text"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+
+    after = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert after.status_code == 200
+    computed_after = after.json()["quality_detail"]["computed_at"]
+    assert computed_after > computed_before
