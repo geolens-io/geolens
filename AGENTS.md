@@ -11,6 +11,7 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 - `make dev` / `make down`: start or stop the Docker Compose development stack.
 - `make migrate`: run Alembic migrations in the API container. `make alembic-check` fails if the ORM models have drifted from the migration scripts (run it for schema-adjacent changes).
 - `make test` / `make test-cov`: run backend pytest and coverage.
+- `make ai-evals`: live-provider NL→SQL regression evals in `backend/tests/evals/` (skipped in normal test runs; costs provider tokens, needs `ANTHROPIC_API_KEY` and the dev DB).
 - `npm run e2e` or `npm run e2e:smoke`: run Playwright suites.
 - `cd frontend && npm ci && npm run dev`: install frontend dependencies and start Vite.
 - `cd frontend && npm run build && npm run lint && npm run typecheck && npm run test:coverage`: run frontend gates (`npx tsc --noEmit` is a no-op here; `npm run typecheck` is the real type gate).
