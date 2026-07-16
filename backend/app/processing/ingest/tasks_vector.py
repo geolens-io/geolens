@@ -475,6 +475,7 @@ async def ingest_file(
             geometry_type=ogr_geometry_type,
             layer_name=layer_name,
             schema=_current_tenant_schema(),
+            effective_srid=effective_srid,
         )
 
         # ----------------------------------------------------------------- #

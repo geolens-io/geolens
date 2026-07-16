@@ -347,10 +347,13 @@ class Dataset(Base):
             name="chk_datasets_geometry_type",
         ),
         CheckConstraint(
+            # fix(#541): 'parquet' for GeoParquet ingest; 'json'/'xlsx'/'xls'
+            # are accepted upload suffixes that were missing from the list.
+            # Migration 0027_source_format_parquet is the source of truth.
             "source_format IS NULL OR source_format IN ("
             "'geojson', 'shapefile', 'shp', 'gpkg', 'csv', 'kml', 'gml', "
             "'wfs', 'arcgis_featureserver', 'fgdb', 'created', 'geotiff', "
-            "'ogcapi_features', 'stac')",
+            "'ogcapi_features', 'stac', 'parquet', 'json', 'xlsx', 'xls')",
             name="chk_datasets_source_format",
         ),
         CheckConstraint(

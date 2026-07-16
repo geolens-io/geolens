@@ -570,6 +570,7 @@ async def run_ogr2ogr(
     layer_name: str | None = None,
     *,
     schema: str,
+    effective_srid: int | None = None,
 ) -> None:
     """Run ogr2ogr to load a file into PostGIS.
 
@@ -581,6 +582,10 @@ async def run_ogr2ogr(
         geometry_type: Geometry type from ogrinfo. None for non-spatial files.
         schema: Target PostgreSQL schema. Required so callers cannot silently
             fall back to the shared ``data`` schema in multi-tenant mode.
+        effective_srid: The SRID ``add_4326_column`` will be called with
+            (user srid_override > detected > 4326). Used only by the parquet
+            path, which must stamp geometries with the SRID the downstream
+            ST_Transform will trust; GDAL formats carry their own CRS.
 
     Raises:
         IngestionError: If ogr2ogr exits with non-zero code.
@@ -593,11 +598,16 @@ async def run_ogr2ogr(
     if _is_parquet(file_path):
         from app.processing.ingest.parquet import load_parquet_to_postgis
 
+        # fix(#541 review): stamp with effective_srid, not detected-or-4326.
+        # For a file with unknown CRS (explicit crs:null / unresolvable
+        # PROJJSON) the user proceeds via srid_override; tagging those
+        # geometries 4326 would make the downstream ST_Transform a no-op.
+        srid = effective_srid if effective_srid is not None else source_srid
         await load_parquet_to_postgis(
             file_path,
             table_name,
             schema=schema,
-            srid=source_srid if source_srid is not None else 4326,
+            srid=srid if srid is not None else 4326,
             include_geometry=geometry_type is not None,
         )
         return

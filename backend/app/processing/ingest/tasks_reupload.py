@@ -234,6 +234,7 @@ async def reupload_file(
             geometry_type=geometry_type,
             layer_name=layer_name,
             schema=_current_tenant_schema(),
+            effective_srid=effective_srid,
         )
 
         # 7. Compute file hash (moved up — must be outside any session)

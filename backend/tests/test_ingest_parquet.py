@@ -248,6 +248,59 @@ class TestParquetRoundTrip:
         assert "nextval" in str(gid_default)
 
     @pytest.mark.anyio
+    async def test_srid_override_stamps_geometry(
+        self, test_db_session, ingested_table, tmp_path
+    ):
+        # Unknown-CRS GeoParquet + user srid_override: geometries must carry
+        # the override SRID so add_4326_column's ST_Transform is not a no-op
+        # (PR #541 review). run_ogr2ogr receives it as effective_srid.
+        from app.processing.ingest.ogr import run_ogr2ogr
+
+        p = tmp_path / "override.parquet"
+        _write_geoparquet(p)
+        await run_ogr2ogr(
+            str(p),
+            ingested_table,
+            "unused-conn-str",
+            source_srid=None,
+            geometry_type="Point",
+            schema="data",
+            effective_srid=2263,
+        )
+        srid = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_SRID(_geolens_geom) FROM data.{ingested_table} "
+                    "WHERE _geolens_geom IS NOT NULL LIMIT 1"
+                )
+            )
+        ).scalar_one()
+        assert srid == 2263
+
+    @pytest.mark.anyio
+    async def test_uint64_column_survives(
+        self, test_db_session, ingested_table, tmp_path
+    ):
+        # uint64 above bigint range must not fail the batch insert (PR #541
+        # review): mapped to numeric.
+        p = tmp_path / "u64.parquet"
+        big = 2**63 + 11  # > bigint max
+        pq.write_table(pa.table({"counter": pa.array([1, big], type=pa.uint64())}), p)
+        await load_parquet_to_postgis(
+            str(p), ingested_table, schema="data", srid=4326, include_geometry=False
+        )
+        vals = (
+            (
+                await test_db_session.execute(
+                    text(f"SELECT counter FROM data.{ingested_table} ORDER BY gid")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [int(v) for v in vals] == [1, big]
+
+    @pytest.mark.anyio
     async def test_non_spatial_parquet_loads(
         self, test_db_session, ingested_table, tmp_path
     ):

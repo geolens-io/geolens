@@ -136,7 +136,10 @@ def _pg_type(t: pa.DataType) -> str:
     if pa.types.is_boolean(t):
         return "boolean"
     if pa.types.is_integer(t):
-        # signed <=32-bit fits integer; int64/uint32/uint64 need bigint
+        # signed <=32-bit fits integer; int64/uint32 fit bigint; uint64 can
+        # exceed bigint's max so it gets numeric (fix(#541 review)).
+        if pa.types.is_unsigned_integer(t) and t.bit_width == 64:
+            return "numeric"
         return (
             "integer"
             if t.bit_width <= 32 and pa.types.is_signed_integer(t)
