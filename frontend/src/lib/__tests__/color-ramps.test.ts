@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildCategoricalExpression,
   buildGraduatedSizeExpression,
   getSizeProperty,
   getColorProperty,
@@ -283,5 +284,25 @@ describe('suggestRampForMode', () => {
 
   it('categorical default is nextRotatingRamp(categorical, 0)', () => {
     expect(suggestRampForMode('categorical')).toBe(nextRotatingRamp('categorical', 0));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#527 B-054/S-03): empty categorical map emits the bare fallback, never a
+// zero-pair ['match'] (below spec minimum arity — addLayer throws, swallowed,
+// and the layer silently never renders).
+// ---------------------------------------------------------------------------
+describe('buildCategoricalExpression empty-map guard (B-054/S-03)', () => {
+  it('returns the bare fallback color when valueColorMap is empty', () => {
+    expect(buildCategoricalExpression('kind', [], '#aabbcc')).toBe('#aabbcc');
+  });
+
+  it('still emits the null-safe match expression when pairs exist', () => {
+    expect(buildCategoricalExpression('kind', [['a', '#111111']], '#aabbcc')).toEqual([
+      'case',
+      ['==', ['get', 'kind'], null],
+      '#aabbcc',
+      ['match', ['get', 'kind'], 'a', '#111111', '#aabbcc'],
+    ]);
   });
 });

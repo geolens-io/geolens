@@ -103,3 +103,32 @@ describe('symbol-adapter — getLayerIds', () => {
     expect(ids).toEqual(['sym-abc']);
   });
 });
+
+describe('symbol-adapter — B-054/LB-04 icon-allow-overlap honors the label toggle', () => {
+  it('defaults to true with no label config', () => {
+    const map = createMockMap({ layerExists: false });
+    symbolAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput());
+    const call = map.addLayer.mock.calls[0][0] as { layout: Record<string, unknown> };
+    expect(call.layout['icon-allow-overlap']).toBe(true);
+  });
+
+  it('follows an explicit allowOverlap=false when a label column is active', () => {
+    const map = createMockMap({ layerExists: false });
+    symbolAdapter.addLayers(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ label_config: { column: 'name', allowOverlap: false } }),
+    );
+    const call = map.addLayer.mock.calls[0][0] as { layout: Record<string, unknown> };
+    expect(call.layout['icon-allow-overlap']).toBe(false);
+  });
+
+  it('ignores a stale allowOverlap=false when the label column was cleared', () => {
+    const map = createMockMap({ layerExists: false });
+    symbolAdapter.addLayers(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ label_config: { column: '', allowOverlap: false } }),
+    );
+    const call = map.addLayer.mock.calls[0][0] as { layout: Record<string, unknown> };
+    expect(call.layout['icon-allow-overlap']).toBe(true);
+  });
+});

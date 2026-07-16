@@ -668,3 +668,34 @@ describe('LayerFilterEditor - stale debounce cancellation (B-033)', () => {
     expect(lastEmitted).toEqual(['all', ['==', ['get', 'name'], 'typed']]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// fix(#527 B-054/F-05 + F-06): separators-only lists drop cleanly; boolean
+// columns support != end-to-end.
+// ---------------------------------------------------------------------------
+describe('separator-only in_list and boolean != (B-054/F-05, F-06)', () => {
+  it('drops an in_list of only separators instead of an always-false empty literal', () => {
+    const conditions = [{ id: '1', field: 'name', operator: 'in_list', value: ',, ,' }];
+    expect(buildFilterExpression(conditions, columns, 'all')).toBeNull();
+  });
+
+  it('emits != for boolean columns', () => {
+    const conditions = [{ id: '1', field: 'active', operator: '!=', value: 'true' }];
+    expect(buildFilterExpression(conditions, columns, 'all')).toEqual([
+      'all',
+      ['!=', ['get', 'active'], true],
+    ]);
+  });
+
+  it('renders the true/false select (not a text input) for boolean != (codex P3 on #527)', () => {
+    render(createElement(LayerFilterEditor, {
+      columnInfo: [{ name: 'active', type: 'boolean' }],
+      filter: ['all', ['!=', ['get', 'active'], true]] as FilterSpecification,
+      onFilterChange: vi.fn(),
+    }));
+
+    const valueRow = screen.getByTestId('filter-value-row');
+    expect(within(valueRow).queryByRole('textbox', { name: 'Value' })).toBeNull();
+    expect(within(valueRow).getByRole('combobox', { name: 'Value' })).toBeInTheDocument();
+  });
+});

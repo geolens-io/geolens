@@ -149,10 +149,12 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       geojson.type === 'FeatureCollection' &&
       Array.isArray(action.bbox) &&
       action.bbox.length === 4 &&
-      action.bbox.every((n: unknown) => typeof n === 'number')
+      // fix(#527 B-054/C-06): Number.isFinite + non-inverted — NaN/inverted
+      // bounds pass the range comparisons and throw in fitBounds.
+      action.bbox.every((n: unknown) => Number.isFinite(n))
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
-      if (!(minX < -180 || minY < -90 || maxX > 180 || maxY > 90)) {
+      if (!(minX < -180 || minY < -90 || maxX > 180 || maxY > 90 || minX > maxX || minY > maxY)) {
         handleQueryResult(geojson as GeoJSON.FeatureCollection, [minX, minY, maxX, maxY]);
       }
     }

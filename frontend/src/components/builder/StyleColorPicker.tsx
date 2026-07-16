@@ -109,7 +109,9 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
               <button
                 key={hex}
                 type="button"
-                onClick={() => onChange(hex)}
+                // fix(#527 B-054/S-07): presets go through the same local-state
+                // path as the picker so the selected ring updates instantly.
+                onClick={() => debouncedChange(hex)}
                 className={cn(
                   'cursor-pointer w-5 h-5 rounded-sm border transition-transform hover:scale-125',
                   localColor === hex ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'border-border',

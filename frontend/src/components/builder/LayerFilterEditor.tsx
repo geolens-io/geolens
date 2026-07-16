@@ -83,6 +83,7 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
   ],
   boolean: [
     { labelKey: 'filters.operators.equals', value: '==' },
+    { labelKey: 'filters.operators.notEquals', value: '!=' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
     { value: 'has', labelKey: 'filters.operators.exists' },
   ],
@@ -92,6 +93,11 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
   ],
 };
+
+// fix(#527 B-054/F-06, codex P3): boolean operators whose value renders as the
+// true/false select — a free-text input would coerce anything but "true" to
+// false and silently save e.g. `active != false`.
+const BOOLEAN_VALUE_OPERATORS = new Set(['==', '!=']);
 
 function coerceValue(value: string, pgType: string): string | number | boolean {
   const colType = classifyColumnType(pgType);
@@ -153,6 +159,10 @@ export function buildFilterExpression(
       const coerced = values
         .map(v => coerceValue(v, pgType))
         .filter(v => !numericColumn || typeof v === 'number');
+      // fix(#527 B-054/F-05): a list of only separators (",, ,") coerces to
+      // an empty literal — an always-false filter that silently hides every
+      // feature. Drop the condition instead.
+      if (coerced.length === 0) continue;
       const inExpr = ['in', ['get', cond.field], ['literal', coerced]];
       expressions.push(cond.operator === 'in_list' ? inExpr : ['!', inExpr]);
     } else if (cond.operator === 'contains') {
@@ -173,6 +183,7 @@ export function buildFilterExpression(
     }
   }
 
+  if (expressions.length === 0) return null;
   // Always wrap to preserve combinator intent on round-trip
   return [combinator, ...expressions] as FilterSpecification;
 }
@@ -283,7 +294,7 @@ export function LayerFilterEditor({
       id: crypto.randomUUID(),
       field,
       operator,
-      value: getFieldType(field) === 'boolean' && operator === '==' ? 'true' : '',
+      value: getFieldType(field) === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(operator) ? 'true' : '',
     };
     emitChange([...conditions, newCond]);
   }
@@ -302,12 +313,12 @@ export function LayerFilterEditor({
         const colType = getFieldType(patch.field);
         const ops = OPERATORS_BY_TYPE[colType];
         merged.operator = ops[0]?.value ?? '==';
-        merged.value = colType === 'boolean' && merged.operator === '==' ? 'true' : '';
+        merged.value = colType === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(merged.operator) ? 'true' : '';
       }
 
       if (patch.operator && patch.operator !== c.operator) {
         const colType = getFieldType(merged.field);
-        if (colType === 'boolean' && patch.operator === '==' && !merged.value) {
+        if (colType === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(patch.operator) && !merged.value) {
           merged.value = 'true';
         }
       }
@@ -560,7 +571,7 @@ export function LayerFilterEditor({
 
                   {/* Value input (hidden for is_null and has) */}
                   {cond.operator !== 'is_null' && cond.operator !== 'has' ? (
-                    getFieldType(cond.field) === 'boolean' && cond.operator === '==' ? (
+                    getFieldType(cond.field) === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(cond.operator) ? (
                       <Select
                         value={cond.value || 'true'}
                         onValueChange={(val) => updateCondition(cond.id, { value: val })}
