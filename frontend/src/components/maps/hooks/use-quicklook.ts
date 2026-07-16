@@ -24,6 +24,11 @@ export interface UseQuicklookResult {
  * valid JWT. Those are cached in quicklook-cache.ts for the session so we
  * don't re-fetch them on re-render.
  *
+ * Hooks are called unconditionally and the fetch is gated with `enabled` —
+ * an early return for null/known-missing ids would change the hook count on
+ * the render AFTER a 404 populates the negative cache ("Rendered fewer hooks
+ * than expected", crashing the consumer to its error boundary).
+ *
  * Blob URL lifecycle: the blob URL is cached in React Query under the
  * quicklook key and shared across consumers. Revocation is tied to the QUERY
  * CACHE (eviction / refetch-replacement) via registerBlobUrlRevocation, NOT to
@@ -34,25 +39,10 @@ export function useQuicklook(
   datasetId: string | null,
   size: number = 256,
 ): UseQuicklookResult {
-  // Short-circuit: no dataset — idle
-  if (datasetId == null) {
-    return { url: null, status: 'idle' };
-  }
-
-  // Short-circuit: already known missing for this session — don't fetch
-  if (isQuicklookKnownMissing(datasetId)) {
-    return { url: null, status: 'missing' };
-  }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- early return only happens when hooks aren't needed (datasetId is null or missing)
-  return useQuicklookQuery(datasetId, size);
-}
-
-// Separated inner hook so the early-return pattern above doesn't violate React
-// hooks exhaustive-deps lint; all conditional logic happens before any hook calls.
-function useQuicklookQuery(datasetId: string, size: number): UseQuicklookResult {
   const queryClient = useQueryClient();
   useEffect(() => { registerBlobUrlRevocation(queryClient); }, [queryClient]);
+
+  const knownMissing = datasetId != null && isQuicklookKnownMissing(datasetId);
 
   const {
     data,
@@ -64,13 +54,20 @@ function useQuicklookQuery(datasetId: string, size: number): UseQuicklookResult 
       const blob = await apiFetchBlob(`/datasets/${datasetId}/quicklook?size=${size}`);
       return URL.createObjectURL(blob);
     },
-    enabled: true,
+    enabled: datasetId != null && !knownMissing,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
     retry: false,
   });
 
-  // Handle 404 negative-caching — must happen after hooks, but before return
+  if (datasetId == null) {
+    return { url: null, status: 'idle' };
+  }
+  if (knownMissing) {
+    return { url: null, status: 'missing' };
+  }
+
+  // Handle 404 negative-caching — idempotent, so safe to call during render
   if (error instanceof ApiError && error.status === 404) {
     markQuicklookMissing(datasetId);
     return { url: null, status: 'missing' };
