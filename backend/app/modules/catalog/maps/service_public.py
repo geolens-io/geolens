@@ -365,7 +365,10 @@ async def get_shared_map(
             Dataset.feature_count,
             RasterAsset.is_dem,
             RasterAsset.band_info,
-            Dataset.current_version,
+            # fix(#TBD B-038): tile_version reads the dedicated URL cache-buster —
+            # current_version only changes on reupload, so feature edits and
+            # column DDL never rolled the _v= param (stale CDN/browser tiles).
+            Dataset.tile_cache_version,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)

@@ -536,6 +536,9 @@ async def create_feature(
             },
         ),
     )
+    # fix(#TBD B-038): roll the _v= URL cache-buster in the same transaction —
+    # the post-commit Valkey purge cannot reach CDN/browser caches keyed on the URL.
+    dataset.bump_tile_cache_version()
     await db.commit()
 
     # Invalidate cached tiles so the new feature appears immediately
@@ -634,6 +637,8 @@ async def replace_single_feature(
             },
         ),
     )
+    # fix(#TBD B-038): roll the _v= URL cache-buster (see feature.insert above).
+    dataset.bump_tile_cache_version()
     await db.commit()
 
     # Invalidate cached tiles so the replaced feature renders correctly
@@ -727,6 +732,8 @@ async def patch_single_feature(
             },
         ),
     )
+    # fix(#TBD B-038): roll the _v= URL cache-buster (see feature.insert above).
+    dataset.bump_tile_cache_version()
     await db.commit()
 
     # Invalidate cached tiles so the updated feature renders correctly
@@ -796,6 +803,8 @@ async def delete_single_feature(
             details={"gid": gid},
         ),
     )
+    # fix(#TBD B-038): roll the _v= URL cache-buster (see feature.insert above).
+    dataset.bump_tile_cache_version()
     await db.commit()
 
     # Invalidate cached tiles so the deleted feature disappears immediately

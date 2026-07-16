@@ -282,3 +282,59 @@ def test_set_label_halo_contrasts_text_color() -> None:
     # Dark text (incl. the #333333 default) -> light halo, preserving prior contrast.
     for dark in (None, "#333333", "#000000", "#102040", "navy"):
         assert halo(dark) == "#ffffff", dark
+
+
+# ---------------------------------------------------------------------------
+# fix(#TBD B-037): set_opacity server-side clamp + per-item action building
+# ---------------------------------------------------------------------------
+
+
+def test_set_opacity_clamps_out_of_range_values() -> None:
+    """Models emit percent opacity (e.g. 50); the collector must clamp into
+    [0,1] (matching the set_style paint-clamping precedent) instead of letting
+    ChatAction's ge/le validation reject the action downstream."""
+    over = _collect_chat_action(
+        "set_opacity", {"layer_id": "l1", "opacity": 50}, {"status": "ok"}
+    )
+    assert over == {"type": "set_opacity", "layer_id": "l1", "opacity": 1.0}
+
+    under = _collect_chat_action(
+        "set_opacity", {"layer_id": "l1", "opacity": -0.5}, {"status": "ok"}
+    )
+    assert under is not None and under["opacity"] == 0.0
+
+    in_range = _collect_chat_action(
+        "set_opacity", {"layer_id": "l1", "opacity": 0.5}, {"status": "ok"}
+    )
+    assert in_range is not None and in_range["opacity"] == 0.5
+
+    # Non-numeric junk passes through untouched — _build_chat_actions drops it
+    # per-item rather than the whole turn failing.
+    junk = _collect_chat_action(
+        "set_opacity", {"layer_id": "l1", "opacity": "half"}, {"status": "ok"}
+    )
+    assert junk is not None and junk["opacity"] == "half"
+
+
+def test_build_chat_actions_drops_invalid_items_per_action() -> None:
+    """fix(#TBD B-037): one Pydantic-invalid action must drop with a note —
+    the previous ``[ChatAction(**a) for a in actions]`` raised through the
+    caller's broad except, discarding every valid action in the turn."""
+    from app.processing.ai.chat_validation import _build_chat_actions
+
+    raw = [
+        {"type": "set_opacity", "layer_id": "l1", "opacity": 0.5},
+        {"type": "set_opacity", "layer_id": "l2", "opacity": "not-a-number"},
+        {"type": "toggle_visibility", "layer_id": "l3", "visible": True},
+    ]
+    actions, dropped = _build_chat_actions(raw)
+    assert [(a.type, a.layer_id) for a in actions] == [
+        ("set_opacity", "l1"),
+        ("toggle_visibility", "l3"),
+    ]
+    assert dropped == ["set_opacity (invalid action payload)"]
+
+    # Every item invalid -> empty actions, all noted, no exception.
+    actions, dropped = _build_chat_actions([{"type": "no-such-type"}])
+    assert actions == []
+    assert dropped == ["no-such-type (invalid action payload)"]

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
 
 from app.processing.ai.chat_service import (
+    _build_chat_actions,
     _collect_chat_action,
     _execute_chat_tool,
     _validate_actions,
@@ -29,7 +30,7 @@ from app.processing.ai.llm_loop import (
     build_history_messages,
     resolve_provider,
 )
-from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
+from app.processing.ai.schemas import ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
 from typing import TYPE_CHECKING
@@ -376,11 +377,14 @@ async def _stream_anthropic_chat(
         block.text for block in final_message.content if block.type == "text"
     )
 
-    # Validate actions before yielding (mirrors non-streaming path)
-    actions = [ChatAction(**a) for a in collected_actions]
+    # Validate actions before yielding (mirrors non-streaming path).
+    # Per-item build: one invalid action drops with a note instead of raising
+    # through the broad except and discarding the whole turn (fix(#TBD B-037)).
+    actions, invalid = _build_chat_actions(collected_actions)
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
     )
+    dropped = invalid + dropped
     if dropped:
         explanation += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
 
@@ -697,11 +701,14 @@ async def _stream_openai_chat(
     # end-of-stream record here — that would double-count and be skipped on
     # disconnect.
 
-    # Validate actions before yielding (mirrors non-streaming path)
-    actions = [ChatAction(**a) for a in collected_actions]
+    # Validate actions before yielding (mirrors non-streaming path).
+    # Per-item build: one invalid action drops with a note instead of raising
+    # through the broad except and discarding the whole turn (fix(#TBD B-037)).
+    actions, invalid = _build_chat_actions(collected_actions)
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
     )
+    dropped = invalid + dropped
     explanation_text = "".join(content_parts)
     if dropped:
         explanation_text += "\n\nNote: some actions were skipped: " + "; ".join(dropped)

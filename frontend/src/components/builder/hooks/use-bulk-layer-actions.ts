@@ -247,18 +247,20 @@ export function useBulkLayerActions({
     };
 
     setLocalLayers((prev) => {
-      const next = prev.map((l) =>
-        selectedIds.has(l.id)
-          ? ({ ...l, parent_group_id: groupId } as unknown as MapLayerResponse)
-          : l,
-      );
-      // Insert group row at position of first selected layer (smallest sort_order)
-      const insertIdx = next.findIndex((l) => selectedIds.has(l.id));
-      if (insertIdx >= 0) {
-        next.splice(insertIdx, 0, groupRow as unknown as MapLayerResponse);
-      } else {
-        next.push(groupRow as unknown as MapLayerResponse);
-      }
+      // fix(#TBD B-040): compact the selected block adjacent to the group row.
+      // Stamping parent_group_id in place stranded any non-selected layer that
+      // sat between selected ones below the group — stack order and map draw
+      // order diverged for it, persistently (not self-healed by save+reload).
+      const insertIdx = prev.findIndex((l) => selectedIds.has(l.id));
+      const grouped = prev
+        .filter((l) => selectedIds.has(l.id))
+        .map((l) => ({ ...l, parent_group_id: groupId } as unknown as MapLayerResponse));
+      const rest = prev.filter((l) => !selectedIds.has(l.id));
+      const next = [...rest];
+      // Every row before the first selected one is unselected, so the prev
+      // index of the first selected row is also its insertion index in `rest`.
+      const at = insertIdx >= 0 ? Math.min(insertIdx, rest.length) : rest.length;
+      next.splice(at, 0, groupRow as unknown as MapLayerResponse, ...grouped);
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));

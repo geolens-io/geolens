@@ -161,10 +161,14 @@ const LEGACY_KEY_MAP: Record<string, string> = {
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
   if (url === BLANK_BASEMAP_ID) {
-    // No glyphs property — blank basemap has zero symbol/text layers so no
-    // glyph fetch is needed. Omitting prevents any glyph request attempts.
+    // fix(#TBD B-039): the blank basemap itself has zero symbol layers, but
+    // user data layers (companion `*-label` layers, symbol-mode text) are
+    // added to THIS style — without a glyphs URL MapLibre cannot render any
+    // text-field, so feature labels silently failed in no-basemap mode.
+    // Glyphs are fetched lazily; with no text layers nothing is requested.
     return {
       version: 8 as const,
+      glyphs: FALLBACK_GLYPHS,
       sources: {},
       layers: [
         {

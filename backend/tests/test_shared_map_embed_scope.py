@@ -246,6 +246,43 @@ class TestTileVersionField:
         assert shared_resp.status_code == 200
         assert shared_resp.json()["layers"][0]["tile_version"] == 1
 
+    async def test_tile_version_bumps_on_content_mutation(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#TBD B-038): tile_version must roll on content mutations that
+        don't create a DatasetVersion row. It previously read current_version
+        (bumped on reupload only), so feature edits / column DDL / tile_columns
+        changes purged Valkey but left the ``_v=`` tile URL unchanged — CDN and
+        browser caches kept serving stale tiles until max-age expiry (T-01).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[{"name": "name", "type": "text"}],
+        )
+        map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+
+        # A tile_columns change alters the attribute set embedded in vector
+        # tiles — the PATCH handler must bump the dedicated cache-buster.
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"tile_columns": ["name"]},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
+        builder_resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert builder_resp.status_code == 200
+        assert builder_resp.json()["layers"][0]["tile_version"] == 2
+
+        shared_resp = await client.get(f"/maps/shared/{share_token}")
+        assert shared_resp.status_code == 200
+        assert shared_resp.json()["layers"][0]["tile_version"] == 2
+
 
 class TestGeojsonZEmbedFallback:
     async def test_geojson_z_accepts_embed_token_for_scoped_dataset(

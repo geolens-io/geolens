@@ -461,6 +461,34 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updatedC?.parent_group_id).toBe(groupId);
   });
 
+  // fix(#TBD B-040): a non-contiguous selection must compact the grouped block
+  // adjacent to the group row. Stamping parent_group_id in place stranded any
+  // non-selected layer between selected ones below the group — stack order and
+  // map draw order diverged for it, and it persisted through save/reload.
+  it('non-contiguous selection compacts the grouped block and moves unselected layers below it', async () => {
+    const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
+    const layerB = makeMockLayer({ id: 'b', sort_order: 1, dataset_record_type: 'vector_dataset' });
+    const layerC = makeMockLayer({ id: 'c', sort_order: 2, dataset_record_type: 'vector_dataset' });
+    const { result } = renderBuilderLayers(makeMapData([layerA, layerB, layerC]));
+    await waitForInit();
+
+    act(() => {
+      result.current.handleBulkGroup(new Set(['a', 'c']));
+    });
+
+    const updated = result.current.localLayers as GroupedLayer[];
+    const shape = updated.map((l) => (l.layer_type === 'group:folder' ? 'G' : l.id));
+    // Group row at the first selected position, children compacted directly
+    // after it, the unselected middle layer pushed below the block.
+    expect(shape).toEqual(['G', 'a', 'c', 'b']);
+    expect(updated.map((l) => l.sort_order)).toEqual([0, 1, 2, 3]);
+
+    const groupId = updated.find((l) => l.layer_type === 'group:folder')!.id;
+    expect(updated.find((l) => l.id === 'a')?.parent_group_id).toBe(groupId);
+    expect(updated.find((l) => l.id === 'c')?.parent_group_id).toBe(groupId);
+    expect(updated.find((l) => l.id === 'b')?.parent_group_id ?? null).toBeNull();
+  });
+
   // fix(#392): a single loose layer selection
   // returns false, toasts the "need two" reason, and does not mutate localLayers. (audit B-004d/LM-04)
   it('Test A: single loose layer returns false, toasts bulkGroupNeedTwo, and does not mutate localLayers', async () => {

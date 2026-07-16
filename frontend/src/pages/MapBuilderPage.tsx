@@ -48,6 +48,7 @@ import {
 } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { clearPersistedFolderGroup, getParentGroupId, resolveDropGroupMembership } from '@/components/builder/folder-groups';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
@@ -985,10 +986,33 @@ export function MapBuilderPage() {
       return;
     }
 
+    // fix(#TBD B-040): derive group membership from the drop target — the
+    // bare arrayMove never touched parent_group_id, so dragging a child out
+    // of its group was a silent no-op (childrenByGroup renders by membership,
+    // not array position, so the row snapped back) and a loose layer dropped
+    // between group children never joined the group.
+    const overLayer = currentLayers[newIndex];
+    const currentGroupId = getParentGroupId(activeLayer);
+    const targetGroupId = resolveDropGroupMembership(activeLayer, overLayer);
+    let moved = arrayMove(currentLayers, oldIndex, newIndex);
+    if (targetGroupId !== currentGroupId) {
+      moved = moved.map((l) => {
+        if (l.id !== activeLayer.id) return l;
+        return {
+          ...l,
+          parent_group_id: targetGroupId,
+          // Leaving a group also clears the persisted folderGroupId — mirrors
+          // handleMoveLayerOutOfGroup (fix(#392) CR-01).
+          ...(targetGroupId === null
+            ? { style_config: clearPersistedFolderGroup(l.style_config) }
+            : {}),
+        } as MapLayerResponse;
+      });
+    }
     dispatchLayerAction({
       type: 'reorder_layers',
       source: 'manual',
-      layers: arrayMove(currentLayers, oldIndex, newIndex),
+      layers: moved,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + dispatchLayerAction + handleAddDataset captured; basemapGroup is stable derived value; announce is stable
   }, [layers.localLayers, dispatchLayerAction, layers.handleAddDataset, layers.markDirty, basemapGroup, t, announce, applyBasemapPatch, basemapState]);
