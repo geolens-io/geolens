@@ -49,7 +49,10 @@ def upgrade() -> None:
             WHERE con.contype = 'p'
               AND con.conname LIKE '%\_staging\_%' ESCAPE '\'
               AND c.relname NOT LIKE '%\_staging\_%' ESCAPE '\'
-              AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+              -- Only GeoLens-owned data schemas ('data', or 'data_t_<tenant>'
+              -- per tenant_data_schema); a co-hosted non-GeoLens schema could
+              -- legitimately contain '_staging_' pkey names we must not touch.
+              AND (n.nspname = 'data' OR n.nspname LIKE 'data\_t\_%' ESCAPE '\')
             """
         )
     ).fetchall()

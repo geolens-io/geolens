@@ -95,14 +95,14 @@ def test_readme_documents_perf_05_in_effect():
     )
 
 
-def test_env_example_dbm04_comment_references_30():
-    """PERF-05: .env.example DBM-04 comment block references max_connections=30."""
+def test_env_example_dbm04_comment_references_80():
+    """PERF-05 + db-audit-20260716: .env.example DBM-04 comment matches the live budget."""
     env_example = (_REPO_ROOT / ".env.example").read_text()
     assert (
-        "max_connections=30" in env_example or "max_connections = 30" in env_example
+        "max_connections=80" in env_example or "max_connections = 80" in env_example
     ), (
-        ".env.example DBM-04 comment must reference max_connections=30 "
-        "after PERF-05 lands."
+        ".env.example DBM-04 comment must reference the shipped max_connections=80 "
+        "(keep it in lockstep with db/postgresql.conf and the README envelope)."
     )
 
 
