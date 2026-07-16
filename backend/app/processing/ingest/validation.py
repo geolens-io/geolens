@@ -45,6 +45,10 @@ VRT_BODY_SCAN_LIMIT = VRT_BODY_MAX_BYTES  # backward-compatible exported name
 _URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
+# Parquet files start AND end with this 4-byte magic; a missing footer magic
+# is the standard truncation signal (the footer holds all file metadata).
+_PARQUET_MAGIC = b"PAR1"
+
 # ZIP bomb thresholds
 MAX_COMPRESSION_RATIO = 500
 MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
@@ -334,6 +338,27 @@ def validate_vrt_body(file_path: str) -> None:
             _reject_uploaded_vrt_source((elem.text or "").strip())
 
 
+def validate_parquet_file(file_path: str) -> None:
+    """Validate the PAR1 header and footer magic of a .parquet upload.
+
+    Catches wrong-content and truncated files before pyarrow ever opens
+    them. Raises ValueError with a user-friendly message.
+    """
+    path = Path(file_path)
+    # 12 bytes = header magic + 4-byte footer length + footer magic.
+    if path.stat().st_size < 12:
+        raise ValueError("The uploaded file is not a valid Parquet file.")
+    with path.open("rb") as f:
+        head = f.read(4)
+        f.seek(-4, 2)
+        tail = f.read(4)
+    if head != _PARQUET_MAGIC or tail != _PARQUET_MAGIC:
+        raise ValueError(
+            "File has .parquet extension but is not a valid Parquet file "
+            "(missing PAR1 magic bytes — the file may be corrupt or truncated)."
+        )
+
+
 def validate_file_content(file_path: str, filename: str) -> None:
     """Verify file content matches declared extension via magic bytes.
 
@@ -345,6 +370,12 @@ def validate_file_content(file_path: str, filename: str) -> None:
     # XML which puremagic doesn't reliably distinguish from generic text).
     if suffix == ".vrt":
         validate_vrt_body(file_path)
+        return
+
+    # Parquet has a fixed header+footer magic; check both directly instead
+    # of relying on puremagic's header-only detection.
+    if suffix == ".parquet":
+        validate_parquet_file(file_path)
         return
 
     with open(file_path, "rb") as f:
