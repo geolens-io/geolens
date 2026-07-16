@@ -381,7 +381,7 @@ export const BuilderMap = memo(function BuilderMap({
   const clusterGeoJsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const clusterFallbackNotifiedRef = useRef<Set<string>>(new Set());
   const [clusterGeoJsonVersion, setClusterGeoJsonVersion] = useState(0);
-  // fix(#TBD B-035): key the fetch effect on a structural signature, not the
+  // fix(#524 B-035): key the fetch effect on a structural signature, not the
   // layers array — paint/opacity/filter edits replace the array identity on
   // every debounce tick (~10Hz during a slider drag) and previously re-issued
   // a network GeoJSON fetch per bounded-geojson cluster layer on each tick.

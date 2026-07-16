@@ -203,7 +203,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     return 'style';
   }, [activeTab, availableTabs]);
 
-  // fix(#TBD B-034): roving-tabindex tablists need an arrow-key handler —
+  // fix(#524 B-034): roving-tabindex tablists need an arrow-key handler —
   // inactive tabs carry tabIndex=-1, so without this a keyboard-only user has
   // no path to the Filter/Labels/Popup editors at all. Selection follows focus
   // (WAI-ARIA automatic-activation tabs pattern).

@@ -726,7 +726,7 @@ describe('LayerEditorPanel', () => {
     });
   });
 
-  // fix(#TBD B-034): the tab strip uses a roving tabindex (inactive tabs are
+  // fix(#524 B-034): the tab strip uses a roving tabindex (inactive tabs are
   // tabIndex=-1), so without arrow-key handling a keyboard-only user has NO
   // path to the Filter/Labels/Popup editors.
   describe('tablist keyboard navigation (B-034)', () => {

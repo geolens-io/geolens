@@ -42,7 +42,7 @@ describe('cluster source strategy', () => {
   });
 });
 
-// fix(#TBD B-035): the cluster fetch effect keys on this signature so that
+// fix(#524 B-035): the cluster fetch effect keys on this signature so that
 // paint/opacity/filter edits (new layers-array identity, same cluster set)
 // never re-trigger network GeoJSON fetches.
 describe('getClusterSourceKey', () => {

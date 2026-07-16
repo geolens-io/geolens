@@ -120,7 +120,7 @@ export function shouldFetchClusterGeoJson(layer: ClusterSourceLayer) {
   return getClusterSourceStrategy(layer).kind === 'bounded-geojson';
 }
 
-// fix(#TBD B-035): structural identity key for the cluster-source fetch effect.
+// fix(#524 B-035): structural identity key for the cluster-source fetch effect.
 // Folds in only the fields that change WHICH GeoJSON gets fetched (cluster
 // membership, dataset, resolved strategy). Paint/opacity/filter edits replace
 // the layers array identity on every tick; keying the fetch effect on this

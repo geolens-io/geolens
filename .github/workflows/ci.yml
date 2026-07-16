@@ -1287,7 +1287,7 @@ jobs:
       - name: Run E2E tests
         run: npx playwright test
 
-      # fix(#TBD B-036): the builder-hardening suite previously ran in NO CI
+      # fix(#524 B-036): the builder-hardening suite previously ran in NO CI
       # trigger (this job runs only the default config), so a red hardening
       # gate on main was invisible. Chromium project only — the runner installs
       # chromium alone, and the firefox/webkit projects are a local reviewer

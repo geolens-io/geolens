@@ -613,7 +613,7 @@ describe('numeric in_list per-entry validation (fix(#394) FL-03)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#TBD B-033): a pending debounced value emit must be cancelled by any
+// fix(#524 B-033): a pending debounced value emit must be cancelled by any
 // immediate emit — otherwise the stale 200ms timer re-emits the pre-change
 // filter, overwrites the newer one, and (because lastEmittedFilterRef is set
 // to the stale value) the prop-sync effect never corrects the UI, so the
