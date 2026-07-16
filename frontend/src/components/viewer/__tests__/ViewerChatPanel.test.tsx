@@ -99,6 +99,39 @@ describe('ViewerChatPanel', () => {
     expect(screen.getByText('1 row')).toBeInTheDocument();
   });
 
+  it('applies only the winning (last) query result — no stale flyover (#534)', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            // Superseded spatial result: its flyover must NOT fire...
+            {
+              type: 'show_query_result',
+              geojson: { type: 'FeatureCollection', features: [] },
+              bbox: [-1, -1, 1, 1],
+              rows: [],
+              columns: ['name'],
+            },
+            // ...the retried non-spatial result is what the table shows.
+            { type: 'show_query_result', rows: [[496]], columns: ['count'], row_count: 1 },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Counted on retry.' } };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this map...'), 'count features');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Counted on retry.');
+    expect(handleQueryResult).not.toHaveBeenCalled();
+    expect(screen.getByText('496')).toBeInTheDocument();
+  });
+
   it('shows a retry-able error bubble when the stream fails', async () => {
     setAvailable(true);
     // eslint-disable-next-line require-yield
