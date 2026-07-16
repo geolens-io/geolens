@@ -122,8 +122,13 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
           for (const action of getChatActions(data.actions)) {
             if (action.type === 'show_query_result') {
               const qr = toQueryResult(action);
-              if (qr) queryResult = qr;
-              spatialResult = toChatResultHandoff(action.geojson, action.bbox) ?? spatialResult;
+              if (qr) {
+                // Keep table and spatial payload PAIRED: both come from the
+                // same accepted action, so "Open in builder" never carries
+                // geometry from an earlier result than the table shown (#533).
+                queryResult = qr;
+                spatialResult = toChatResultHandoff(action.geojson, action.bbox) ?? undefined;
+              }
             }
           }
         } else if (event === 'done') {

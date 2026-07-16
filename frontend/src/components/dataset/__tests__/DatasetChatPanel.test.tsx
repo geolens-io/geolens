@@ -136,6 +136,51 @@ describe('DatasetChatPanel', () => {
     expect(JSON.parse(sessionStorage.getItem('geolens-chat-result')!)).toEqual({ geojson, bbox });
   });
 
+  it('does not carry a stale spatial payload when a later table result has none (#533)', async () => {
+    setAvailable(true);
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74.5, 40.4, -73.4, 41.1];
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            // Spatial result first...
+            {
+              type: 'show_query_result',
+              rows: [['Central Park', 843]],
+              columns: ['name', 'acres'],
+              row_count: 1,
+              geojson,
+              bbox,
+            },
+            // ...then a non-spatial table (e.g. an aggregate) wins the panel.
+            {
+              type: 'show_query_result',
+              rows: [[496]],
+              columns: ['count'],
+              row_count: 1,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Counted.' } };
+    });
+    mockMutateAsync.mockResolvedValue({ id: 'map-9' });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'count parks');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Counted.');
+    await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
+
+    // The shown table is the count — the earlier geometry must not ride along.
+    expect(mockNavigate).toHaveBeenCalledWith('/maps/map-9?add_dataset=ds-1');
+    expect(sessionStorage.getItem('geolens-chat-result')).toBeNull();
+  });
+
   it('hides the open-in-builder action for non-spatial tables (fix #531)', async () => {
     setAvailable(true);
     mockStream.mockImplementation(async function* () {
