@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -83,6 +83,12 @@ test-sequential:
 
 test-cov:
 	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short --cov=app --cov-report=term-missing
+
+# Live-provider AI evals (assertion-based NL->SQL regression suite). Skipped
+# in normal test runs; costs real provider tokens. Needs the dev DB up and
+# ANTHROPIC_API_KEY (or the configured provider's key) in the environment.
+ai-evals:
+	cd backend && set -a && if [ -f ../.env.test ]; then . ../.env.test; fi && set +a && RUN_AI_EVALS=1 uv run pytest tests/evals/ -v
 
 e2e:
 	npx playwright test
