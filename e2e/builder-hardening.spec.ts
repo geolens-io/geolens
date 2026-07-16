@@ -91,15 +91,25 @@ function attachConsoleGate(page: Page): ConsoleGate {
   return { errors, warnings };
 }
 
+// fix(#524 B-036): status-0 AJAXErrors are network-level aborts of in-flight
+// tile fetches (page reload / source teardown mid-request), not server or app
+// failures. MapLibre surfaces them as console errors during the
+// save-and-reload flows this suite drives, and BuilderMap's DEV error handler
+// re-logs the same events as '[BuilderMap] Map error:' warnings. Real tile
+// failures carry an HTTP status (404/500/...) and still fail the gate.
+const BENIGN_ABORTED_FETCH = /AJAXError: Failed to fetch \(0\)/;
+
 function assertConsoleClean(gate: ConsoleGate) {
-  expect(gate.errors, `Console errors:\n${gate.errors.join('\n')}`).toHaveLength(0);
+  const errors = gate.errors.filter((error) => !BENIGN_ABORTED_FETCH.test(error));
+  expect(errors, `Console errors:\n${errors.join('\n')}`).toHaveLength(0);
   const filtered = gate.warnings.filter(
     (warning) =>
       !warning.includes('MapLibre') &&
       !warning.includes('GL Driver') &&
       !warning.includes('GPU stall') &&
       !warning.includes('Unable to load glyph range') &&
-      !warning.includes('Rendering codepoint'),
+      !warning.includes('Rendering codepoint') &&
+      !BENIGN_ABORTED_FETCH.test(warning),
   );
   expect(filtered, `Console warnings:\n${filtered.join('\n')}`).toHaveLength(0);
 }

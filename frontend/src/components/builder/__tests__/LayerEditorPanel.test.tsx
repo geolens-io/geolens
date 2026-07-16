@@ -725,4 +725,57 @@ describe('LayerEditorPanel', () => {
       expect(handlers.onFilterChange).toHaveBeenCalledWith('layer-99', null);
     });
   });
+
+  // fix(#524 B-034): the tab strip uses a roving tabindex (inactive tabs are
+  // tabIndex=-1), so without arrow-key handling a keyboard-only user has NO
+  // path to the Filter/Labels/Popup editors.
+  describe('tablist keyboard navigation (B-034)', () => {
+    it('ArrowRight selects and focuses the next tab', () => {
+      const onTabChange = vi.fn();
+      const layer = makeLayer();
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers({ onTabChange })}
+          activeTab={null}
+        />
+      );
+      fireEvent.keyDown(screen.getByRole('tab', { name: 'Style' }), { key: 'ArrowRight' });
+      expect(onTabChange).toHaveBeenCalledWith(layer.id, 'filter');
+      expect(document.activeElement).toBe(
+        screen.getByRole('tab', { name: 'Filter' }),
+      );
+    });
+
+    it('ArrowLeft wraps from the first tab to the last', () => {
+      const onTabChange = vi.fn();
+      const layer = makeLayer();
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers({ onTabChange })}
+          activeTab={null}
+        />
+      );
+      fireEvent.keyDown(screen.getByRole('tab', { name: 'Style' }), { key: 'ArrowLeft' });
+      expect(onTabChange).toHaveBeenCalledWith(layer.id, 'popup');
+    });
+
+    it('End jumps to the last tab', () => {
+      const onTabChange = vi.fn();
+      const layer = makeLayer();
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers({ onTabChange })}
+          activeTab={null}
+        />
+      );
+      fireEvent.keyDown(screen.getByRole('tab', { name: 'Style' }), { key: 'End' });
+      expect(onTabChange).toHaveBeenCalledWith(layer.id, 'popup');
+    });
+  });
 });

@@ -611,3 +611,60 @@ describe('numeric in_list per-entry validation (fix(#394) FL-03)', () => {
     expect(result).toEqual(['all', ['!', ['in', ['get', 'population'], ['literal', [5]]]]]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// fix(#524 B-033): a pending debounced value emit must be cancelled by any
+// immediate emit — otherwise the stale 200ms timer re-emits the pre-change
+// filter, overwrites the newer one, and (because lastEmittedFilterRef is set
+// to the stale value) the prop-sync effect never corrects the UI, so the
+// wrong filter persists on Save.
+// ---------------------------------------------------------------------------
+describe('LayerFilterEditor - stale debounce cancellation (B-033)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('removing a condition inside the debounce window is not clobbered by the pending value emit', () => {
+    const onFilterChange = vi.fn();
+    const existingFilter: FilterSpecification = [
+      'all',
+      ['==', ['get', 'name'], 'foo'],
+      ['==', ['get', 'name'], 'bar'],
+    ] as FilterSpecification;
+
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: existingFilter,
+      onFilterChange,
+    }));
+
+    // Type into the FIRST condition's value input — arms the 200ms timer with
+    // a snapshot that still contains BOTH conditions. (fireEvent.change drives
+    // the controlled input through React onChange; a raw 'input' event does
+    // not update React state, which would leave the timer unarmed and the
+    // race unexercised.)
+    const valueInputs = screen.getAllByRole('textbox', { name: 'Value' });
+    act(() => {
+      fireEvent.change(valueInputs[0], { target: { value: 'typed' } });
+    });
+
+    // Remove the SECOND condition before the timer fires (immediate emit).
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove condition' });
+    act(() => {
+      fireEvent.click(removeButtons[1]);
+    });
+
+    // Let any stale timer fire. Before the fix, it re-emitted the 2-condition
+    // snapshot, resurrecting the deleted condition as the LAST emitted filter.
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    const lastEmitted = onFilterChange.mock.calls.at(-1)?.[0] as unknown[];
+    expect(lastEmitted).toEqual(['all', ['==', ['get', 'name'], 'typed']]);
+  });
+});
