@@ -1287,6 +1287,15 @@ jobs:
       - name: Run E2E tests
         run: npx playwright test
 
+      # fix(#TBD B-036): the builder-hardening suite previously ran in NO CI
+      # trigger (this job runs only the default config), so a red hardening
+      # gate on main was invisible. Chromium project only — the runner installs
+      # chromium alone, and the firefox/webkit projects are a local reviewer
+      # concern. --reporter=line keeps it from clobbering the main suite's
+      # playwright-report/ artifact.
+      - name: Run builder-hardening E2E suite (chromium)
+        run: npx playwright test -c playwright.builder-hardening.config.ts --project=chromium-hardening --reporter=line
+
       - name: Upload test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
@@ -1312,7 +1321,8 @@ jobs:
         run: docker compose down
 
   # ---- E2E / A11Y trigger matrix (REL-03) ----
-  # nightly cron ("0 7 * * *") + workflow_dispatch → e2e-test (full npx playwright test)
+  # nightly cron ("0 7 * * *") + workflow_dispatch → e2e-test (full npx playwright test
+  #                                                  + builder-hardening chromium suite)
   # release tag push (v*)                         → prod-smoke.yml (e2e:smoke:audit against
   #                                                  published images), gates release.yml via
   #                                                  workflow_run on "Prod Compose Smoke"

@@ -203,6 +203,28 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     return 'style';
   }, [activeTab, availableTabs]);
 
+  // fix(#TBD B-034): roving-tabindex tablists need an arrow-key handler —
+  // inactive tabs carry tabIndex=-1, so without this a keyboard-only user has
+  // no path to the Filter/Labels/Popup editors at all. Selection follows focus
+  // (WAI-ARIA automatic-activation tabs pattern).
+  const handleTablistKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const currentIndex = availableTabs.indexOf(resolvedActiveTab);
+    let nextTab: LayerEditorTab | undefined;
+    if (event.key === 'ArrowRight') {
+      nextTab = availableTabs[(currentIndex + 1) % availableTabs.length];
+    } else if (event.key === 'ArrowLeft') {
+      nextTab = availableTabs[(currentIndex - 1 + availableTabs.length) % availableTabs.length];
+    } else if (event.key === 'Home') {
+      nextTab = availableTabs[0];
+    } else if (event.key === 'End') {
+      nextTab = availableTabs[availableTabs.length - 1];
+    }
+    if (!nextTab) return;
+    event.preventDefault();
+    if (nextTab !== resolvedActiveTab) handlers.onTabChange(layer.id, nextTab);
+    document.getElementById(`tab-${layer.id}-${nextTab}`)?.focus();
+  };
+
   // Destructive render-as switch — when the user clicks a different render-as
   // pill, hold the intended target until they confirm. null = no pending switch.
   const [pendingRenderAs, setPendingRenderAs] = useState<RenderAsId | null>(null);
@@ -401,6 +423,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                         : 'text-muted-foreground hover:text-foreground border-b-2 border-transparent',
                     )}
                     onClick={() => handlers.onTabChange(layer.id, tab)}
+                    onKeyDown={handleTablistKeyDown}
                   >
                     <span>{t(`layerItem.${tab}Tab`)}</span>
                     {pip}

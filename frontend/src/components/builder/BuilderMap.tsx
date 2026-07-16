@@ -32,7 +32,7 @@ import {
 } from '@/components/map/cluster-interactions';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
-import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
+import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceKey, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
 import type { StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import {
   toSyncInput,
@@ -381,13 +381,15 @@ export const BuilderMap = memo(function BuilderMap({
   const clusterGeoJsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const clusterFallbackNotifiedRef = useRef<Set<string>>(new Set());
   const [clusterGeoJsonVersion, setClusterGeoJsonVersion] = useState(0);
-  const clusterSourceLayers = useMemo(
-    () => layers.filter((layer) => isClusterRenderMode(layer)),
-    [layers],
-  );
+  // fix(#TBD B-035): key the fetch effect on a structural signature, not the
+  // layers array — paint/opacity/filter edits replace the array identity on
+  // every debounce tick (~10Hz during a slider drag) and previously re-issued
+  // a network GeoJSON fetch per bounded-geojson cluster layer on each tick.
+  const clusterSourceKey = useMemo(() => getClusterSourceKey(layers), [layers]);
 
   useEffect(() => {
     let cancelled = false;
+    const clusterSourceLayers = layersRef.current.filter((layer) => isClusterRenderMode(layer));
     if (clusterSourceLayers.length === 0) {
       if (clusterGeoJsonDataRef.current.size > 0) {
         clusterGeoJsonDataRef.current = new Map();
@@ -461,7 +463,9 @@ export const BuilderMap = memo(function BuilderMap({
     return () => {
       cancelled = true;
     };
-  }, [clusterSourceLayers, t]);
+    // layers is read through layersRef (always fresh post-render);
+    // clusterSourceKey covers every field that changes what gets fetched.
+  }, [clusterSourceKey, t]);
 
   // Build a lookup map from dataset_id -> TileToken, memoized by sig values
   const tokenMap = useMemo(() => {

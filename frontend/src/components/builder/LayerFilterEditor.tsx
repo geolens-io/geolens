@@ -247,6 +247,15 @@ export function LayerFilterEditor({
   }, []);
 
   function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
+    // fix(#TBD B-033): cancel any pending debounced value emit — a stale 200ms
+    // timer firing after this immediate emit would rebuild the filter from
+    // captured (pre-change) conditions/combinator, silently overwrite the newer
+    // filter, and set lastEmittedFilterRef to the stale value so the prop-sync
+    // effect never corrects the UI. The wrong filter then persists on Save.
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     setConditions(updated);
     const newFilter = buildFilterExpression(updated, columnInfo, combo);
     lastEmittedFilterRef.current = newFilter;
@@ -314,6 +323,13 @@ export function LayerFilterEditor({
 
   function handleCombinatorChange(value: string) {
     const combo = value as 'all' | 'any';
+    // fix(#TBD B-033): same stale-timer cancellation as emitChange — an All↔Any
+    // toggle within the debounce window must not be clobbered by the pending
+    // value emit (which captured the previous combinator).
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     setCombinator(combo);
     const newFilter = buildFilterExpression(conditions, columnInfo, combo);
     lastEmittedFilterRef.current = newFilter;
