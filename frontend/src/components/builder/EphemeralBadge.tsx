@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface EphemeralBadgeProps {
   featureCount: number;
@@ -8,9 +9,11 @@ interface EphemeralBadgeProps {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
+  /** Position override — the viewer's bottom-left corner is occupied by its basemap toggle. */
+  className?: string;
 }
 
-export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount }: EphemeralBadgeProps) {
+export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, className }: EphemeralBadgeProps) {
   const { t } = useTranslation('builder');
 
   const countLabel = truncated && totalCount != null
@@ -22,7 +25,7 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount 
     : t('ephemeralBadge.featureCount', { count: featureCount });
 
   return (
-    <div className="absolute bottom-8 start-4 z-[8] flex items-center gap-2 rounded-md bg-background/95 backdrop-blur-sm border shadow-sm px-3 py-1.5 text-xs">
+    <div className={cn('absolute bottom-8 start-4 z-[8] flex items-center gap-2 rounded-md bg-background/95 backdrop-blur-sm border shadow-sm px-3 py-1.5 text-xs', className)}>
       <span className="h-2 w-2 rounded-full bg-warning shrink-0" />
       <span className="text-muted-foreground">
         {t('ephemeralBadge.queryResult')} &middot; {countLabel}

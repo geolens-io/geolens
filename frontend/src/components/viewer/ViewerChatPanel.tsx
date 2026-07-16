@@ -7,6 +7,7 @@ import { ApiError } from '@/api/client';
 import { streamChatMessage } from '@/api/maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { cn } from '@/lib/utils';
 import type { ChatAction, ChatHistoryMessage, MapLayerResponse } from '@/types/api';
 
@@ -116,7 +117,7 @@ interface ViewerChatPanelProps {
 export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPanelProps) {
   const { t, i18n } = useTranslation('common');
   const { isAIAvailable } = useAIAvailability();
-  const { handleQueryResult } = useEphemeralLayers(mapInstanceRef);
+  const { ephemeralResult, handleQueryResult, handleDismissEphemeral } = useEphemeralLayers(mapInstanceRef);
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -243,6 +244,18 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
   if (!isAIAvailable) return null;
 
   return (
+    <>
+      {/* fix(#542): the viewer applied the query overlay with no legend entry,
+          badge, or dismissal — orange highlights persisted unexplained. Reuse
+          the builder's badge; the viewer's bottom-left column is occupied by
+          BasemapToggle (bottom-8) and the Map data button (bottom-20). */}
+      {ephemeralResult && (
+        <EphemeralBadge
+          featureCount={ephemeralResult.geojson.features.length}
+          onDismiss={handleDismissEphemeral}
+          className="bottom-32 start-3"
+        />
+      )}
     <div className="absolute bottom-8 right-3 z-10 flex flex-col items-end gap-2">
       {open && (
         <section
@@ -364,5 +377,6 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         </Button>
       )}
     </div>
+    </>
   );
 }
