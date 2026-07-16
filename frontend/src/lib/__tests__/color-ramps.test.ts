@@ -288,7 +288,7 @@ describe('suggestRampForMode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#TBD B-054/S-03): empty categorical map emits the bare fallback, never a
+// fix(#527 B-054/S-03): empty categorical map emits the bare fallback, never a
 // zero-pair ['match'] (below spec minimum arity — addLayer throws, swallowed,
 // and the layer silently never renders).
 // ---------------------------------------------------------------------------

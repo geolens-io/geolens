@@ -470,7 +470,7 @@ def _symbol_layout_from_style(
         next_layout["icon-offset"] = symbol["iconOffset"]
     if label_config and label_config.get("column"):
         next_layout.update(_label_layout(label_config))
-    # fix(#TBD B-054/LB-04): mirror the live adapter — the label overlap
+    # fix(#527 B-054/LB-04): mirror the live adapter — the label overlap
     # toggle governs the icon too, gated on an active label column.
     next_layout["icon-allow-overlap"] = not (
         label_config
@@ -974,7 +974,7 @@ def _style_layer_for_map_layer(
         )
         base["paint"] = {
             **paint,
-            # fix(#TBD B-054/S-05): the live adapter always drives icon-opacity
+            # fix(#527 B-054/S-05): the live adapter always drives icon-opacity
             # from the master opacity; export omitted it entirely.
             "icon-opacity": layer.opacity,
             **(_label_paint(label_config) if label_config else {}),

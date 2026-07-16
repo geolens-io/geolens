@@ -46,7 +46,7 @@ def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list
 def _extract_get_refs(expr: list | None) -> set[str]:
     """Recursively extract column names from ["get"/"has", "col"] nodes.
 
-    fix(#TBD B-054/F-04): ["has", col] refs count too — a hallucinated
+    fix(#527 B-054/F-04): ["has", col] refs count too — a hallucinated
     has-column filter previously passed validation and hid every feature.
     """
     if not isinstance(expr, list) or len(expr) == 0:

@@ -109,7 +109,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
               <button
                 key={hex}
                 type="button"
-                // fix(#TBD B-054/S-07): presets go through the same local-state
+                // fix(#527 B-054/S-07): presets go through the same local-state
                 // path as the picker so the selected ring updates instantly.
                 onClick={() => debouncedChange(hex)}
                 className={cn(

@@ -1768,7 +1768,7 @@ export function MapBuilderPage() {
       </div>
 
       {/* Right rail + panel */}
-      {/* fix(#TBD B-054/U-08): boundary parity with the sidebar/map — a
+      {/* fix(#527 B-054/U-08): boundary parity with the sidebar/map — a
           HistoryPanel/Notes render error must not take down the builder. */}
       {!isEditorHidden && (
         <PanelErrorBoundary panelId="builder-rail">

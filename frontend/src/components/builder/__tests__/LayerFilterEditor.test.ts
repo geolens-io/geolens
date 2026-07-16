@@ -670,7 +670,7 @@ describe('LayerFilterEditor - stale debounce cancellation (B-033)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#TBD B-054/F-05 + F-06): separators-only lists drop cleanly; boolean
+// fix(#527 B-054/F-05 + F-06): separators-only lists drop cleanly; boolean
 // columns support != end-to-end.
 // ---------------------------------------------------------------------------
 describe('separator-only in_list and boolean != (B-054/F-05, F-06)', () => {

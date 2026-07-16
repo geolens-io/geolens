@@ -149,7 +149,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       geojson.type === 'FeatureCollection' &&
       Array.isArray(action.bbox) &&
       action.bbox.length === 4 &&
-      // fix(#TBD B-054/C-06): Number.isFinite + non-inverted — NaN/inverted
+      // fix(#527 B-054/C-06): Number.isFinite + non-inverted — NaN/inverted
       // bounds pass the range comparisons and throw in fitBounds.
       action.bbox.every((n: unknown) => Number.isFinite(n))
     ) {

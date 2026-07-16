@@ -102,7 +102,7 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
     'icon-rotate': symbol.iconRotation ?? 0,
     'icon-anchor': symbol.iconAnchor ?? 'center',
     'icon-offset': symbol.iconOffset ?? [0, 0],
-    // fix(#TBD B-054/LB-04): honor the label overlap toggle for the icon too —
+    // fix(#527 B-054/LB-04): honor the label overlap toggle for the icon too —
     // hardcoded true meant "allow overlap: off" decluttered text only. Gated
     // on an active label column so a stale allowOverlap from a cleared label
     // config can't hide icons with no visible control.

@@ -135,7 +135,7 @@ describe('ChatPanel', () => {
     });
   });
 
-  // fix(#TBD B-054/C-06): NaN and inverted bboxes pass the range comparisons
+  // fix(#527 B-054/C-06): NaN and inverted bboxes pass the range comparisons
   // and throw in fitBounds downstream — both must be rejected.
   it.each([
     ['NaN bbox', [NaN, 40, -73, 41]],

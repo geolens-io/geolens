@@ -270,7 +270,7 @@ export function buildCategoricalExpression(
     pairs.push(value, color);
   }
   if (pairs.length === 0) {
-    // fix(#TBD B-054/S-03): an empty/all-null column yields a zero-pair
+    // fix(#527 B-054/S-03): an empty/all-null column yields a zero-pair
     // ['match', input, fallback] — below the spec's minimum arity, so
     // addLayer throws (swallowed) and the layer silently never renders.
     // Mirror of the symbol-adapter guard (B-024): emit the bare fallback.

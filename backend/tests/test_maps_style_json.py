@@ -2066,7 +2066,7 @@ def test_export_omits_default_zoom_range():
     assert "maxzoom" not in primary
 
 
-# fix(#TBD B-054/S-05 + LB-04): symbol export parity — master opacity drives
+# fix(#527 B-054/S-05 + LB-04): symbol export parity — master opacity drives
 # icon-opacity, and the label overlap toggle governs the icon.
 def test_symbol_export_emits_icon_opacity_from_master_opacity():
     layer = _layer(
