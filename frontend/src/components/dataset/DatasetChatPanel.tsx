@@ -9,6 +9,7 @@ import { streamDatasetChatMessage } from '@/api/maps';
 import { useCreateMap } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { QueryResultTable, type QueryResult } from '@/components/viewer/ViewerChatPanel';
+import { stashChatResult, toChatResultHandoff, type ChatResultHandoff } from '@/lib/chat-result-handoff';
 import { cn } from '@/lib/utils';
 import type { ChatAction, ChatHistoryMessage } from '@/types/api';
 
@@ -19,6 +20,8 @@ interface ChatMessage {
   role: 'user' | 'assistant' | 'error';
   content: string;
   queryResult?: QueryResult;
+  /** Spatial payload of the query result, carried into the builder on open. */
+  spatialResult?: ChatResultHandoff;
   retryMessage?: string;
 }
 
@@ -108,6 +111,7 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
     abortRef.current = controller;
     let streamed = '';
     let queryResult: QueryResult | undefined;
+    let spatialResult: ChatResultHandoff | undefined;
     try {
       for await (const { event, data } of streamDatasetChatMessage(datasetId, userMsg, i18n.language, history, controller.signal)) {
         if (event === 'token') {
@@ -119,11 +123,12 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
             if (action.type === 'show_query_result') {
               const qr = toQueryResult(action);
               if (qr) queryResult = qr;
+              spatialResult = toChatResultHandoff(action.geojson, action.bbox) ?? spatialResult;
             }
           }
         } else if (event === 'done') {
           const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || streamed;
-          setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: finalText, queryResult }]);
+          setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: finalText, queryResult, spatialResult }]);
         } else if (event === 'error') {
           // A pre-flight HTTP status (403/503) rides the SSE error event; surface it
           // as ApiError so it classifies honestly rather than as a generic failure.
@@ -158,12 +163,15 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
   }, []);
 
-  /** "Open in builder": new map + navigate with this dataset staged (AddToMapButton flow). */
-  const handleOpenInBuilder = useCallback(async () => {
+  /** "Open in builder": new map + navigate with this dataset staged (AddToMapButton flow).
+   * A spatial query result rides sessionStorage into the builder's ephemeral-layer
+   * path; a stash failure (quota/private mode) degrades to opening without it. */
+  const handleOpenInBuilder = useCallback(async (spatial?: ChatResultHandoff) => {
     try {
       const name = t('addToMap.newMapName', { title: datasetTitle });
       const newMap = await createMap.mutateAsync({ name });
-      navigate(`/maps/${newMap.id}?add_dataset=${datasetId}`);
+      const carried = spatial ? stashChatResult(spatial) : false;
+      navigate(`/maps/${newMap.id}?add_dataset=${datasetId}${carried ? '&chat_result=1' : ''}`);
     } catch {
       toast.error(t('addToMap.createFailed'));
     }
@@ -230,7 +238,7 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
                               variant="outline"
                               size="sm"
                               className="h-7 gap-1 text-xs"
-                              onClick={() => void handleOpenInBuilder()}
+                              onClick={() => void handleOpenInBuilder(msg.spatialResult)}
                               disabled={createMap.isPending}
                             >
                               {createMap.isPending ? (

@@ -37,6 +37,7 @@ function renderPanel(showOpenInBuilder = true) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionStorage.clear();
 });
 
 describe('DatasetChatPanel', () => {
@@ -94,7 +95,45 @@ describe('DatasetChatPanel', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
     expect(mockMutateAsync).toHaveBeenCalledWith({ name: 'NY Parks Map' });
+    // No spatial payload in the result — plain add_dataset URL, nothing stashed.
     expect(mockNavigate).toHaveBeenCalledWith('/maps/map-9?add_dataset=ds-1');
+    expect(sessionStorage.getItem('geolens-chat-result')).toBeNull();
+  });
+
+  it('carries a spatial query result into the builder via sessionStorage', async () => {
+    setAvailable(true);
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74.5, 40.4, -73.4, 41.1];
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              rows: [['Central Park', 843]],
+              columns: ['name', 'acres'],
+              row_count: 1,
+              geojson,
+              bbox,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found 1 result.' } };
+    });
+    mockMutateAsync.mockResolvedValue({ id: 'map-9' });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'largest park');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Found 1 result.');
+    await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/maps/map-9?add_dataset=ds-1&chat_result=1');
+    expect(JSON.parse(sessionStorage.getItem('geolens-chat-result')!)).toEqual({ geojson, bbox });
   });
 
   it('hides the open-in-builder action for non-spatial tables (fix #531)', async () => {
