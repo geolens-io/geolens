@@ -1035,11 +1035,13 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         )
 
     size_caps = {
-        "backend/app/modules/catalog/maps/style_json.py": 1390,
+        # fix(#526 B-045): +13 lines for per-layer minzoom/maxzoom in style.json export.
+        "backend/app/modules/catalog/maps/style_json.py": 1403,
         "backend/app/modules/catalog/maps/style_import.py": 450,
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,
-        "backend/app/modules/catalog/maps/router_sharing.py": 371,
+        # fix(#526 B-047): +9 lines for the card-route SPA-redirect fallback shell.
+        "backend/app/modules/catalog/maps/router_sharing.py": 380,
         "backend/app/modules/catalog/search/query_params.py": 225,
         "backend/app/modules/catalog/search/router_saved.py": 100,
         "backend/app/modules/admin/router_operations.py": 275,
