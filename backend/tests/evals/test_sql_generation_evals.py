@@ -32,6 +32,7 @@ ordinary test flake — investigate before rerunning.
 import os
 import re
 import uuid
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select, text
@@ -56,12 +57,15 @@ pytestmark = [
 # STRICTLY ordered under both degree-area and geography-area (no ties), so
 # the top-3 ordering is unambiguous regardless of how the model measures:
 # 0.030x0.040 > 0.030x0.020 > 0.012x0.012 > 0.010x0.010 > 0.005x0.004 > 0.002x0.002.
+# Insertion order deliberately does NOT match size order — the smallest park
+# is first and the largest mid-list, so a bare `SELECT ... LIMIT n` that
+# ignores area cannot pass the superlative or top-N evals on row order alone.
 _PARKS = [
-    ("Central Green", "regional", (-73.980, 40.760, -73.950, 40.800)),
+    ("Elm Commons", "pocket", (-73.900, 40.680, -73.898, 40.682)),
     ("River Bend Park", "community", (-73.930, 40.700, -73.920, 40.710)),
     ("Riverside Walk", "community", (-73.995, 40.740, -73.990, 40.744)),
+    ("Central Green", "regional", (-73.980, 40.760, -73.950, 40.800)),
     ("Sunset Park", "community", (-74.010, 40.645, -73.998, 40.657)),
-    ("Elm Commons", "pocket", (-73.900, 40.680, -73.898, 40.682)),
     ("North Meadow", "regional", (-73.970, 40.850, -73.940, 40.870)),
 ]
 _LARGEST = "Central Green"
@@ -166,7 +170,9 @@ def _cells(result: SandboxResult) -> list:
 
 
 def _numbers(result: SandboxResult) -> list[float]:
-    return [float(c) for c in _cells(result) if isinstance(c, (int, float))]
+    # Decimal included: ROUND(...::numeric) is legitimate SQL and arrives as
+    # Decimal from the driver, not float.
+    return [float(c) for c in _cells(result) if isinstance(c, (int, float, Decimal))]
 
 
 async def test_count_rows(client, test_db_session, eval_dataset):
