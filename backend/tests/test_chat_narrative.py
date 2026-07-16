@@ -56,6 +56,13 @@ def test_system_prompt_has_mention_syntax_hint():
     assert "@LayerName" in prompt or "@[Layer Name]" in prompt
 
 
+def test_system_prompt_has_result_sanity_check():
+    """Query results get a self-validation pass before presentation (#531 follow-up)."""
+    prompt = build_chat_system_prompt([_make_layer()])
+    assert "Result Sanity Check" in prompt
+    assert "retry query_data ONCE" in prompt
+
+
 # --- Error message mapping ---
 
 

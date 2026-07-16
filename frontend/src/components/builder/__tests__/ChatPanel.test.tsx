@@ -135,6 +135,33 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('dispatches the flyover only for the winning (last) query result (#534)', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            // Superseded spatial result first — its flyover must NOT fire...
+            { type: 'show_query_result', geojson, bbox, rows: [], columns: ['name'] },
+            // ...because the retried (non-spatial) result is what the card shows.
+            { type: 'show_query_result', rows: [[496]], columns: ['count'] },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Counted on retry' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'count features');
+
+    await screen.findByText('Counted on retry');
+    expect(props.onQueryResult).not.toHaveBeenCalled();
+  });
+
   // fix(#527 B-054/C-06): NaN and inverted bboxes pass the range comparisons
   // and throw in fitBounds downstream — both must be rejected.
   it.each([
@@ -1358,6 +1385,28 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     expect(await screen.findByText(/Hamilton/)).toBeInTheDocument();
     // Scroll region with aria-label should exist
     expect(await screen.findByRole('region', { name: /query result table/i })).toBeInTheDocument();
+  });
+
+  it('renders the LAST query result when a retry supersedes an empty one (#534)', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            // Sanity-check retry path: first query came back empty...
+            { type: 'show_query_result', rows: [], columns: ['county'] },
+            // ...the retried query is the one the user should see.
+            { type: 'show_query_result', columns: ['county'], rows: [['Essex']] },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found it on retry' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'find essex');
+    expect(await screen.findByText(/Essex/)).toBeInTheDocument();
+    expect(screen.queryByText(/no rows/i)).toBeNull();
   });
 
   it('renders empty-state when show_query_result returns rows: []', async () => {

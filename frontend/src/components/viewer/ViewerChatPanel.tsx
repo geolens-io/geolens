@@ -190,12 +190,18 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           streamed += typeof data.text === 'string' ? data.text : '';
           setStreamingText(streamed);
         } else if (event === 'actions') {
-          // Read-only: only show_query_result is acted on; any edit action is ignored.
-          for (const action of getChatActions(data.actions)) {
-            if (action.type === 'show_query_result') {
-              const qr = applyQueryResult(action);
-              if (qr) queryResult = qr;
-            }
+          // Read-only: only show_query_result is acted on; any edit action is
+          // ignored. feat(#534): apply only the LAST query result — an earlier
+          // spatial result may be superseded by a sanity-check retry, and a
+          // per-action apply would leave the flyover describing a different
+          // result than the table (matches the builder's winning-action rule).
+          const results = getChatActions(data.actions).filter(
+            (a) => a.type === 'show_query_result',
+          );
+          const winning = results[results.length - 1];
+          if (winning) {
+            const qr = applyQueryResult(winning);
+            if (qr) queryResult = qr;
           }
         } else if (event === 'done') {
           const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || streamed;

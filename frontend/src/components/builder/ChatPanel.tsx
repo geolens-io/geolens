@@ -706,11 +706,19 @@ export function ChatPanel({
         supportsUndo: mutatingActions.every(isUndoSafeAction),
       };
     }
+    // feat(#534): the inline card renders the LAST show_query_result, so the
+    // flyover must dispatch for that same winning action only — an earlier
+    // spatial result may have been superseded by a sanity-check retry, and a
+    // per-action dispatch would leave the map describing a different result
+    // than the card.
+    const winningQueryResult = [...actions]
+      .reverse()
+      .find((a) => a.type === 'show_query_result');
     for (const action of actions) {
       if (action.type === 'show_query_result') {
-        // show_query_result: dispatch flyover path AND record in pendingActions for
-        // the inline data card render (rows field handled in the message bubble).
-        dispatchQueryResult(action);
+        // Record every result in pendingActions (message history keeps the
+        // full sequence; the card renderer picks the last).
+        if (action === winningQueryResult) dispatchQueryResult(action);
         pendingActions.push(action);
         continue;
       }
@@ -1079,7 +1087,11 @@ export function ChatPanel({
                 <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                 {/* Phase 1135 AI-08: inline data-analysis card for show_query_result rows */}
                 {(() => {
-                  const queryResultAction = msg.actions?.find((a) => a.type === 'show_query_result');
+                  // feat(#534): render the LAST query result — the sanity-check
+                  // retry instruction means an earlier action in the same
+                  // response may be a superseded (empty/implausible) result.
+                  const queryResults = msg.actions?.filter((a) => a.type === 'show_query_result');
+                  const queryResultAction = queryResults?.[queryResults.length - 1];
                   if (!queryResultAction) return null;
                   // Rows are arrays of cell values (list[list]) paired with a
                   // separate `columns` array — NOT objects keyed by name. The

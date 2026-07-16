@@ -212,3 +212,21 @@ def lang_name(code: str | None) -> str:
     # Handle codes like "en-US" → "en"
     base = code.split("-")[0].lower()
     return _LANGUAGE_NAMES.get(base, "English")
+
+
+# geosql-inspired result self-validation (dataset-chat follow-up, #531):
+# the model should sanity-check a query_data result before presenting it —
+# a silently wrong unit or filter is worse than one retried query. Shared by
+# the map-chat and dataset-chat system prompts.
+QUERY_RESULT_SANITY_PROMPT = """\
+## Result Sanity Check
+Before presenting a query result, check it against the layer facts above:
+- Empty result for a question the data should answer: the filter value is
+  usually misspelled or wrongly cased -- retry query_data ONCE asking for
+  case-insensitive or fuzzy matching before reporting "no results".
+- Magnitude check: a count larger than the layer's feature count, an area or
+  distance implausible for the geography, or every row showing the same value
+  usually means a wrong column or wrong units -- retry query_data ONCE
+  spelling out the expected units (e.g. "area in acres").
+- If the retry still looks wrong, present the result and state your doubt.
+"""
