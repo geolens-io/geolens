@@ -1360,6 +1360,28 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     expect(await screen.findByRole('region', { name: /query result table/i })).toBeInTheDocument();
   });
 
+  it('renders the LAST query result when a retry supersedes an empty one (#534)', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            // Sanity-check retry path: first query came back empty...
+            { type: 'show_query_result', rows: [], columns: ['county'] },
+            // ...the retried query is the one the user should see.
+            { type: 'show_query_result', columns: ['county'], rows: [['Essex']] },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Found it on retry' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'find essex');
+    expect(await screen.findByText(/Essex/)).toBeInTheDocument();
+    expect(screen.queryByText(/no rows/i)).toBeNull();
+  });
+
   it('renders empty-state when show_query_result returns rows: []', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

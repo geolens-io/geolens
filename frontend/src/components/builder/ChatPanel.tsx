@@ -1079,7 +1079,11 @@ export function ChatPanel({
                 <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                 {/* Phase 1135 AI-08: inline data-analysis card for show_query_result rows */}
                 {(() => {
-                  const queryResultAction = msg.actions?.find((a) => a.type === 'show_query_result');
+                  // feat(#534): render the LAST query result — the sanity-check
+                  // retry instruction means an earlier action in the same
+                  // response may be a superseded (empty/implausible) result.
+                  const queryResults = msg.actions?.filter((a) => a.type === 'show_query_result');
+                  const queryResultAction = queryResults?.[queryResults.length - 1];
                   if (!queryResultAction) return null;
                   // Rows are arrays of cell values (list[list]) paired with a
                   // separate `columns` array — NOT objects keyed by name. The
