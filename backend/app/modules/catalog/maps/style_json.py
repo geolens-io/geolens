@@ -930,10 +930,6 @@ def _style_layer_for_map_layer(
     raw_layout = dict(layer.layout or {})
     export_minzoom = raw_layout.get("_minzoom")
     export_maxzoom = raw_layout.get("_maxzoom")
-    if isinstance(export_minzoom, (int, float)) and export_minzoom > 0:
-        base["minzoom"] = export_minzoom
-    if isinstance(export_maxzoom, (int, float)) and export_maxzoom < 22:
-        base["maxzoom"] = export_maxzoom
 
     # Companions emitted BELOW the primary in painter order (drawn first / underneath).
     below_companions: list[dict[str, Any]] = []
@@ -998,7 +994,19 @@ def _style_layer_for_map_layer(
             label_layer["filter"] = layer.filter
         above_companions.append(label_layer)
 
-    return [*below_companions, base, *above_companions]
+    # fix(#526 codex on B-044): the zoom range applies to companions too — the
+    # live builder calls setLayerZoomRange on every companion id (outline/
+    # extrusion/arrow/label/color-relief), so export only tagging the primary
+    # left companions visible outside the range. Merge rather than clobber:
+    # the 3D extrusion companion emits its own (tighter) minzoom.
+    emitted = [*below_companions, base, *above_companions]
+    if isinstance(export_minzoom, (int, float)) and export_minzoom > 0:
+        for style_layer in emitted:
+            style_layer["minzoom"] = max(style_layer.get("minzoom", 0), export_minzoom)
+    if isinstance(export_maxzoom, (int, float)) and export_maxzoom < 22:
+        for style_layer in emitted:
+            style_layer["maxzoom"] = min(style_layer.get("maxzoom", 22), export_maxzoom)
+    return emitted
 
 
 # builder-audit #338 SPEC-01: per-layer-type MapLibre paint/layout property allow-lists.

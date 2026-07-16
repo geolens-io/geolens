@@ -2023,11 +2023,39 @@ def test_export_emits_layer_zoom_range_from_builder_layout_keys():
     layer = _layer(layout={"_minzoom": 8, "_maxzoom": 12})
     exported = style_json._style_layer_for_map_layer(layer, "src-1")
     primary = next(entry for entry in exported if entry["id"].startswith("layer-"))
-    assert primary["minzoom"] == 8
-    assert primary["maxzoom"] == 12
+    # fix(#526 codex on B-044): companions (here the -label layer) inherit the
+    # range too — the live builder zoom-ranges every companion id.
+    assert len(exported) > 1
+    for entry in exported:
+        assert entry["minzoom"] == 8
+        assert entry["maxzoom"] == 12
     # The builder-private keys themselves must not leak into the layout.
     assert "_minzoom" not in primary["layout"]
     assert "_maxzoom" not in primary["layout"]
+
+
+def test_export_zoom_range_merges_with_extrusion_companion_minzoom():
+    """The 3D extrusion companion has its own minzoom (default 14); a parent
+    _minzoom above it must win, one below it must not loosen it."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#2563eb", "_height_column": "height"},
+        layout={"_minzoom": 16},
+        label_config=None,
+    )
+    exported = style_json._style_layer_for_map_layer(layer, "src-1")
+    extrusion = next(e for e in exported if e["id"].endswith("-extrusion"))
+    assert extrusion["minzoom"] == 16
+
+    layer_low = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#2563eb", "_height_column": "height"},
+        layout={"_minzoom": 8},
+        label_config=None,
+    )
+    exported_low = style_json._style_layer_for_map_layer(layer_low, "src-1")
+    extrusion_low = next(e for e in exported_low if e["id"].endswith("-extrusion"))
+    assert extrusion_low["minzoom"] == 14
 
 
 def test_export_omits_default_zoom_range():
