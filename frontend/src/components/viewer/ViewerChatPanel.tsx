@@ -256,7 +256,11 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           className="bottom-32 start-3"
         />
       )}
-    <div className="absolute bottom-8 right-3 z-10 flex flex-col items-end gap-2">
+    {/* fix(#542): end-16, not end-3 — the problem-reporter lifebuoy (fixed
+        bottom-10 right-4, size-10) appears in the bottom-right corner once
+        errors are captured and overlapped the FAB (same class of bug as the
+        dataset-page fix in #540). */}
+    <div className="absolute bottom-8 end-16 z-10 flex flex-col items-end gap-2">
       {open && (
         <section
           role="dialog"
