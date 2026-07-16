@@ -423,7 +423,7 @@ class Dataset(Base):
     # Version tracking
     current_version: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
 
-    # fix(#TBD B-038): URL-keyed tile cache-buster. current_version is coupled
+    # fix(#525 B-038): URL-keyed tile cache-buster. current_version is coupled
     # to DatasetVersion history rows (bumped on reupload only), so content
     # mutations that don't create a version — single-feature edits, column DDL,
     # tile_columns changes — bump this counter instead. It feeds
@@ -465,7 +465,7 @@ class Dataset(Base):
         Call in the same transaction as any change to the dataset's tile
         content (feature edits, column DDL, tile_columns, reupload) — the
         post-commit Valkey purge cannot reach CDN/browser caches keyed on the
-        tile URL. fix(#TBD B-038)
+        tile URL. fix(#525 B-038)
         """
         self.tile_cache_version = (self.tile_cache_version or 1) + 1
 

@@ -106,7 +106,7 @@ async def get_dataset_meta(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # fix(#TBD B-038): tile_version reads the dedicated URL cache-buster —
+            # fix(#525 B-038): tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
@@ -238,7 +238,7 @@ async def _fetch_layer_rows_ordered(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
-            # fix(#TBD B-038): tile_version reads the dedicated URL cache-buster —
+            # fix(#525 B-038): tile_version reads the dedicated URL cache-buster —
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,

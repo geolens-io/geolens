@@ -105,7 +105,7 @@ describe('folder group persistence helpers', () => {
   });
 });
 
-// fix(#TBD B-040): membership rule for intra-stack drag drops — childrenByGroup
+// fix(#525 B-040): membership rule for intra-stack drag drops — childrenByGroup
 // renders by parent_group_id, not array position, so handleDragEnd must derive
 // the target membership from the drop target instead of doing a bare arrayMove.
 describe('resolveDropGroupMembership', () => {

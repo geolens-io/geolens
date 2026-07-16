@@ -249,7 +249,7 @@ class TestTileVersionField:
     async def test_tile_version_bumps_on_content_mutation(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#TBD B-038): tile_version must roll on content mutations that
+        """fix(#525 B-038): tile_version must roll on content mutations that
         don't create a DatasetVersion row. It previously read current_version
         (bumped on reupload only), so feature edits / column DDL / tile_columns
         changes purged Valkey but left the ``_v=`` tile URL unchanged — CDN and

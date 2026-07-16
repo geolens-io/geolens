@@ -461,7 +461,7 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updatedC?.parent_group_id).toBe(groupId);
   });
 
-  // fix(#TBD B-040): a non-contiguous selection must compact the grouped block
+  // fix(#525 B-040): a non-contiguous selection must compact the grouped block
   // adjacent to the group row. Stamping parent_group_id in place stranded any
   // non-selected layer between selected ones below the group — stack order and
   // map draw order diverged for it, and it persisted through save/reload.

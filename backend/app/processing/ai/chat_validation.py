@@ -22,7 +22,7 @@ logger = structlog.stdlib.get_logger(__name__)
 def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list[str]]:
     """Build ChatAction models per-item, dropping invalid ones with a note.
 
-    fix(#TBD B-037): the previous ``[ChatAction(**a) for a in raw_actions]``
+    fix(#525 B-037): the previous ``[ChatAction(**a) for a in raw_actions]``
     list comprehension let ONE Pydantic-invalid action (e.g. ``opacity: 50``)
     raise through the caller's broad except — a single generic error event and
     every valid action in the turn discarded. Malformed LLM output must degrade

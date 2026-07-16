@@ -375,7 +375,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # fix(#TBD B-037): clamp opacity server-side, matching the paint-clamping
+    # fix(#525 B-037): clamp opacity server-side, matching the paint-clamping
     # precedent (_PAINT_BOUNDS in set_style). Models emit percent values
     # (opacity: 50), which previously failed ChatAction's ge=0/le=1 validation
     # downstream instead of applying at all.

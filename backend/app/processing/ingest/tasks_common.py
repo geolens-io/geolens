@@ -1480,7 +1480,7 @@ async def _apply_reupload_swap(
     dataset.source_filename = source_filename
     dataset.original_srid = original_srid
     dataset.current_version = new_version
-    # fix(#TBD B-038): tile_version now reads tile_cache_version (not
+    # fix(#525 B-038): tile_version now reads tile_cache_version (not
     # current_version), so reupload must roll it too or the _v= tile-URL
     # cache-buster stops changing on the largest content mutation of all.
     dataset.bump_tile_cache_version()

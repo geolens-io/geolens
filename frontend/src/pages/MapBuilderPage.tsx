@@ -986,7 +986,7 @@ export function MapBuilderPage() {
       return;
     }
 
-    // fix(#TBD B-040): derive group membership from the drop target — the
+    // fix(#525 B-040): derive group membership from the drop target — the
     // bare arrayMove never touched parent_group_id, so dragging a child out
     // of its group was a silent no-op (childrenByGroup renders by membership,
     // not array position, so the row snapped back) and a loose layer dropped

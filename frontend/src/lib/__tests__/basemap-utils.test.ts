@@ -271,7 +271,7 @@ describe('BLANK_BASEMAP_ID', () => {
       type: 'background',
       paint: { 'background-color': 'rgba(0,0,0,0)' },
     });
-    // fix(#TBD B-039): the blank basemap MUST carry a glyphs URL — user data
+    // fix(#525 B-039): the blank basemap MUST carry a glyphs URL — user data
     // label layers (companion `*-label`, symbol-mode text) are added to this
     // style, and MapLibre cannot render any text-field without one. Glyphs are
     // fetched lazily, so a label-free blank map still makes no font requests.

@@ -932,7 +932,7 @@ class MapLayerResponse(BaseModel):
     band_count: int | None = None
     # fix(#394) VT-02: dataset content version. Feeds the client `_v=` tile-URL
     # cache-buster (map-sync.ts); the server-side Valkey purge is B-019.
-    # fix(#TBD B-038): now reads Dataset.tile_cache_version (bumped by feature
+    # fix(#525 B-038): now reads Dataset.tile_cache_version (bumped by feature
     # edits, column DDL, tile_columns changes, AND reupload) instead of
     # current_version (reupload-only), so every content mutation rolls the URL.
     tile_version: int | None = None

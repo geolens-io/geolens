@@ -181,7 +181,7 @@ async def add_column_endpoint(
             },
         ),
     )
-    # fix(#TBD B-038): roll the _v= URL cache-buster in the same transaction —
+    # fix(#525 B-038): roll the _v= URL cache-buster in the same transaction —
     # the post-commit Valkey purge cannot reach CDN/browser caches keyed on the URL.
     dataset.bump_tile_cache_version()
     await db.commit()
@@ -240,7 +240,7 @@ async def rename_column_endpoint(
             details={"old_name": column_name, "new_name": body.new_name},
         ),
     )
-    # fix(#TBD B-038): roll the _v= URL cache-buster in the same transaction —
+    # fix(#525 B-038): roll the _v= URL cache-buster in the same transaction —
     # the post-commit Valkey purge cannot reach CDN/browser caches keyed on the URL.
     dataset.bump_tile_cache_version()
     await db.commit()
@@ -308,7 +308,7 @@ async def alter_column_type_endpoint(
             details={"column_name": column_name, "new_type": body.new_type},
         ),
     )
-    # fix(#TBD B-038): roll the _v= URL cache-buster in the same transaction —
+    # fix(#525 B-038): roll the _v= URL cache-buster in the same transaction —
     # the post-commit Valkey purge cannot reach CDN/browser caches keyed on the URL.
     dataset.bump_tile_cache_version()
     await db.commit()
@@ -364,7 +364,7 @@ async def drop_column_endpoint(
             details={"column_name": column_name},
         ),
     )
-    # fix(#TBD B-038): roll the _v= URL cache-buster in the same transaction —
+    # fix(#525 B-038): roll the _v= URL cache-buster in the same transaction —
     # the post-commit Valkey purge cannot reach CDN/browser caches keyed on the URL.
     dataset.bump_tile_cache_version()
     await db.commit()

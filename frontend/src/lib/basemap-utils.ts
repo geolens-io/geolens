@@ -161,7 +161,7 @@ const LEGACY_KEY_MAP: Record<string, string> = {
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
   if (url === BLANK_BASEMAP_ID) {
-    // fix(#TBD B-039): the blank basemap itself has zero symbol layers, but
+    // fix(#525 B-039): the blank basemap itself has zero symbol layers, but
     // user data layers (companion `*-label` layers, symbol-mode text) are
     // added to THIS style — without a glyphs URL MapLibre cannot render any
     // text-field, so feature labels silently failed in no-basemap mode.

@@ -423,7 +423,7 @@ async def chat_edit_map(
     )
 
     # Parse actions into ChatAction models (per-item; invalid ones drop with a
-    # note instead of failing the whole turn — fix(#TBD B-037))
+    # note instead of failing the whole turn — fix(#525 B-037))
     actions, invalid = _build_chat_actions(result.actions)
 
     # Validate layer_id references + add_layer dataset RBAC

@@ -247,7 +247,7 @@ export function useBulkLayerActions({
     };
 
     setLocalLayers((prev) => {
-      // fix(#TBD B-040): compact the selected block adjacent to the group row.
+      // fix(#525 B-040): compact the selected block adjacent to the group row.
       // Stamping parent_group_id in place stranded any non-selected layer that
       // sat between selected ones below the group — stack order and map draw
       // order diverged for it, persistently (not self-healed by save+reload).

@@ -379,7 +379,7 @@ async def _stream_anthropic_chat(
 
     # Validate actions before yielding (mirrors non-streaming path).
     # Per-item build: one invalid action drops with a note instead of raising
-    # through the broad except and discarding the whole turn (fix(#TBD B-037)).
+    # through the broad except and discarding the whole turn (fix(#525 B-037)).
     actions, invalid = _build_chat_actions(collected_actions)
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
@@ -703,7 +703,7 @@ async def _stream_openai_chat(
 
     # Validate actions before yielding (mirrors non-streaming path).
     # Per-item build: one invalid action drops with a note instead of raising
-    # through the broad except and discarding the whole turn (fix(#TBD B-037)).
+    # through the broad except and discarding the whole turn (fix(#525 B-037)).
     actions, invalid = _build_chat_actions(collected_actions)
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port

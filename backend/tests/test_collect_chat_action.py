@@ -285,7 +285,7 @@ def test_set_label_halo_contrasts_text_color() -> None:
 
 
 # ---------------------------------------------------------------------------
-# fix(#TBD B-037): set_opacity server-side clamp + per-item action building
+# fix(#525 B-037): set_opacity server-side clamp + per-item action building
 # ---------------------------------------------------------------------------
 
 
@@ -317,7 +317,7 @@ def test_set_opacity_clamps_out_of_range_values() -> None:
 
 
 def test_build_chat_actions_drops_invalid_items_per_action() -> None:
-    """fix(#TBD B-037): one Pydantic-invalid action must drop with a note —
+    """fix(#525 B-037): one Pydantic-invalid action must drop with a note —
     the previous ``[ChatAction(**a) for a in actions]`` raised through the
     caller's broad except, discarding every valid action in the turn."""
     from app.processing.ai.chat_validation import _build_chat_actions

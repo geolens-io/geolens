@@ -327,7 +327,7 @@ async def update_dataset_metadata(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # fix(#TBD B-038): a tile_columns change alters the attribute set embedded
+    # fix(#525 B-038): a tile_columns change alters the attribute set embedded
     # in vector tiles — roll the _v= URL cache-buster in the same transaction
     # (the post-commit Valkey purge cannot reach CDN/browser caches).
     if "tile_columns" in meta.model_fields_set:

@@ -66,7 +66,7 @@ export function getParentGroupId(layer: MapLayerResponse): string | null {
   return (layer as GroupedLayer).parent_group_id ?? null;
 }
 
-// fix(#TBD B-040): membership rule for intra-stack drops. childrenByGroup
+// fix(#525 B-040): membership rule for intra-stack drops. childrenByGroup
 // renders by parent_group_id, not array position, so a drag that changes
 // position without updating membership silently snaps back on render.
 // A drop onto a group child adopts that child's group; onto a loose data row
