@@ -13706,7 +13706,7 @@
                 "type": "null"
               }
             ],
-            "description": "Server-calculated expiration preset available in every edition. Choose 1, 7, 30, or 90 days.",
+            "description": "Server-calculated expiration preset. Choose 1, 7, 30, or 90 days.",
             "title": "Expires In Days"
           }
         },
@@ -44902,7 +44902,7 @@
         ]
       },
       "patch": {
-        "description": "Update expiration on an existing share token. Owner or admin only.\n\nA fixed-day preset is available in every edition. Null clears expiration.",
+        "description": "Update expiration on an existing share token. Owner or admin only.\n\nA fixed-day preset is always available. Null clears expiration.",
         "operationId": "update_map_share_token_endpoint_maps__map_id__share__patch",
         "parameters": [
           {

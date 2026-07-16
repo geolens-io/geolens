@@ -3960,7 +3960,7 @@ export const getMapShareTokenEndpointMapsMapIdShareGet = <ThrowOnError extends b
  *
  * Update expiration on an existing share token. Owner or admin only.
  *
- * A fixed-day preset is available in every edition. Null clears expiration.
+ * A fixed-day preset is always available. Null clears expiration.
  */
 export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError extends boolean = false>(options: Options<UpdateMapShareTokenEndpointMapsMapIdSharePatchData, ThrowOnError>): RequestResult<UpdateMapShareTokenEndpointMapsMapIdSharePatchResponses, UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors, ThrowOnError> => (options.client ?? client).patch<UpdateMapShareTokenEndpointMapsMapIdSharePatchResponses, UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors, ThrowOnError>({
     security: [

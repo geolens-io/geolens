@@ -305,7 +305,7 @@ async def update_map_share_token_endpoint(
 ) -> ShareTokenResponse:
     """Update expiration on an existing share token. Owner or admin only.
 
-    A fixed-day preset is available in every edition. Null clears expiration.
+    A fixed-day preset is always available. Null clears expiration.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:

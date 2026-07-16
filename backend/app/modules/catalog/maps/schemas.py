@@ -1175,8 +1175,7 @@ class ShareTokenRequest(BaseModel):
     expires_in_days: ShareExpirationPresetDays | None = Field(
         default=None,
         description=(
-            "Server-calculated expiration preset available in every edition. "
-            "Choose 1, 7, 30, or 90 days."
+            "Server-calculated expiration preset. Choose 1, 7, 30, or 90 days."
         ),
     )
 
