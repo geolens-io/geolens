@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -16,6 +17,30 @@ if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
 
 logger = structlog.stdlib.get_logger(__name__)
+
+
+def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list[str]]:
+    """Build ChatAction models per-item, dropping invalid ones with a note.
+
+    fix(#525 B-037): the previous ``[ChatAction(**a) for a in raw_actions]``
+    list comprehension let ONE Pydantic-invalid action (e.g. ``opacity: 50``)
+    raise through the caller's broad except — a single generic error event and
+    every valid action in the turn discarded. Malformed LLM output must degrade
+    per-action, mirroring _validate_actions' dropped[] pattern.
+    """
+    actions: list[ChatAction] = []
+    dropped: list[str] = []
+    for raw in raw_actions:
+        try:
+            actions.append(ChatAction(**raw))
+        except (ValidationError, TypeError):
+            action_type = raw.get("type") if isinstance(raw, dict) else None
+            logger.warning(
+                "Invalid chat action payload, skipping",
+                action_type=action_type,
+            )
+            dropped.append(f"{action_type or 'unknown'} (invalid action payload)")
+    return actions, dropped
 
 
 def _extract_get_refs(expr: list | None) -> set[str]:

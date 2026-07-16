@@ -99,6 +99,7 @@ class DatasetProtocol(Protocol):
     quality_detail: dict | None
     quality_statement: str | None
     current_version: int
+    tile_cache_version: int
     is_3d: bool | None
     record: RecordProtocol
     attributes: Sequence[AttributeProtocol]

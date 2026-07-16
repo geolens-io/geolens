@@ -423,6 +423,17 @@ class Dataset(Base):
     # Version tracking
     current_version: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
 
+    # fix(#525 B-038): URL-keyed tile cache-buster. current_version is coupled
+    # to DatasetVersion history rows (bumped on reupload only), so content
+    # mutations that don't create a version — single-feature edits, column DDL,
+    # tile_columns changes — bump this counter instead. It feeds
+    # MapLayerResponse.tile_version and the frontend's `_v=` tile-URL param, so
+    # CDN/browser/nginx caches keyed on the URL roll over immediately (the
+    # Valkey purge alone cannot reach them).
+    tile_cache_version: Mapped[int] = mapped_column(
+        Integer, server_default="1", default=1
+    )
+
     # Per-dataset tile cache TTL override (null = use global settings.tile_cache_ttl)
     tile_cache_ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -447,6 +458,16 @@ class Dataset(Base):
         passive_deletes=True,
         lazy="select",
     )
+
+    def bump_tile_cache_version(self) -> None:
+        """Roll the `_v=` tile-URL cache-buster after a tile-content mutation.
+
+        Call in the same transaction as any change to the dataset's tile
+        content (feature edits, column DDL, tile_columns, reupload) — the
+        post-commit Valkey purge cannot reach CDN/browser caches keyed on the
+        tile URL. fix(#525 B-038)
+        """
+        self.tile_cache_version = (self.tile_cache_version or 1) + 1
 
 
 class RecordContact(Base):

@@ -930,9 +930,11 @@ class MapLayerResponse(BaseModel):
     is_dem: bool | None = None
     dem_vertical_units: str | None = None
     band_count: int | None = None
-    # fix(#394) VT-02: dataset content version (Dataset.current_version). Feeds
-    # the client `_v=` tile-URL cache-buster (map-sync.ts) so a reupload busts
-    # browser/CDN caches; the server-side Valkey purge is B-019.
+    # fix(#394) VT-02: dataset content version. Feeds the client `_v=` tile-URL
+    # cache-buster (map-sync.ts); the server-side Valkey purge is B-019.
+    # fix(#525 B-038): now reads Dataset.tile_cache_version (bumped by feature
+    # edits, column DDL, tile_columns changes, AND reupload) instead of
+    # current_version (reupload-only), so every content mutation rolls the URL.
     tile_version: int | None = None
     # fix(#430 V-17): dataset visibility/status so the builder can badge a layer whose
     # dataset is hidden from a public/shared map's anonymous audience.

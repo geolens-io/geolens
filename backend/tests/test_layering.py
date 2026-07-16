@@ -814,7 +814,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # chat_edit_map gains the per-turn allowed-tool guard on the tool
         # executor + action collector (so a view-only caller cannot execute or
         # collect a mutating tool). Cap raised 400 -> 440 (~4 LOC headroom).
-        "backend/app/processing/ai/chat_service.py": 440,
+        # fix(#525 B-037): +2 LOC — chat_edit_map builds ChatActions per-item
+        # via _build_chat_actions (re-exported here for streaming.py) so one
+        # invalid action drops with a note instead of failing the whole turn.
+        # Cap raised 440 -> 446 (~4 LOC headroom).
+        "backend/app/processing/ai/chat_service.py": 446,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {

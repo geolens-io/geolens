@@ -136,11 +136,16 @@ async def _fresh_query(query: str, params: dict | None = None):
 
 @_SKIP_UNDER_OVERLAY
 class TestMigrationRoundTripExitCodes:
-    """0009_email_verification round-trips with no subprocess errors.
+    """The migration chain round-trips with no subprocess errors.
 
-    Downgrade is a NO-OP (passes immediately) per the 0008_oauth_saml_columns
-    precedent — so downgrade exit 0 + re-upgrade exit 0 are both guaranteed once
-    upgrade head succeeds.
+    NOTE: ``downgrade -1`` reverts the CURRENT head, not 0009 — the original
+    "downgrade is a NO-OP" premise went stale as new heads landed. The
+    downgrade test therefore restores head in a ``finally``: under xdist the
+    reupgrade test can be scheduled onto a DIFFERENT worker (own database), so
+    without the in-test restore this worker's DB stays one revision behind for
+    every later test — with a destructive head downgrade (e.g. 0025 drops
+    datasets.tile_cache_version) that poisons unrelated tests with
+    UndefinedColumnError. fix(#525 B-038)
     """
 
     def test_upgrade_head_exits_zero(self):
@@ -152,12 +157,19 @@ class TestMigrationRoundTripExitCodes:
         )
 
     def test_downgrade_minus_one_exits_zero(self):
-        """alembic downgrade -1 exits 0 (downgrade is a NO-OP per 0009 docstring)."""
-        r = _run_alembic("downgrade", "-1")
-        assert r.returncode == 0, (
-            f"alembic downgrade -1 failed (rc={r.returncode}):\n"
-            f"stdout: {r.stdout}\nstderr: {r.stderr}"
-        )
+        """alembic downgrade -1 exits 0, then head is restored in-test."""
+        try:
+            r = _run_alembic("downgrade", "-1")
+            assert r.returncode == 0, (
+                f"alembic downgrade -1 failed (rc={r.returncode}):\n"
+                f"stdout: {r.stdout}\nstderr: {r.stderr}"
+            )
+        finally:
+            restore = _run_alembic("upgrade", "head")
+            assert restore.returncode == 0, (
+                f"alembic upgrade head (restore) failed (rc={restore.returncode}):\n"
+                f"stdout: {restore.stdout}\nstderr: {restore.stderr}"
+            )
 
     def test_reupgrade_head_exits_zero(self):
         """alembic upgrade head (re-apply) exits 0 after NO-OP downgrade."""

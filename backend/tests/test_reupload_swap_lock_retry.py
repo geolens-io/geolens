@@ -67,12 +67,13 @@ def _make_dataset_stub(table_name: str):
         spatial_extent=None,
         updated_by=None,
     )
-    return types.SimpleNamespace(
+    dataset = types.SimpleNamespace(
         id=uuid.uuid4(),
         record=record,
         record_id=uuid.uuid4(),
         table_name=table_name,
         current_version=1,
+        tile_cache_version=1,
         srid=4326,
         geometry_type="Point",
         feature_count=1,
@@ -84,6 +85,12 @@ def _make_dataset_stub(table_name: str):
         source_url=None,
         quality_detail=None,
     )
+    # fix(#525 B-038): _apply_reupload_swap now rolls the `_v=` tile
+    # cache-buster alongside current_version.
+    dataset.bump_tile_cache_version = lambda: setattr(
+        dataset, "tile_cache_version", dataset.tile_cache_version + 1
+    )
+    return dataset
 
 
 def _minimal_metadata():

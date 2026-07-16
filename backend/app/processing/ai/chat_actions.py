@@ -375,4 +375,16 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         except (json.JSONDecodeError, ValueError):
             pass
 
+    # fix(#525 B-037): clamp opacity server-side, matching the paint-clamping
+    # precedent (_PAINT_BOUNDS in set_style). Models emit percent values
+    # (opacity: 50), which previously failed ChatAction's ge=0/le=1 validation
+    # downstream instead of applying at all.
+    if tool_name == "set_opacity":
+        raw_opacity = tool_input.get("opacity")
+        if isinstance(raw_opacity, (int, float)) and not isinstance(raw_opacity, bool):
+            tool_input = {
+                **tool_input,
+                "opacity": min(1.0, max(0.0, float(raw_opacity))),
+            }
+
     return {"type": tool_name, **tool_input}

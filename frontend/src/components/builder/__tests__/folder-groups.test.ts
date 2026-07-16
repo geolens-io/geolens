@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   hydrateFolderGroupLayers,
   prepareLayersForPersistence,
+  resolveDropGroupMembership,
   type GroupedLayer,
 } from '../folder-groups';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -101,5 +102,45 @@ describe('folder group persistence helpers', () => {
       folderGroupExpanded: true,
     });
     expect(persisted[1].style_config?.builder).toEqual({ outlineWidth: 2 });
+  });
+});
+
+// fix(#525 B-040): membership rule for intra-stack drag drops — childrenByGroup
+// renders by parent_group_id, not array position, so handleDragEnd must derive
+// the target membership from the drop target instead of doing a bare arrayMove.
+describe('resolveDropGroupMembership', () => {
+  const groupRow = {
+    ...makeLayer({ id: 'group-1', display_name: 'Group' }),
+    layer_type: 'group:folder',
+  } as unknown as MapLayerResponse;
+  const childOfGroup = {
+    ...makeLayer({ id: 'child-1' }),
+    parent_group_id: 'group-1',
+  } as unknown as MapLayerResponse;
+  const childOfOther = {
+    ...makeLayer({ id: 'child-2' }),
+    parent_group_id: 'group-2',
+  } as unknown as MapLayerResponse;
+  const loose = makeLayer({ id: 'loose-1' });
+
+  it('a grouped child dropped onto a loose row leaves its group', () => {
+    expect(resolveDropGroupMembership(childOfGroup, loose)).toBeNull();
+  });
+
+  it('a loose layer dropped onto a group child adopts that group', () => {
+    expect(resolveDropGroupMembership(loose, childOfGroup)).toBe('group-1');
+  });
+
+  it('a grouped child dropped onto another group\'s child adopts the new group', () => {
+    expect(resolveDropGroupMembership(childOfGroup, childOfOther)).toBe('group-2');
+  });
+
+  it('dropping onto a group header row keeps the dragged row\'s membership', () => {
+    expect(resolveDropGroupMembership(childOfGroup, groupRow)).toBe('group-1');
+    expect(resolveDropGroupMembership(loose, groupRow)).toBeNull();
+  });
+
+  it('a loose layer dropped onto another loose row stays loose', () => {
+    expect(resolveDropGroupMembership(loose, makeLayer({ id: 'loose-2' }))).toBeNull();
   });
 });

@@ -66,6 +66,20 @@ export function getParentGroupId(layer: MapLayerResponse): string | null {
   return (layer as GroupedLayer).parent_group_id ?? null;
 }
 
+// fix(#525 B-040): membership rule for intra-stack drops. childrenByGroup
+// renders by parent_group_id, not array position, so a drag that changes
+// position without updating membership silently snaps back on render.
+// A drop onto a group child adopts that child's group; onto a loose data row
+// leaves any group; onto a group header row keeps the dragged row's current
+// membership (header drops are ambiguous — treat as position-only).
+export function resolveDropGroupMembership(
+  activeLayer: MapLayerResponse,
+  overLayer: MapLayerResponse,
+): string | null {
+  if (isFolderGroupLayer(overLayer)) return getParentGroupId(activeLayer);
+  return getParentGroupId(overLayer);
+}
+
 // fix(#392): handleUngroup / handleMoveLayerOutOfGroup previously only
 // cleared the frontend-only `parent_group_id` field, leaving any PERSISTED
 // `style_config.builder.folderGroupId` on the underlying layer object intact.

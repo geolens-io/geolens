@@ -69,13 +69,13 @@ from app.processing.ai.chat_styles import (
     _get_color_property,
 )
 from app.processing.ai.chat_validation import (
+    _build_chat_actions,
     _extract_get_refs,
     _validate_actions,
     _validate_filter_columns,
 )
 from app.processing.ai.llm_loop import resolve_provider
 from app.processing.ai.schemas import (
-    ChatAction,
     ChatHistoryMessage,
     ChatMapLayer,
     ChatResponse,
@@ -105,6 +105,7 @@ __all__ = [
     "_handle_query_data",
     "_collect_chat_action",
     # Validation (used by streaming.py)
+    "_build_chat_actions",
     "_validate_actions",
     "_validate_filter_columns",
     "_extract_get_refs",
@@ -421,13 +422,15 @@ async def chat_edit_map(
         output_tokens=result.output_tokens,
     )
 
-    # Parse actions into ChatAction models
-    actions = [ChatAction(**a) for a in result.actions]
+    # Parse actions into ChatAction models (per-item; invalid ones drop with a
+    # note instead of failing the whole turn — fix(#525 B-037))
+    actions, invalid = _build_chat_actions(result.actions)
 
     # Validate layer_id references + add_layer dataset RBAC
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
     )
+    dropped = invalid + dropped
 
     explanation = result.text
     if dropped:
