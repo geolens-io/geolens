@@ -756,7 +756,7 @@
       "title": "Ask AI about this dataset",
       "emptyHint": "Ask a question about this dataset's data.",
       "readOnlyNote": "Answers are read-only; the data is never modified.",
-      "placeholder": "e.g. How many features are larger than 5 acres?",
+      "placeholder": "Ask about this data...",
       "openInBuilder": "Open in builder"
     }
   },

@@ -756,7 +756,7 @@
       "title": "Pregunta a la IA sobre este dataset",
       "emptyHint": "Haz una pregunta sobre los datos de este dataset.",
       "readOnlyNote": "Las respuestas son de solo lectura; los datos nunca se modifican.",
-      "placeholder": "p. ej. ¿Cuántas entidades superan las 5 acres?",
+      "placeholder": "Pregunta sobre estos datos...",
       "openInBuilder": "Abrir en el editor"
     }
   },

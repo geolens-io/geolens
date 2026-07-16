@@ -54,7 +54,7 @@ describe('DatasetChatPanel', () => {
     renderPanel();
     await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
 
-    const input = screen.getByPlaceholderText('e.g. How many features are larger than 5 acres?');
+    const input = screen.getByPlaceholderText('Ask about this data...');
     await userEvent.type(input, 'how many parks?');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -84,7 +84,7 @@ describe('DatasetChatPanel', () => {
 
     renderPanel();
     await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
-    await userEvent.type(screen.getByPlaceholderText('e.g. How many features are larger than 5 acres?'), 'largest park');
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'largest park');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     await screen.findByText('Found 1 result.');
@@ -104,7 +104,7 @@ describe('DatasetChatPanel', () => {
 
     renderPanel();
     await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
-    await userEvent.type(screen.getByPlaceholderText('e.g. How many features are larger than 5 acres?'), 'hi');
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'hi');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     await screen.findByText('Something went wrong. Please try again.');

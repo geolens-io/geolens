@@ -756,7 +756,7 @@
       "title": "KI zu diesem Datensatz befragen",
       "emptyHint": "Stellen Sie eine Frage zu den Daten dieses Datensatzes.",
       "readOnlyNote": "Antworten sind schreibgeschützt; die Daten werden nie verändert.",
-      "placeholder": "z. B. Wie viele Objekte sind größer als 5 Acres?",
+      "placeholder": "Fragen Sie zu diesen Daten...",
       "openInBuilder": "Im Editor öffnen"
     }
   },

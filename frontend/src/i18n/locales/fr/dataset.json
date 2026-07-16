@@ -756,7 +756,7 @@
       "title": "Interroger l'IA sur ce jeu de données",
       "emptyHint": "Posez une question sur les données de ce jeu de données.",
       "readOnlyNote": "Les réponses sont en lecture seule ; les données ne sont jamais modifiées.",
-      "placeholder": "p. ex. Combien d'entités dépassent 5 acres ?",
+      "placeholder": "Posez une question sur ces données...",
       "openInBuilder": "Ouvrir dans l'éditeur"
     }
   },
