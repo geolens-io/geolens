@@ -226,7 +226,7 @@ class TestApplyReuploadSwapRetry:
         ).scalar()
         assert staging_exists is False
 
-        # db-audit-20260716 BLOAT-3: the swap also renamed the staging-era PK
+        # db-audit #529 BLOAT-3: the swap also renamed the staging-era PK
         # constraint, so direct-DB clients see `<live_table>_pkey`.
         pkey = (
             await self.session.execute(
@@ -370,7 +370,7 @@ class TestApplyReuploadSwapRetry:
 
 
 class TestRenamePkeyToMatchTable:
-    """Direct coverage for ``rename_pkey_to_match_table`` (db-audit-20260716 BLOAT-3)."""
+    """Direct coverage for ``rename_pkey_to_match_table`` (db-audit #529 BLOAT-3)."""
 
     _PKEY_SQL = (
         "SELECT con.conname FROM pg_constraint con "

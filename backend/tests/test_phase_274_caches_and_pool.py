@@ -34,10 +34,10 @@ def _reset_has_embeddings_cache() -> None:
 
 
 def test_postgresql_conf_max_connections_is_80():
-    """PERF-05 + v1039 PERF-003 + db-audit-20260716 CONN-1: max_connections = 80.
+    """PERF-05 + v1039 PERF-003 + db-audit #529 CONN-1: max_connections = 80.
 
     v1039 PERF-003 found the old budget (30) undercounted the asyncpg tile pool
-    + procrastinate connectors and raised it to 70. db-audit-20260716 CONN-1
+    + procrastinate connectors and raised it to 70. db-audit #529 CONN-1
     found that 70 still omitted the API-side Procrastinate connector (each
     uvicorn worker opens task_app for enqueueing, max_size=3), putting the
     worst case at 68 > 67 non-reserved slots. Raised to 80 with itemized math
@@ -56,7 +56,7 @@ def test_postgresql_conf_max_connections_is_80():
     )
     # Match `max_connections = 80` allowing trailing whitespace + inline comment.
     assert re.match(r"^max_connections\s*=\s*80(\s|$|#)", max_conn_lines[0]), (
-        f"db-audit-20260716 CONN-1: expected max_connections = 80, got: {max_conn_lines[0]}"
+        f"db-audit #529 CONN-1: expected max_connections = 80, got: {max_conn_lines[0]}"
     )
 
 
@@ -84,7 +84,7 @@ def test_readme_no_longer_says_perf_05_planned():
 def test_readme_documents_perf_05_in_effect():
     """PERF-05: README budget section matches the shipped connection envelope.
 
-    db-audit-20260716: the README claimed "30 of 30" long after the conf moved
+    db-audit #529: the README claimed "30 of 30" long after the conf moved
     to 70 — this gate now pins the README to the live 70-of-80 envelope so the
     two can't drift apart silently again.
     """
@@ -96,7 +96,7 @@ def test_readme_documents_perf_05_in_effect():
 
 
 def test_env_example_dbm04_comment_references_80():
-    """PERF-05 + db-audit-20260716: .env.example DBM-04 comment matches the live budget."""
+    """PERF-05 + db-audit #529: .env.example DBM-04 comment matches the live budget."""
     env_example = (_REPO_ROOT / ".env.example").read_text()
     assert (
         "max_connections=80" in env_example or "max_connections = 80" in env_example

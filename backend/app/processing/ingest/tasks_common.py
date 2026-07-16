@@ -57,7 +57,7 @@ async def rename_pkey_to_match_table(session: "AsyncSession", table_name: str) -
     ALTER TABLE ... RENAME TO keeps the constraint (and its backing index)
     named after the attempt-scoped staging table (``*_staging_<uuid>_pkey``),
     which is what QGIS/pgAdmin/DBeaver users see on a direct connection
-    (db-audit-20260716). Call inside the publish transaction, which already
+    (db-audit #529). Call inside the publish transaction, which already
     holds the table's AccessExclusiveLock from the rename, so this cannot
     block. Failure is cosmetic and must never fail the ingest — it is
     swallowed under a SAVEPOINT and logged.

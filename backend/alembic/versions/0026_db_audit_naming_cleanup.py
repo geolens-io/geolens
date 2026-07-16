@@ -1,6 +1,6 @@
-"""db-audit-20260716 naming cleanup: duplicate slug index + staging pkey names.
+"""db-audit #529 naming cleanup: duplicate slug index + staging pkey names.
 
-Two findings from the 2026-07-16 DB audit:
+Two findings from the 2026-07-16 DB audit (PR #529):
 
 BLOAT-1 — `ix_catalog_map_icon_assets_slug` fully duplicated the backing index
 of `uq_map_icon_assets_slug` on the same column; every write maintained both.
@@ -49,10 +49,18 @@ def upgrade() -> None:
             WHERE con.contype = 'p'
               AND con.conname LIKE '%\_staging\_%' ESCAPE '\'
               AND c.relname NOT LIKE '%\_staging\_%' ESCAPE '\'
-              -- Only GeoLens-owned data schemas ('data', or 'data_t_<tenant>'
-              -- per tenant_data_schema); a co-hosted non-GeoLens schema could
+              -- Only GeoLens-owned data schemas: 'data' (single-tenant) or the
+              -- exact per-tenant schemas derived from catalog.tenants — the
+              -- same construction as tenant_data_schema() and migration 0024.
+              -- A co-hosted schema that merely starts with 'data_t_' could
               -- legitimately contain '_staging_' pkey names we must not touch.
-              AND (n.nspname = 'data' OR n.nspname LIKE 'data\_t\_%' ESCAPE '\')
+              AND (
+                n.nspname = 'data'
+                OR n.nspname IN (
+                    SELECT 'data_t_' || pg_catalog.replace(id::text, '-', '_')
+                    FROM catalog.tenants
+                )
+              )
             """
         )
     ).fetchall()
