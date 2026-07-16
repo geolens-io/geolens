@@ -3620,7 +3620,7 @@ export interface paths {
          * Update Map Share Token Endpoint
          * @description Update expiration on an existing share token. Owner or admin only.
          *
-         *     A fixed-day preset is available in every edition. Null clears expiration.
+         *     A fixed-day preset is always available. Null clears expiration.
          */
         patch: operations["update_map_share_token_endpoint_maps__map_id__share__patch"];
         trace?: never;
@@ -10797,7 +10797,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Expires In Days
-             * @description Server-calculated expiration preset available in every edition. Choose 1, 7, 30, or 90 days.
+             * @description Server-calculated expiration preset. Choose 1, 7, 30, or 90 days.
              */
             expires_in_days?: (1 | 7 | 30 | 90) | null;
         };

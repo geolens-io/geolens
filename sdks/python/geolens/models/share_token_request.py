@@ -28,8 +28,8 @@ class ShareTokenRequest:
     Attributes:
         expires_at (datetime.datetime | None | Unset): Expiration timestamp; must carry a UTC offset. Null creates a
             non-expiring share link. A custom expiration requires advanced sharing controls.
-        expires_in_days (None | ShareTokenRequestExpiresInDaysType0 | Unset): Server-calculated expiration preset
-            available in every edition. Choose 1, 7, 30, or 90 days.
+        expires_in_days (None | ShareTokenRequestExpiresInDaysType0 | Unset): Server-calculated expiration preset.
+            Choose 1, 7, 30, or 90 days.
     """
 
     expires_at: datetime.datetime | None | Unset = UNSET
