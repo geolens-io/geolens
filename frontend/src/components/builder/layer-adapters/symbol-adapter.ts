@@ -105,7 +105,10 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
     // fix(#527 B-054/LB-04): honor the label overlap toggle for the icon too —
     // hardcoded true meant "allow overlap: off" decluttered text only. Gated
     // on an active label column so a stale allowOverlap from a cleared label
-    // config can't hide icons with no visible control.
+    // config can't hide icons with no visible control. Deliberately EXPLICIT
+    // false only (codex P2 on #527 proposed default-off): an absent
+    // allowOverlap keeps icons overlapping so saved maps that never touched
+    // the toggle don't change rendering; text keeps its own ?? false default.
     'icon-allow-overlap': !(lc?.column && lc.allowOverlap === false),
     visibility: input.visible ? 'visible' : 'none',
   };

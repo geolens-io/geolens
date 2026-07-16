@@ -686,4 +686,16 @@ describe('separator-only in_list and boolean != (B-054/F-05, F-06)', () => {
       ['!=', ['get', 'active'], true],
     ]);
   });
+
+  it('renders the true/false select (not a text input) for boolean != (codex P3 on #527)', () => {
+    render(createElement(LayerFilterEditor, {
+      columnInfo: [{ name: 'active', type: 'boolean' }],
+      filter: ['all', ['!=', ['get', 'active'], true]] as FilterSpecification,
+      onFilterChange: vi.fn(),
+    }));
+
+    const valueRow = screen.getByTestId('filter-value-row');
+    expect(within(valueRow).queryByRole('textbox', { name: 'Value' })).toBeNull();
+    expect(within(valueRow).getByRole('combobox', { name: 'Value' })).toBeInTheDocument();
+  });
 });

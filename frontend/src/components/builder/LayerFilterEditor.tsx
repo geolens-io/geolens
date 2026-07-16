@@ -94,6 +94,11 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
   ],
 };
 
+// fix(#527 B-054/F-06, codex P3): boolean operators whose value renders as the
+// true/false select — a free-text input would coerce anything but "true" to
+// false and silently save e.g. `active != false`.
+const BOOLEAN_VALUE_OPERATORS = new Set(['==', '!=']);
+
 function coerceValue(value: string, pgType: string): string | number | boolean {
   const colType = classifyColumnType(pgType);
   if (colType === 'number') {
@@ -289,7 +294,7 @@ export function LayerFilterEditor({
       id: crypto.randomUUID(),
       field,
       operator,
-      value: getFieldType(field) === 'boolean' && operator === '==' ? 'true' : '',
+      value: getFieldType(field) === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(operator) ? 'true' : '',
     };
     emitChange([...conditions, newCond]);
   }
@@ -308,12 +313,12 @@ export function LayerFilterEditor({
         const colType = getFieldType(patch.field);
         const ops = OPERATORS_BY_TYPE[colType];
         merged.operator = ops[0]?.value ?? '==';
-        merged.value = colType === 'boolean' && merged.operator === '==' ? 'true' : '';
+        merged.value = colType === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(merged.operator) ? 'true' : '';
       }
 
       if (patch.operator && patch.operator !== c.operator) {
         const colType = getFieldType(merged.field);
-        if (colType === 'boolean' && patch.operator === '==' && !merged.value) {
+        if (colType === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(patch.operator) && !merged.value) {
           merged.value = 'true';
         }
       }
@@ -566,7 +571,7 @@ export function LayerFilterEditor({
 
                   {/* Value input (hidden for is_null and has) */}
                   {cond.operator !== 'is_null' && cond.operator !== 'has' ? (
-                    getFieldType(cond.field) === 'boolean' && cond.operator === '==' ? (
+                    getFieldType(cond.field) === 'boolean' && BOOLEAN_VALUE_OPERATORS.has(cond.operator) ? (
                       <Select
                         value={cond.value || 'true'}
                         onValueChange={(val) => updateCondition(cond.id, { value: val })}
