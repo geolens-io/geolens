@@ -922,6 +922,19 @@ def _style_layer_for_map_layer(
     if not layer.visible:
         base["layout"] = {**layout, "visibility": "none"}
 
+    # fix(#TBD B-044): the builder stores the per-layer zoom range as
+    # builder-private layout keys (`_minzoom`/`_maxzoom`, applied live via
+    # setLayerZoomRange). `_clean_layout` strips underscore keys, so exported
+    # layers previously rendered at ALL zooms. Re-emit them as the spec-level
+    # layer `minzoom`/`maxzoom` (defaults 0/22 are omitted as no-ops).
+    raw_layout = dict(layer.layout or {})
+    export_minzoom = raw_layout.get("_minzoom")
+    export_maxzoom = raw_layout.get("_maxzoom")
+    if isinstance(export_minzoom, (int, float)) and export_minzoom > 0:
+        base["minzoom"] = export_minzoom
+    if isinstance(export_maxzoom, (int, float)) and export_maxzoom < 22:
+        base["maxzoom"] = export_maxzoom
+
     # Companions emitted BELOW the primary in painter order (drawn first / underneath).
     below_companions: list[dict[str, Any]] = []
     # Companions emitted ABOVE the primary (outline/extrusion/arrow/label).

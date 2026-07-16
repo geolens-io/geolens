@@ -2012,3 +2012,27 @@ def test_vector_source_maxzoom_mirrors_live_builder_394():
     )
     cluster_source = style_json._source_for_layer(cluster)
     assert cluster_source["maxzoom"] == 22
+
+
+# fix(#TBD B-044): the builder stores the per-layer zoom range as
+# builder-private `_minzoom`/`_maxzoom` layout keys; export previously
+# stripped them (underscore-key cleaning) without re-emitting spec-level
+# minzoom/maxzoom, so a zoom-limited layer rendered at ALL zooms in the
+# exported style.json.
+def test_export_emits_layer_zoom_range_from_builder_layout_keys():
+    layer = _layer(layout={"_minzoom": 8, "_maxzoom": 12})
+    exported = style_json._style_layer_for_map_layer(layer, "src-1")
+    primary = next(entry for entry in exported if entry["id"].startswith("layer-"))
+    assert primary["minzoom"] == 8
+    assert primary["maxzoom"] == 12
+    # The builder-private keys themselves must not leak into the layout.
+    assert "_minzoom" not in primary["layout"]
+    assert "_maxzoom" not in primary["layout"]
+
+
+def test_export_omits_default_zoom_range():
+    layer = _layer(layout={"_minzoom": 0, "_maxzoom": 22})
+    exported = style_json._style_layer_for_map_layer(layer, "src-1")
+    primary = next(entry for entry in exported if entry["id"].startswith("layer-"))
+    assert "minzoom" not in primary
+    assert "maxzoom" not in primary

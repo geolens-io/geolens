@@ -747,7 +747,8 @@
     "bannerUnavailableTitle": "Die KI ist nicht verfügbar",
     "bannerUnavailableBody": "Der KI-Dienst ist vorübergehend nicht verfügbar. Versuchen Sie es gleich noch einmal.",
     "bannerRetry": "Erneut versuchen",
-    "bannerDismiss": "Schließen"
+    "bannerDismiss": "Schließen",
+    "errorRateLimited": "Tägliches KI-Nutzungslimit erreicht. Versuchen Sie es morgen erneut oder bitten Sie einen Admin, das Budget zu erhöhen."
   },
   "basemap": {
     "title": "Basiskarte",
@@ -1031,7 +1032,7 @@
       "measure": "Mess-Werkzeug",
       "legend": "Legende ein-/ausblenden",
       "showSheet": "Diesen Dialog anzeigen",
-      "reorderToggle": "Sortiermodus umschalten (fokussierte Ebenenzeile)",
+      "reorderToggle": "Sortiermodus umschalten (fokussierter Ziehgriff)",
       "reorderMove": "Ebene nach oben / unten verschieben (Sortiermodus)",
       "escape": "Panel schließen / Auswahl aufheben / Sortiermodus beenden",
       "multiSelect": "Ebene zur Auswahl hinzufügen/entfernen",

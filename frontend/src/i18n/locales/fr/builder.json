@@ -747,7 +747,8 @@
     "bannerUnavailableTitle": "L'IA est indisponible",
     "bannerUnavailableBody": "Le service d'IA est temporairement indisponible. Réessayez dans un instant.",
     "bannerRetry": "Réessayer",
-    "bannerDismiss": "Ignorer"
+    "bannerDismiss": "Ignorer",
+    "errorRateLimited": "Limite quotidienne d'utilisation de l'IA atteinte. Réessayez demain ou demandez à un administrateur d'augmenter le budget."
   },
   "basemap": {
     "title": "Fond de carte",
@@ -1031,7 +1032,7 @@
       "measure": "Outil de mesure",
       "legend": "Afficher/masquer la légende",
       "showSheet": "Afficher cette boîte de dialogue",
-      "reorderToggle": "Basculer le mode de réorganisation (ligne de couche active)",
+      "reorderToggle": "Basculer le mode de réorganisation (poignée de déplacement active)",
       "reorderMove": "Déplacer la couche vers le haut / bas (mode réorganisation)",
       "escape": "Fermer le panneau / effacer la sélection / quitter la réorganisation",
       "multiSelect": "Basculer la couche dans la sélection",

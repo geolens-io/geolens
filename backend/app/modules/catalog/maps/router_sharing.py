@@ -78,12 +78,28 @@ async def shared_map_card_endpoint(
     metadata. This crawler-only route is excluded from OpenAPI.
     """
     token_obj = await _validate_share_token(db, token)
-    if token_obj is None or isinstance(token_obj, str):
-        raise HTTPException(status_code=404, detail="Share link not found")
-
-    map_obj = await get_map(db, token_obj.map_id)
+    map_obj = None
+    if token_obj is not None and not isinstance(token_obj, str):
+        map_obj = await get_map(db, token_obj.map_id)
     if map_obj is None or map_obj.visibility != "public":
-        raise HTTPException(status_code=404, detail="Share link not found")
+        # fix(#TBD B-048): "Copy Link" copies THIS /card URL — an expired or
+        # revoked link previously returned bare JSON 404 here, while the
+        # secondary /m/{token} route renders the friendly "link expired" view.
+        # Return 200 HTML with a meta-refresh into the SPA shell so both share
+        # affordances land on the same expired page (audit SH-01/SH-07). No
+        # map details are rendered on this path.
+        viewer_url = f"/m/{html.escape(token)}"
+        fallback_html = (
+            "<!doctype html>\n"
+            "<html><head>\n"
+            '<meta charset="UTF-8">\n'
+            f'<meta http-equiv="refresh" content="0;url={viewer_url}">\n'
+            "</head><body></body></html>"
+        )
+        return HTMLResponse(
+            content=fallback_html,
+            headers={"Cache-Control": "no-store"},
+        )
 
     image_url = await get_share_card_image_url(db, request, map_obj)
     image_url = html.escape(image_url, quote=True)

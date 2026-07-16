@@ -9,6 +9,7 @@ import {
   GripVertical,
   Image as ImageIcon,
   Inbox,
+  Loader2,
   Plus,
   Repeat2,
   RotateCcw,
@@ -46,6 +47,10 @@ interface DatasetSearchPanelProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
+  // fix(#TBD B-050): dataset id currently being added — drives the per-row
+  // in-flight spinner (the global isAdding flag alone gave no feedback about
+  // WHICH row's click registered).
+  addingDatasetId?: string | null;
   initialQuery?: string;
 }
 
@@ -267,6 +272,7 @@ export function DatasetSearchPanel({
   onDuplicateRendering,
   layers,
   isAdding,
+  addingDatasetId,
   initialQuery,
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
@@ -376,6 +382,10 @@ export function DatasetSearchPanel({
         className={compact ? 'h-8 gap-1 px-3 text-xs' : 'h-7 w-7 shrink-0'}
         onClick={() => onAddDataset(record.id)}
         disabled={isAdding}
+        // fix(#TBD B-050): mark THIS row busy while its add is in flight
+        // (SuggestCard pattern) — all buttons stay disabled during an add, but
+        // only the clicked row shows the spinner.
+        aria-busy={addingDatasetId === record.id}
         title={t('search.addToMap', { defaultValue: 'Add to map' })}
         // fix(#430 V-11): the row action and the expanded-details action both render
         // this button; give the details-panel instance a distinct accessible
@@ -387,7 +397,11 @@ export function DatasetSearchPanel({
             : `${t('search.addToMap', { defaultValue: 'Add to map' })} ${record.properties.title}`
         }
       >
-        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        {addingDatasetId === record.id ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+        ) : (
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
         {compact && t('search.addToMap', { defaultValue: 'Add to map' })}
       </Button>
     );

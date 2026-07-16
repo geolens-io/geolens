@@ -17,6 +17,8 @@
 import { useEffect, useState } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
+import { getAdapter } from '../layer-adapters/registry';
+import { resolveAdapterType } from '../layer-adapters/shared';
 
 export function useFilteredFeatureCount(
   map: MaplibreMap | null,
@@ -25,6 +27,13 @@ export function useFilteredFeatureCount(
   const [count, setCount] = useState<number | null>(null);
   const layerId = layer?.id ?? null;
   const layerFilter = layer?.filter ?? null;
+  // fix(#TBD B-046): resolved adapter type (a stable string) so the count can
+  // query the adapter's full sublayer-id set (mixed families, cluster bubbles).
+  const adapterType = resolveAdapterType(
+    layer?.dataset_geometry_type ?? null,
+    layer?.style_config ?? null,
+    (layer?.paint ?? undefined) as Record<string, unknown> | undefined,
+  );
 
   useEffect(() => {
     if (!map) return;
@@ -48,13 +57,18 @@ export function useFilteredFeatureCount(
       // use-layer-map-sync.ts), NOT the raw layer.id UUID. Querying the bare
       // UUID always missed, so the count was permanently null and the
       // "0 features after filter" hint (EASY-18) never fired.
-      const mapLayerId = `layer-${layerId}`;
-      const layerExistsOnMap = !!map.getLayer(mapLayerId);
-      if (!layerExistsOnMap) {
+      // fix(#TBD B-046): query the adapter's FULL layer-id set, not just the
+      // primary id — a mixed layer's points/lines render on sibling sublayers
+      // and a clustered layer's features render on the cluster bubbles, so the
+      // primary-only count read 0 while the map plainly showed features,
+      // firing the destructive "0 features in view — Clear filter" hint.
+      const candidateIds = getAdapter(adapterType).getLayerIds(`layer-${layerId}`);
+      const presentIds = candidateIds.filter((id) => !!map.getLayer(id));
+      if (presentIds.length === 0) {
         setCount(null);
         return;
       }
-      const features = map.queryRenderedFeatures(undefined, { layers: [mapLayerId] });
+      const features = map.queryRenderedFeatures(undefined, { layers: presentIds });
       setCount(features.length);
     }
 
@@ -77,7 +91,7 @@ export function useFilteredFeatureCount(
   // dispatchLayerAction on every mutation (opacity, paint, visibility), which
   // would cause queryRenderedFeatures to fire at ~60 fps during slider drags.
   // `layerId` and `layerFilter` cover all meaningful change conditions.
-  }, [map, layerId, layerFilter]);
+  }, [map, layerId, layerFilter, adapterType]);
 
   return count;
 }

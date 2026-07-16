@@ -127,9 +127,19 @@ export function ZoomExpressionEditor({
   }
 
   function updateStop(index: number, patch: Partial<{ zoom: number; value: number }>) {
+    // fix(#TBD B-043): clamp manually-typed stop values to the property's
+    // range — the <Input min/max> attributes are advisory only, and
+    // validateZoomExpressionDraft checks finiteness/zoom order but never the
+    // value range, so out-of-spec paint (circle-radius 0, negative
+    // line-width, opacity > 1) reached MapLibre. addStop already clamps;
+    // typing was the inconsistent path.
+    const clamped =
+      patch.value !== undefined && isFiniteNumber(patch.value)
+        ? { ...patch, value: clampValue(patch.value, min, max) }
+        : patch;
     emitDraft({
       ...draft,
-      stops: draft.stops.map((stop, stopIndex) => (stopIndex === index ? { ...stop, ...patch } : stop)),
+      stops: draft.stops.map((stop, stopIndex) => (stopIndex === index ? { ...stop, ...clamped } : stop)),
     });
   }
 
@@ -251,7 +261,14 @@ export function ZoomExpressionEditor({
                 max={max}
                 step={step}
                 value={numericInputValue(draft.baseValue)}
-                onChange={(event) => emitDraft({ ...draft, baseValue: event.currentTarget.valueAsNumber })}
+                onChange={(event) => {
+                  // fix(#TBD B-043): same manual-typing clamp as updateStop.
+                  const raw = event.currentTarget.valueAsNumber;
+                  emitDraft({
+                    ...draft,
+                    baseValue: isFiniteNumber(raw) ? clampValue(raw, min, max) : raw,
+                  });
+                }}
               />
             </div>
           )}

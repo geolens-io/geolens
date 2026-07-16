@@ -1821,6 +1821,10 @@ export function MapBuilderPage() {
         })}
         layers={layers.localLayers}
         isAdding={addLayer.isPending}
+        // fix(#TBD B-050): which dataset is in flight — the global isAdding
+        // flag disabled every Add button with no per-row feedback, so the user
+        // couldn't tell whether their click registered.
+        addingDatasetId={addLayer.isPending ? (addLayer.variables?.data?.dataset_id ?? null) : null}
         showShare={dialogs.showShare}
         onShowShareChange={dialogs.setShowShare}
         hasUnsavedChanges={layers.hasUnsavedChanges}

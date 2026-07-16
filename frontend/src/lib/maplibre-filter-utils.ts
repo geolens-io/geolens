@@ -327,7 +327,15 @@ function sanitizeFilterNode(node: unknown): unknown {
     ];
   }
 
-  return node.map((child, index) => index === 0 ? child : sanitizeFilterNode(child));
+  // fix(#TBD B-045): recurse only through combinator/negation wrappers. The
+  // previous fallthrough walked EVERY child, so opaque out-of-subset
+  // expressions (case/match/step/coalesce operands) had nested numeric
+  // comparisons rewritten to the nullable-safe form — breaking the verbatim
+  // round-trip contract for imported/hand-authored advanced filters.
+  if (node[0] === 'all' || node[0] === 'any' || node[0] === '!') {
+    return node.map((child, index) => (index === 0 ? child : sanitizeFilterNode(child)));
+  }
+  return node;
 }
 
 export function sanitizeNullableNumericFilter(
