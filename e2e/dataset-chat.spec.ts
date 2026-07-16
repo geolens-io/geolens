@@ -82,8 +82,16 @@ test.describe('Dataset AI chat', () => {
 
   test('Ask AI is hidden when AI is not configured', async ({ page }) => {
     await mockAIAvailable(page, false);
+    // Synchronize on the mocked status actually being delivered — the panel
+    // renders nothing while availability is still loading, so asserting
+    // absence before the response lands would pass vacuously (#535 review).
+    const statusSeen = page.waitForResponse('**/api/admin/ai-status/');
     await page.goto(`/datasets/${datasetId}`);
     await expect(page.getByRole('heading', { level: 1, name: datasetTitle })).toBeVisible();
+    await statusSeen;
+    // One settle frame for React Query to apply the response before the
+    // negative assertion.
+    await page.waitForTimeout(250);
     await expect(page.getByRole('button', { name: 'Ask AI' })).toHaveCount(0);
   });
 
