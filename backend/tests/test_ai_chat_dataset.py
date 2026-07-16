@@ -197,3 +197,37 @@ def test_dataset_prompt_marks_attribute_tables():
     )
     prompt = build_dataset_chat_system_prompt(layer)
     assert "attribute table" in prompt
+
+
+@pytest.mark.anyio
+async def test_restrict_tables_blocks_other_visible_tables(
+    client: AsyncClient, test_db_session
+):
+    """PR #531 review: dataset chat must be table-scoped, not just user-scoped.
+
+    With restrict_tables set, SQL referencing ANOTHER table the user can see
+    is rejected at the sandbox access check (intersection can only narrow).
+    """
+    from app.platform.sandbox import SandboxError, validate_and_execute
+
+    session = test_db_session
+    admin = await _get_user(session, settings.geolens_admin_username)
+    target = await create_dataset(session, created_by=admin.id, name="Target")
+    other = await create_dataset(session, created_by=admin.id, name="Other")
+
+    with pytest.raises(SandboxError) as exc_info:
+        await validate_and_execute(
+            f"SELECT count(*) FROM data.{other.table_name}",
+            session,
+            admin,
+            restrict_tables=frozenset({target.table_name}),
+        )
+    assert exc_info.value.category == "table_not_accessible"
+
+    # Sanity: the same query is allowed by RBAC when unrestricted — it fails
+    # later (the physical table was never created), NOT at the access check.
+    with pytest.raises(SandboxError) as exc_info:
+        await validate_and_execute(
+            f"SELECT count(*) FROM data.{other.table_name}", session, admin
+        )
+    assert exc_info.value.category != "table_not_accessible"

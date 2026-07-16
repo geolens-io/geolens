@@ -46,6 +46,9 @@ function toQueryResult(action: ChatAction): QueryResult | undefined {
 interface DatasetChatPanelProps {
   datasetId: string;
   datasetTitle: string;
+  /** fix(#531): non-spatial tables can chat but have no map-layer flow —
+   * the rest of the UI (AddToMapButton) hides builder handoffs for them. */
+  showOpenInBuilder: boolean;
 }
 
 /**
@@ -62,7 +65,7 @@ interface DatasetChatPanelProps {
  * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured),
  * so anonymous or unpermitted visitors render nothing.
  */
-export function DatasetChatPanel({ datasetId, datasetTitle }: DatasetChatPanelProps) {
+export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }: DatasetChatPanelProps) {
   const { t, i18n } = useTranslation('dataset');
   const navigate = useNavigate();
   const { isAIAvailable } = useAIAvailability();
@@ -221,22 +224,24 @@ export function DatasetChatPanel({ datasetId, datasetTitle }: DatasetChatPanelPr
                     {msg.queryResult && (
                       <>
                         <QueryResultTable result={msg.queryResult} />
-                        <div className="mt-2 flex justify-end">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1 text-xs"
-                            onClick={() => void handleOpenInBuilder()}
-                            disabled={createMap.isPending}
-                          >
-                            {createMap.isPending ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : (
-                              <Map className="size-3" />
-                            )}
-                            {t('ai.chat.openInBuilder')}
-                          </Button>
-                        </div>
+                        {showOpenInBuilder && (
+                          <div className="mt-2 flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs"
+                              onClick={() => void handleOpenInBuilder()}
+                              disabled={createMap.isPending}
+                            >
+                              {createMap.isPending ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                <Map className="size-3" />
+                              )}
+                              {t('ai.chat.openInBuilder')}
+                            </Button>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

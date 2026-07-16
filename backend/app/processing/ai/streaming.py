@@ -95,6 +95,7 @@ async def _execute_and_yield_tools(
     port: "ProcessingPort",
     map_id: str | None = None,
     allowed_tools: set[str] | None = None,
+    restrict_tables: frozenset[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Execute a list of (name, args) tool calls and yield SSE events for each.
 
@@ -140,6 +141,7 @@ async def _execute_and_yield_tools(
             stage_callback=stage_cb,
             port=port,
             map_id=map_id,
+            restrict_tables=restrict_tables,
         )
 
         if results_out is not None:
@@ -173,6 +175,7 @@ async def _stream_anthropic_chat(
     port: "ProcessingPort",
     map_id: str | None = None,
     tools: list | None = None,
+    restrict_tables: frozenset[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
     messages = build_history_messages(history)
@@ -337,6 +340,7 @@ async def _stream_anthropic_chat(
                         port=port,
                         map_id=map_id,
                         allowed_tools=allowed_tool_names,
+                        restrict_tables=restrict_tables,
                     ):
                         yield evt
 
@@ -409,6 +413,7 @@ async def _stream_openai_chat(
     port: "ProcessingPort",
     map_id: str | None = None,
     tools: list | None = None,
+    restrict_tables: frozenset[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
     messages = [{"role": "system", "content": system_prompt}]
@@ -643,6 +648,7 @@ async def _stream_openai_chat(
                 port=port,
                 map_id=map_id,
                 allowed_tools=allowed_tool_names,
+                restrict_tables=restrict_tables,
             ):
                 yield evt
 
@@ -682,6 +688,7 @@ async def _stream_openai_chat(
                 port=port,
                 map_id=map_id,
                 allowed_tools=allowed_tool_names,
+                restrict_tables=restrict_tables,
             ):
                 yield evt
 
@@ -734,6 +741,7 @@ async def stream_chat_edit(
     map_id: str | None = None,
     can_edit: bool = True,
     system_prompt_override: str | None = None,
+    restrict_tables: frozenset[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts.
 
@@ -746,6 +754,10 @@ async def stream_chat_edit(
     system_prompt_override replaces the map-framed system prompt for non-map
     surfaces (dataset-scoped chat builds its own via
     build_dataset_chat_system_prompt); tool selection still follows can_edit.
+
+    restrict_tables narrows query_data's sandbox allowlist to the calling
+    surface's table scope (dataset chat passes its single table — PR #531
+    review); None preserves the user-wide RBAC allowlist.
     """
     try:
         provider, model, runtime_config = await resolve_provider(db)
@@ -768,6 +780,7 @@ async def stream_chat_edit(
             port=port,
             map_id=map_id,
             tools=select_chat_tools(can_edit),
+            restrict_tables=restrict_tables,
         ):
             yield event
     except Exception as e:  # broad: SSE stream generator — any unhandled SDK/runtime error must yield a graceful error event

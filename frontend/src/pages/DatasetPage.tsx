@@ -625,7 +625,11 @@ export function DatasetPage() {
           mirroring the backend record_type gate; the panel further self-gates
           on AI availability + use_ai_chat, so anonymous visitors see nothing. */}
       {token && !isRaster && !isVrt && (
-        <DatasetChatPanel datasetId={dataset.id} datasetTitle={dataset.title} />
+        <DatasetChatPanel
+          datasetId={dataset.id}
+          datasetTitle={dataset.title}
+          showOpenInBuilder={!isTable}
+        />
       )}
 
       {/* Dialogs */}

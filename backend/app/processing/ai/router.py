@@ -716,6 +716,10 @@ async def dataset_chat_stream_endpoint(
                 system_prompt_override=build_dataset_chat_system_prompt(
                     layer, language=body.language
                 ),
+                # PR #531 review: actually enforce the dataset scope — without
+                # this the sandbox allowlist is user-wide and generated SQL
+                # could reach any table the user can see.
+                restrict_tables=frozenset({layer.dataset_table_name}),
             ):
                 if await request.is_disconnected():
                     break

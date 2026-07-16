@@ -29,8 +29,10 @@ function setAvailable(available: boolean) {
   mockAvailability.mockReturnValue({ isAIAvailable: available } as ReturnType<typeof useAIAvailability>);
 }
 
-function renderPanel() {
-  return render(<DatasetChatPanel datasetId="ds-1" datasetTitle="NY Parks" />);
+function renderPanel(showOpenInBuilder = true) {
+  return render(
+    <DatasetChatPanel datasetId="ds-1" datasetTitle="NY Parks" showOpenInBuilder={showOpenInBuilder} />,
+  );
 }
 
 beforeEach(() => {
@@ -93,6 +95,29 @@ describe('DatasetChatPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /Open in builder/i }));
     expect(mockMutateAsync).toHaveBeenCalledWith({ name: 'NY Parks Map' });
     expect(mockNavigate).toHaveBeenCalledWith('/maps/map-9?add_dataset=ds-1');
+  });
+
+  it('hides the open-in-builder action for non-spatial tables (fix #531)', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'show_query_result', rows: [['a', 1]], columns: ['name', 'n'], row_count: 1 },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Done.' } };
+    });
+
+    renderPanel(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'count rows');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Done.');
+    expect(screen.queryByRole('button', { name: /Open in builder/i })).toBeNull();
   });
 
   it('shows a retry-able error bubble when the stream fails', async () => {
