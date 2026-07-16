@@ -364,6 +364,19 @@ class ChatRequest(BaseModel):
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
 
 
+class DatasetChatRequest(BaseModel):
+    """Dataset-scoped chat: no map, no client-supplied layer state.
+
+    The server resolves ALL dataset context (table name, columns, samples)
+    authoritatively from the DB — the client only names the dataset.
+    """
+
+    message: str = Field(..., min_length=1, max_length=2000)
+    dataset_id: str
+    language: str | None = None  # e.g. "en", "es", "fr", "de"
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
+
+
 class GeoJSONFeature(BaseModel):
     """A GeoJSON Feature."""
 

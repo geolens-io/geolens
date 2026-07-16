@@ -524,6 +524,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/chat/dataset/stream/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dataset Chat Stream Endpoint
+         * @description Dataset-scoped AI chat: ask questions about a single dataset's data.
+         *
+         *     Read-only by construction — ``can_edit=False`` selects the query_data-only
+         *     tool set, and a dataset-framed system prompt replaces the map-editing one.
+         *     Reuses the whole map-chat streaming pipeline (SQL generation, sandbox
+         *     validation, RBAC table allowlist, token budgeting) with one synthetic
+         *     server-built layer.
+         */
+        post: operations["dataset_chat_stream_endpoint_ai_chat_dataset_stream__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/chat/stream/": {
         parameters: {
             query?: never;
@@ -6713,6 +6739,23 @@ export interface components {
              * @description Visibility level: private, internal, or public
              */
             visibility: string;
+        };
+        /**
+         * DatasetChatRequest
+         * @description Dataset-scoped chat: no map, no client-supplied layer state.
+         *
+         *     The server resolves ALL dataset context (table name, columns, samples)
+         *     authoritatively from the DB — the client only names the dataset.
+         */
+        DatasetChatRequest: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** History */
+            history?: components["schemas"]["ChatHistoryMessage"][];
+            /** Language */
+            language?: string | null;
+            /** Message */
+            message: string;
         };
         /** DatasetDeleteRequest */
         DatasetDeleteRequest: {
@@ -15185,6 +15228,114 @@ export interface operations {
             };
             /** @description Bad gateway — an upstream provider failed */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    dataset_chat_stream_endpoint_ai_chat_dataset_stream__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-Sent Events stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example event: token
+                     *     data: {"type":"token","text":"Updated "}
+                     *
+                     *     event: actions
+                     *     data: {"type":"actions","actions":[]}
+                     *
+                     *     event: done
+                     *     data: {"type":"done","explanation":"Updated the map"}
+                     */
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

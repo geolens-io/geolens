@@ -45,6 +45,7 @@ const DetailPanel = lazy(() =>
 import { PendingEditsBar } from '@/components/dataset/PendingEditsBar';
 import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
+import { DatasetChatPanel } from '@/components/dataset/DatasetChatPanel';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
 // Phase 276 CODE-06: lazy-load VrtCreateDialog — only fetched when the
 // user opens the VRT creation flow (activeDialog === 'vrt').
@@ -619,6 +620,17 @@ export function DatasetPage() {
         onCancelAll={discardPendingDrafts}
         isSaving={isSavingPendingEdits}
       />
+
+      {/* Dataset-scoped AI chat (dataset-chat v1) — vector/table datasets only,
+          mirroring the backend record_type gate; the panel further self-gates
+          on AI availability + use_ai_chat, so anonymous visitors see nothing. */}
+      {token && !isRaster && !isVrt && (
+        <DatasetChatPanel
+          datasetId={dataset.id}
+          datasetTitle={dataset.title}
+          showOpenInBuilder={!isTable}
+        />
+      )}
 
       {/* Dialogs */}
       {canEdit && (

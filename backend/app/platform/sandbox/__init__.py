@@ -34,6 +34,7 @@ async def validate_and_execute(
     user: Identity | None,
     *,
     row_limit: int = 1000,
+    restrict_tables: frozenset[str] | None = None,
 ) -> SandboxResult:
     """Validate and safely execute a SQL query.
 
@@ -48,6 +49,11 @@ async def validate_and_execute(
         db: Async database session.
         user: Current user (None for anonymous).
         row_limit: Maximum rows to return (default 1000).
+        restrict_tables: Optional surface-level scope: when set, the effective
+            allowlist is the INTERSECTION of the user's RBAC allowlist with
+            this set — it can only narrow access, never widen it. Used by
+            dataset-scoped chat (PR #531 review) so generated SQL cannot reach
+            other tables the user happens to be able to see.
 
     Returns:
         SandboxResult with query results.
@@ -70,6 +76,8 @@ async def validate_and_execute(
 
         # Phase 2: Build RBAC allowlist
         allowed_tables = await build_table_allowlist(db, user)
+        if restrict_tables is not None:
+            allowed_tables = allowed_tables & restrict_tables
 
         # Phase 3: Check table access
         check_table_access(validated.tables, allowed_tables, validated.cte_names)

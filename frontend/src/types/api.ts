@@ -1370,6 +1370,14 @@ export interface ChatRequest {
   history?: ChatHistoryMessage[];
 }
 
+/** Dataset-scoped chat: the server resolves all dataset context from the DB. */
+export interface DatasetChatRequest {
+  message: string;
+  dataset_id: string;
+  language?: string;
+  history?: ChatHistoryMessage[];
+}
+
 export interface ChatAction {
   type: 'set_filter' | 'set_style' | 'set_data_driven_style' | 'set_label' | 'toggle_visibility' | 'add_layer' | 'remove_layer' | 'show_query_result' | 'set_opacity';
   layer_id?: string;

@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, Loader2, RotateCcw, SendHorizontal, Sparkles, Square, X } from 'lucide-react';
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import { AlertCircle, Loader2, Map, RotateCcw, SendHorizontal, Sparkles, Square, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/api/client';
-import { streamChatMessage } from '@/api/maps';
+import { streamDatasetChatMessage } from '@/api/maps';
+import { useCreateMap } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
-import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import { QueryResultTable, type QueryResult } from '@/components/viewer/ViewerChatPanel';
 import { cn } from '@/lib/utils';
-import type { ChatAction, ChatHistoryMessage, MapLayerResponse } from '@/types/api';
+import type { ChatAction, ChatHistoryMessage } from '@/types/api';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
-
-export interface QueryResult {
-  rows: unknown[];
-  columns: string[];
-  rowCount: number;
-  truncated: boolean;
-}
 
 interface ChatMessage {
   id: string;
@@ -36,87 +31,45 @@ function getChatActions(value: unknown): ChatAction[] {
   return value.filter((item): item is ChatAction => isRecord(item) && typeof item.type === 'string');
 }
 
-/** Compact, read-only render of a `show_query_result` table (cols capped at 5).
- * Shared with the dataset-scoped chat panel (DatasetChatPanel). */
-export function QueryResultTable({ result }: { result: QueryResult }) {
-  const { t } = useTranslation('common');
-  const { rows, columns, rowCount, truncated } = result;
-  if (rows.length === 0 || columns.length === 0) {
-    return (
-      <div className="mt-2 rounded-md border px-3 py-2">
-        <p className="text-sm text-muted-foreground">{t('viewer.ai.queryResult.empty')}</p>
-      </div>
-    );
-  }
-  const visibleColumns = columns.slice(0, 5);
-  const hasMore = columns.length > 5;
-  const cellAt = (row: unknown, index: number): string => {
-    const raw = Array.isArray(row) ? row[index] : undefined;
-    return raw == null ? '' : String(raw);
+/** Extract the tabular payload from a show_query_result action (no map here). */
+function toQueryResult(action: ChatAction): QueryResult | undefined {
+  const rows = Array.isArray(action.rows) ? action.rows : null;
+  if (rows === null) return undefined;
+  return {
+    rows,
+    columns: Array.isArray(action.columns) ? action.columns.filter((c): c is string => typeof c === 'string') : [],
+    rowCount: typeof action.row_count === 'number' ? action.row_count : rows.length,
+    truncated: action.truncated === true,
   };
-  return (
-    <div className="mt-2 overflow-hidden rounded-md border">
-      <div className="max-h-48 overflow-y-auto" role="region" aria-label={t('viewer.ai.queryResult.tableLabel')}>
-        <table className="w-full table-fixed text-sm">
-          <thead>
-            <tr className="bg-muted/50">
-              {visibleColumns.map((col) => (
-                <th key={col} scope="col" className="px-2 py-1 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {col}
-                </th>
-              ))}
-              {hasMore && <th scope="col" aria-label={t('viewer.ai.queryResult.moreColumns')} className="px-2 py-1 text-xs text-muted-foreground">…</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => (
-              <tr key={idx} className="border-b border-border last:border-0">
-                {visibleColumns.map((col, colIdx) => {
-                  const display = cellAt(row, colIdx);
-                  return (
-                    <td key={col} className="max-w-[8rem] truncate px-2 py-1 text-foreground" title={display}>
-                      {display}
-                    </td>
-                  );
-                })}
-                {hasMore && <td className="px-2 py-1 text-muted-foreground">…</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="px-2 py-1 text-xs text-muted-foreground">
-        {t('viewer.ai.queryResult.rowCount', { count: rowCount })}
-        {truncated && <span className="ms-1 text-muted-foreground">{t('viewer.ai.queryResult.truncated')}</span>}
-      </p>
-    </div>
-  );
 }
 
-interface ViewerChatPanelProps {
-  mapId: string;
-  layers: MapLayerResponse[];
-  mapInstanceRef: React.RefObject<MaplibreMap | null>;
+interface DatasetChatPanelProps {
+  datasetId: string;
+  datasetTitle: string;
+  /** fix(#531): non-spatial tables can chat but have no map-layer flow —
+   * the rest of the UI (AddToMapButton) hides builder handoffs for them. */
+  showOpenInBuilder: boolean;
 }
 
 /**
- * Read-only "Ask AI" for the public map viewer.
+ * Dataset-scoped "Ask AI" (dataset-chat v1).
  *
- * The builder's full ChatPanel is reachable only to `can_edit` users; signed-in
- * viewers land on PublicMapViewerPage with no AI affordance. PR #339 made the
- * backend chat path serve view-only callers a read-only toolbox (`query_data`
- * only), so this surfaces that path: a question goes to `/ai/chat/stream/`, the
- * streamed answer renders inline, and a `show_query_result` flies the map to the
- * matched features (shared `useEphemeralLayers` overlay) + shows a compact table.
+ * Mirrors ViewerChatPanel's read-only chat UX for the dataset detail page:
+ * questions go to `/ai/chat/dataset/stream/` (query_data-only tool set, all
+ * dataset context resolved server-side), the streamed answer renders inline,
+ * and `show_query_result` shows the compact table. There is no map on this
+ * page, so instead of a flyover the panel offers "Open in builder" — a new
+ * map is created and the builder opens with this dataset staged via the
+ * existing `?add_dataset=` flow (AddToMapButton precedent).
  *
- * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured), so
- * anonymous or unpermitted viewers render nothing. No edit actions are applied —
- * non-query actions are ignored defensively.
+ * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured),
+ * so anonymous or unpermitted visitors render nothing.
  */
-export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPanelProps) {
-  const { t, i18n } = useTranslation('common');
+export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }: DatasetChatPanelProps) {
+  const { t, i18n } = useTranslation('dataset');
+  const navigate = useNavigate();
   const { isAIAvailable } = useAIAvailability();
-  const { handleQueryResult } = useEphemeralLayers(mapInstanceRef);
+  const createMap = useCreateMap();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -140,35 +93,6 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  /** Flyover + highlight (WGS84-bounded bbox guard) and extract the table payload. */
-  const applyQueryResult = useCallback((action: ChatAction): QueryResult | undefined => {
-    const geojson = action.geojson;
-    if (
-      geojson &&
-      typeof geojson === 'object' &&
-      'type' in geojson &&
-      geojson.type === 'FeatureCollection' &&
-      Array.isArray(action.bbox) &&
-      action.bbox.length === 4 &&
-      // fix(#527 B-054/C-06): Number.isFinite + non-inverted — NaN/inverted
-      // bounds pass the range comparisons and throw in fitBounds.
-      action.bbox.every((n: unknown) => Number.isFinite(n))
-    ) {
-      const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
-      if (!(minX < -180 || minY < -90 || maxX > 180 || maxY > 90 || minX > maxX || minY > maxY)) {
-        handleQueryResult(geojson as GeoJSON.FeatureCollection, [minX, minY, maxX, maxY]);
-      }
-    }
-    const rows = Array.isArray(action.rows) ? action.rows : null;
-    if (rows === null) return undefined;
-    return {
-      rows,
-      columns: Array.isArray(action.columns) ? action.columns.filter((c): c is string => typeof c === 'string') : [],
-      rowCount: typeof action.row_count === 'number' ? action.row_count : rows.length,
-      truncated: action.truncated === true,
-    };
-  }, [handleQueryResult]);
-
   const handleSend = useCallback(async () => {
     const userMsg = input.trim();
     if (!userMsg || isLoading || inflightRef.current) return;
@@ -185,15 +109,15 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
     let streamed = '';
     let queryResult: QueryResult | undefined;
     try {
-      for await (const { event, data } of streamChatMessage(mapId, userMsg, layers, i18n.language, history, controller.signal)) {
+      for await (const { event, data } of streamDatasetChatMessage(datasetId, userMsg, i18n.language, history, controller.signal)) {
         if (event === 'token') {
           streamed += typeof data.text === 'string' ? data.text : '';
           setStreamingText(streamed);
         } else if (event === 'actions') {
-          // Read-only: only show_query_result is acted on; any edit action is ignored.
+          // Read-only surface: only show_query_result is acted on.
           for (const action of getChatActions(data.actions)) {
             if (action.type === 'show_query_result') {
-              const qr = applyQueryResult(action);
+              const qr = toQueryResult(action);
               if (qr) queryResult = qr;
             }
           }
@@ -213,12 +137,12 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       if (controller.signal.aborted) {
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: 'assistant', content: streamed || t('viewer.ai.cancelled') },
+          { id: crypto.randomUUID(), role: 'assistant', content: streamed || t('common:viewer.ai.cancelled') },
         ]);
       } else {
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: 'error', content: t('viewer.ai.error'), retryMessage: userMsg },
+          { id: crypto.randomUUID(), role: 'error', content: t('common:viewer.ai.error'), retryMessage: userMsg },
         ]);
       }
     } finally {
@@ -227,29 +151,40 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       setStreamingText('');
       setIsLoading(false);
     }
-  }, [input, isLoading, messages, mapId, layers, i18n.language, applyQueryResult, t]);
+  }, [input, isLoading, messages, datasetId, i18n.language, t]);
 
   const handleRetry = useCallback((msg: ChatMessage) => {
     if (msg.retryMessage) setInput(msg.retryMessage);
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
   }, []);
 
+  /** "Open in builder": new map + navigate with this dataset staged (AddToMapButton flow). */
+  const handleOpenInBuilder = useCallback(async () => {
+    try {
+      const name = t('addToMap.newMapName', { title: datasetTitle });
+      const newMap = await createMap.mutateAsync({ name });
+      navigate(`/maps/${newMap.id}?add_dataset=${datasetId}`);
+    } catch {
+      toast.error(t('addToMap.createFailed'));
+    }
+  }, [createMap, datasetId, datasetTitle, navigate, t]);
+
   if (!isAIAvailable) return null;
 
   return (
-    <div className="absolute bottom-8 right-3 z-10 flex flex-col items-end gap-2">
+    <div className="fixed bottom-6 end-6 z-30 flex flex-col items-end gap-2">
       {open && (
         <section
           role="dialog"
-          aria-label={t('viewer.ai.title')}
+          aria-label={t('ai.chat.title')}
           className="flex h-[min(70vh,520px)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border bg-background/98 shadow-lg backdrop-blur"
         >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-primary" aria-hidden="true" />
-              <h2 className="text-sm font-semibold text-foreground">{t('viewer.ai.title')}</h2>
+              <h2 className="text-sm font-semibold text-foreground">{t('ai.chat.title')}</h2>
             </div>
-            <Button size="icon-xs" variant="ghost" onClick={() => setOpen(false)} aria-label={t('close')}>
+            <Button size="icon-xs" variant="ghost" onClick={() => setOpen(false)} aria-label={t('common:close')}>
               <X className="size-4" />
             </Button>
           </div>
@@ -257,8 +192,8 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2" role="log" aria-live="polite">
             {messages.length === 0 && (
               <div className="space-y-1 py-6 text-center">
-                <p className="text-sm text-muted-foreground">{t('viewer.ai.emptyHint')}</p>
-                <p className="text-xs text-muted-foreground">{t('viewer.ai.readOnlyNote')}</p>
+                <p className="text-sm text-muted-foreground">{t('ai.chat.emptyHint')}</p>
+                <p className="text-xs text-muted-foreground">{t('ai.chat.readOnlyNote')}</p>
               </div>
             )}
             {messages.map((msg) =>
@@ -272,7 +207,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
                     <div className="mt-2 flex justify-end">
                       <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => handleRetry(msg)}>
                         <RotateCcw className="size-3" />
-                        {t('viewer.ai.retry')}
+                        {t('common:viewer.ai.retry')}
                       </Button>
                     </div>
                   </div>
@@ -286,7 +221,29 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
                     )}
                   >
                     <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    {msg.queryResult && <QueryResultTable result={msg.queryResult} />}
+                    {msg.queryResult && (
+                      <>
+                        <QueryResultTable result={msg.queryResult} />
+                        {showOpenInBuilder && (
+                          <div className="mt-2 flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs"
+                              onClick={() => void handleOpenInBuilder()}
+                              disabled={createMap.isPending}
+                            >
+                              {createMap.isPending ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                <Map className="size-3" />
+                              )}
+                              {t('ai.chat.openInBuilder')}
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               ),
@@ -299,7 +256,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
                   ) : (
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Loader2 className="size-3 animate-spin" />
-                      {t('viewer.ai.thinking')}
+                      {t('common:viewer.ai.thinking')}
                     </div>
                   )}
                 </div>
@@ -309,8 +266,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           </div>
 
           <div className="flex items-end gap-2 border-t px-3 py-2">
-            {/* fix(#438): DS-03 — raw textarea kept for the auto-growing
-                chat composer; the ui/textarea primitive covers static fields. */}
+            {/* Raw textarea kept for the auto-growing chat composer (fix(#438) DS-03). */}
             <textarea
               ref={inputRef}
               value={input}
@@ -322,9 +278,9 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
                 }
               }}
               rows={1}
-              placeholder={t('viewer.ai.placeholder')}
+              placeholder={t('ai.chat.placeholder')}
               disabled={isLoading}
-              aria-label={t('viewer.ai.placeholder')}
+              aria-label={t('ai.chat.placeholder')}
               className="max-h-28 min-h-9 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             />
             {isLoading ? (
@@ -332,8 +288,8 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
                 size="icon-xs"
                 variant="destructive"
                 onClick={() => abortRef.current?.abort()}
-                aria-label={t('viewer.ai.cancel')}
-                title={t('viewer.ai.cancel')}
+                aria-label={t('common:viewer.ai.cancel')}
+                title={t('common:viewer.ai.cancel')}
               >
                 <Square className="size-3" />
               </Button>
@@ -342,8 +298,8 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
                 size="icon-xs"
                 onClick={() => void handleSend()}
                 disabled={!input.trim()}
-                aria-label={t('viewer.ai.send')}
-                title={t('viewer.ai.send')}
+                aria-label={t('common:viewer.ai.send')}
+                title={t('common:viewer.ai.send')}
               >
                 <SendHorizontal className="size-3" />
               </Button>
@@ -354,7 +310,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       {!open && (
         <Button onClick={() => setOpen(true)} aria-haspopup="dialog" className="gap-2 rounded-full shadow-lg">
           <Sparkles className="size-4" aria-hidden="true" />
-          {t('viewer.ai.launch')}
+          {t('common:viewer.ai.launch')}
         </Button>
       )}
     </div>

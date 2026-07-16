@@ -4095,6 +4095,46 @@
         "title": "CreateLayerResponse",
         "type": "object"
       },
+      "DatasetChatRequest": {
+        "description": "Dataset-scoped chat: no map, no client-supplied layer state.\n\nThe server resolves ALL dataset context (table name, columns, samples)\nauthoritatively from the DB \u2014 the client only names the dataset.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/ChatHistoryMessage"
+            },
+            "maxItems": 20,
+            "title": "History",
+            "type": "array"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "message": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "dataset_id"
+        ],
+        "title": "DatasetChatRequest",
+        "type": "object"
+      },
       "DatasetDeleteRequest": {
         "properties": {
           "confirm_title": {
@@ -21394,6 +21434,162 @@
           }
         ],
         "summary": "Chat Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
+    "/ai/chat/dataset/stream/": {
+      "post": {
+        "description": "Dataset-scoped AI chat: ask questions about a single dataset's data.\n\nRead-only by construction \u2014 ``can_edit=False`` selects the query_data-only\ntool set, and a dataset-framed system prompt replaces the map-editing one.\nReuses the whole map-chat streaming pipeline (SQL generation, sandbox\nvalidation, RBAC table allowlist, token budgeting) with one synthetic\nserver-built layer.",
+        "operationId": "dataset_chat_stream_endpoint_ai_chat_dataset_stream__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "example": "event: token\ndata: {\"type\":\"token\",\"text\":\"Updated \"}\n\nevent: actions\ndata: {\"type\":\"actions\",\"actions\":[]}\n\nevent: done\ndata: {\"type\":\"done\",\"explanation\":\"Updated the map\"}\n\n",
+                "schema": {
+                  "description": "UTF-8 server-sent event frames. Each data field contains one JSON event payload described by x-geolens-event-schema.",
+                  "type": "string"
+                },
+                "x-geolens-event-schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SSETokenEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SSEToolStartEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SSEToolResultEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SSEActionsEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SSEChatDoneEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SSEErrorEvent"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Server-Sent Events stream"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Dataset Chat Stream Endpoint",
         "tags": [
           "Maps"
         ]

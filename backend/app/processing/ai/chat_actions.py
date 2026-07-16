@@ -85,11 +85,15 @@ async def _handle_query_data(
     stage_callback: Callable[[str], None] | None = None,
     *,
     map_id: str | None = None,
+    restrict_tables: frozenset[str] | None = None,
 ) -> dict:
     """Handle query_data tool: generate SQL, validate, execute via sandbox.
 
     map_id is threaded through so the schema-context cache key partitions
     per-map (PERF-04 / Phase 274), preventing cross-map prompt pollution.
+
+    restrict_tables narrows the sandbox allowlist to a surface-level table
+    scope (dataset chat passes its single table — PR #531 review).
 
     NB: ``generate_sql`` and ``validate_and_execute`` are looked up via the
     ``chat_service`` facade module so test patches on
@@ -132,7 +136,9 @@ async def _handle_query_data(
     if stage_callback:
         stage_callback("Running query...")
 
-    result = await chat_service.validate_and_execute(sql, session, user)
+    result = await chat_service.validate_and_execute(
+        sql, session, user, restrict_tables=restrict_tables
+    )
     # Limit rows in tool result for token economy
     # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
     out: dict = {
@@ -166,11 +172,13 @@ async def _execute_chat_tool(
     *,
     port: "ProcessingPort",
     map_id: str | None = None,
+    restrict_tables: frozenset[str] | None = None,
 ) -> dict:
     """Execute a chat tool and return the result.
 
     map_id is forwarded to query_data so the schema-context cache partitions
-    per-map (PERF-04 / Phase 274).
+    per-map (PERF-04 / Phase 274). restrict_tables narrows query_data's
+    sandbox allowlist to the calling surface's table scope.
     """
     if tool_name == "search_datasets":
         send_samples = await _should_send_sample_values(session)
@@ -199,6 +207,7 @@ async def _execute_chat_tool(
                 layers,
                 stage_callback=stage_callback,
                 map_id=map_id,
+                restrict_tables=restrict_tables,
             )
         except SandboxError as e:
             return {

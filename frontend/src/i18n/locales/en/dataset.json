@@ -751,7 +751,14 @@
     "keywordsAlreadyExist": "Keywords already exist",
     "keywordsAddFailed": "Failed to add keywords",
     "lineageFailed": "Failed to generate lineage",
-    "qualityStatementFailed": "Failed to generate quality statement"
+    "qualityStatementFailed": "Failed to generate quality statement",
+    "chat": {
+      "title": "Ask AI about this dataset",
+      "emptyHint": "Ask a question about this dataset's data.",
+      "readOnlyNote": "Answers are read-only; the data is never modified.",
+      "placeholder": "Ask about this data...",
+      "openInBuilder": "Open in builder"
+    }
   },
   "common": {
     "cancel": "Cancel"

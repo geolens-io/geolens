@@ -307,6 +307,12 @@ class AIProviderExtension(Protocol):
         # Implementations with an explicit signature must accept this kwarg —
         # stream_chat_edit always passes it.
         tools: list[dict] | None = None,
+        # Surface-level table scope for query_data's sandbox allowlist: when
+        # set, generated SQL may only touch these data.* tables (intersected
+        # with the user's RBAC allowlist — narrows, never widens). None keeps
+        # the user-wide allowlist. Implementations with an explicit signature
+        # must accept this kwarg — stream_chat_edit always passes it.
+        restrict_tables: frozenset[str] | None = None,
     ) -> AsyncIterator[dict[str, object]]: ...
 
     async def structured_complete(

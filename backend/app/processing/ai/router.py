@@ -17,12 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # inside `_call_llm_endpoint` so `processing/` carries zero top-level
 # provider-SDK imports (oc-audit 2026-05-02 §5).
 
-from app.processing.ai.chat_service import chat_edit_map
+from app.processing.ai.chat_service import (
+    build_dataset_chat_system_prompt,
+    chat_edit_map,
+)
 from app.processing.ai.llm_loop import ToolLoopExhaustedError
 from app.processing.ai.schemas import (
     ChatMapLayer,
     ChatRequest,
     ChatResponse,
+    DatasetChatRequest,
     MapGenerateRequest,
     MapGenerateResponse,
     SSEActionsEvent,
@@ -47,7 +51,11 @@ from app.processing.ai.metadata_service import (
     generate_quality_statement_draft,
     generate_summary_draft,
 )
-from app.processing.ai.service import generate_map_from_prompt, stream_generate_map
+from app.processing.ai.service import (
+    _should_send_sample_values,
+    generate_map_from_prompt,
+    stream_generate_map,
+)
 from typing import TYPE_CHECKING
 
 from app.core.identity import Identity
@@ -575,6 +583,152 @@ async def chat_stream_endpoint(
                 )
         except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Chat stream error")
+            yield _sse_error_event(
+                "An unexpected error occurred",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    return EventSourceResponse(event_generator())
+
+
+async def _validate_chat_dataset(
+    db: AsyncSession,
+    user: Identity,
+    dataset_id: str,
+    *,
+    port: "ProcessingPort",
+) -> ChatMapLayer:
+    """Resolve + authorize a dataset for dataset-scoped chat.
+
+    Authorization mirrors ``_authorize_metadata_dataset`` (SEC-D): the
+    attacker-controlled ``dataset_id`` is resolved via the port and
+    access-checked with ``check_dataset_access``, which raises 404 on denial —
+    the same response as a nonexistent dataset, so this is not an existence
+    oracle.
+
+    Returns a server-built ChatMapLayer carrying only authoritative DB values
+    (the client never supplies schema/table context on this surface). Raster
+    and VRT datasets are rejected: their pixels live in object storage, not a
+    queryable ``data.*`` table, so query_data has nothing to run against.
+    """
+    try:
+        dsid = uuid_mod.UUID(dataset_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid dataset_id",
+        )
+    dataset = await port.get_dataset(db, dsid)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+    await port.check_dataset_access(db, dataset, dsid, user)
+
+    record = getattr(dataset, "record", None)
+    record_type = getattr(record, "record_type", None)
+    if record_type not in ("vector_dataset", "table"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="AI chat is only available for vector and table datasets",
+        )
+
+    sample_values = None
+    if dataset.sample_values and await _should_send_sample_values(db):
+        sample_values = {
+            k: (v[:5] if isinstance(v, list) else v)
+            for k, v in dataset.sample_values.items()
+        }
+
+    title = getattr(record, "title", None)
+    # Cap column_info to 50 columns to bound token usage (mirrors
+    # _execute_get_dataset_details).
+    return ChatMapLayer(
+        id=str(dsid),
+        name=title or dataset.table_name,
+        dataset_id=str(dsid),
+        dataset_table_name=dataset.table_name,
+        geometry_type=dataset.geometry_type,
+        column_info=dataset.column_info[:50] if dataset.column_info else None,
+        dataset_title=title,
+        feature_count=dataset.feature_count,
+        sample_values=sample_values,
+    )
+
+
+@router.post(
+    "/chat/dataset/stream/",
+    response_class=EventSourceResponse,
+    responses=_CHAT_STREAM_RESPONSES,
+)
+@limiter.limit(_AI_GENERATE_LIMIT)
+async def dataset_chat_stream_endpoint(
+    request: Request,
+    body: DatasetChatRequest,
+    user: Identity = Depends(enforce_ai_token_budget),
+    db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
+) -> EventSourceResponse:
+    """Dataset-scoped AI chat: ask questions about a single dataset's data.
+
+    Read-only by construction — ``can_edit=False`` selects the query_data-only
+    tool set, and a dataset-framed system prompt replaces the map-editing one.
+    Reuses the whole map-chat streaming pipeline (SQL generation, sandbox
+    validation, RBAC table allowlist, token budgeting) with one synthetic
+    server-built layer.
+    """
+
+    async def event_generator():
+        # Validation runs inside the generator so failures yield a graceful
+        # streaming error event rather than a raw HTTP 500 the SSE client
+        # cannot decode.
+        try:
+            await _check_ai_available(db)
+            layer = await _validate_chat_dataset(db, user, body.dataset_id, port=port)
+            user_roles = await port.get_user_roles(db, user)
+        except HTTPException as exc:
+            yield _sse_error_event(exc.detail, status_code=exc.status_code)
+            return
+        except (
+            Exception
+        ):  # broad: pre-flight validation can fail unpredictably in async SSE context
+            logger.exception("Dataset chat pre-flight error")
+            yield _sse_error_event(
+                "An unexpected error occurred",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+            return
+
+        try:
+            async for event in stream_chat_edit(
+                db,
+                user,
+                user_roles,
+                body.message,
+                [layer],
+                language=body.language,
+                history=body.history or None,
+                port=port,
+                # "dataset:" prefix keeps the schema-context cache partition
+                # (PERF-04) disjoint from map-id partitions.
+                map_id=f"dataset:{body.dataset_id}",
+                can_edit=False,
+                system_prompt_override=build_dataset_chat_system_prompt(
+                    layer, language=body.language
+                ),
+                # PR #531 review: actually enforce the dataset scope — without
+                # this the sandbox allowlist is user-wide and generated SQL
+                # could reach any table the user can see.
+                restrict_tables=frozenset({layer.dataset_table_name}),
+            ):
+                if await request.is_disconnected():
+                    break
+                # default=str: events can carry Decimal/datetime from query_data rows
+                yield ServerSentEvent(
+                    data=json.dumps(event, default=str), event=event["type"]
+                )
+        except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
+            logger.exception("Dataset chat stream error")
             yield _sse_error_event(
                 "An unexpected error occurred",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
