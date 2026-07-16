@@ -184,9 +184,11 @@ async def test_area_uses_geography_and_magnitude(client, test_db_session, eval_d
     sql, result = await _ask(
         test_db_session, eval_dataset, "What is the total area of all parks, in acres?"
     )
-    assert "::geography" in sql.lower(), (
-        f"no geography cast for a unit question:\n{sql}"
-    )
+    # Either cast syntax is fine — ::geography or CAST(... AS geography) —
+    # the eval cares that meters come from geography, not how it's spelled.
+    assert re.search(
+        r"::\s*geography|\bcast\s*\([^)]*\bas\s+geography\s*\)", sql, re.IGNORECASE
+    ), f"no geography cast for a unit question:\n{sql}"
     nums = _numbers(result)
     assert nums, f"no numeric cell in result: {result}"
     truth = eval_dataset["truth_acres"]
