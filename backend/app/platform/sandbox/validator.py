@@ -307,6 +307,54 @@ def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
         raise SandboxError("invalid_query", "Recursive queries are not allowed")
 
 
+def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
+    """Fail-closed function check (SEC-025).
+
+    For each Func node in the AST, extract its canonical lowercase name:
+      • Anonymous nodes  → fn.name.lower()  (the raw SQL identifier)
+      • Named Func nodes → fn.sql_name().lower()  (sqlglot's canonical name,
+        which may differ from the SQL keyword — see _ALLOWED_FUNCTIONS docs)
+
+    Then apply fail-closed logic (order matters):
+      1. BLOCKED  → always reject (defense-in-depth; checked before allowlist)
+      2. "st_" name → require the prompt-derived PostGIS allowlist
+      3. Other name → require _ALLOWED_FUNCTIONS
+      4. Allowed spatial functions → reject unbounded aggregate/complexity forms
+      5. Otherwise → reject (fail-closed)
+    """
+    for func in stmt.find_all(exp.Func):
+        # fix(#538): sqlglot models AND/OR (exp.Connector) as Func subclasses,
+        # so any compound condition (WHERE x AND y, JOIN ... ON a AND b,
+        # CASE WHEN ... AND ...) was rejected as an unlisted "function".
+        # Connectors are boolean operators, not callables — and find_all walks
+        # their operands regardless, so a disallowed function inside either
+        # side of an AND/OR is still caught below.
+        if isinstance(func, exp.Connector):
+            continue
+        if isinstance(func, exp.Anonymous):
+            fn_name = func.name.lower() if hasattr(func, "name") else ""
+        else:
+            fn_name = func.sql_name().lower() if hasattr(func, "sql_name") else ""
+
+        if fn_name in _BLOCKED_FUNCTIONS:
+            logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
+            raise SandboxError("invalid_query", "Query uses a disallowed function")
+
+        if fn_name.startswith("st_"):
+            if fn_name not in _ALLOWED_POSTGIS_FUNCTIONS:
+                logger.info(
+                    "sandbox.unlisted_postgis_function", sql=sql, function=fn_name
+                )
+                raise SandboxError(
+                    "invalid_query", "Query uses a disallowed spatial function"
+                )
+        elif fn_name not in _ALLOWED_FUNCTIONS:
+            logger.info("sandbox.unlisted_function", sql=sql, function=fn_name)
+            raise SandboxError("invalid_query", "Query uses a disallowed function")
+
+        _validate_function_cost(func, fn_name, sql)
+
+
 def validate_sql(sql: str) -> ValidatedQuery:
     """Parse and validate SQL. Returns validated query or raises SandboxError.
 
@@ -342,42 +390,7 @@ def validate_sql(sql: str) -> ValidatedQuery:
 
     _reject_recursive_cte(stmt, sql)
 
-    # Fail-closed function check (SEC-025).
-    #
-    # For each Func node in the AST, extract its canonical lowercase name:
-    #   • Anonymous nodes  → fn.name.lower()  (the raw SQL identifier)
-    #   • Named Func nodes → fn.sql_name().lower()  (sqlglot's canonical name,
-    #     which may differ from the SQL keyword — see _ALLOWED_FUNCTIONS docs)
-    #
-    # Then apply fail-closed logic (order matters):
-    #   1. BLOCKED  → always reject (defense-in-depth; checked before allowlist)
-    #   2. "st_" name → require the prompt-derived PostGIS allowlist
-    #   3. Other name → require _ALLOWED_FUNCTIONS
-    #   4. Allowed spatial functions → reject unbounded aggregate/complexity forms
-    #   5. Otherwise → reject (fail-closed)
-    for func in stmt.find_all(exp.Func):
-        if isinstance(func, exp.Anonymous):
-            fn_name = func.name.lower() if hasattr(func, "name") else ""
-        else:
-            fn_name = func.sql_name().lower() if hasattr(func, "sql_name") else ""
-
-        if fn_name in _BLOCKED_FUNCTIONS:
-            logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
-            raise SandboxError("invalid_query", "Query uses a disallowed function")
-
-        if fn_name.startswith("st_"):
-            if fn_name not in _ALLOWED_POSTGIS_FUNCTIONS:
-                logger.info(
-                    "sandbox.unlisted_postgis_function", sql=sql, function=fn_name
-                )
-                raise SandboxError(
-                    "invalid_query", "Query uses a disallowed spatial function"
-                )
-        elif fn_name not in _ALLOWED_FUNCTIONS:
-            logger.info("sandbox.unlisted_function", sql=sql, function=fn_name)
-            raise SandboxError("invalid_query", "Query uses a disallowed function")
-
-        _validate_function_cost(func, fn_name, sql)
+    _check_function_allowlist(stmt, sql)
 
     # Extract CTE names to exclude from table validation
     cte_names: set[str] = set()

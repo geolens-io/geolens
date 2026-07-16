@@ -72,6 +72,15 @@ _LARGEST = "Central Green"
 _TOP3 = ["Central Green", "North Meadow", "Sunset Park"]
 _RIVER_NAMES = {"River Bend Park", "Riverside Walk"}
 
+# Stations (points) for cross-table cases: one inside Central Green, one
+# inside Sunset Park, one inside no park at all.
+_STATIONS = [
+    ("Green Plaza Station", (-73.965, 40.780)),
+    ("Harbor Station", (-74.004, 40.651)),
+    ("Junction Station", (-73.850, 40.730)),
+]
+_STATION_IN_LARGEST = "Green Plaza Station"
+
 
 @pytest.fixture
 async def eval_dataset(test_db_session):
@@ -121,6 +130,38 @@ async def eval_dataset(test_db_session):
     )
     dataset_id, record_id = dataset.id, dataset.record_id
 
+    stations_table = f"eval_stations_{uuid.uuid4().hex[:8]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{stations_table} ("
+            "gid serial PRIMARY KEY, name text, geom_4326 geometry(Point, 4326))"
+        )
+    )
+    for name, (lon, lat) in _STATIONS:
+        await session.execute(
+            text(
+                f"INSERT INTO data.{stations_table} (name, geom_4326) VALUES "
+                f"(:name, ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326))"
+            ),
+            {"name": name},
+        )
+    await session.commit()
+
+    stations_dataset = await create_dataset(
+        session,
+        created_by=admin.id,
+        name="Eval Stations",
+        table_name=stations_table,
+        geometry_type="Point",
+        feature_count=len(_STATIONS),
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    stations_dataset_id = stations_dataset.id
+    stations_record_id = stations_dataset.record_id
+
     truth_acres = (
         await session.execute(
             text(
@@ -129,7 +170,17 @@ async def eval_dataset(test_db_session):
         )
     ).scalar_one()
 
-    layer = ChatMapLayer(
+    truth_miles = (
+        await session.execute(
+            text(
+                "SELECT ST_Distance(a.geom_4326::geography, b.geom_4326::geography) / 1609.344 "
+                f"FROM data.{stations_table} a, data.{stations_table} b "
+                "WHERE a.name = 'Green Plaza Station' AND b.name = 'Junction Station'"
+            )
+        )
+    ).scalar_one()
+
+    parks_layer = ChatMapLayer(
         id="eval-layer",
         name="Eval Parks",
         dataset_id=str(dataset_id),
@@ -139,21 +190,37 @@ async def eval_dataset(test_db_session):
         dataset_title="Eval Parks",
         feature_count=len(_PARKS),
     )
-    schema_context = build_sql_schema_context([layer])
+    stations_layer = ChatMapLayer(
+        id="eval-stations-layer",
+        name="Eval Stations",
+        dataset_id=str(stations_dataset_id),
+        dataset_table_name=stations_table,
+        geometry_type="Point",
+        column_info=stations_dataset.column_info,
+        dataset_title="Eval Stations",
+        feature_count=len(_STATIONS),
+    )
+    schema_context = build_sql_schema_context([parks_layer, stations_layer])
 
     yield {
         "admin": admin,
         "schema_context": schema_context,
         "truth_acres": float(truth_acres),
+        "truth_miles": float(truth_miles),
     }
 
-    await session.execute(
-        text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": dataset_id}
-    )
-    await session.execute(
-        text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
-    )
+    for ds_id, rec_id in (
+        (dataset_id, record_id),
+        (stations_dataset_id, stations_record_id),
+    ):
+        await session.execute(
+            text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": ds_id}
+        )
+        await session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"), {"id": rec_id}
+        )
     await session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await session.execute(text(f"DROP TABLE IF EXISTS data.{stations_table}"))
     await session.commit()
 
 
@@ -246,3 +313,42 @@ async def test_top_n_is_limited_and_ordered(client, test_db_session, eval_datase
         for row in result.rows
     ]
     assert row_names == _TOP3, f"expected {_TOP3}, got {row_names}\nSQL: {sql}"
+
+
+async def test_distance_in_miles(client, test_db_session, eval_dataset):
+    """Cross-table distance with unit conversion: the meters/degrees trap plus
+    the meters/miles conversion, checked against geography ground truth."""
+    sql, result = await _ask(
+        test_db_session,
+        eval_dataset,
+        "How far apart are Green Plaza Station and Junction Station, in miles?",
+    )
+    assert re.search(
+        r"::\s*geography|\bcast\s*\([^)]*\bas\s+geography\s*\)", sql, re.IGNORECASE
+    ), f"no geography cast for a distance question:\n{sql}"
+    nums = _numbers(result)
+    assert nums, f"no numeric cell in result: {result}"
+    truth = eval_dataset["truth_miles"]
+    assert any(abs(n - truth) / truth < 0.10 for n in nums), (
+        f"no cell within 10% of truth {truth:.2f} miles: {nums}\nSQL: {sql}"
+    )
+
+
+async def test_spatial_containment(client, test_db_session, eval_dataset):
+    """Point-in-polygon join across the two tables resolves to exactly the
+    one station seeded inside the named park."""
+    sql, result = await _ask(
+        test_db_session,
+        eval_dataset,
+        "Which stations are inside the Central Green park?",
+    )
+    assert re.search(
+        r"\bst_(within|contains|intersects|covers|coveredby|dwithin)\s*\(",
+        sql,
+        re.IGNORECASE,
+    ), f"no spatial predicate for a containment question:\n{sql}"
+    station_names = {s[0] for s in _STATIONS}
+    found = {c for c in _cells(result) if isinstance(c, str) and c in station_names}
+    assert found == {_STATION_IN_LARGEST}, (
+        f"expected {{{_STATION_IN_LARGEST!r}}}, got {found}\nSQL: {sql}"
+    )
