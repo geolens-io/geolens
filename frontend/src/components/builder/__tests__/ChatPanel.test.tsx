@@ -135,6 +135,33 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('dispatches the flyover only for the winning (last) query result (#534)', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            // Superseded spatial result first — its flyover must NOT fire...
+            { type: 'show_query_result', geojson, bbox, rows: [], columns: ['name'] },
+            // ...because the retried (non-spatial) result is what the card shows.
+            { type: 'show_query_result', rows: [[496]], columns: ['count'] },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Counted on retry' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'count features');
+
+    await screen.findByText('Counted on retry');
+    expect(props.onQueryResult).not.toHaveBeenCalled();
+  });
+
   // fix(#527 B-054/C-06): NaN and inverted bboxes pass the range comparisons
   // and throw in fitBounds downstream — both must be rejected.
   it.each([
