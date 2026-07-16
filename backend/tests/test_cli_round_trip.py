@@ -490,6 +490,7 @@ class TestManifestApplyRoundTrip:
             layer_name=None,
             *,
             schema,
+            effective_srid=None,
         ):
             from app.core.db import async_session
             from sqlalchemy import text

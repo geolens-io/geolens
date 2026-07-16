@@ -792,6 +792,7 @@ async def _ingest_vector_into_staging(
         geometry_type=ogr_geometry_type,
         layer_name=layer_name,
         schema=_current_tenant_schema(),
+        effective_srid=effective_srid,
     )
 
     reserved_renames = await rename_reserved_columns(
