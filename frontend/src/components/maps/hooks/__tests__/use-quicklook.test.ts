@@ -113,6 +113,26 @@ describe('useQuicklook', () => {
     expect(mockApiFetchBlob).toHaveBeenCalledTimes(1);
   });
 
+  // Test 4b: regression — after a 404 populates the negative cache, the SAME
+  // component instance must survive a re-render. The old implementation
+  // early-returned before its hooks once isQuicklookKnownMissing flipped true,
+  // throwing "Rendered fewer hooks than expected".
+  it('survives a re-render of the same instance after a 404 (rules-of-hooks regression)', async () => {
+    const id = 'dataset-404-rerender';
+    mockApiFetchBlob.mockRejectedValueOnce(new ApiError('Not Found', 404));
+
+    const { result, rerender } = renderHook(() => useQuicklook(id), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('missing'));
+
+    rerender();
+
+    expect(result.current).toEqual({ url: null, status: 'missing' });
+    expect(mockApiFetchBlob).toHaveBeenCalledTimes(1);
+  });
+
   // Test 5: non-404 error -> status error, markQuicklookMissing NOT called
   it('returns error status for non-404 errors without calling markQuicklookMissing', async () => {
     const id = 'dataset-500';
