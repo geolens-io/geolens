@@ -22,6 +22,7 @@ from sqlalchemy import text
 from app.processing.ingest.tasks_common import (
     _apply_reupload_swap,
     _is_lock_timeout_error,
+    rename_pkey_to_match_table,
 )
 
 
@@ -225,6 +226,22 @@ class TestApplyReuploadSwapRetry:
         ).scalar()
         assert staging_exists is False
 
+        # db-audit #529 BLOAT-3: the swap also renamed the staging-era PK
+        # constraint, so direct-DB clients see `<live_table>_pkey`.
+        pkey = (
+            await self.session.execute(
+                text(
+                    "SELECT con.conname FROM pg_constraint con "
+                    "JOIN pg_class c ON c.oid = con.conrelid "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'data' AND c.relname = :tn "
+                    "AND con.contype = 'p'"
+                ),
+                {"tn": self.live},
+            )
+        ).scalar_one()
+        assert pkey == f"{self.live}_pkey"
+
     async def test_retry_path_logs_and_succeeds(self, monkeypatch) -> None:
         """First swap raises ``LockNotAvailableError``; retry succeeds and both logs fire."""
         dataset = _make_dataset_stub(self.live)
@@ -350,3 +367,50 @@ class TestApplyReuploadSwapRetry:
             await self.session.execute(text(f'SELECT name FROM data."{self.live}"'))
         ).scalar_one()
         assert row == "new_data"
+
+
+class TestRenamePkeyToMatchTable:
+    """Direct coverage for ``rename_pkey_to_match_table`` (db-audit #529 BLOAT-3)."""
+
+    _PKEY_SQL = (
+        "SELECT con.conname FROM pg_constraint con "
+        "JOIN pg_class c ON c.oid = con.conrelid "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = 'data' AND c.relname = :tn AND con.contype = 'p'"
+    )
+
+    async def test_renames_staging_pkey_and_is_idempotent(
+        self, test_db_session
+    ) -> None:
+        """A staging-era pkey name is renamed; a second call is a no-op."""
+        suffix = uuid.uuid4().hex[:8]
+        table = f"pkey_fix_{suffix}"
+        staging_pkey = f"{table}_staging_{suffix}_pkey"
+        await test_db_session.execute(
+            text(
+                f'CREATE TABLE data."{table}" '
+                f'(id serial CONSTRAINT "{staging_pkey}" PRIMARY KEY)'
+            )
+        )
+        try:
+            await rename_pkey_to_match_table(test_db_session, table)
+            pkey = (
+                await test_db_session.execute(text(self._PKEY_SQL), {"tn": table})
+            ).scalar_one()
+            assert pkey == f"{table}_pkey"
+
+            # Idempotent: already-correct name stays put, no error raised.
+            await rename_pkey_to_match_table(test_db_session, table)
+            pkey = (
+                await test_db_session.execute(text(self._PKEY_SQL), {"tn": table})
+            ).scalar_one()
+            assert pkey == f"{table}_pkey"
+        finally:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{table}" CASCADE')
+            )
+            await test_db_session.commit()
+
+    async def test_missing_table_is_swallowed(self, test_db_session) -> None:
+        """A vanished table must not raise — the rename is cosmetic by contract."""
+        await rename_pkey_to_match_table(test_db_session, "no_such_table_anywhere_xyz")

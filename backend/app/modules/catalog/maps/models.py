@@ -270,7 +270,10 @@ class MapIconAsset(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    # db-audit #529 BLOAT-1: no index=True — uq_map_icon_assets_slug's
+    # backing index already covers slug lookups; a second btree was pure
+    # write amplification.
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
     media_type: Mapped[str] = mapped_column(String(50), nullable=False)
     storage_key: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
