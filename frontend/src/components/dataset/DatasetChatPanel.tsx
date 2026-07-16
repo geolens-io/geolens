@@ -184,8 +184,12 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
 
   if (!isAIAvailable) return null;
 
+  // bottom-10/end-16 (not bottom-6/end-6) clears the global ReportProblemHost
+  // lifebuoy (fixed bottom-10 right-4 z-40, size-10 + count badge): same
+  // baseline, 8px gap to its left, so neither the FAB nor the open dialog
+  // ever sits under the higher-z reporter.
   return (
-    <div className="fixed bottom-6 end-6 z-30 flex flex-col items-end gap-2">
+    <div className="fixed bottom-10 end-16 z-30 flex flex-col items-end gap-2">
       {open && (
         <section
           role="dialog"
