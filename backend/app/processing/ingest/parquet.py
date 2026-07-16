@@ -53,15 +53,16 @@ def _geometry_column(geo: dict | None) -> tuple[str | None, dict]:
 def _srid_from_geo(col_meta: dict) -> int | None:
     """SRID from GeoParquet column metadata.
 
-    Per spec, an omitted or null ``crs`` means OGC:CRS84 (= lon/lat 4326).
-    A PROJJSON crs resolves through its EPSG id; anything unresolvable
-    returns None so the pipeline's Missing-CRS / srid_override handling
-    applies.
+    Per spec, an OMITTED ``crs`` key means OGC:CRS84 (= lon/lat 4326), but an
+    explicit ``"crs": null`` means the CRS is unknown/unassigned — those (and
+    any PROJJSON without a resolvable EPSG id) return None so the pipeline's
+    Missing-CRS / srid_override handling applies. fix(#541): the two cases
+    were previously conflated, silently projecting unknown CRS data as 4326.
     """
-    if col_meta.get("crs") is None:  # absent or explicit null -> CRS84
+    if "crs" not in col_meta:  # omitted -> OGC:CRS84
         return 4326
     crs = col_meta["crs"]
-    if not isinstance(crs, dict):
+    if not isinstance(crs, dict):  # explicit null -> unknown CRS
         return None
     id_obj = crs.get("id") or {}
     authority, code = id_obj.get("authority"), id_obj.get("code")
