@@ -349,7 +349,7 @@ services:
       # fixed by the shared-volume contract above; the app's path must equal the
       # /app/staging mount target on every service. See .env.example.
       UPLOAD_STAGING_DIR: "/app/staging"
-      UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls}"
+      UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet}"
       REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
       TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"

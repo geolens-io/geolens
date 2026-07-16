@@ -416,6 +416,33 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
     )
 
 
+# File formats whose missing CRS declaration conventionally means EPSG:4326
+# (lon/lat). Anything else with geometry but no detectable CRS must fail (or
+# carry a user srid_override) instead of silently assuming 4326. Shared by
+# ingest_file and reupload_file (fix(#541 review): reupload lacked the gate).
+ASSUMES_4326_SUFFIXES = (".csv", ".geojson", ".json", ".xlsx", ".xls")
+
+
+def check_missing_crs(
+    *,
+    file_path: str,
+    has_geometry: bool,
+    detected_srid: int | None,
+    srid_override: int | None,
+) -> str | None:
+    """Missing-CRS gate: the error message when a spatial source declares no
+    CRS and the user gave no override, or None when ingest may proceed."""
+    if not has_geometry or detected_srid is not None or srid_override is not None:
+        return None
+    if file_path.lower().endswith(ASSUMES_4326_SUFFIXES):
+        return None
+    return (
+        "Missing CRS: no coordinate system detected. "
+        "Ensure the file includes CRS information "
+        "(e.g., .prj file for Shapefiles) or provide an SRID override."
+    )
+
+
 async def _validate_upload_file_safety(
     session,
     *,

@@ -156,6 +156,46 @@ class TestParquetInfo:
             await parquet_info(str(p))
 
 
+class TestMissingCrsGate:
+    """Shared ingest/reupload gate (PR #541 review): unknown-CRS spatial
+    sources must fail (or carry srid_override) instead of assuming 4326."""
+
+    def test_unknown_crs_blocks(self):
+        from app.processing.ingest.tasks_common import check_missing_crs
+
+        msg = check_missing_crs(
+            file_path="/tmp/x.parquet",
+            has_geometry=True,
+            detected_srid=None,
+            srid_override=None,
+        )
+        assert msg is not None and "Missing CRS" in msg
+
+    def test_override_detected_nonspatial_and_4326_formats_pass(self):
+        from app.processing.ingest.tasks_common import check_missing_crs
+
+        common = {"has_geometry": True, "detected_srid": None, "srid_override": None}
+        assert (
+            check_missing_crs(
+                **{**common, "file_path": "/x.parquet", "srid_override": 2263}
+            )
+            is None
+        )
+        assert (
+            check_missing_crs(
+                **{**common, "file_path": "/x.parquet", "detected_srid": 4326}
+            )
+            is None
+        )
+        assert (
+            check_missing_crs(
+                **{**common, "file_path": "/x.parquet", "has_geometry": False}
+            )
+            is None
+        )
+        assert check_missing_crs(**{**common, "file_path": "/x.geojson"}) is None
+
+
 class TestParquetRoundTrip:
     """Acceptance gate: exporter output re-ingests losslessly."""
 
