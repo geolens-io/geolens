@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface InlineEditProps {
@@ -35,6 +36,7 @@ export function InlineEdit({
   const [editing, setEditing] = useState(initialEditing);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const multilineContainerRef = useRef<HTMLDivElement>(null);
   const isDirtyRef = useRef(false);
 
   const emitDirtyChange = useCallback(
@@ -122,11 +124,20 @@ export function InlineEdit({
     [cancel, save, multiline],
   );
 
+  // fix(#458 E-32): clear the dirty flag on true unmount ONLY. Depending on
+  // [emitDirtyChange] re-ran this cleanup whenever the onDirtyChange prop
+  // identity changed — which the dirty change itself triggers when the parent
+  // passes an inline arrow — instantly self-reverting the flag, so the
+  // pending-edits bar never appeared for an in-progress multiline edit.
+  const emitDirtyChangeRef = useRef(emitDirtyChange);
+  useEffect(() => {
+    emitDirtyChangeRef.current = emitDirtyChange;
+  });
   useEffect(
     () => () => {
-      emitDirtyChange(false);
+      emitDirtyChangeRef.current(false);
     },
-    [emitDirtyChange],
+    [],
   );
 
   // Not editable -- render plain text
@@ -148,19 +159,53 @@ export function InlineEdit({
 
     if (multiline) {
       return (
-        <textarea
-          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-          value={draft}
-          onChange={(e) => handleDraftChange(e.target.value)}
-          onBlur={cancel}
-          onKeyDown={handleKeyDown}
-          // fix(#438): DS-03 — deliberately shares inputClasses with its
-          // sibling <input> so the inline editor looks identical in both modes;
-          // that's why it doesn't use the ui/textarea primitive.
-          className={cn(inputClasses, 'resize-none min-h-[3rem]')}
-          rows={3}
-          title={t('common:inlineEdit.hint', { defaultValue: 'Ctrl+Enter to save, Escape to cancel' })}
-        />
+        <div ref={multilineContainerRef}>
+          <textarea
+            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+            value={draft}
+            onChange={(e) => handleDraftChange(e.target.value)}
+            // fix(#528 review): don't cancel when focus moves to the editor's
+            // own Save/Cancel buttons — Tab from the textarea used to fire
+            // blur→cancel and unmount the buttons before a keyboard user
+            // could reach them (mousedown-preventDefault only covers pointers).
+            onBlur={(e) => {
+              if (multilineContainerRef.current?.contains(e.relatedTarget as Node)) {
+                return;
+              }
+              cancel();
+            }}
+            onKeyDown={handleKeyDown}
+            // fix(#438): DS-03 — deliberately shares inputClasses with its
+            // sibling <input> so the inline editor looks identical in both modes;
+            // that's why it doesn't use the ui/textarea primitive.
+            className={cn(inputClasses, 'resize-none min-h-[3rem]')}
+            rows={3}
+            title={t('common:inlineEdit.hint', { defaultValue: 'Ctrl+Enter to save, Escape to cancel' })}
+          />
+          {/* fix(#458 E-32): Ctrl+Enter was the ONLY save path, hinted solely
+              by a hover tooltip — click-away cancels, so edits were silently
+              lost. Visible buttons; mousedown is prevented so the textarea's
+              blur→cancel doesn't fire before the click lands. */}
+          <div className="mt-1 flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void save()}
+            >
+              {t('common:save')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={cancel}
+            >
+              {t('common:cancel')}
+            </Button>
+          </div>
+        </div>
       );
     }
 

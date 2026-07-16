@@ -87,6 +87,11 @@ class FakeProcessingPort:
     ):
         return user_roles or set()
 
+    async def check_dataset_write_access(
+        self, session, dataset, dataset_id, user, *, user_roles=None
+    ):
+        return user_roles or set()
+
     async def get_user_roles(self, session, user):
         return {"viewer"}
 

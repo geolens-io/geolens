@@ -22417,7 +22417,7 @@
     },
     "/audit/datasets/{dataset_id}/column-ddl": {
       "get": {
-        "description": "Return the column-DDL audit history for a dataset.\n\nSEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)\nto dataset owners so they can detect editor-initiated schema changes.\n\nAccess control (AGENTS.md Pre-Commit Checklist Rule 1):\n- Owner + granted roles: 200 with their own dataset's DDL history\n- Non-owner editor (no grant): 404 (check_dataset_access raises 404 for\n  private datasets)\n- Admin: 200 (admin access is always allowed)\n- Anonymous: 401 (get_current_active_user dependency)\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
+        "description": "Return the column-DDL audit history for a dataset.\n\nSEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)\nto dataset owners so they can detect editor-initiated schema changes.\n\nAccess control (AGENTS.md Pre-Commit Checklist Rule 1):\n- Owner: 200 with their own dataset's DDL history\n- Admin: 200 (admin access is always allowed)\n- Anyone else \u2014 including authenticated readers of a PUBLIC dataset: 404\n  via check_dataset_write_access. fix(#458 E-37): the feed previously used\n  check_dataset_access (read visibility), which let any logged-in user\n  enumerate editor usernames/user_ids on public datasets, contradicting\n  this owner-facing contract.\n- Anonymous: 401 (get_current_active_user dependency)\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
         "operationId": "get_column_ddl_feed_audit_datasets__dataset_id__column_ddl_get",
         "parameters": [
           {
@@ -31883,7 +31883,7 @@
     },
     "/datasets/{dataset_id}/features/": {
       "get": {
-        "description": "Get paginated GeoJSON features for a dataset.",
+        "description": "Get paginated GeoJSON features for a dataset.\n\nPagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can\nskip or duplicate across pages under concurrent writes, though feature ids\nstay stable (ORDER BY gid, the primary key). Clients that need stable\ncursoring should use the OGC API Features endpoint, which supports keyset\npagination via ``after_gid``.",
         "operationId": "list_features_datasets__dataset_id__features__get",
         "parameters": [
           {

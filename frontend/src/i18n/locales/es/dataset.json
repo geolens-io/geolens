@@ -206,7 +206,8 @@
     "rowsPerPage": "Filas por página",
     "columns": "Columnas",
     "loadFailed": "No se pudieron cargar los datos. Inténtalo de nuevo.",
-    "tableLabel": "Atributos de entidades"
+    "tableLabel": "Atributos de entidades",
+    "cellEditorLabel": "Editar {{column}} del elemento {{gid}}"
   },
   "changeHistory": {
     "title": "Historial de cambios ({{count}})",

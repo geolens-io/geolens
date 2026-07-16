@@ -73,11 +73,15 @@ async def get_distinct_values(
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
     table_ref = _qtable(table_name)
+    # fix(#458 E-33): quote the (already regex-validated) identifier so
+    # reserved-word column names (desc, order, user) don't 500 the query;
+    # get_column_stats/get_column_null_cardinality below already quote.
+    col_q = _sql_quote_ident(column_name)
 
     sql = text(
-        f"SELECT DISTINCT {column_name} AS val "
+        f"SELECT DISTINCT {col_q} AS val "
         f"FROM {table_ref} "
-        f"WHERE {column_name} IS NOT NULL "
+        f"WHERE {col_q} IS NOT NULL "
         f"ORDER BY val LIMIT :limit"
     ).bindparams(limit=limit)
 

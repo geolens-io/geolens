@@ -216,6 +216,16 @@ class ProcessingPort(Protocol):
         user_roles: set[str] | None = None,
     ) -> set[str]: ...
 
+    async def check_dataset_write_access(
+        self,
+        session: AsyncSession,
+        dataset: Any,
+        dataset_id: uuid.UUID,
+        user: Identity,
+        *,
+        user_roles: set[str] | None = None,
+    ) -> set[str]: ...
+
     async def get_user_roles(
         self, session: AsyncSession, user: Identity
     ) -> set[str]: ...

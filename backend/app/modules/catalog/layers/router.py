@@ -280,14 +280,11 @@ async def alter_column_type_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
-    except Exception as exc:  # broad: PostgreSQL ALTER COLUMN cast can throw varied DataError types; map all to 400 with rollback
-        # Cast failures (e.g. "abc" → integer) surface as Postgres DataError;
-        # turn them into 400s instead of 500s so the UI can render the message.
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Type change failed: {exc}",
-        )
+    except DBAPIError as exc:
+        # fix(#458 E-42): route through the shared classifier like add/rename/
+        # drop, so a lock timeout or connection failure during ALTER TYPE is a
+        # 503, while cast failures ("abc" → integer) stay 400 with the message.
+        await _raise_ddl_db_error(db, exc, "Type change")
 
     logger.info(
         "layer.alter_column_type",

@@ -24,6 +24,37 @@ from app.platform.extensions import get_catalog_port
 logger = structlog.stdlib.get_logger(__name__)
 
 
+def _qcol(name: str) -> str:
+    """Return a double-quoted column identifier for DDL interpolation.
+
+    fix(#458 E-33): column names were interpolated bare, so a name that is a
+    SQL reserved word (``desc``, ``order``, ``user`` — routine ogr2ogr output
+    from DBF fields) passed COLUMN_NAME_RE but broke every DDL statement with
+    a syntax error, leaving the column permanently un-editable. Names are
+    regex-validated before reaching here, so quoting is belt-and-braces, not
+    an injection guard.
+    """
+    return '"' + name.replace('"', '""') + '"'
+
+
+async def _refresh_quality_detail(
+    session: AsyncSession, dataset: Dataset, column_info: list[dict]
+) -> None:
+    """Recompute the stored quality score after a schema change.
+
+    fix(#458 E-34): reupload recomputes quality_detail but column DDL did not,
+    so attribute_completeness drifted (an all-null added column, or a dropped
+    fully-populated one, changed the real score while the displayed one stayed
+    stale until the next reupload).
+    """
+    dataset.quality_detail = await get_catalog_port().compute_quality_score(
+        session,
+        dataset.table_name,
+        column_info,
+        dataset,
+    )
+
+
 async def create_layer(
     session: AsyncSession,
     name: str,
@@ -68,7 +99,7 @@ async def create_layer(
             if not COLUMN_NAME_RE.match(col.name):
                 raise ValueError(f"Invalid column name: {col.name!r}")
             pg_type = ALLOWED_COLUMN_TYPES[col.type]
-            col_defs += f", {col.name} {pg_type}"
+            col_defs += f", {_qcol(col.name)} {pg_type}"
 
     ddl = f"CREATE TABLE {table_ref} ({col_defs})"
     await session.execute(text(ddl))
@@ -192,12 +223,13 @@ async def add_column(
 
     # Execute DDL
     table_ref = get_catalog_port().quote_table(dataset.table_name)
-    ddl = f"ALTER TABLE {table_ref} ADD COLUMN {column_name} {pg_type}"
+    ddl = f"ALTER TABLE {table_ref} ADD COLUMN {_qcol(column_name)} {pg_type}"
     await session.execute(text(ddl))
 
     # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
+    await _refresh_quality_detail(session, dataset, column_info)
 
     # Create (or revive) the AttributeMetadata row for the new column.
     # fix(#458 E-12): (dataset_id, field_name) is unique, so re-adding a name
@@ -221,11 +253,18 @@ async def add_column(
             )
             session.add(am)
         am.data_type = data_type
-        am.units = get_catalog_port().infer_units(column_name)
-        am.semantic_role = get_catalog_port().infer_semantic_role(
-            column_name, data_type
-        )
-        am.domain_type = get_catalog_port().infer_domain_type(data_type)
+        # fix(#458 E-44): the revive path (drop → re-add the same name) used to
+        # overwrite user-customized inferred fields with fresh inference while
+        # user_modified_fields still claimed the customization. Honor it.
+        user_modified = set(am.user_modified_fields or [])
+        if "units" not in user_modified:
+            am.units = get_catalog_port().infer_units(column_name)
+        if "semantic_role" not in user_modified:
+            am.semantic_role = get_catalog_port().infer_semantic_role(
+                column_name, data_type
+            )
+        if "domain_type" not in user_modified:
+            am.domain_type = get_catalog_port().infer_domain_type(data_type)
         am.ordinal_position = new_col.get("ordinal_position")
         am.is_nullable = new_col.get("is_nullable")
         am.is_current = True
@@ -267,11 +306,19 @@ async def rename_column(
         raise ValueError(f"Column {new_name!r} already exists on this layer.")
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
-    ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {column_name} TO {new_name}"
+    ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {_qcol(column_name)} TO {_qcol(new_name)}"
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
+
+    # fix(#458 E-43): keep the cached sample-values snapshot keyed by the new
+    # name; the builder reads this dict and an old-name entry looks like an
+    # empty column after a rename.
+    if dataset.sample_values and column_name in dataset.sample_values:
+        samples = dict(dataset.sample_values)
+        samples[new_name] = samples.pop(column_name)
+        dataset.sample_values = samples
 
     # Migrate the AttributeMetadata row in place so attribute history follows
     # the rename instead of being orphaned.
@@ -323,13 +370,14 @@ async def alter_column_type(
     pg_type = ALLOWED_COLUMN_TYPES[new_type]
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = (
-        f"ALTER TABLE {table_ref} ALTER COLUMN {column_name} TYPE {pg_type} "
-        f"USING {column_name}::{pg_type}"
+        f"ALTER TABLE {table_ref} ALTER COLUMN {_qcol(column_name)} TYPE {pg_type} "
+        f"USING {_qcol(column_name)}::{pg_type}"
     )
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
+    await _refresh_quality_detail(session, dataset, column_info)
 
     # Refresh AttributeMetadata.data_type so quality metrics + UI labels match.
     result = await session.execute(
@@ -378,12 +426,19 @@ async def drop_column(
 
     # Execute DDL
     table_ref = get_catalog_port().quote_table(dataset.table_name)
-    ddl = f"ALTER TABLE {table_ref} DROP COLUMN {column_name}"
+    ddl = f"ALTER TABLE {table_ref} DROP COLUMN {_qcol(column_name)}"
     await session.execute(text(ddl))
 
     # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
+    await _refresh_quality_detail(session, dataset, column_info)
+
+    # fix(#458 E-43): drop the removed column's cached sample values too.
+    if dataset.sample_values and column_name in dataset.sample_values:
+        samples = dict(dataset.sample_values)
+        samples.pop(column_name)
+        dataset.sample_values = samples
 
     # Mark AttributeMetadata row as removed. fix(#458 E-12): filter on
     # is_current like rename/alter do — drop→re-add→drop of the same name

@@ -206,7 +206,8 @@
     "rowsPerPage": "Lignes par page",
     "columns": "Colonnes",
     "loadFailed": "Impossible de charger les données. Veuillez réessayer.",
-    "tableLabel": "Attributs des entités"
+    "tableLabel": "Attributs des entités",
+    "cellEditorLabel": "Modifier {{column}} pour l’entité {{gid}}"
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",

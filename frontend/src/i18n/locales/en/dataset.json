@@ -206,7 +206,8 @@
     "rowsPerPage": "Rows per page",
     "columns": "Columns",
     "loadFailed": "Failed to load data. Please try again.",
-    "tableLabel": "Feature attributes"
+    "tableLabel": "Feature attributes",
+    "cellEditorLabel": "Edit {{column}} for feature {{gid}}"
   },
   "changeHistory": {
     "title": "Change History ({{count}})",

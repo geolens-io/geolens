@@ -434,3 +434,46 @@ async def test_column_ddl_feed_pagination(
     ids_p1 = {item["action"] + str(item["created_at"]) for item in body_p1["items"]}
     ids_p2 = {item["action"] + str(item["created_at"]) for item in body_p2["items"]}
     assert not ids_p1.intersection(ids_p2), "Pagination pages must not overlap"
+
+
+@pytest.mark.anyio
+async def test_column_ddl_feed_non_owner_public_dataset_denied(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    """fix(#458 E-37): the feed is owner-facing — a PUBLIC dataset must not let
+    arbitrary authenticated users enumerate editor usernames/user_ids. The old
+    check_dataset_access (read visibility) allowed exactly that."""
+    owner_headers, owner_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+    owner_id = uuid.UUID(owner_id_str)
+    dataset_id = await _create_dataset_direct(
+        test_db_session,
+        created_by=owner_id,
+        name="DDL Feed Test Public Non-Owner",
+        visibility="public",
+    )
+    await _seed_ddl_event(
+        test_db_session, dataset_id=dataset_id, action="layer.add_column"
+    )
+
+    other_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+
+    resp = await client.get(
+        f"/api/audit/datasets/{dataset_id}/column-ddl",
+        headers=other_headers,
+    )
+    assert resp.status_code in (403, 404), (
+        f"Expected denial on public dataset for non-owner, got {resp.status_code}: {resp.text}"
+    )
+    assert "layer.add_column" not in resp.text
+
+    # The owner still sees it.
+    resp = await client.get(
+        f"/api/audit/datasets/{dataset_id}/column-ddl",
+        headers=owner_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total"] >= 1

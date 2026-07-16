@@ -206,7 +206,8 @@
     "rowsPerPage": "Zeilen pro Seite",
     "columns": "Spalten",
     "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen.",
-    "tableLabel": "Feature-Attribute"
+    "tableLabel": "Feature-Attribute",
+    "cellEditorLabel": "{{column}} für Feature {{gid}} bearbeiten"
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",

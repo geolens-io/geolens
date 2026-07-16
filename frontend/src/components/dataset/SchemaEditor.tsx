@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Trash2, Plus } from 'lucide-react';
@@ -56,6 +56,8 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
   const [newType, setNewType] = useState<string>('text');
   const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const nameInputId = useId();
+  const nameErrorId = useId();
 
   const addColumnMutation = useAddColumn();
   const dropColumnMutation = useDropColumn();
@@ -193,7 +195,10 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
               </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                disabled={dropColumnMutation.isPending}
+                // fix(#458 E-50): also wait for the map-references query — a
+                // fast confirm could drop the column before the "used by N
+                // maps" warning (E-06) had a chance to render.
+                disabled={dropColumnMutation.isPending || columnReferences.isLoading}
                 onClick={() => {
                   if (confirmDelete) handleDropColumn(confirmDelete);
                 }}
@@ -206,10 +211,15 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
 
         {/* Add column form */}
         <div className="border-t pt-4 space-y-3">
-          <Label className="text-sm font-medium">{t('schema.addColumn')}</Label>
+          {/* fix(#458 E-49): a placeholder is not an accessible name — tie the
+              section label to the name input. */}
+          <Label htmlFor={nameInputId} className="text-sm font-medium">
+            {t('schema.addColumn')}
+          </Label>
           <div className="flex items-start gap-2">
             <div className="flex-1 space-y-2">
               <Input
+                id={nameInputId}
                 placeholder={t('schema.columnNamePlaceholder')}
                 value={newName}
                 onChange={(e) => {
@@ -220,13 +230,19 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                   if (e.key === 'Enter') handleAddColumn();
                 }}
                 className="font-mono text-xs h-9"
+                // fix(#458 E-38): announce the validation failure and associate
+                // it with the field instead of a visually-adjacent <p> only.
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? nameErrorId : undefined}
               />
               {nameError && (
-                <p className="text-xs text-destructive">{nameError}</p>
+                <p id={nameErrorId} role="alert" className="text-xs text-destructive">
+                  {nameError}
+                </p>
               )}
             </div>
             <Select value={newType} onValueChange={setNewType}>
-              <SelectTrigger className="w-[130px]">
+              <SelectTrigger className="w-[130px]" aria-label={t('schema.columnType')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
