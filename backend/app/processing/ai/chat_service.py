@@ -54,6 +54,7 @@ from app.processing.ai.chat_constants import (
     _MAX_SAMPLE_COLS,
     _MAX_SYSTEM_PROMPT_LAYERS,
     ERROR_MESSAGES,
+    QUERY_RESULT_SANITY_PROMPT,
     RAMP_COLORS,
     _get_ramp_colors,
     _sanitize_layer_name,
@@ -280,6 +281,7 @@ When reporting query results back to the user:
 - Never show raw SQL, table structures, or row counts as bare numbers -- interpret them meaningfully.
 - If no results were found, tell the user and suggest trying different criteria.
 
+{QUERY_RESULT_SANITY_PROMPT}
 ## Uncertainty
 - If you are uncertain about a column name or data interpretation, say so in your explanation.
 - Do not guess column names that are not listed in the layer info above.

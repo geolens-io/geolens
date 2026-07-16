@@ -8,6 +8,7 @@ callers import ``build_dataset_chat_system_prompt`` via
 from app.processing.ai.chat_constants import (
     _MAX_COLUMNS_PER_LAYER,
     _MAX_SAMPLE_COLS,
+    QUERY_RESULT_SANITY_PROMPT,
     _sanitize_layer_name,
     lang_name,
 )
@@ -78,6 +79,7 @@ When reporting query results back to the user:
 - Never show raw SQL, table structures, or row counts as bare numbers -- interpret them meaningfully.
 - If no results were found, tell the user and suggest trying different criteria.
 
+{QUERY_RESULT_SANITY_PROMPT}
 ## Uncertainty
 - If you are uncertain about a column name or data interpretation, say so in your explanation.
 - Do not guess column names that are not listed above.

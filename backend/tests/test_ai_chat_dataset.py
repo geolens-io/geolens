@@ -199,6 +199,14 @@ def test_dataset_prompt_marks_attribute_tables():
     assert "attribute table" in prompt
 
 
+def test_dataset_prompt_has_result_sanity_check():
+    """Query results get a self-validation pass before presentation (#531 follow-up)."""
+    layer = ChatMapLayer(id="x", name="x", dataset_id="x", dataset_table_name="t")
+    prompt = build_dataset_chat_system_prompt(layer)
+    assert "Result Sanity Check" in prompt
+    assert "retry query_data ONCE" in prompt
+
+
 @pytest.mark.anyio
 async def test_restrict_tables_blocks_other_visible_tables(
     client: AsyncClient, test_db_session
