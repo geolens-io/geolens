@@ -131,7 +131,9 @@ class TestParquetInfo:
     def test_unresolvable_crs_returns_none(self):
         assert _srid_from_geo({"crs": {"name": "some bespoke CRS"}}) is None
         assert _srid_from_geo({}) == 4326  # omitted -> CRS84
-        assert _srid_from_geo({"crs": None}) == 4326  # explicit null -> CRS84
+        # explicit null differs from omitted per spec: CRS is UNKNOWN, so the
+        # pipeline's Missing-CRS / srid_override path must apply (PR #541 review)
+        assert _srid_from_geo({"crs": None}) is None
 
     @pytest.mark.anyio
     async def test_non_wkb_encoding_rejected(self, tmp_path):
