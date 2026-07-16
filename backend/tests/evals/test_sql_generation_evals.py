@@ -52,17 +52,20 @@ pytestmark = [
     ),
 ]
 
-# name, category, envelope (west, south, east, north) around NYC — sizes are
-# distinct enough that "largest" is unambiguous even with projection wobble.
+# name, category, envelope (west, south, east, north) around NYC. Sizes are
+# STRICTLY ordered under both degree-area and geography-area (no ties), so
+# the top-3 ordering is unambiguous regardless of how the model measures:
+# 0.030x0.040 > 0.030x0.020 > 0.012x0.012 > 0.010x0.010 > 0.005x0.004 > 0.002x0.002.
 _PARKS = [
     ("Central Green", "regional", (-73.980, 40.760, -73.950, 40.800)),
     ("River Bend Park", "community", (-73.930, 40.700, -73.920, 40.710)),
     ("Riverside Walk", "community", (-73.995, 40.740, -73.990, 40.744)),
-    ("Sunset Park", "community", (-74.010, 40.645, -74.000, 40.655)),
+    ("Sunset Park", "community", (-74.010, 40.645, -73.998, 40.657)),
     ("Elm Commons", "pocket", (-73.900, 40.680, -73.898, 40.682)),
     ("North Meadow", "regional", (-73.970, 40.850, -73.940, 40.870)),
 ]
 _LARGEST = "Central Green"
+_TOP3 = ["Central Green", "North Meadow", "Sunset Park"]
 _RIVER_NAMES = {"River Bend Park", "Riverside Walk"}
 
 
@@ -193,9 +196,14 @@ async def test_area_uses_geography_and_magnitude(client, test_db_session, eval_d
 
 
 async def test_largest_park(client, test_db_session, eval_dataset):
-    """Superlative question resolves to the geometrically largest feature."""
+    """Superlative question resolves to the geometrically largest feature,
+    ISOLATED — a query that returns every park must fail even though the
+    right answer appears somewhere in it (#537 review)."""
     sql, result = await _ask(
         test_db_session, eval_dataset, "Which park has the largest area?"
+    )
+    assert result.row_count == 1, (
+        f"expected a single-row answer, got {result.row_count} rows\nSQL: {sql}"
     )
     names = [c for c in _cells(result) if isinstance(c, str)]
     assert _LARGEST in names, f"expected {_LARGEST!r} in {names}\nSQL: {sql}"
@@ -213,15 +221,20 @@ async def test_name_filter_matches_expected_set(client, test_db_session, eval_da
 
 
 async def test_top_n_is_limited_and_ordered(client, test_db_session, eval_dataset):
-    """Top-N question returns exactly N rows with the known largest first."""
+    """Top-N question returns exactly the known top 3, in order. Requires an
+    ORDER BY — with the largest park inserted first, a bare LIMIT 3 would
+    otherwise pass on insertion order alone (#537 review)."""
     sql, result = await _ask(
         test_db_session,
         eval_dataset,
         "What are the 3 largest parks by area, largest first?",
     )
+    assert re.search(r"\border\s+by\b", sql, re.IGNORECASE), f"no ORDER BY:\n{sql}"
     assert re.search(r"\blimit\s+3\b", sql, re.IGNORECASE), f"no LIMIT 3:\n{sql}"
     assert result.row_count == 3, f"expected 3 rows, got {result.row_count}"
-    first_row_strings = [c for c in result.rows[0] if isinstance(c, str)]
-    assert _LARGEST in first_row_strings, (
-        f"largest park {_LARGEST!r} not first: {result.rows[0]}\nSQL: {sql}"
-    )
+    all_names = {p[0] for p in _PARKS}
+    row_names = [
+        next((c for c in row if isinstance(c, str) and c in all_names), None)
+        for row in result.rows
+    ]
+    assert row_names == _TOP3, f"expected {_TOP3}, got {row_names}\nSQL: {sql}"
