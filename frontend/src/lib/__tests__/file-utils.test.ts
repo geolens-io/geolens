@@ -25,16 +25,22 @@ describe('buildAcceptMap', () => {
   });
 
   it('falls back to application/octet-stream for unknown extensions', () => {
-    const result = buildAcceptMap(['.parquet', '.fgb']);
+    const result = buildAcceptMap(['.topojson', '.fgb']);
     expect(result).toEqual({
-      'application/octet-stream': ['.parquet', '.fgb'],
+      'application/octet-stream': ['.topojson', '.fgb'],
     });
   });
 
   it('handles mixed known and unknown extensions', () => {
-    const result = buildAcceptMap(['.zip', '.parquet']);
+    const result = buildAcceptMap(['.zip', '.fgb']);
     expect(result['application/zip']).toEqual(['.zip']);
-    expect(result['application/octet-stream']).toEqual(['.parquet']);
+    expect(result['application/octet-stream']).toEqual(['.fgb']);
+  });
+
+  it('maps .parquet to the Apache Parquet media type', () => {
+    expect(buildAcceptMap(['.parquet'])).toEqual({
+      'application/vnd.apache.parquet': ['.parquet'],
+    });
   });
 
   it('returns empty object for empty input', () => {

@@ -75,7 +75,9 @@ export function FormatPill({ kind, ext }: { kind: DataKind; ext: string }) {
 export function kindFromExtension(ext: string): DataKind {
   const e = ext.toLowerCase();
   if (['.tif', '.tiff', '.cog', '.nc', '.vrt'].includes(e)) return 'raster';
-  if (['.csv', '.xlsx', '.xls', '.parquet'].includes(e)) return 'table';
+  // .parquet is vector: GeoParquet carries geometry; plain tabular parquet
+  // degrades to a joinable table at import like a geometry-less CSV.
+  if (['.csv', '.xlsx', '.xls'].includes(e)) return 'table';
   return 'vector';
 }
 
