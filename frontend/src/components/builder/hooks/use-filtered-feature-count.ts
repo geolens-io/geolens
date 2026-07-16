@@ -27,7 +27,7 @@ export function useFilteredFeatureCount(
   const [count, setCount] = useState<number | null>(null);
   const layerId = layer?.id ?? null;
   const layerFilter = layer?.filter ?? null;
-  // fix(#TBD B-046): resolved adapter type (a stable string) so the count can
+  // fix(#526 B-046): resolved adapter type (a stable string) so the count can
   // query the adapter's full sublayer-id set (mixed families, cluster bubbles).
   const adapterType = resolveAdapterType(
     layer?.dataset_geometry_type ?? null,
@@ -57,7 +57,7 @@ export function useFilteredFeatureCount(
       // use-layer-map-sync.ts), NOT the raw layer.id UUID. Querying the bare
       // UUID always missed, so the count was permanently null and the
       // "0 features after filter" hint (EASY-18) never fired.
-      // fix(#TBD B-046): query the adapter's FULL layer-id set, not just the
+      // fix(#526 B-046): query the adapter's FULL layer-id set, not just the
       // primary id — a mixed layer's points/lines render on sibling sublayers
       // and a clustered layer's features render on the cluster bubbles, so the
       // primary-only count read 0 while the map plainly showed features,

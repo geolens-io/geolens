@@ -922,7 +922,7 @@ def _style_layer_for_map_layer(
     if not layer.visible:
         base["layout"] = {**layout, "visibility": "none"}
 
-    # fix(#TBD B-044): the builder stores the per-layer zoom range as
+    # fix(#526 B-044): the builder stores the per-layer zoom range as
     # builder-private layout keys (`_minzoom`/`_maxzoom`, applied live via
     # setLayerZoomRange). `_clean_layout` strips underscore keys, so exported
     # layers previously rendered at ALL zooms. Re-emit them as the spec-level

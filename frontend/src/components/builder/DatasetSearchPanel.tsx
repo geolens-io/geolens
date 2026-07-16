@@ -47,7 +47,7 @@ interface DatasetSearchPanelProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  // fix(#TBD B-050): dataset id currently being added — drives the per-row
+  // fix(#526 B-050): dataset id currently being added — drives the per-row
   // in-flight spinner (the global isAdding flag alone gave no feedback about
   // WHICH row's click registered).
   addingDatasetId?: string | null;
@@ -382,7 +382,7 @@ export function DatasetSearchPanel({
         className={compact ? 'h-8 gap-1 px-3 text-xs' : 'h-7 w-7 shrink-0'}
         onClick={() => onAddDataset(record.id)}
         disabled={isAdding}
-        // fix(#TBD B-050): mark THIS row busy while its add is in flight
+        // fix(#526 B-050): mark THIS row busy while its add is in flight
         // (SuggestCard pattern) — all buttons stay disabled during an add, but
         // only the clicked row shows the spinner.
         aria-busy={addingDatasetId === record.id}

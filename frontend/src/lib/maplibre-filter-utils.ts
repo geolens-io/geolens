@@ -327,7 +327,7 @@ function sanitizeFilterNode(node: unknown): unknown {
     ];
   }
 
-  // fix(#TBD B-045): recurse only through combinator/negation wrappers. The
+  // fix(#526 B-045): recurse only through combinator/negation wrappers. The
   // previous fallthrough walked EVERY child, so opaque out-of-subset
   // expressions (case/match/step/coalesce operands) had nested numeric
   // comparisons rewritten to the nullable-safe form — breaking the verbatim

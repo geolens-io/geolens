@@ -110,7 +110,7 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
     layout['text-field'] = ['get', lc.column];
     layout['text-size'] = lc.fontSize ?? 12;
     layout['text-font'] = [...LABEL_FONT_STACK];
-    // fix(#TBD B-042): default anchor/offset must match the companion-label
+    // fix(#526 B-042): default anchor/offset must match the companion-label
     // path AND what LabelEditor displays (center / DEFAULT_POINT_LABEL_OFFSET).
     // The old 'top'/[0,1.2] defaults meant the editor showed Center/0/-1.5
     // while the map drew top/0/1.2, and the first Offset-X drag snapped the

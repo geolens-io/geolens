@@ -32,7 +32,7 @@ interface BuilderDialogsProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  // fix(#TBD B-050): dataset id currently being added (per-row spinner).
+  // fix(#526 B-050): dataset id currently being added (per-row spinner).
   addingDatasetId?: string | null;
   addDataInitialQuery?: string;
   // Share

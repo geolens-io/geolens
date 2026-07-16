@@ -127,7 +127,7 @@ export function ZoomExpressionEditor({
   }
 
   function updateStop(index: number, patch: Partial<{ zoom: number; value: number }>) {
-    // fix(#TBD B-043): clamp manually-typed stop values to the property's
+    // fix(#526 B-043): clamp manually-typed stop values to the property's
     // range — the <Input min/max> attributes are advisory only, and
     // validateZoomExpressionDraft checks finiteness/zoom order but never the
     // value range, so out-of-spec paint (circle-radius 0, negative
@@ -262,7 +262,7 @@ export function ZoomExpressionEditor({
                 step={step}
                 value={numericInputValue(draft.baseValue)}
                 onChange={(event) => {
-                  // fix(#TBD B-043): same manual-typing clamp as updateStop.
+                  // fix(#526 B-043): same manual-typing clamp as updateStop.
                   const raw = event.currentTarget.valueAsNumber;
                   emitDraft({
                     ...draft,

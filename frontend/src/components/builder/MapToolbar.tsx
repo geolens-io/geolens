@@ -77,7 +77,7 @@ export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarPro
     return tools;
   }, [activePlugins, close, measureActive, measurementPlugin, toggle, t]);
 
-  // fix(#TBD B-041): the shortcuts sheet and these buttons' own tooltips
+  // fix(#526 B-041): the shortcuts sheet and these buttons' own tooltips
   // advertise V/M/L, but no handler was ever wired -- two surfaces
   // misinformed (audit U-02). Guarded like MapBuilderPage's '?' hotkey:
   // no-op while typing, with modifier keys held, or when a dialog is open.

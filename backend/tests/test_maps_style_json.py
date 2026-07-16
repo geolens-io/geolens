@@ -2014,7 +2014,7 @@ def test_vector_source_maxzoom_mirrors_live_builder_394():
     assert cluster_source["maxzoom"] == 22
 
 
-# fix(#TBD B-044): the builder stores the per-layer zoom range as
+# fix(#526 B-044): the builder stores the per-layer zoom range as
 # builder-private `_minzoom`/`_maxzoom` layout keys; export previously
 # stripped them (underscore-key cleaning) without re-emitting spec-level
 # minzoom/maxzoom, so a zoom-limited layer rendered at ALL zooms in the

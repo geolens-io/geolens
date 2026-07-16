@@ -145,7 +145,7 @@ export const StackRow = memo(function StackRow({
   // too. Symbol mode does NOT suppress labels — it renders the text
   // consolidated in the primary symbol layer (symbol-adapter symbolLayout),
   // so the old renderMode !== 'symbol' clause was a false negative: a symbol
-  // point with labels showed text on the map but no badge. fix(#TBD B-042)
+  // point with labels showed text on the map but no badge. fix(#526 B-042)
   const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode as string | undefined;
   const hasLabels = !!layer.label_config?.column && renderMode !== 'heatmap';
 

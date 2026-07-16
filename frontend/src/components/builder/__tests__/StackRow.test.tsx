@@ -681,7 +681,7 @@ describe('label indicator', () => {
     expect(screen.queryByTestId('label-indicator')).not.toBeInTheDocument();
   });
 
-  // fix(#TBD B-042): INVERTED — symbol mode renders label text consolidated in
+  // fix(#526 B-042): INVERTED — symbol mode renders label text consolidated in
   // the primary symbol layer, so a symbol point with label_config.column DOES
   // show text on the map and must show the badge (the old suppression was a
   // false negative built on a wrong comment).
