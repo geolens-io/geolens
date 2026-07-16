@@ -116,6 +116,7 @@ class TestIngestVectorIntoStaging:
             geometry_type="Point",
             layer_name="layer1",
             schema="data",
+            effective_srid=4326,
         )
         assert result.has_geometry is True
 
