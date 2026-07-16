@@ -31,6 +31,9 @@ function getAuthToken(): string {
 
 let datasetId: string;
 let datasetTitle: string;
+// Set when a test creates a real map; deleted in afterEach so the fixture
+// doesn't leak when an assertion fails mid-test (#535 review).
+let createdMapId: string | null = null;
 
 async function mockAIAvailable(page: Page, available: boolean) {
   await page.route('**/api/admin/ai-status/', (route) =>
@@ -80,6 +83,17 @@ test.describe('Dataset AI chat', () => {
     datasetTitle = ds.title;
   });
 
+  test.afterEach(async () => {
+    if (!createdMapId) return;
+    const token = getAuthToken();
+    // Best-effort teardown — runs even when the test body failed.
+    await fetch(`${BASE_URL}/api/maps/${createdMapId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+    createdMapId = null;
+  });
+
   test('Ask AI is hidden when AI is not configured', async ({ page }) => {
     await mockAIAvailable(page, false);
     // Synchronize on the mocked status actually being delivered — the panel
@@ -126,8 +140,8 @@ test.describe('Dataset AI chat', () => {
     await page.getByRole('button', { name: 'Open in builder' }).click();
     await page.waitForURL(/\/maps\/[0-9a-f-]{36}/);
 
-    const mapId = page.url().match(/\/maps\/([0-9a-f-]{36})/)?.[1];
-    expect(mapId).toBeTruthy();
+    createdMapId = page.url().match(/\/maps\/([0-9a-f-]{36})/)?.[1] ?? null;
+    expect(createdMapId).toBeTruthy();
 
     // The staged layer for this dataset appears in the builder stack. Scope
     // to a stack row — the map itself is named "<datasetTitle> Map", so a
@@ -139,13 +153,5 @@ test.describe('Dataset AI chat', () => {
         .filter({ hasText: datasetTitle })
         .first(),
     ).toBeVisible({ timeout: 15_000 });
-
-    // Cleanup: delete the map created by the click.
-    const token = getAuthToken();
-    const del = await fetch(`${BASE_URL}/api/maps/${mapId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(del.ok).toBe(true);
   });
 });
