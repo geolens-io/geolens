@@ -68,6 +68,8 @@ from app.processing.ai.chat_geojson import (
     _extract_geojson,
     _is_geom_value,
     _safe_value,
+    ensure_geometry_selected,
+    strip_geometry_columns,
 )
 from app.processing.ai.chat_styles import (
     _build_categorical_style,
@@ -122,6 +124,8 @@ __all__ = [
     "_detect_geom_column",
     "_safe_value",
     "_extract_geojson",
+    "ensure_geometry_selected",
+    "strip_geometry_columns",
     # Test patch targets (kept module-level so unittest.mock.patch resolves
     # ``app.processing.ai.chat_service.{generate_sql,validate_and_execute}``)
     "generate_sql",

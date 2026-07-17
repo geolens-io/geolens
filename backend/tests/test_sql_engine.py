@@ -231,6 +231,192 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_geometry_appended_and_stripped_from_table(self, mock_gen, mock_exec):
+        """fix(#544): geom_4326 is appended to the executed SQL when the model
+        omits it, and the raw WKB column is stripped from the tabular payload
+        once the geojson is extracted."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        mock_exec.return_value = SandboxResult(
+            rows=[["Springfield", wkb]],
+            columns=["name", "geom_4326"],
+            row_count=1,
+            truncated=False,
+        )
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "List the names and locations of cities"},
+            AsyncMock(),
+            _mock_user(),
+            layers,
+        )
+        executed_sql = mock_exec.call_args.args[0]
+        assert "geom_4326" in executed_sql
+        # fix(#556 review P2): appended-geometry queries cap the fetch to the
+        # overlay render budget so full geometries for discarded rows are not
+        # transferred.
+        assert mock_exec.call_args.kwargs.get("row_limit") == 50
+        assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
+        assert result["bbox"] == [1.0, 2.0, 1.0, 2.0]
+        assert result["columns"] == ["name"]
+        assert result["rows"] == [["Springfield"]]
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_no_row_limit_cap_when_geometry_not_appended(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#556 review P2): the fetch cap is scoped to the append. A query
+        the model wrote with its own geometry (or SELECT *) keeps the default
+        row limit, preserving the accurate row_count."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT * FROM data.cities"
+        mock_exec.return_value = SandboxResult(
+            rows=[["Springfield", wkb]],
+            columns=["name", "geom_4326"],
+            row_count=1,
+            truncated=False,
+        )
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        await _handle_query_data(
+            {"question": "everything"}, AsyncMock(), _mock_user(), layers
+        )
+        # SELECT * already carries geometry — nothing appended, no cap passed.
+        assert mock_exec.call_args.kwargs.get("row_limit") is None
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_truncated_appended_query_recovers_true_row_count(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#556 review P2): when the geometry-transfer cap truncates the
+        result, row_count is recovered from a geometry-free COUNT so the model
+        and UI see the true total, not the render budget."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        capped = SandboxResult(
+            rows=[["City %d" % i, wkb] for i in range(50)],
+            columns=["name", "geom_4326"],
+            row_count=50,
+            truncated=True,
+        )
+        count = SandboxResult(rows=[[496]], columns=["n"], row_count=1, truncated=False)
+        mock_exec.side_effect = [capped, count]
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "list every city with its location"},
+            AsyncMock(),
+            _mock_user(),
+            layers,
+        )
+        # Two calls: the capped fetch, then the COUNT recovery.
+        assert mock_exec.call_count == 2
+        count_sql = mock_exec.call_args_list[1].args[0]
+        assert count_sql.lower().startswith("select count(*)")
+        assert mock_exec.call_args_list[1].kwargs.get("row_limit") == 1
+        # The documented total is the true count, not the 50-row render budget.
+        assert result["row_count"] == 496
+        assert result["truncated"] is True
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_untruncated_appended_query_skips_count_recovery(
+        self, mock_gen, mock_exec
+    ):
+        """The COUNT recovery only fires when the cap actually truncated —
+        a small appended-geometry result issues a single query."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        mock_exec.return_value = SandboxResult(
+            rows=[["Springfield", wkb]],
+            columns=["name", "geom_4326"],
+            row_count=1,
+            truncated=False,
+        )
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 1
+        assert result["row_count"] == 1
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_geometry_append_falls_back_when_column_absent(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#556 review P2): a geom-only dataset (geometry_type but no
+        geom_4326) makes the appended query fail; fall back to the model's
+        original SQL so attribute rows still return (overlay dropped)."""
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        original_ok = SandboxResult(
+            rows=[["Springfield"]], columns=["name"], row_count=1, truncated=False
+        )
+        # First call (appended geom_4326) raises undefined-column; second
+        # call (original SQL) succeeds.
+        mock_exec.side_effect = [SandboxError("query_failed", "boom"), original_ok]
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "list cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 2
+        # The fallback ran the ORIGINAL (un-appended) SQL, no row_limit cap.
+        fallback_sql = mock_exec.call_args_list[1].args[0]
+        assert "geom_4326" not in fallback_sql
+        assert mock_exec.call_args_list[1].kwargs.get("row_limit") is None
+        assert result["columns"] == ["name"]
+        assert result["rows"] == [["Springfield"]]
+        assert "geojson" not in result  # overlay dropped, query still succeeded
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_non_appended_failure_does_not_retry(self, mock_gen, mock_exec):
+        """A failure on a query with no appended geometry propagates (no
+        fallback double-run)."""
+        mock_gen.return_value = "SELECT * FROM data.cities"  # star → no append
+        mock_exec.side_effect = SandboxError("query_timeout", "slow")
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _execute_chat_tool(
+            "query_data",
+            {"question": "everything"},
+            AsyncMock(),
+            _mock_user(),
+            set(),
+            layers,
+            port=_default_port,
+        )
+        # SandboxError caught by _execute_chat_tool → friendly message, one call.
+        assert mock_exec.call_count == 1
+        assert result["category"] == "query_timeout"
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_rows_truncated_to_50(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT * FROM data.cities"
         mock_exec.return_value = SandboxResult(

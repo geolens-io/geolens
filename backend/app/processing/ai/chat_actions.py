@@ -21,7 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.platform.sandbox import SandboxError
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
-from app.processing.ai.chat_geojson import _extract_geojson
+from app.processing.ai.chat_geojson import (
+    _extract_geojson,
+    ensure_geometry_selected,
+    strip_geometry_columns,
+)
 from app.processing.ai.colors import is_css_colorish, label_halo_color
 from app.processing.ai.chat_styles import _build_data_driven_style
 from app.processing.ai.schemas import (
@@ -39,6 +43,13 @@ logger = structlog.stdlib.get_logger(__name__)
 
 
 _DEFAULT_LABEL_TEXT_COLOR = "#333333"
+
+# Overlay/table render budget: only this many rows reach the chat result table
+# and the ephemeral map overlay. fix(#556 review P2): when we append geom_4326
+# to an otherwise attribute-only query, cap the fetch to this budget so a
+# large polygon/line layer doesn't transfer up to 1000 full geometries just to
+# discard all but these.
+_OVERLAY_ROW_BUDGET = 50
 
 
 def _safe_label_text_color(value: object) -> str:
@@ -133,17 +144,78 @@ async def _handle_query_data(
         error_msg = sql.strip().removeprefix("-- ERROR:").strip()
         return {"error": error_msg, "category": "llm_cannot_answer"}
 
+    # fix(#544): geometry must reach _extract_geojson regardless of which
+    # columns the model chose, or every map surface silently loses its overlay.
+    original_sql = sql
+    sql = ensure_geometry_selected(original_sql, layers)
+    geom_appended = sql != original_sql
+
     if stage_callback:
         stage_callback("Running query...")
 
-    result = await chat_service.validate_and_execute(
-        sql, session, user, restrict_tables=restrict_tables
-    )
+    # fix(#556 review P2): when we appended geometry, cap the fetch to the
+    # overlay render budget. Only _OVERLAY_ROW_BUDGET rows reach the table and
+    # overlay anyway, so fetching (and holding) up to 1000 full geometries for
+    # a large polygon/line layer is a transfer/memory regression. row_count
+    # then reflects the rendered budget with the truncated flag signalling more
+    # rows exist. Queries where the model selected geometry itself keep the
+    # default limit (pre-existing behavior, out of this rewrite's scope).
+    exec_kwargs: dict = {"restrict_tables": restrict_tables}
+    if geom_appended:
+        exec_kwargs["row_limit"] = _OVERLAY_ROW_BUDGET
+    try:
+        result = await chat_service.validate_and_execute(
+            sql, session, user, **exec_kwargs
+        )
+    except SandboxError:
+        # fix(#556 review P2): the appended geom_4326 may not exist — a
+        # SRID-less ingest keeps geometry_type but exposes only native `geom`
+        # (see ensure_geom_4326_gist_index docs) — or the append otherwise
+        # broke a query the model wrote validly. Fall back to the original SQL
+        # so attribute rows still return; the overlay is simply dropped. If the
+        # original also fails, its error propagates (no masking).
+        if not geom_appended:
+            raise
+        logger.info("query_data.geometry_append_fallback")
+        geom_appended = False
+        sql = original_sql
+        result = await chat_service.validate_and_execute(
+            sql, session, user, restrict_tables=restrict_tables
+        )
+
+    # fix(#556 review P2): the transfer cap above bounds the sandbox row_count to
+    # the render budget, but show_query_result.row_count is the documented TOTAL
+    # matched rows (the model narrates it, the UI displays it). When the cap
+    # actually truncated the result, recover the true total with a geometry-free
+    # COUNT wrapping the same validated SQL (still bounded by the query's own
+    # LIMIT). Best-effort — a failure keeps the capped count rather than erroring.
+    if geom_appended and result.truncated:
+        try:
+            count_res = await chat_service.validate_and_execute(
+                f"SELECT COUNT(*) AS n FROM ({sql}) AS _geolens_total",
+                session,
+                user,
+                row_limit=1,
+                restrict_tables=restrict_tables,
+            )
+            result = result.model_copy(update={"row_count": int(count_res.rows[0][0])})
+        except Exception:  # broad: count recovery is best-effort, never fail the query
+            logger.warning("query_data.total_count_recovery_failed")
+
+    # Extract GeoJSON for ephemeral result layers
+    columns, rows = result.columns, result.rows[:_OVERLAY_ROW_BUDGET]
+    geojson_result = _extract_geojson(columns, rows)
+    if geojson_result is not None:
+        # fix(#544): geometry now travels via geojson only — raw WKB in the
+        # tabular payload is token noise for the model and renders as hex in
+        # the chat result tables.
+        columns, rows = strip_geometry_columns(columns, rows)
+
     # Limit rows in tool result for token economy
     # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
     out: dict = {
-        "columns": result.columns,
-        "rows": result.rows[:50],
+        "columns": columns,
+        "rows": rows,
         "row_count": result.row_count,
         "truncated": result.truncated,
     }
@@ -151,9 +223,6 @@ async def _handle_query_data(
         out["note"] = (
             "No matching results found. The user may want to try different criteria."
         )
-
-    # Extract GeoJSON for ephemeral result layers
-    geojson_result = _extract_geojson(result.columns, result.rows[:50])
     if geojson_result is not None:
         out["geojson"] = geojson_result[0]
         out["bbox"] = geojson_result[1]

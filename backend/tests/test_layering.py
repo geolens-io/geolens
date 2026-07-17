@@ -890,7 +890,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#394) CH-02: +~35 lines — set_label column validation against the
         # target layer schema (error feedback to the model), the CSS-colorish
         # sanitizer, and the collector error gate. Cap 350 → 400 (~19 headroom).
-        "backend/app/processing/ai/chat_actions.py": 400,
+        # fix(#544): +~14 lines — deterministic geom_4326 append before
+        # execution and WKB-column strip after geojson extraction in
+        # _handle_query_data. Cap 400 → 425 (~11 headroom).
+        # fix(#556 review P2): +~8 lines — overlay-row-budget fetch cap when
+        # geometry is appended (constant + conditional row_limit). Cap
+        # 425 → 445 (~12 headroom).
+        # fix(#556 review P2, round 7): +~15 lines — geometry-free COUNT
+        # recovery so the transfer cap doesn't corrupt the documented total
+        # row_count. Cap 445 → 470 (~18 headroom).
+        "backend/app/processing/ai/chat_actions.py": 470,
     }
 
     files_to_check = list(facade_line_budgets)
