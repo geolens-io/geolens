@@ -170,6 +170,9 @@ export function useResetSettings() {
     mutationFn: (keys: string[]) => resetSettings(keys),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
+      // fix(#553): same as useUpdateSettings — banner/demo_mode/landing_first
+      // resets surface through /auth/config
+      qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
       toast.success(i18n.t('settingsToasts.resetSuccess'));
     },
     onError: (err) => {

@@ -15,6 +15,7 @@ import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { AppFooter } from '@/components/layout/AppFooter';
+import { SiteBanner } from '@/components/layout/SiteBanner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { MapErrorBoundary } from '@/components/error';
 import { useEdition } from '@/hooks/use-edition';
@@ -139,7 +140,11 @@ export function PublicViewerPage() {
   };
 
   return (
-    <main id="map-viewport" className="w-full h-screen relative overflow-hidden">
+    // fix(#553): flex column so the banner takes height from the map viewport
+    // instead of pushing it below the fold; embeds never show the host banner
+    <div className="flex h-dvh flex-col">
+      {!isEmbed && <SiteBanner />}
+      <main id="map-viewport" className="w-full min-h-0 flex-1 relative overflow-hidden">
       {/* Full-viewport map */}
       <MapErrorBoundary>
         <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
@@ -190,6 +195,7 @@ export function PublicViewerPage() {
           navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
         />
       )}
-    </main>
+      </main>
+    </div>
   );
 }

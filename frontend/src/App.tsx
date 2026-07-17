@@ -51,9 +51,6 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ defa
 function RootLayout() {
   return (
     <LazyLoadErrorBoundary>
-      {/* fix(#553): mount above ALL routes so /login, /register, /m/:token
-          also show the admin-configured announcement banner */}
-      <SiteBanner />
       <Suspense fallback={<LoadingState />}>
         <Outlet />
       </Suspense>
@@ -61,12 +58,27 @@ function RootLayout() {
   );
 }
 
+// fix(#553): auth pages live outside AppLayout but should still show the
+// admin-configured announcement banner. Their min-h-screen shells tolerate
+// the extra banner height; full-height shells (AppLayout map routes,
+// PublicViewerPage) mount SiteBanner inside their own flex column instead.
+function BannerShell() {
+  return (
+    <>
+      <SiteBanner />
+      <Outlet />
+    </>
+  );
+}
+
 export const appRoutes = (
   <Route element={<RootLayout />}>
-    <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
-    <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
-    <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
-    <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />
+    <Route element={<BannerShell />}>
+      <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />
+    </Route>
     <Route path="/m/:token" element={<PublicViewerPage />} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
