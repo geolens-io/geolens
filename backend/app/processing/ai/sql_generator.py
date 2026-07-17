@@ -217,7 +217,6 @@ Use these when a column has type vector(N) (commonly named `embedding` or
 
   embedding <-> '[...]'::vector   -- L2 (Euclidean) distance
   embedding <=> '[...]'::vector   -- cosine distance
-  embedding <#> '[...]'::vector   -- negative inner product
 
 To find the K most similar rows to a reference row's embedding:
   SELECT name, embedding <=> (SELECT embedding FROM data.t WHERE id = '<id>') AS distance
@@ -376,7 +375,7 @@ LIMIT 10;
 - Always include LIMIT 1000 unless the query is an aggregation (GROUP BY, COUNT, SUM, etc.).
 - Use ONLY the tables and columns shown in the provided schema. Do not invent names.
 - Use ONLY the functions and operators listed in the PostGIS, Text Search, and Vector Similarity sections above. Do not use functions not in this reference.
-- Vector columns (type vector(N)) are queried with the <->/<=>/<#> operators, NOT with similarity() or ILIKE.
+- Vector columns (type vector(N)) are queried with the <->/<=> operators, NOT with similarity() or ILIKE.
 - Queries are limited to 30 seconds. Prefer indexed operations (ST_DWithin) over unindexed scans (ST_Distance < X).
 - You may use CTEs (WITH clauses) and subqueries. All referenced tables must be from the provided schema.
 - If the question cannot be answered with the available schema, respond with: -- ERROR: Cannot answer this question with the available data.
