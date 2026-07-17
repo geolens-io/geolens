@@ -194,6 +194,20 @@ describe('AppLayout', () => {
     expect(screen.getByRole('main')).not.toHaveClass('min-h-0');
   });
 
+  it('pins the navbar with position:fixed and reserves its height on the shell (#522)', () => {
+    const { container } = renderAppLayout(['/']);
+    const shell = container.firstElementChild as HTMLElement;
+    // Sharing the admin sidebar's viewport-fixed context is the whole point of
+    // #522 (kills the macOS elastic-overscroll seam). A regression to `sticky`
+    // reintroduces the drift, so guard the position class directly.
+    const navbar = screen.getByRole('banner');
+    expect(navbar).toHaveClass('fixed');
+    expect(navbar).not.toHaveClass('sticky');
+    // ...and because the navbar is out of flow, the shell must reserve its
+    // height as top padding or page content hides behind it.
+    expect(shell.className).toMatch(/pt-\[/);
+  });
+
   it('renders footer links but hides Powered by GeoLens branding in enterprise mode when show_badge is false', () => {
     mockedUseEdition.mockReturnValue({
       edition: 'enterprise',
