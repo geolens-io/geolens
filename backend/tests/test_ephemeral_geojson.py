@@ -366,6 +366,22 @@ class TestEnsureGeometrySelected:
         )
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_skips_unaliased_cast_wrapped_geometry(self):
+        # fix(#556 review P2): an UNALIASED cast-wrapped geometry expression
+        # already selects geometry — the append must be suppressed even though
+        # there's no AS clause. Previously the Cast/Paren unwrap only ran
+        # inside exp.Alias, so geom_4326 got appended beside the buffer.
+        sql = "SELECT ST_BUFFER(geom_4326::geography, 1000)::geometry FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_unaliased_parenthesized_cast_geometry(self):
+        sql = "SELECT (ST_BUFFER(geom_4326::geography, 1000)::geometry) FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_unaliased_cast_of_geom_column(self):
+        sql = "SELECT geom_4326::geometry FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
     def test_skips_parenthesized_aliased_geometry(self):
         # fix(#556 review P2): sqlglot wraps a parenthesized alias body in
         # exp.Paren — unwrap it too, or the source geometry gets appended

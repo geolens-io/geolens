@@ -52,15 +52,17 @@ def _selects_geometry(item: exp.Expression) -> bool:
     st_x`` — must NOT count as selected geometry. If it did, the append is
     skipped and the strict value parser then finds no geometry to overlay,
     reintroducing the missing-map regression. Only the underlying expression
-    (an aliased ``geom_4326``, or a geometry-returning function) decides;
-    Cast/Paren wrappers are unwrapped first (``ST_Buffer(...)::geometry AS
-    buffer`` genuinely is geometry and correctly suppresses the append).
+    (a ``geom_4326`` column, or a geometry-returning function) decides.
+
+    Alias and Cast/Paren wrappers are unwrapped first, and — #556 review —
+    the unwrap runs for the UNALIASED case too, so a bare
+    ``ST_Buffer(...)::geometry`` (no ``AS``) correctly suppresses the append
+    instead of getting a redundant second geometry column bolted on.
     """
     if isinstance(item, exp.Alias):
-        inner = item.this
-        while isinstance(inner, (exp.Cast, exp.Paren)):
-            inner = inner.this
-        item = inner
+        item = item.this
+    while isinstance(item, (exp.Cast, exp.Paren)):
+        item = item.this
     if isinstance(item, exp.Column):
         return item.name.lower() in _GEOM_NAMES
     if isinstance(item, exp.Func):
