@@ -105,6 +105,14 @@ class TestDetectGeomColumn:
         rows = [["A", json.dumps({"type": "station", "zone": 2})]]
         assert _detect_geom_column(cols, rows) is None
 
+    def test_value_fallback_skips_hex_hash_column(self):
+        # fix(#556 review P2): md5(name) AS id is a long even-length hex
+        # string but not WKB — it must not shadow the real geometry column.
+        md5_hex = "9e107d9d372bb6826bd81d3542a419d6"
+        cols = ["id", "buffer"]
+        rows = [[md5_hex, POINT_WKB_HEX]]
+        assert _detect_geom_column(cols, rows) == 1
+
 
 class TestSafeValue:
     def test_str_passthrough(self):
@@ -339,6 +347,16 @@ class TestEnsureGeometrySelected:
         )
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_skips_parenthesized_aliased_geometry(self):
+        # fix(#556 review P2): sqlglot wraps a parenthesized alias body in
+        # exp.Paren — unwrap it too, or the source geometry gets appended
+        # and the overlay shows the wrong shapes.
+        sql = (
+            "SELECT name, (ST_BUFFER(geom_4326::geography, 1000)::geometry)"
+            " AS buffer FROM data.parks"
+        )
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
     def test_row_level_spatial_expr_still_appends(self):
         # ST_Distance is row-level (not an aggregate) — append proceeds.
         sql = ensure_geometry_selected(
@@ -400,3 +418,13 @@ class TestStripGeometryColumns:
         )
         assert cols == ["name"]
         assert rows == [["A"], ["B"]]
+
+    def test_hex_hash_column_kept(self):
+        # fix(#556 review P2): hex-like attributes (md5 hashes) are not
+        # geometry and must stay in the table.
+        md5_hex = "9e107d9d372bb6826bd81d3542a419d6"
+        cols, rows = strip_geometry_columns(
+            ["id", "geom_4326"], [[md5_hex, POINT_WKB_HEX]]
+        )
+        assert cols == ["id"]
+        assert rows == [[md5_hex]]

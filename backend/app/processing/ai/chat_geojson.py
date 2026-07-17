@@ -55,7 +55,7 @@ def _selects_geometry(item: exp.Expression) -> bool:
         # value-based detection in _detect_geom_column will find; appending
         # the source geom_4326 would overlay the wrong shapes.
         inner = item.this
-        while isinstance(inner, exp.Cast):
+        while isinstance(inner, (exp.Cast, exp.Paren)):
             inner = inner.this
         if isinstance(inner, exp.Column):
             return inner.name.lower() in _GEOM_NAMES
@@ -133,20 +133,26 @@ _GEOJSON_TYPES = {
 
 
 def _is_geometry_cell(val: object) -> bool:
-    """Value-based geometry check for column stripping.
+    """Strict value-based geometry check for detection fallback + stripping.
 
-    Like _is_geom_value but the JSON branch requires an actual GeoJSON
-    geometry type, so a jsonb attribute column that merely contains a
-    "type" key is not misclassified.
+    Unlike the name-gated _is_geom_value, candidates here must actually
+    parse: a hex-like attribute (md5(name) AS id) must not shadow the real
+    geometry column, and a jsonb attribute that merely contains a "type"
+    key must not be misclassified (#556 review P2s).
     """
     if not isinstance(val, str):
         return False
-    if len(val) >= 10 and len(val) % 2 == 0 and _HEX_RE.match(val):
-        return True
     if val.startswith("{"):
         try:
-            return json.loads(val).get("type") in _GEOJSON_TYPES
-        except Exception:  # broad: not JSON — then not a geometry cell
+            obj = json.loads(val)
+            return obj.get("type") in _GEOJSON_TYPES and shapely_shape(obj) is not None
+        except Exception:  # broad: not parseable GeoJSON — not a geometry cell
+            return False
+    if len(val) >= 10 and len(val) % 2 == 0 and _HEX_RE.match(val):
+        try:
+            shapely.from_wkb(bytes.fromhex(val))
+            return True
+        except Exception:  # broad: hex but not WKB (e.g. a hash column)
             return False
     return False
 
