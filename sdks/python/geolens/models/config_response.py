@@ -26,6 +26,8 @@ class ConfigResponse:
             needing admin OAuthProvider access.
         banner_color (str | Unset): Theme token for the site banner color: warning | info | success | destructive.
             Default: 'warning'.
+        banner_enabled (bool | Unset): When true and banner_text is non-empty, the site-wide announcement banner is
+            shown. Default false. Default: False.
         banner_text (str | Unset): Admin-configured site-wide announcement banner text. Empty string means no banner is
             shown. Default: ''.
         demo_mode (bool | Unset): When true, logged-in users see a persistent demo-account banner. Default false — self-
@@ -42,6 +44,7 @@ class ConfigResponse:
     allow_signup: bool | Unset = False
     auth_methods: list[str] | Unset = UNSET
     banner_color: str | Unset = "warning"
+    banner_enabled: bool | Unset = False
     banner_text: str | Unset = ""
     demo_mode: bool | Unset = False
     email_verification_required: bool | Unset = False
@@ -59,6 +62,8 @@ class ConfigResponse:
             auth_methods = self.auth_methods
 
         banner_color = self.banner_color
+
+        banner_enabled = self.banner_enabled
 
         banner_text = self.banner_text
 
@@ -83,6 +88,8 @@ class ConfigResponse:
             field_dict["auth_methods"] = auth_methods
         if banner_color is not UNSET:
             field_dict["banner_color"] = banner_color
+        if banner_enabled is not UNSET:
+            field_dict["banner_enabled"] = banner_enabled
         if banner_text is not UNSET:
             field_dict["banner_text"] = banner_text
         if demo_mode is not UNSET:
@@ -107,6 +114,8 @@ class ConfigResponse:
 
         banner_color = d.pop("banner_color", UNSET)
 
+        banner_enabled = d.pop("banner_enabled", UNSET)
+
         banner_text = d.pop("banner_text", UNSET)
 
         demo_mode = d.pop("demo_mode", UNSET)
@@ -122,6 +131,7 @@ class ConfigResponse:
             allow_signup=allow_signup,
             auth_methods=auth_methods,
             banner_color=banner_color,
+            banner_enabled=banner_enabled,
             banner_text=banner_text,
             demo_mode=demo_mode,
             email_verification_required=email_verification_required,

@@ -149,6 +149,13 @@ class ConfigResponse(BaseModel):
             "Default false — self-hosters see no banner."
         ),
     )
+    banner_enabled: bool = Field(
+        default=False,
+        description=(
+            "When true and banner_text is non-empty, the site-wide "
+            "announcement banner is shown. Default false."
+        ),
+    )
     banner_text: str = Field(
         default="",
         description=(

@@ -22,6 +22,7 @@ const FIELDS = [
   { key: 'require_metadata_for_publish', defaultValue: false },
   { key: 'enable_dataset_editing', defaultValue: false },
   { key: 'demo_mode', defaultValue: false },
+  { key: 'banner_enabled', defaultValue: false },
   { key: 'banner_text', defaultValue: '' },
   { key: 'banner_color', defaultValue: 'warning' },
   { key: 'public_app_url', defaultValue: '' },
@@ -80,6 +81,22 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSavin
           id="demo-mode-toggle"
           checked={values.demo_mode as boolean}
           onCheckedChange={setters.demo_mode}
+          disabled={envOnly}
+        />
+      </div>
+
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="banner-enabled-toggle">{t('settings.general.bannerEnabled')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'banner_enabled')?.source ?? 'default'} settingKey="banner_enabled" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.general.bannerEnabledDescription')}</p>
+        </div>
+        <Switch
+          id="banner-enabled-toggle"
+          checked={values.banner_enabled as boolean}
+          onCheckedChange={setters.banner_enabled}
           disabled={envOnly}
         />
       </div>

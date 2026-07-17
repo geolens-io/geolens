@@ -494,6 +494,8 @@
       "enableDatasetEditingDescription": "Allow geometry drawing and attribute editing on dataset detail pages. When disabled, datasets are read-only.",
       "demoMode": "Demo Mode Banner",
       "demoModeDescription": "Show a persistent demo-account notice banner to logged-in users.",
+      "bannerEnabled": "Enable Site Banner",
+      "bannerEnabledDescription": "Show the announcement banner to all visitors. The banner text below must also be set.",
       "bannerText": "Site Banner Text",
       "bannerTextDescription": "Announcement banner shown to all visitors at the top of the app. Leave empty for no banner.",
       "bannerColor": "Site Banner Color",

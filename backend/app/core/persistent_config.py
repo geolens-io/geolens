@@ -509,10 +509,19 @@ DEMO_MODE = PersistentConfig[bool](
     label="Demo Mode Banner",
 )
 
-# Generic site-wide announcement banner. Empty text means "no banner" — so
-# existing deployments see no change. Color is a frontend theme token name
-# (warning | info | success | destructive); unknown values fall back to
-# warning on the client.
+# Generic site-wide announcement banner. Disabled by default and empty text
+# also means "no banner" — so existing deployments see no change. The enabled
+# flag lets admins stage or pause a message without deleting the text. Color
+# is a frontend theme token name (warning | info | success | destructive);
+# unknown values fall back to warning on the client.
+BANNER_ENABLED = PersistentConfig[bool](
+    key="banner_enabled",
+    type_=bool,
+    env_default=False,
+    tab="general",
+    label="Site Banner Enabled",
+)
+
 BANNER_TEXT = PersistentConfig[str](
     key="banner_text",
     type_=str,

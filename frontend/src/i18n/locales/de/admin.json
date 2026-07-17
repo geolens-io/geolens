@@ -446,6 +446,8 @@
       "enableDatasetEditingDescription": "Geometrie-Zeichnung und Attributbearbeitung auf Datensatz-Detailseiten erlauben. Wenn deaktiviert, sind Datensätze schreibgeschützt.",
       "demoMode": "Demo-Modus-Banner",
       "demoModeDescription": "Angemeldeten Benutzern einen dauerhaften Demo-Konto-Hinweis anzeigen.",
+      "bannerEnabled": "Site-Banner aktivieren",
+      "bannerEnabledDescription": "Das Ankündigungsbanner allen Besuchern anzeigen. Der Banner-Text unten muss ebenfalls gesetzt sein.",
       "bannerText": "Site-Banner-Text",
       "bannerTextDescription": "Ankündigungsbanner, das allen Besuchern oben in der Anwendung angezeigt wird. Leer lassen für kein Banner.",
       "bannerColor": "Site-Banner-Farbe",
