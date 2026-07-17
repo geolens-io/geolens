@@ -899,7 +899,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#556 review P2, round 7): +~15 lines — geometry-free COUNT
         # recovery so the transfer cap doesn't corrupt the documented total
         # row_count. Cap 445 → 470 (~18 headroom).
-        "backend/app/processing/ai/chat_actions.py": 470,
+        # fix(#560): +~44 lines — _geom_4326_missing_note helper + graceful
+        # degrade (clean note instead of a generic failure) at both the
+        # model-written and append-retry failure points when a legacy geom-only
+        # table lacks geom_4326. Cap 470 → 530 (~16 headroom).
+        "backend/app/processing/ai/chat_actions.py": 530,
     }
 
     files_to_check = list(facade_line_budgets)

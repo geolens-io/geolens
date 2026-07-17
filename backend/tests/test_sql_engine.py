@@ -414,6 +414,111 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_model_written_geom_4326_missing_degrades_cleanly(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#560): when the model selects geom_4326 itself (so nothing is
+        appended) on a legacy geom-only table, the missing-column error degrades
+        to a clean note — there is no attribute-only fallback to retry, and the
+        user must not get a generic "something went wrong"."""
+        mock_gen.return_value = "SELECT name, geom_4326 FROM data.cities"
+        err = SandboxError("query_failed", "Query failed")
+        err.__cause__ = Exception('column "geom_4326" does not exist')
+        mock_exec.side_effect = err
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "show me the cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 1  # the model's own SQL, no retry
+        assert result["category"] == "llm_cannot_answer"
+        assert "spatial queries" in result["error"]
+        assert "geojson" not in result
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_geom_4326_in_order_by_missing_degrades_after_retry(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#560): the model referenced geom_4326 only in ORDER BY, so the
+        append fires (nothing geometric in the SELECT) yet BOTH the appended
+        query and the attribute-only retry miss the column — degrade cleanly
+        rather than propagate a generic failure."""
+
+        def _missing():
+            e = SandboxError("query_failed", "Query failed")
+            e.__cause__ = Exception('column "geom_4326" does not exist')
+            return e
+
+        # KNN pattern: attribute-only SELECT, geom_4326 in ORDER BY → append fires.
+        mock_gen.return_value = (
+            "SELECT name FROM data.cities "
+            "ORDER BY geom_4326 <-> ST_SETSRID(ST_MAKEPOINT(0, 0), 4326) LIMIT 5"
+        )
+        mock_exec.side_effect = [_missing(), _missing()]
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "cities nearest origin"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 2  # appended attempt + attribute-only retry
+        assert result["category"] == "llm_cannot_answer"
+        assert "attribute columns" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_qualified_geom_4326_missing_degrades(self, mock_gen, mock_exec):
+        """fix(#560, PR #563 Codex P2): overlay/intersect queries alias the
+        geometry column (`a.geom_4326`), so Postgres reports the miss WITHOUT
+        quotes and WITH the qualifier — `column a.geom_4326 does not exist`.
+        This qualified form (the primary #560 case) must still degrade cleanly,
+        not just the unqualified `column "geom_4326" does not exist`."""
+        mock_gen.return_value = "SELECT a.name, a.geom_4326 FROM data.cities AS a"
+        err = SandboxError("query_failed", "Query failed")
+        err.__cause__ = Exception("column a.geom_4326 does not exist")
+        mock_exec.side_effect = err
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "map the cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 1
+        assert result["category"] == "llm_cannot_answer"
+        assert "spatial queries" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_other_missing_column_is_not_mis_degraded(self, mock_gen, mock_exec):
+        """fix(#560, PR #563 Codex P2): a DIFFERENT undefined column must surface
+        the normal failure, not the geometry-degrade note — even though the DB
+        error echoes the SQL text (which contains geom_4326). Detection matches
+        the exact `column "geom_4326" does not exist` phrase, not the tokens
+        `geom_4326` and `does not exist` scattered across the message."""
+        mock_gen.return_value = "SELECT bad_col, geom_4326 FROM data.cities"
+        err = SandboxError("query_failed", "Query failed")
+        err.__cause__ = Exception(
+            'column "bad_col" does not exist\n'
+            "[SQL: SELECT bad_col, geom_4326 FROM data.cities]"
+        )
+        mock_exec.side_effect = err
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        with pytest.raises(SandboxError):
+            await _handle_query_data(
+                {"question": "show me the cities"}, AsyncMock(), _mock_user(), layers
+            )
+        assert mock_exec.call_count == 1  # no false retry, no degrade
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_non_appended_failure_does_not_retry(self, mock_gen, mock_exec):
         """A failure on a query with no appended geometry propagates (no
         fallback double-run)."""
