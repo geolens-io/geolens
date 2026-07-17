@@ -67,10 +67,15 @@ export function PublicViewerPage() {
   const [basemapId, setBasemapId] = useState<string | null>(null);
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
+  // fix(#553): every branch shows the site banner (except embeds), including
+  // expired/invalid share links — maintenance notices must reach those visitors
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center w-full h-screen bg-muted">
-        <LoadingState message={t('viewer.loading')} />
+      <div className="flex h-dvh flex-col">
+        {!isEmbed && <SiteBanner />}
+        <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-muted">
+          <LoadingState message={t('viewer.loading')} />
+        </div>
       </div>
     );
   }
@@ -78,6 +83,8 @@ export function PublicViewerPage() {
   if (isError || !data) {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
+      <>
+      {!isEmbed && <SiteBanner />}
       <div className="app-surface-gradient flex min-h-screen items-center justify-center px-6">
         <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           {isExpired ? (
@@ -125,6 +132,7 @@ export function PublicViewerPage() {
           </div>
         </div>
       </div>
+      </>
     );
   }
 
