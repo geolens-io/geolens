@@ -115,6 +115,32 @@ def test_schema_rewrite_preserves_sentinel_lookalike_literals():
     assert "IS NOT DISTINCT FROM" not in rewritten2
 
 
+def test_schema_rewrite_preserves_non_single_quoted_literals():
+    """fix(#559 review round 2): the operator swap is tokenizer-driven, so a
+    ``<=>`` inside a dollar-quoted literal — which the validator accepts —
+    tokenizes as a string and is preserved, not swapped to the sentinel. And
+    ``IS NOT DISTINCT FROM`` (keywords, not a NULLSAFE_EQ token) is never
+    rewritten into the cosine operator."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    # dollar-quoted literal containing the operator text, no real operator
+    out = _rewrite_logical_data_schema(
+        "SELECT id FROM data.t WHERE note = $$<=>$$ LIMIT 5", _SCHEMA_A
+    )
+    assert "&&" not in out  # sentinel never leaks into output
+    assert "<=>" in out  # the literal value survives (sqlglot re-quotes it)
+    assert f'"{_SCHEMA_A}".t' in out
+
+    # a legit IS NOT DISTINCT FROM alongside a real cosine operator: both survive
+    out2 = _rewrite_logical_data_schema(
+        "SELECT id FROM data.t WHERE a IS NOT DISTINCT FROM b "
+        "ORDER BY embedding <=> '[1]'::vector LIMIT 5",
+        _SCHEMA_A,
+    )
+    assert "IS NOT DISTINCT FROM" in out2
+    assert out2.count("<=>") == 1
+
+
 @pytest.mark.asyncio
 async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)

@@ -7,11 +7,10 @@ for end users while full details are logged server-side.
 
 from __future__ import annotations
 
-import re
-
 import structlog
 import sqlglot
 from sqlglot import exp
+from sqlglot.tokens import TokenType
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,32 +32,36 @@ DEFAULT_TIMEOUT_MS = 10_000
 # geometry-append guard (#556) it cannot bail to the original SQL. Instead we
 # swap the `<=>` OPERATOR for a sentinel that DOES round-trip (`&&`, which the
 # validator rejects as array_overlaps so it never appears as a real operator in
-# validated SQL), rewrite the schema on the parsed AST, then restore. Both swaps
-# skip single-quoted string literals, so a literal such as `note = '&&'` or
-# `note = '<=>'` is preserved verbatim (fix(#559) review: a raw substring swap
-# corrupted or rejected such literals). `<->` (L2) already round-trips and `<#>`
-# fails parse upstream, so `<=>` is the only operator that reaches here
-# valid-but-corrupted.
+# validated SQL), rewrite the schema on the parsed AST, then restore the
+# operator. The swap is driven by sqlglot's own tokenizer, so `<=>` / `&&`
+# appearing inside a string literal of ANY quoting form — `'...'`, `E'...'`,
+# `$$...$$` — tokenizes as a string and is left untouched (fix(#559) review: a
+# naive substring / single-quote-only swap corrupted dollar-quoted and
+# sentinel-lookalike literals). `IS NOT DISTINCT FROM` tokenizes as keywords, not
+# NULLSAFE_EQ, so a legitimate null-safe comparison is never rewritten. `<->`
+# (L2) already round-trips and `<#>` fails parse upstream, so `<=>` is the only
+# operator that reaches here valid-but-corrupted.
 _COSINE_OP = "<=>"
 _COSINE_SENTINEL = "&&"
-_STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
 
 
-def _swap_outside_string_literals(sql: str, old: str, new: str) -> str:
-    """Replace ``old`` with ``new`` only outside single-quoted string literals.
+def _swap_operator_tokens(sql: str, token_type: TokenType, replacement: str) -> str:
+    """Replace every operator token of ``token_type`` with ``replacement``.
 
-    Splitting on the literal pattern keeps operator tokens in the code segments
-    replaceable while literal contents (which may legitimately contain the same
-    characters) pass through untouched.
+    Uses sqlglot's tokenizer so only genuine operator tokens are rewritten — the
+    same characters inside a string literal (any quoting form) tokenize as a
+    string and pass through untouched. Replacements run back-to-front so earlier
+    source offsets stay valid.
     """
-    segments = _STRING_LITERAL_RE.split(sql)
-    literals = _STRING_LITERAL_RE.findall(sql)
-    out: list[str] = []
-    for i, segment in enumerate(segments):
-        out.append(segment.replace(old, new))
-        if i < len(literals):
-            out.append(literals[i])
-    return "".join(out)
+    spans = [
+        (t.start, t.end)
+        for t in sqlglot.tokenize(sql, dialect="postgres")
+        if t.token_type == token_type
+    ]
+    out = sql
+    for start, end in reversed(spans):
+        out = out[:start] + replacement + out[end + 1 :]
+    return out
 
 
 def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
@@ -74,17 +77,18 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     ``physical_schema`` is produced by :func:`tenant_data_schema`, which accepts
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
-    guarded = _swap_outside_string_literals(sql, _COSINE_OP, _COSINE_SENTINEL)
-    # protect only when an actual `<=>` operator was swapped (a literal `'<=>'`
-    # leaves `guarded` equal to `sql` and needs no restore pass).
-    protect_cosine = guarded != sql
-
     try:
+        guarded = _swap_operator_tokens(sql, TokenType.NULLSAFE_EQ, _COSINE_SENTINEL)
         statement = sqlglot.parse_one(guarded, dialect="postgres")
-    except sqlglot.errors.ParseError as exc:
+    except sqlglot.errors.SqlglotError as exc:
         # execute_safe receives validated SQL in normal operation.  Keep direct
-        # callers fail-closed if that contract is accidentally violated.
+        # callers fail-closed if that contract is accidentally violated (covers
+        # both tokenize and parse failures).
         raise SandboxError("invalid_query", "Invalid SQL syntax") from exc
+
+    # protect only when a real `<=>` operator was swapped; a literal `<=>` (any
+    # quoting form) tokenizes as a string and leaves `guarded` unchanged.
+    protect_cosine = guarded != sql
 
     for table in statement.find_all(exp.Table):
         if table.db == "data":
@@ -96,7 +100,10 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
 
     rendered = statement.sql(dialect="postgres")
     if protect_cosine:
-        rendered = _swap_outside_string_literals(rendered, _COSINE_SENTINEL, _COSINE_OP)
+        # The rendered `&&` operators can only be the ones swapped in above (the
+        # validator rejects `&&` as a real operator), so restoring every DAMP
+        # token back to `<=>` is exact.
+        rendered = _swap_operator_tokens(rendered, TokenType.DAMP, _COSINE_OP)
     return rendered
 
 
