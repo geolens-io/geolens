@@ -98,6 +98,11 @@ def ensure_geometry_selected(sql: str, layers) -> str:
         or stmt.args.get("distinct")
         or stmt.find(exp.With)  # any CTE, top-level or nested — stay out
         or stmt.args.get("joins")
+        # fix(#556 review P2): HAVING without GROUP BY is still an aggregate
+        # (implicit single group), and its COUNT(*) lives outside the SELECT
+        # list where the per-item aggregate check can't see it. args.get scopes
+        # to THIS query, so a subquery's HAVING doesn't suppress the append.
+        or stmt.args.get("having")
     ):
         return sql
     # sqlglot renamed the arg key "from" -> "from_" across versions

@@ -370,6 +370,23 @@ class TestEnsureGeometrySelected:
         sql = "SELECT DISTINCT category FROM data.parks"
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_skips_having_without_group_by(self):
+        # fix(#556 review P2): HAVING without GROUP BY is an aggregate query
+        # (implicit single group) — appending geom_4326 makes Postgres reject
+        # the non-grouped column. The COUNT lives outside the SELECT list.
+        sql = "SELECT 1 FROM data.parks HAVING COUNT(*) > 0"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_appends_despite_subquery_having(self):
+        # A HAVING inside a subquery does not make the outer query an aggregate;
+        # the append must still fire on the row-level outer SELECT.
+        sql = ensure_geometry_selected(
+            "SELECT name FROM data.parks WHERE category IN "
+            "(SELECT category FROM data.parks GROUP BY category HAVING COUNT(*) > 1)",
+            [_layer()],
+        )
+        assert "parks.geom_4326" in sql
+
     def test_skips_joins(self):
         sql = (
             "SELECT p.name FROM data.parks AS p"
