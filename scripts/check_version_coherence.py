@@ -12,6 +12,7 @@ Sites checked:
   - frontend/package.json                   .version
   - package.json                            (root) .version
   - cli/pyproject.toml                      [project].version
+  - mcp/pyproject.toml                      [project].version
   - sdks/python/pyproject.toml              [project].version
   - sdks/python/.openapi-python-client.yaml package_version_override
   - sdks/typescript/package.json            .version
@@ -41,6 +42,7 @@ OPENAPI_PATH = REPO_ROOT / "backend" / "openapi.json"
 FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
 ROOT_PACKAGE = REPO_ROOT / "package.json"
 CLI_PYPROJECT = REPO_ROOT / "cli" / "pyproject.toml"
+MCP_PYPROJECT = REPO_ROOT / "mcp" / "pyproject.toml"
 PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
@@ -85,6 +87,7 @@ def main() -> int:
     sites[f"{_rel(FRONTEND_PACKAGE)} (.version)"] = _package_json_version(FRONTEND_PACKAGE)
     sites[f"{_rel(ROOT_PACKAGE)} (.version)"] = _package_json_version(ROOT_PACKAGE)
     sites[f"{_rel(CLI_PYPROJECT)} ([project].version)"] = _pyproject_version(CLI_PYPROJECT)
+    sites[f"{_rel(MCP_PYPROJECT)} ([project].version)"] = _pyproject_version(MCP_PYPROJECT)
     sites[f"{_rel(PY_SDK_PYPROJECT)} ([project].version)"] = _pyproject_version(PY_SDK_PYPROJECT)
     sites[f"{_rel(PY_SDK_GEN_CONFIG)} (package_version_override)"] = _yaml_override_version(PY_SDK_GEN_CONFIG)
     sites[f"{_rel(TS_SDK_PACKAGE)} (.version)"] = _package_json_version(TS_SDK_PACKAGE)

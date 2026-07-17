@@ -13,6 +13,7 @@
   - frontend/package.json                  (.version)
   - package.json                           (root .version — private/unpublished)
   - cli/pyproject.toml                     ([project] version)
+  - mcp/pyproject.toml                     ([project] version)
   - sdks/python/pyproject.toml             ([project] version)
   - sdks/python/.openapi-python-client.yaml (package_version_override)
   - sdks/typescript/package.json           (.version)
@@ -48,6 +49,7 @@ OPENAPI_PATH = REPO_ROOT / "backend" / "openapi.json"
 FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
 ROOT_PACKAGE = REPO_ROOT / "package.json"
 CLI_PYPROJECT = REPO_ROOT / "cli" / "pyproject.toml"
+MCP_PYPROJECT = REPO_ROOT / "mcp" / "pyproject.toml"
 PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
@@ -143,6 +145,7 @@ def main(argv: list[str]) -> int:
     _bump_package_json(FRONTEND_PACKAGE, version)
     _bump_package_json(ROOT_PACKAGE, version)
     _bump_project_version(CLI_PYPROJECT, version)
+    _bump_project_version(MCP_PYPROJECT, version)
     _bump_project_version(PY_SDK_PYPROJECT, version)
     _bump_yaml_override(PY_SDK_GEN_CONFIG, version)
     _bump_package_json(TS_SDK_PACKAGE, version)

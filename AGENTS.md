@@ -4,7 +4,7 @@
 
 GeoLens mixes Python and TypeScript. Backend source is in `backend/app/`: `modules/` holds domain areas, `platform/` shared services, `processing/` ingest/export/tile work, and `standards/` OGC/STAC/DCAT integrations. Migrations are in `backend/alembic/`; tests are in `backend/tests/`.
 
-The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; generated SDKs are in `sdks/`; operations files are in `scripts/`, `db/`, and `.github/`.
+The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; the read-only MCP server is in `mcp/geolens_mcp/`; generated SDKs are in `sdks/`; operations files are in `scripts/`, `db/`, and `.github/`.
 
 ## Build, Test, and Development Commands
 
@@ -33,7 +33,7 @@ Backend `backend/app/`: `modules/` (domain areas — `catalog` is the core, with
 
 Frontend `frontend/src/` (React 19, `@vis.gl/react-maplibre` v8 / maplibre-gl v5, TanStack Query, zustand, Tailwind): the map builder is `builder/`; all API calls go through `apiFetch()` in `api/client.ts`; the auth token lives in `useAuthStore` (persisted `geolens-auth`, read outside React via `useAuthStore.getState().token`); reuse UI primitives from `components/ui/`.
 
-CLI (`cli/geolens_cli/`) and SDKs (`sdks/`) wrap the API. SDKs are generated from `backend/openapi.json` — regenerate with `make sdks`, never hand-edit generated files (only `auth.*`/`__init__`/`index` wrappers are hand-maintained).
+CLI (`cli/geolens_cli/`) and SDKs (`sdks/`) wrap the API. SDKs are generated from `backend/openapi.json` — regenerate with `make sdks`, never hand-edit generated files (only `auth.*`/`__init__`/`index` wrappers are hand-maintained). The read-only MCP server (`mcp/geolens_mcp/`) is a hand-maintained package (like the CLI) that exposes catalog/feature/map reads to coding agents; it depends on the `geolens` SDK and is NOT generated.
 
 ## Coding Style & Naming Conventions
 

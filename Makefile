@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -239,6 +239,19 @@ cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught
 # `make publish-cli` — manual user action; requires PyPI credentials outside CI.
 publish-cli: ## Build + publish geolens-cli to PyPI
 	cd cli && uv build && uv publish
+
+# ----- MCP server -----
+# `make mcp-build` builds the geolens-mcp wheel + sdist.
+mcp-build: ## Build the geolens-mcp wheel + sdist
+	cd mcp && uv build
+
+# `make mcp-test` runs the MCP server's unit tests (DB-less; MockTransport).
+mcp-test: ## Run MCP server unit tests
+	cd mcp && uv run --extra dev python -m pytest -v
+
+# `make publish-mcp` — manual user action; requires PyPI credentials outside CI.
+publish-mcp: ## Build + publish geolens-mcp to PyPI
+	cd mcp && uv build && uv publish
 
 # Invariant: log_action() is called only by DefaultAuditSink.emit().
 # All 65 historical emit sites must route through audit_emit(session, AuditEvent(...)) instead.
