@@ -171,6 +171,35 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(result.current.savedLayerBaseline.some((l) => l.id === 'created-layer-id')).toBe(true);
   });
 
+  it('fix(#545): first layer on a fresh empty map does NOT mark the map dirty (no false unsaved-changes prompt)', () => {
+    const { result, mutate } = renderBuilderLayers(makeMapData([]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'created-layer-id', dataset_id: 'ds-42', sort_order: 0 }); });
+
+    // The POST-created layer alone IS the saved state — nothing was renumbered.
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['created-layer-id']);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('fix(#545)/WR-02: add onto a map with existing layers STILL marks dirty (sibling renumber is unpersisted)', () => {
+    const existing = makeMockLayer({ id: 'existing', sort_order: 0 });
+    const { result, mutate } = renderBuilderLayers(makeMapData([existing]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'created-layer-id', dataset_id: 'ds-42', sort_order: 0 }); });
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('Test D: backward-compat — no onSuccessCb arg does not throw', () => {
     const layer = makeMockLayer();
     const { result, mutate } = renderBuilderLayers(makeMapData([layer]));

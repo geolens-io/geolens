@@ -513,6 +513,13 @@ export function useBuilderLayers(
             // just also stamping parent_group_id so the row renders inside the
             // group immediately.
             if (createdLayer?.id) {
+              // fix(#545): the WR-02 dirty-flag below exists because prepending
+              // renumbers EXISTING siblings locally (an unpersisted diff). On a
+              // fresh map with no other layers there is nothing renumbered — the
+              // POST-created layer alone IS the saved state — so marking dirty
+              // falsely triggers the unsaved-changes prompt on every new
+              // Add-to-Map / chat-created map.
+              const hadOtherLayers = layersRef.current.some((l) => l.id !== createdLayer.id);
               const insertedLayer: GroupedLayer = parentGroupId
                 ? { ...createdLayer, parent_group_id: parentGroupId }
                 : { ...createdLayer };
@@ -568,14 +575,17 @@ export function useBuilderLayers(
               // fix(#392): also register the pure server layer into the Save-diff baseline so
               // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
               saveBaselineSyncRef.current?.(createdLayer);
-              // fix(#392): mark dirty unconditionally, not just for the grouped
-              // branch — the non-grouped branch above renumbers every existing
-              // layer's sort_order locally, but the backend does not renumber
-              // sibling rows (maps/service_layers.py:106-120), so that renumber is
-              // an unpersisted diff the apiLayers resync effect could otherwise
+              // fix(#392): mark dirty whenever existing siblings were renumbered —
+              // the non-grouped branch above renumbers every existing layer's
+              // sort_order locally, but the backend does not renumber sibling rows
+              // (maps/service_layers.py:106-120), so that renumber is an
+              // unpersisted diff the apiLayers resync effect could otherwise
               // silently clobber before Save. Same defect class as CR-01
               // (handleDuplicateRendering). (audit WR-02)
-              setHasUnsavedChanges(true);
+              // fix(#545): skip when this is the ONLY layer (fresh map) and no
+              // group membership was stamped — local state exactly mirrors the
+              // server, so the map must stay clean.
+              if (hadOtherLayers || parentGroupId) setHasUnsavedChanges(true);
               if (parentGroupId) {
                 // Group membership is unsaved frontend state — mark dirty so the
                 // save path persists it (and the refetch sync does not wipe it),
