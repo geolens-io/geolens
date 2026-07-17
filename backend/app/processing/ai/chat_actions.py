@@ -65,8 +65,12 @@ def _geom_4326_missing_note(err: SandboxError) -> dict | None:
     lives on ``__cause__`` (executor sets it via ``raise SandboxError(...) from
     exc``). Returns None for any other error so it propagates unmasked.
     """
+    # fix(#560, PR #563 Codex P2): match the exact undefined-column phrase, not
+    # "geom_4326" and "does not exist" separately. The DB error echoes the full
+    # SQL, so a query like `SELECT bad_col, geom_4326 ...` failing on `bad_col`
+    # contains both tokens and would be mis-degraded, masking the real error.
     detail = f"{err} {err.__cause__}".lower()
-    if "geom_4326" not in detail or "does not exist" not in detail:
+    if 'column "geom_4326" does not exist' not in detail:
         return None
     logger.info("query_data.geom_4326_missing")
     return {

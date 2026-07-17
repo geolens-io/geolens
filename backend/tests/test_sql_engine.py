@@ -471,6 +471,31 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_other_missing_column_is_not_mis_degraded(self, mock_gen, mock_exec):
+        """fix(#560, PR #563 Codex P2): a DIFFERENT undefined column must surface
+        the normal failure, not the geometry-degrade note — even though the DB
+        error echoes the SQL text (which contains geom_4326). Detection matches
+        the exact `column "geom_4326" does not exist` phrase, not the tokens
+        `geom_4326` and `does not exist` scattered across the message."""
+        mock_gen.return_value = "SELECT bad_col, geom_4326 FROM data.cities"
+        err = SandboxError("query_failed", "Query failed")
+        err.__cause__ = Exception(
+            'column "bad_col" does not exist\n'
+            "[SQL: SELECT bad_col, geom_4326 FROM data.cities]"
+        )
+        mock_exec.side_effect = err
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        with pytest.raises(SandboxError):
+            await _handle_query_data(
+                {"question": "show me the cities"}, AsyncMock(), _mock_user(), layers
+            )
+        assert mock_exec.call_count == 1  # no false retry, no degrade
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_non_appended_failure_does_not_retry(self, mock_gen, mock_exec):
         """A failure on a query with no appended geometry propagates (no
         fallback double-run)."""
