@@ -3415,6 +3415,24 @@
             "title": "Auth Methods",
             "type": "array"
           },
+          "banner_color": {
+            "default": "warning",
+            "description": "Theme token for the site banner color: warning | info | success | destructive.",
+            "title": "Banner Color",
+            "type": "string"
+          },
+          "banner_enabled": {
+            "default": false,
+            "description": "When true and banner_text is non-empty, the site-wide announcement banner is shown. Default false.",
+            "title": "Banner Enabled",
+            "type": "boolean"
+          },
+          "banner_text": {
+            "default": "",
+            "description": "Admin-configured site-wide announcement banner text. Empty string means no banner is shown.",
+            "title": "Banner Text",
+            "type": "string"
+          },
           "demo_mode": {
             "default": false,
             "description": "When true, logged-in users see a persistent demo-account banner. Default false \u2014 self-hosters see no banner.",

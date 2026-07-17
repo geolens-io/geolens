@@ -6443,6 +6443,24 @@ export interface components {
              */
             auth_methods?: string[];
             /**
+             * Banner Color
+             * @description Theme token for the site banner color: warning | info | success | destructive.
+             * @default warning
+             */
+            banner_color: string;
+            /**
+             * Banner Enabled
+             * @description When true and banner_text is non-empty, the site-wide announcement banner is shown. Default false.
+             * @default false
+             */
+            banner_enabled: boolean;
+            /**
+             * Banner Text
+             * @description Admin-configured site-wide announcement banner text. Empty string means no banner is shown.
+             * @default
+             */
+            banner_text: string;
+            /**
              * Demo Mode
              * @description When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
              * @default false

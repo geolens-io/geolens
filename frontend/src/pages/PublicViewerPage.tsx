@@ -15,6 +15,7 @@ import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { AppFooter } from '@/components/layout/AppFooter';
+import { SiteBanner } from '@/components/layout/SiteBanner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { MapErrorBoundary } from '@/components/error';
 import { useEdition } from '@/hooks/use-edition';
@@ -66,10 +67,15 @@ export function PublicViewerPage() {
   const [basemapId, setBasemapId] = useState<string | null>(null);
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
+  // fix(#553): every branch shows the site banner (except embeds), including
+  // expired/invalid share links — maintenance notices must reach those visitors
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center w-full h-screen bg-muted">
-        <LoadingState message={t('viewer.loading')} />
+      <div className="flex h-dvh flex-col">
+        {!isEmbed && <SiteBanner />}
+        <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-muted">
+          <LoadingState message={t('viewer.loading')} />
+        </div>
       </div>
     );
   }
@@ -77,6 +83,8 @@ export function PublicViewerPage() {
   if (isError || !data) {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
+      <>
+      {!isEmbed && <SiteBanner />}
       <div className="app-surface-gradient flex min-h-screen items-center justify-center px-6">
         <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           {isExpired ? (
@@ -124,6 +132,7 @@ export function PublicViewerPage() {
           </div>
         </div>
       </div>
+      </>
     );
   }
 
@@ -139,7 +148,11 @@ export function PublicViewerPage() {
   };
 
   return (
-    <main id="map-viewport" className="w-full h-screen relative overflow-hidden">
+    // fix(#553): flex column so the banner takes height from the map viewport
+    // instead of pushing it below the fold; embeds never show the host banner
+    <div className="flex h-dvh flex-col">
+      {!isEmbed && <SiteBanner />}
+      <main id="map-viewport" className="w-full min-h-0 flex-1 relative overflow-hidden">
       {/* Full-viewport map */}
       <MapErrorBoundary>
         <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
@@ -190,6 +203,7 @@ export function PublicViewerPage() {
           navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
         />
       )}
-    </main>
+      </main>
+    </div>
   );
 }

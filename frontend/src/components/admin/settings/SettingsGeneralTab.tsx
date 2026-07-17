@@ -21,6 +21,10 @@ interface TabProps {
 const FIELDS = [
   { key: 'require_metadata_for_publish', defaultValue: false },
   { key: 'enable_dataset_editing', defaultValue: false },
+  { key: 'demo_mode', defaultValue: false },
+  { key: 'banner_enabled', defaultValue: false },
+  { key: 'banner_text', defaultValue: '' },
+  { key: 'banner_color', defaultValue: 'warning' },
   { key: 'public_app_url', defaultValue: '' },
   { key: 'public_api_url', defaultValue: '' },
   { key: 'log_level', defaultValue: 'INFO' },
@@ -63,6 +67,73 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSavin
           onCheckedChange={setters.enable_dataset_editing}
           disabled={envOnly}
         />
+      </div>
+
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="demo-mode-toggle">{t('settings.general.demoMode')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'demo_mode')?.source ?? 'default'} settingKey="demo_mode" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.general.demoModeDescription')}</p>
+        </div>
+        <Switch
+          id="demo-mode-toggle"
+          checked={values.demo_mode as boolean}
+          onCheckedChange={setters.demo_mode}
+          disabled={envOnly}
+        />
+      </div>
+
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="banner-enabled-toggle">{t('settings.general.bannerEnabled')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'banner_enabled')?.source ?? 'default'} settingKey="banner_enabled" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.general.bannerEnabledDescription')}</p>
+        </div>
+        <Switch
+          id="banner-enabled-toggle"
+          checked={values.banner_enabled as boolean}
+          onCheckedChange={setters.banner_enabled}
+          disabled={envOnly}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="banner-text">{t('settings.general.bannerText')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'banner_text')?.source ?? 'default'} settingKey="banner_text" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.general.bannerTextDescription')}</p>
+        <Input
+          id="banner-text"
+          type="text"
+          value={values.banner_text as string}
+          onChange={(e) => setters.banner_text(e.target.value)}
+          disabled={envOnly}
+          className="max-w-md"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="banner-color">{t('settings.general.bannerColor')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'banner_color')?.source ?? 'default'} settingKey="banner_color" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.general.bannerColorDescription')}</p>
+        <Select value={values.banner_color as string} onValueChange={setters.banner_color} disabled={envOnly}>
+          <SelectTrigger id="banner-color" className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="warning">{t('settings.general.bannerColorWarning')}</SelectItem>
+            <SelectItem value="info">{t('settings.general.bannerColorInfo')}</SelectItem>
+            <SelectItem value="success">{t('settings.general.bannerColorSuccess')}</SelectItem>
+            <SelectItem value="destructive">{t('settings.general.bannerColorDestructive')}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">

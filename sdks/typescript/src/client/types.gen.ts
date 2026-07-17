@@ -2054,6 +2054,24 @@ export type ConfigResponse = {
      */
     auth_methods?: Array<string>;
     /**
+     * Banner Color
+     *
+     * Theme token for the site banner color: warning | info | success | destructive.
+     */
+    banner_color?: string;
+    /**
+     * Banner Enabled
+     *
+     * When true and banner_text is non-empty, the site-wide announcement banner is shown. Default false.
+     */
+    banner_enabled?: boolean;
+    /**
+     * Banner Text
+     *
+     * Admin-configured site-wide announcement banner text. Empty string means no banner is shown.
+     */
+    banner_text?: string;
+    /**
      * Demo Mode
      *
      * When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.

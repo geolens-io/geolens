@@ -206,6 +206,47 @@ class TestPublicConfig:
         # Community default: DefaultAuthExtension contributes nothing.
         assert data["auth_methods"] == []
 
+    async def test_config_hides_staged_banner_text(self, client: AsyncClient):
+        """A staged (disabled) announcement must not leak through the
+        unauthenticated /auth/config endpoint (#553): banner_text is blanked
+        unless banner_enabled is true."""
+        headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+        try:
+            resp = await client.put(
+                "/settings/",
+                json={
+                    "settings": {
+                        "banner_enabled": False,
+                        "banner_text": "staged secret",
+                    }
+                },
+                headers=headers,
+            )
+            assert resp.status_code == 200
+
+            resp = await client.get("/auth/config/")
+            data = resp.json()
+            assert data["banner_enabled"] is False
+            assert data["banner_text"] == ""
+
+            resp = await client.put(
+                "/settings/",
+                json={"settings": {"banner_enabled": True}},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+
+            resp = await client.get("/auth/config/")
+            data = resp.json()
+            assert data["banner_enabled"] is True
+            assert data["banner_text"] == "staged secret"
+        finally:
+            await client.put(
+                "/settings/",
+                json={"settings": {"banner_enabled": False, "banner_text": ""}},
+                headers=headers,
+            )
+
 
 class TestTokenMe:
     async def test_me_with_valid_token(self, client: AsyncClient):

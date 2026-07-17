@@ -657,6 +657,13 @@ export interface AuthConfigResponse {
   /** DEMO-03 (Phase 1226): when true, logged-in users see a persistent
    *  demo-account banner.  Default false — self-hosters see no banner. */
   demo_mode?: boolean;
+  /** Admin-configured site-wide announcement banner; shown only when
+   *  enabled AND text is non-empty (both default off/empty). Color is a
+   *  theme token: warning | info | success | destructive (unknown values
+   *  fall back to warning). */
+  banner_enabled?: boolean;
+  banner_text?: string;
+  banner_color?: string;
   auth_methods?: string[];
   /** SIGNUP-01 (Phase 1231): when true the login page shows the signup
    *  affordance.  Default false — field may be absent on older server

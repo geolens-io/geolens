@@ -149,6 +149,27 @@ class ConfigResponse(BaseModel):
             "Default false — self-hosters see no banner."
         ),
     )
+    banner_enabled: bool = Field(
+        default=False,
+        description=(
+            "When true and banner_text is non-empty, the site-wide "
+            "announcement banner is shown. Default false."
+        ),
+    )
+    banner_text: str = Field(
+        default="",
+        description=(
+            "Admin-configured site-wide announcement banner text. "
+            "Empty string means no banner is shown."
+        ),
+    )
+    banner_color: str = Field(
+        default="warning",
+        description=(
+            "Theme token for the site banner color: "
+            "warning | info | success | destructive."
+        ),
+    )
     # SSO-03 (Phase 1236 Plan 02): when False, POST /auth/login returns 403 for
     # non-admin users and the login page should hide the username/password form.
     # Default True — older clients that don't parse this field keep the form visible.

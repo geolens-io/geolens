@@ -124,6 +124,10 @@ export function useUpdateSettings() {
     mutationFn: (settings: Record<string, unknown>) => updateSettings(settings),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
+      // fix(#553): several settings (banner_text/color, demo_mode,
+      // landing_first) surface through /auth/config, which mounted banners
+      // read with a 5-min staleTime — refetch it so saves apply immediately
+      qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: (err) => {
@@ -166,6 +170,9 @@ export function useResetSettings() {
     mutationFn: (keys: string[]) => resetSettings(keys),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
+      // fix(#553): same as useUpdateSettings — banner/demo_mode/landing_first
+      // resets surface through /auth/config
+      qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
       toast.success(i18n.t('settingsToasts.resetSuccess'));
     },
     onError: (err) => {

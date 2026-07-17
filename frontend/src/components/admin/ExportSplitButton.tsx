@@ -63,9 +63,9 @@ export function ExportSplitButton({ filters, disabled = false }: ExportSplitButt
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
-            className="rounded-s-none border-s border-l-border px-1.5"
+            className="rounded-s-none border-s border-primary-foreground/30 px-1.5"
             disabled={disabled || isExporting}
             aria-label={t('audit.export.formatOptions')}
           >

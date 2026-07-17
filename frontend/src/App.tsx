@@ -5,6 +5,7 @@ import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute } from '@/components/
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { SiteBanner } from '@/components/layout/SiteBanner';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
@@ -57,12 +58,27 @@ function RootLayout() {
   );
 }
 
+// fix(#553): auth pages live outside AppLayout but should still show the
+// admin-configured announcement banner. Their min-h-screen shells tolerate
+// the extra banner height; full-height shells (AppLayout map routes,
+// PublicViewerPage) mount SiteBanner inside their own flex column instead.
+function BannerShell() {
+  return (
+    <>
+      <SiteBanner />
+      <Outlet />
+    </>
+  );
+}
+
 export const appRoutes = (
   <Route element={<RootLayout />}>
-    <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
-    <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
-    <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
-    <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />
+    <Route element={<BannerShell />}>
+      <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />
+    </Route>
     <Route path="/m/:token" element={<PublicViewerPage />} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
