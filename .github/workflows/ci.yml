@@ -1320,6 +1320,107 @@ jobs:
         if: always()
         run: docker compose down
 
+  # ---------- nightly live AI evals ----------
+  # fix(#548): the assertion-based NL→SQL evals (backend/tests/evals/, added in
+  # #537/#538) call the REAL Anthropic API and execute the generated SQL through
+  # the production sandbox. They cost provider tokens, so they run ONLY on
+  # schedule/workflow_dispatch — never on push/PR (fork PRs receive no secrets
+  # anyway, so they could never run there). A failure here signals prompt/model/
+  # sandbox drift, not ordinary flake: generate_sql pins temperature 0.0 and the
+  # assertions leave the model freedom where it legitimately has it. Investigate
+  # before rerunning.
+  ai-evals:
+    name: AI Evals (live provider)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Live-API job: cap it so a hung provider call can't burn Actions minutes.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
+      PYTHONPATH: .
+      RUN_AI_EVALS: "1"
+      # With ANTHROPIC_API_KEY present, LLM_PROVIDER/LLM_MODEL_LIGHT resolve to
+      # anthropic/haiku via their env_default factories — no further AI config.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
+
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
+
+      - name: Set up database extensions, roles, and schemas
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
+            CREATE SCHEMA IF NOT EXISTS catalog;
+            CREATE SCHEMA IF NOT EXISTS data;
+            ALTER DATABASE postgres SET search_path TO catalog, data, public;
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+                CREATE ROLE geolens_reader NOLOGIN;
+              END IF;
+            END \$\$;
+            GRANT USAGE ON SCHEMA data TO geolens_reader;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
+          "
+
+      - name: Run migrations
+        run: uv run alembic upgrade heads
+
+      - name: Run live NL→SQL evals
+        run: uv run pytest tests/evals/ -v --tb=short
+
   # ---- E2E / A11Y trigger matrix (REL-03) ----
   # nightly cron ("0 7 * * *") + workflow_dispatch → e2e-test (full npx playwright test
   #                                                  + builder-hardening chromium suite)
