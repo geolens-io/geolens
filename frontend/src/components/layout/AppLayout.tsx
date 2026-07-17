@@ -34,7 +34,17 @@ export function AppLayout() {
   const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
 
   return (
-    <div className={cn('flex flex-col', isAuthenticatedMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen')}>
+    // fix(#522): the navbar is fixed (out of flow), so reserve its height
+    // (h-14 + safe-area) as top padding on the shell. Applies to both branches:
+    // min-h-screen pages get their content pushed below the navbar, and h-dvh
+    // map routes correctly lose this height to flex-1 — exactly as they did when
+    // the navbar consumed flow height. Banners render below the navbar as a result.
+    <div
+      className={cn(
+        'flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))]',
+        isAuthenticatedMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen',
+      )}
+    >
       <SkipToContent />
       {/* fix(#553): inside the flex shell so h-dvh map routes lose height to
           the banner instead of overflowing the viewport */}
@@ -49,7 +59,7 @@ export function AppLayout() {
         // hardcoded 100dvh-navbar that ignored the footer) AND lets standalone
         // pages (404) center vertically in the available viewport (#305).
         // isMapRoute retained for any map-specific tweaks.
-        // scroll-mt clears the now-sticky navbar when the skip-link scrolls
+        // scroll-mt clears the fixed navbar when the skip-link scrolls
         // #main-content into view, so the heading isn't hidden under it (#305).
         // min-h-0 on authenticated map routes fixes the flexbox min-height:auto
         // trap so the builder's editor panel scrolls internally instead of the

@@ -388,7 +388,11 @@ export function Navbar() {
   const canAccessAdmin = can('manage_users') || can('manage_settings');
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-background pt-[env(safe-area-inset-top)]">
+    // fix(#522): fixed (not sticky) so the navbar shares the viewport-fixed
+    // positioning context of the admin sidebar — otherwise macOS elastic
+    // overscroll slides the sticky navbar over the stationary fixed sidebar.
+    // AppLayout reserves this header's height (h-14 + safe-area) as top padding.
+    <header className="fixed inset-x-0 top-0 z-40 border-b bg-background pt-[env(safe-area-inset-top)]">
       {/* Full-bleed control bar — page content keeps its own max-width;
           the frame spans the viewport like the rest of the chrome. */}
       <div className="flex h-14 w-full items-center justify-between gap-4 px-4 sm:px-6">
