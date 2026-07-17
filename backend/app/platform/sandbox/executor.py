@@ -10,6 +10,7 @@ from __future__ import annotations
 import structlog
 import sqlglot
 from sqlglot import exp
+from sqlglot.tokens import TokenType
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +23,45 @@ logger = structlog.stdlib.get_logger(__name__)
 
 DEFAULT_ROW_LIMIT = 1000
 DEFAULT_TIMEOUT_MS = 10_000
+
+# fix(#557): sqlglot's postgres dialect mis-parses the pgvector cosine operator
+# `<=>` as NullSafeEQ, so re-serializing the AST rewrites it to
+# `IS NOT DISTINCT FROM` — silently turning nearest-neighbor ranking into a
+# boolean equality test. The multi-tenant schema rewrite MUST re-render (the
+# logical `data.` schema has no physical table), so unlike the optional
+# geometry-append guard (#556) it cannot bail to the original SQL. Instead we
+# swap the `<=>` OPERATOR for a sentinel that DOES round-trip (`&&`, which the
+# validator rejects as array_overlaps so it never appears as a real operator in
+# validated SQL), rewrite the schema on the parsed AST, then restore the
+# operator. The swap is driven by sqlglot's own tokenizer, so `<=>` / `&&`
+# appearing inside a string literal of ANY quoting form — `'...'`, `E'...'`,
+# `$$...$$` — tokenizes as a string and is left untouched (fix(#559) review: a
+# naive substring / single-quote-only swap corrupted dollar-quoted and
+# sentinel-lookalike literals). `IS NOT DISTINCT FROM` tokenizes as keywords, not
+# NULLSAFE_EQ, so a legitimate null-safe comparison is never rewritten. `<->`
+# (L2) already round-trips and `<#>` fails parse upstream, so `<=>` is the only
+# operator that reaches here valid-but-corrupted.
+_COSINE_OP = "<=>"
+_COSINE_SENTINEL = "&&"
+
+
+def _swap_operator_tokens(sql: str, token_type: TokenType, replacement: str) -> str:
+    """Replace every operator token of ``token_type`` with ``replacement``.
+
+    Uses sqlglot's tokenizer so only genuine operator tokens are rewritten — the
+    same characters inside a string literal (any quoting form) tokenize as a
+    string and pass through untouched. Replacements run back-to-front so earlier
+    source offsets stay valid.
+    """
+    spans = [
+        (t.start, t.end)
+        for t in sqlglot.tokenize(sql, dialect="postgres")
+        if t.token_type == token_type
+    ]
+    out = sql
+    for start, end in reversed(spans):
+        out = out[:start] + replacement + out[end + 1 :]
+    return out
 
 
 def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
@@ -38,11 +78,17 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
     try:
-        statement = sqlglot.parse_one(sql, dialect="postgres")
-    except sqlglot.errors.ParseError as exc:
+        guarded = _swap_operator_tokens(sql, TokenType.NULLSAFE_EQ, _COSINE_SENTINEL)
+        statement = sqlglot.parse_one(guarded, dialect="postgres")
+    except sqlglot.errors.SqlglotError as exc:
         # execute_safe receives validated SQL in normal operation.  Keep direct
-        # callers fail-closed if that contract is accidentally violated.
+        # callers fail-closed if that contract is accidentally violated (covers
+        # both tokenize and parse failures).
         raise SandboxError("invalid_query", "Invalid SQL syntax") from exc
+
+    # protect only when a real `<=>` operator was swapped; a literal `<=>` (any
+    # quoting form) tokenizes as a string and leaves `guarded` unchanged.
+    protect_cosine = guarded != sql
 
     for table in statement.find_all(exp.Table):
         if table.db == "data":
@@ -52,7 +98,13 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
         if column.db == "data":
             column.set("db", exp.to_identifier(physical_schema, quoted=True))
 
-    return statement.sql(dialect="postgres")
+    rendered = statement.sql(dialect="postgres")
+    if protect_cosine:
+        # The rendered `&&` operators can only be the ones swapped in above (the
+        # validator rejects `&&` as a real operator), so restoring every DAMP
+        # token back to `<=>` is exact.
+        rendered = _swap_operator_tokens(rendered, TokenType.DAMP, _COSINE_OP)
+    return rendered
 
 
 async def execute_safe(

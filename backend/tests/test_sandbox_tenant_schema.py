@@ -51,6 +51,96 @@ def _mock_engine(executed: list[str], *, fail_role: str | None = None) -> MagicM
     return engine
 
 
+def test_schema_rewrite_preserves_pgvector_cosine_operator():
+    """fix(#557): the rewrite re-renders the parsed AST, and sqlglot mis-parses
+    pgvector ``<=>`` as NullSafeEQ. Without the sentinel guard the schema rewrite
+    silently turns cosine nearest-neighbor ranking into ``IS NOT DISTINCT FROM``,
+    returning the wrong rows in multi-tenant. The operator must survive and the
+    logical ``data`` schema must still be translated."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    sql = (
+        "SELECT name, embedding <=> '[1,2,3]'::vector AS distance "
+        "FROM data.records ORDER BY distance LIMIT 10"
+    )
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert "<=>" in rewritten
+    assert "IS NOT DISTINCT FROM" not in rewritten
+    assert f'"{_SCHEMA_A}".records' in rewritten
+    assert "data.records" not in rewritten
+
+
+def test_schema_rewrite_preserves_l2_and_cosine_together():
+    """Both advertised distance operators survive the rewrite: ``<->`` already
+    round-trips, ``<=>`` is protected by the sentinel swap."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    sql = (
+        "SELECT id, embedding <=> '[1]'::vector AS cos "
+        "FROM data.t ORDER BY embedding <-> '[2]'::vector LIMIT 5"
+    )
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert rewritten.count("<=>") == 1
+    assert rewritten.count("<->") == 1
+    assert "IS NOT DISTINCT FROM" not in rewritten
+    assert f'"{_SCHEMA_A}".t' in rewritten
+
+
+def test_schema_rewrite_preserves_sentinel_lookalike_literals():
+    """fix(#559 review): a string literal containing the sentinel (``&&``) or the
+    cosine operator text (``<=>``) must survive the rewrite. The swap skips
+    string literals, so ``note = '&&'`` and ``note = '<=>'`` pass through verbatim
+    while the real ``<=>`` operator is still protected. A raw substring swap
+    corrupted or rejected these legitimate queries."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    sql = (
+        "SELECT id FROM data.t WHERE note = '&&' "
+        "ORDER BY embedding <=> '[1,2,3]'::vector LIMIT 5"
+    )
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert "'&&'" in rewritten  # literal left untouched
+    assert rewritten.count("<=>") == 1  # the operator, not the literal
+    assert "IS NOT DISTINCT FROM" not in rewritten
+    assert f'"{_SCHEMA_A}".t' in rewritten
+
+    # a literal that looks like the operator is also preserved
+    sql2 = "SELECT id FROM data.t WHERE note = '<=>' ORDER BY embedding <=> '[1]'::vector LIMIT 5"
+    rewritten2 = _rewrite_logical_data_schema(sql2, _SCHEMA_A)
+    assert "'<=>'" in rewritten2
+    assert rewritten2.count("<=>") == 2  # literal + operator both intact
+    assert "IS NOT DISTINCT FROM" not in rewritten2
+
+
+def test_schema_rewrite_preserves_non_single_quoted_literals():
+    """fix(#559 review round 2): the operator swap is tokenizer-driven, so a
+    ``<=>`` inside a dollar-quoted literal — which the validator accepts —
+    tokenizes as a string and is preserved, not swapped to the sentinel. And
+    ``IS NOT DISTINCT FROM`` (keywords, not a NULLSAFE_EQ token) is never
+    rewritten into the cosine operator."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    # dollar-quoted literal containing the operator text, no real operator
+    out = _rewrite_logical_data_schema(
+        "SELECT id FROM data.t WHERE note = $$<=>$$ LIMIT 5", _SCHEMA_A
+    )
+    assert "&&" not in out  # sentinel never leaks into output
+    assert "<=>" in out  # the literal value survives (sqlglot re-quotes it)
+    assert f'"{_SCHEMA_A}".t' in out
+
+    # a legit IS NOT DISTINCT FROM alongside a real cosine operator: both survive
+    out2 = _rewrite_logical_data_schema(
+        "SELECT id FROM data.t WHERE a IS NOT DISTINCT FROM b "
+        "ORDER BY embedding <=> '[1]'::vector LIMIT 5",
+        _SCHEMA_A,
+    )
+    assert "IS NOT DISTINCT FROM" in out2
+    assert out2.count("<=>") == 1
+
+
 @pytest.mark.asyncio
 async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)

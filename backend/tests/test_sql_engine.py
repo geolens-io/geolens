@@ -192,6 +192,27 @@ class TestSqlPrompt:
     def test_instructs_human_friendly_units(self):
         assert "human-friendly units" in self.prompt
 
+    def test_advertised_vector_operators_pass_the_validator(self):
+        """fix(#558): every pgvector operator the prompt tells the model to emit
+        must survive the sandbox validator. ``<#>`` fails ``sqlglot.parse``, so
+        advertising it means the model's inner-product queries are rejected as
+        invalid_query before they run. Scanning the prompt keeps this honest —
+        re-adding an unparseable operator re-breaks the test."""
+        from app.platform.sandbox.validator import validate_sql
+
+        advertised = [op for op in ("<->", "<=>", "<#>") if op in SQL_SYSTEM_PROMPT]
+        # sanity: cosine + L2 remain advertised (only <#> was dropped)
+        assert "<->" in advertised and "<=>" in advertised
+        for op in advertised:
+            q = f"SELECT id FROM data.t ORDER BY embedding {op} '[1,2,3]'::vector LIMIT 5"
+            try:
+                validate_sql(q)
+            except SandboxError as exc:
+                pytest.fail(
+                    f"prompt advertises `{op}` but the validator rejects it "
+                    f"({exc.category})"
+                )
+
 
 # ------------------------------------------------------------------
 # Tests for query_data tool integration (Plan 02)
