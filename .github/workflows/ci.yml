@@ -845,10 +845,10 @@ jobs:
             tests/test_layering.py
 
       - name: Run tests with coverage
-        # --cov-fail-under=58.5 is the CI floor. backend/pyproject.toml declares
-        # fail_under=60; the two are intentionally NOT yet aligned here — raising
-        # the CI gate above measured coverage would RED main. Bump this to 60
-        # only after a measured run confirms real coverage >= 60.
+        # --cov-fail-under=80 is the CI floor, aligned with pyproject's
+        # fail_under. The #561 -n4 run measured 85.49% actual, so 80 gates a real
+        # regression with a ~5.5 pt buffer (the old 58.5 caught nothing). Ratchet
+        # upward per the pyproject note; never lower without a CHANGELOG rationale.
         #
         # -n 4 parallelizes the run (matches the Pytest Parallel Isolation job's
         # benchmarked worker count). pytest-cov auto-combines each worker's data,
@@ -856,7 +856,7 @@ jobs:
         # -n4-safe (PPI runs it green), and --dist loadgroup (pyproject addopts)
         # co-locates the global-state tenancy tests. Roughly halves this job
         # (~1480s serial -> ~700s), the CI wall-clock's long pole.
-        run: uv run pytest -n 4 -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
+        run: uv run pytest -n 4 -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=80
 
       - name: Verify SAML fixtures unchanged after pytest
         run: |
