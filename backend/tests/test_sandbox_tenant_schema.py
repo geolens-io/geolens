@@ -51,6 +51,43 @@ def _mock_engine(executed: list[str], *, fail_role: str | None = None) -> MagicM
     return engine
 
 
+def test_schema_rewrite_preserves_pgvector_cosine_operator():
+    """fix(#557): the rewrite re-renders the parsed AST, and sqlglot mis-parses
+    pgvector ``<=>`` as NullSafeEQ. Without the sentinel guard the schema rewrite
+    silently turns cosine nearest-neighbor ranking into ``IS NOT DISTINCT FROM``,
+    returning the wrong rows in multi-tenant. The operator must survive and the
+    logical ``data`` schema must still be translated."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    sql = (
+        "SELECT name, embedding <=> '[1,2,3]'::vector AS distance "
+        "FROM data.records ORDER BY distance LIMIT 10"
+    )
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert "<=>" in rewritten
+    assert "IS NOT DISTINCT FROM" not in rewritten
+    assert f'"{_SCHEMA_A}".records' in rewritten
+    assert "data.records" not in rewritten
+
+
+def test_schema_rewrite_preserves_l2_and_cosine_together():
+    """Both advertised distance operators survive the rewrite: ``<->`` already
+    round-trips, ``<=>`` is protected by the sentinel swap."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    sql = (
+        "SELECT id, embedding <=> '[1]'::vector AS cos "
+        "FROM data.t ORDER BY embedding <-> '[2]'::vector LIMIT 5"
+    )
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert rewritten.count("<=>") == 1
+    assert rewritten.count("<->") == 1
+    assert "IS NOT DISTINCT FROM" not in rewritten
+    assert f'"{_SCHEMA_A}".t' in rewritten
+
+
 @pytest.mark.asyncio
 async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)

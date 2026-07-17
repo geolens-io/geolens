@@ -23,6 +23,21 @@ logger = structlog.stdlib.get_logger(__name__)
 DEFAULT_ROW_LIMIT = 1000
 DEFAULT_TIMEOUT_MS = 10_000
 
+# fix(#557): sqlglot's postgres dialect mis-parses the pgvector cosine operator
+# `<=>` as NullSafeEQ, so re-serializing the AST rewrites it to
+# `IS NOT DISTINCT FROM` — silently turning nearest-neighbor ranking into a
+# boolean equality test. The multi-tenant schema rewrite MUST re-render (the
+# logical `data.` schema has no physical table), so unlike the optional
+# geometry-append guard (#556) it cannot bail to the original SQL. Instead we
+# swap `<=>` for a sentinel operator that DOES round-trip, rewrite the schema on
+# the parsed AST, then restore. `&&` is chosen because the sandbox validator
+# rejects it (unlisted_function: array_overlaps), so validated SQL can never
+# contain it and the restore can't collide with real input. `<->` (L2) already
+# round-trips and `<#>` fails parse upstream, so `<=>` is the only operator that
+# reaches here valid-but-corrupted.
+_COSINE_OP = "<=>"
+_COSINE_SENTINEL = "&&"
+
 
 def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     """Rewrite validated ``data.*`` references to one physical tenant schema.
@@ -37,6 +52,15 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     ``physical_schema`` is produced by :func:`tenant_data_schema`, which accepts
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
+    protect_cosine = _COSINE_OP in sql
+    if protect_cosine:
+        if _COSINE_SENTINEL in sql:
+            # Only reachable if a direct, unvalidated caller passes the
+            # validator-rejected sentinel alongside `<=>`. Fail closed rather
+            # than risk restoring the sentinel over real input.
+            raise SandboxError("invalid_query", "Invalid SQL syntax")
+        sql = sql.replace(_COSINE_OP, _COSINE_SENTINEL)
+
     try:
         statement = sqlglot.parse_one(sql, dialect="postgres")
     except sqlglot.errors.ParseError as exc:
@@ -52,7 +76,10 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
         if column.db == "data":
             column.set("db", exp.to_identifier(physical_schema, quoted=True))
 
-    return statement.sql(dialect="postgres")
+    rendered = statement.sql(dialect="postgres")
+    if protect_cosine:
+        rendered = rendered.replace(_COSINE_SENTINEL, _COSINE_OP)
+    return rendered
 
 
 async def execute_safe(
