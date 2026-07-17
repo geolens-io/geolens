@@ -41,6 +41,8 @@ from app.core.tenancy import is_multi_tenant
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     ALLOWED_EMAIL_DOMAINS,
+    BANNER_COLOR,
+    BANNER_TEXT,
     DEMO_MODE,
     EMAIL_VERIFICATION_REQUIRED,
     LANDING_FIRST,
@@ -738,6 +740,8 @@ async def config(
     reg_enabled = await REGISTRATION_ENABLED.get(db)
     landing_first = await LANDING_FIRST.get(db)
     demo_mode = await DEMO_MODE.get(db)
+    banner_text = await BANNER_TEXT.get(db)
+    banner_color = await BANNER_COLOR.get(db)
     email_verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
     # SSO-03: expose the SSO-only flag so the login page can hide the password
     # form on first render (no flash).
@@ -749,6 +753,8 @@ async def config(
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
         demo_mode=demo_mode,
+        banner_text=banner_text,
+        banner_color=banner_color,
         password_login_enabled=password_login_enabled,
     )
 

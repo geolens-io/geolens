@@ -24,6 +24,10 @@ class ConfigResponse:
         auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty by default;
             compatible deployments may add methods such as ['saml']. Login UI can render conditional sign-in options without
             needing admin OAuthProvider access.
+        banner_color (str | Unset): Theme token for the site banner color: warning | info | success | destructive.
+            Default: 'warning'.
+        banner_text (str | Unset): Admin-configured site-wide announcement banner text. Empty string means no banner is
+            shown. Default: ''.
         demo_mode (bool | Unset): When true, logged-in users see a persistent demo-account banner. Default false — self-
             hosters see no banner. Default: False.
         email_verification_required (bool | Unset): When true, new self-registered users must verify their email before
@@ -37,6 +41,8 @@ class ConfigResponse:
     registration_enabled: bool
     allow_signup: bool | Unset = False
     auth_methods: list[str] | Unset = UNSET
+    banner_color: str | Unset = "warning"
+    banner_text: str | Unset = ""
     demo_mode: bool | Unset = False
     email_verification_required: bool | Unset = False
     landing_first: bool | Unset = False
@@ -51,6 +57,10 @@ class ConfigResponse:
         auth_methods: list[str] | Unset = UNSET
         if not isinstance(self.auth_methods, Unset):
             auth_methods = self.auth_methods
+
+        banner_color = self.banner_color
+
+        banner_text = self.banner_text
 
         demo_mode = self.demo_mode
 
@@ -71,6 +81,10 @@ class ConfigResponse:
             field_dict["allow_signup"] = allow_signup
         if auth_methods is not UNSET:
             field_dict["auth_methods"] = auth_methods
+        if banner_color is not UNSET:
+            field_dict["banner_color"] = banner_color
+        if banner_text is not UNSET:
+            field_dict["banner_text"] = banner_text
         if demo_mode is not UNSET:
             field_dict["demo_mode"] = demo_mode
         if email_verification_required is not UNSET:
@@ -91,6 +105,10 @@ class ConfigResponse:
 
         auth_methods = cast(list[str], d.pop("auth_methods", UNSET))
 
+        banner_color = d.pop("banner_color", UNSET)
+
+        banner_text = d.pop("banner_text", UNSET)
+
         demo_mode = d.pop("demo_mode", UNSET)
 
         email_verification_required = d.pop("email_verification_required", UNSET)
@@ -103,6 +121,8 @@ class ConfigResponse:
             registration_enabled=registration_enabled,
             allow_signup=allow_signup,
             auth_methods=auth_methods,
+            banner_color=banner_color,
+            banner_text=banner_text,
             demo_mode=demo_mode,
             email_verification_required=email_verification_required,
             landing_first=landing_first,

@@ -509,6 +509,26 @@ DEMO_MODE = PersistentConfig[bool](
     label="Demo Mode Banner",
 )
 
+# Generic site-wide announcement banner. Empty text means "no banner" — so
+# existing deployments see no change. Color is a frontend theme token name
+# (warning | info | success | destructive); unknown values fall back to
+# warning on the client.
+BANNER_TEXT = PersistentConfig[str](
+    key="banner_text",
+    type_=str,
+    env_default="",
+    tab="general",
+    label="Site Banner Text",
+)
+
+BANNER_COLOR = PersistentConfig[str](
+    key="banner_color",
+    type_=str,
+    env_default="warning",
+    tab="general",
+    label="Site Banner Color",
+)
+
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",
