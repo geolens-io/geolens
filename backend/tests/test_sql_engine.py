@@ -362,6 +362,61 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_geometry_append_falls_back_when_column_absent(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#556 review P2): a geom-only dataset (geometry_type but no
+        geom_4326) makes the appended query fail; fall back to the model's
+        original SQL so attribute rows still return (overlay dropped)."""
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        original_ok = SandboxResult(
+            rows=[["Springfield"]], columns=["name"], row_count=1, truncated=False
+        )
+        # First call (appended geom_4326) raises undefined-column; second
+        # call (original SQL) succeeds.
+        mock_exec.side_effect = [SandboxError("query_failed", "boom"), original_ok]
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "list cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 2
+        # The fallback ran the ORIGINAL (un-appended) SQL, no row_limit cap.
+        fallback_sql = mock_exec.call_args_list[1].args[0]
+        assert "geom_4326" not in fallback_sql
+        assert mock_exec.call_args_list[1].kwargs.get("row_limit") is None
+        assert result["columns"] == ["name"]
+        assert result["rows"] == [["Springfield"]]
+        assert "geojson" not in result  # overlay dropped, query still succeeded
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_non_appended_failure_does_not_retry(self, mock_gen, mock_exec):
+        """A failure on a query with no appended geometry propagates (no
+        fallback double-run)."""
+        mock_gen.return_value = "SELECT * FROM data.cities"  # star → no append
+        mock_exec.side_effect = SandboxError("query_timeout", "slow")
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _execute_chat_tool(
+            "query_data",
+            {"question": "everything"},
+            AsyncMock(),
+            _mock_user(),
+            set(),
+            layers,
+            port=_default_port,
+        )
+        # SandboxError caught by _execute_chat_tool → friendly message, one call.
+        assert mock_exec.call_count == 1
+        assert result["category"] == "query_timeout"
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_rows_truncated_to_50(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT * FROM data.cities"
         mock_exec.return_value = SandboxResult(

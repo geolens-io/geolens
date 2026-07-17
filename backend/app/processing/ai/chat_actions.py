@@ -146,9 +146,9 @@ async def _handle_query_data(
 
     # fix(#544): geometry must reach _extract_geojson regardless of which
     # columns the model chose, or every map surface silently loses its overlay.
-    sql_with_geom = ensure_geometry_selected(sql, layers)
-    geom_appended = sql_with_geom != sql
-    sql = sql_with_geom
+    original_sql = sql
+    sql = ensure_geometry_selected(original_sql, layers)
+    geom_appended = sql != original_sql
 
     if stage_callback:
         stage_callback("Running query...")
@@ -163,7 +163,25 @@ async def _handle_query_data(
     exec_kwargs: dict = {"restrict_tables": restrict_tables}
     if geom_appended:
         exec_kwargs["row_limit"] = _OVERLAY_ROW_BUDGET
-    result = await chat_service.validate_and_execute(sql, session, user, **exec_kwargs)
+    try:
+        result = await chat_service.validate_and_execute(
+            sql, session, user, **exec_kwargs
+        )
+    except SandboxError:
+        # fix(#556 review P2): the appended geom_4326 may not exist — a
+        # SRID-less ingest keeps geometry_type but exposes only native `geom`
+        # (see ensure_geom_4326_gist_index docs) — or the append otherwise
+        # broke a query the model wrote validly. Fall back to the original SQL
+        # so attribute rows still return; the overlay is simply dropped. If the
+        # original also fails, its error propagates (no masking).
+        if not geom_appended:
+            raise
+        logger.info("query_data.geometry_append_fallback")
+        geom_appended = False
+        sql = original_sql
+        result = await chat_service.validate_and_execute(
+            sql, session, user, restrict_tables=restrict_tables
+        )
 
     # fix(#556 review P2): the transfer cap above bounds the sandbox row_count to
     # the render budget, but show_query_result.row_count is the documented TOTAL
