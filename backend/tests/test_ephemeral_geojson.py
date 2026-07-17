@@ -266,6 +266,22 @@ class TestEnsureGeometrySelected:
         )
         assert "p.geom_4326" in sql
 
+    def test_preserves_quoted_uppercase_alias(self):
+        # fix(#556 review P2): a quoted alias must survive the append — unquoted
+        # "P" folds to lowercase p in Postgres and fails at execution.
+        sql = ensure_geometry_selected(
+            'SELECT "P".name FROM data.parks AS "P"', [_layer()]
+        )
+        assert '"P".geom_4326' in sql
+
+    def test_preserves_alias_with_spaces(self):
+        # fix(#556 review P2): a spaced alias must not raise a ParseError inside
+        # stmt.select() (the old f-string path did).
+        sql = ensure_geometry_selected(
+            'SELECT t.name FROM data.parks AS "my tbl"', [_layer()]
+        )
+        assert '"my tbl".geom_4326' in sql
+
     def test_skips_when_geometry_already_selected(self):
         sql = "SELECT name, geom_4326 FROM data.parks"
         assert ensure_geometry_selected(sql, [_layer()]) == sql

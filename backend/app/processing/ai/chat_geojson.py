@@ -118,7 +118,14 @@ def ensure_geometry_selected(sql: str, layers) -> str:
                 return sql
         if _selects_geometry(item):
             return sql
-    stmt.select(f"{table.alias_or_name}.geom_4326", copy=False)
+    # fix(#556 review P2): build the qualifier from the alias/table AST
+    # identifier (not an f-string) so a quoted alias survives — FROM ... AS "P"
+    # must append "P".geom_4326 (unquoted P folds to lowercase and fails), and
+    # an alias with spaces must not raise a ParseError inside stmt.select().
+    alias_node = table.args.get("alias")
+    ref_ident = alias_node.this if alias_node is not None else table.this
+    geom_col = exp.Column(this=exp.to_identifier("geom_4326"), table=ref_ident.copy())
+    stmt.select(geom_col, copy=False)
     return stmt.sql(dialect="postgres")
 
 
