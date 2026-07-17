@@ -5,6 +5,7 @@ import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute } from '@/components/
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { SiteBanner } from '@/components/layout/SiteBanner';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
@@ -50,6 +51,9 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ defa
 function RootLayout() {
   return (
     <LazyLoadErrorBoundary>
+      {/* fix(#553): mount above ALL routes so /login, /register, /m/:token
+          also show the admin-configured announcement banner */}
+      <SiteBanner />
       <Suspense fallback={<LoadingState />}>
         <Outlet />
       </Suspense>

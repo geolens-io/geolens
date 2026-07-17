@@ -3,7 +3,6 @@ import { Outlet, useMatch, useLocation, useNavigationType } from 'react-router';
 import { Navbar } from './Navbar';
 import { AppFooter } from './AppFooter';
 import { DemoBanner } from './DemoBanner';
-import { SiteBanner } from './SiteBanner';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 import { SkipToContent } from './SkipToContent';
@@ -37,7 +36,6 @@ export function AppLayout() {
     <div className={cn('flex flex-col', isAuthenticatedMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen')}>
       <SkipToContent />
       <Navbar />
-      <SiteBanner />
       <DemoBanner />
       <main
         id="main-content"
