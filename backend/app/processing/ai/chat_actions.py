@@ -11,6 +11,7 @@ keep working unchanged when the patch replaces the attribute on the facade.
 """
 
 import json
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -51,26 +52,36 @@ _DEFAULT_LABEL_TEXT_COLOR = "#333333"
 # discard all but these.
 _OVERLAY_ROW_BUDGET = 50
 
+# fix(#560): matches a Postgres undefined-column clause and captures the column
+# reference. Unqualified misses are quoted (`column "geom_4326" does not
+# exist`); qualified/aliased misses are not (`column a.geom_4326 does not
+# exist`) — the model's overlay/intersect queries use aliases, so both forms
+# must be recognised (PR #563 Codex P2). Anchoring on the "column ... does not
+# exist" clause (not a loose geom_4326 substring) keeps the SQL echoed into the
+# error from causing false positives when a *different* column is missing.
+_UNDEFINED_COLUMN_RE = re.compile(
+    r"column\s+([\w\".]+)\s+does not exist", re.IGNORECASE
+)
+
 
 def _geom_4326_missing_note(err: SandboxError) -> dict | None:
     """Clean degrade note when ``err`` was caused by a missing ``geom_4326`` column.
 
     fix(#560): the SQL prompt + schema-context always name the geometry column
     ``geom_4326`` (sql_generator.SQL_SYSTEM_PROMPT / build_sql_schema_context),
-    so the model emits it. A table without that column — a legacy dataset
-    ingested before the geom_4326 convention (no current ingest path produces
-    one: the missing-CRS gate rejects unknown-CRS uploads and every spatial path
-    builds geom_4326) — fails with ``column "geom_4326" does not exist``.
-    ``SandboxError.category`` is the generic ``query_failed``; the Postgres text
-    lives on ``__cause__`` (executor sets it via ``raise SandboxError(...) from
-    exc``). Returns None for any other error so it propagates unmasked.
+    so the model emits it — often qualified (``a.geom_4326``). A table without
+    that column — a legacy dataset ingested before the geom_4326 convention (no
+    current ingest path produces one: the missing-CRS gate rejects unknown-CRS
+    uploads and every spatial path builds geom_4326) — fails with ``column
+    ["<alias>".]geom_4326 does not exist``. ``SandboxError.category`` is the
+    generic ``query_failed``; the Postgres text lives on ``__cause__`` (executor
+    sets it via ``raise SandboxError(...) from exc``). Compare the missing
+    column's final segment so aliased/quoted forms match while a *different*
+    missing column (whose SQL echo merely mentions geom_4326) does not — returns
+    None for any other error so it propagates unmasked.
     """
-    # fix(#560, PR #563 Codex P2): match the exact undefined-column phrase, not
-    # "geom_4326" and "does not exist" separately. The DB error echoes the full
-    # SQL, so a query like `SELECT bad_col, geom_4326 ...` failing on `bad_col`
-    # contains both tokens and would be mis-degraded, masking the real error.
-    detail = f"{err} {err.__cause__}".lower()
-    if 'column "geom_4326" does not exist' not in detail:
+    m = _UNDEFINED_COLUMN_RE.search(f"{err} {err.__cause__}")
+    if m is None or m.group(1).replace('"', "").split(".")[-1].lower() != "geom_4326":
         return None
     logger.info("query_data.geom_4326_missing")
     return {

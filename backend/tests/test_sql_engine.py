@@ -471,6 +471,29 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_qualified_geom_4326_missing_degrades(self, mock_gen, mock_exec):
+        """fix(#560, PR #563 Codex P2): overlay/intersect queries alias the
+        geometry column (`a.geom_4326`), so Postgres reports the miss WITHOUT
+        quotes and WITH the qualifier — `column a.geom_4326 does not exist`.
+        This qualified form (the primary #560 case) must still degrade cleanly,
+        not just the unqualified `column "geom_4326" does not exist`."""
+        mock_gen.return_value = "SELECT a.name, a.geom_4326 FROM data.cities AS a"
+        err = SandboxError("query_failed", "Query failed")
+        err.__cause__ = Exception("column a.geom_4326 does not exist")
+        mock_exec.side_effect = err
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "map the cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 1
+        assert result["category"] == "llm_cannot_answer"
+        assert "spatial queries" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_other_missing_column_is_not_mis_degraded(self, mock_gen, mock_exec):
         """fix(#560, PR #563 Codex P2): a DIFFERENT undefined column must surface
         the normal failure, not the geometry-degrade note — even though the DB
