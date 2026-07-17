@@ -111,10 +111,21 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     ):
         return sql
     for item in stmt.expressions:
-        if item.find(exp.Star):
-            return sql  # SELECT * already includes the geometry column
+        # A bare * or table.* already includes the geometry column. fix(#556
+        # review P2): match only a genuine all-columns star, NOT a functional
+        # star like COUNT(*) — item.find(exp.Star) caught the latter and
+        # suppressed the append for windowed COUNT(*) OVER () queries.
+        if isinstance(item, exp.Star) or (
+            isinstance(item, exp.Column) and isinstance(item.this, exp.Star)
+        ):
+            return sql
         for fn in item.find_all(exp.Func):
-            if isinstance(fn, exp.AggFunc) or fn.name.lower() in _ANON_AGG_NAMES:
+            is_agg = isinstance(fn, exp.AggFunc) or fn.name.lower() in _ANON_AGG_NAMES
+            # fix(#556 review P2): a WINDOWED aggregate — COUNT(*) OVER (),
+            # RANK() OVER (ORDER BY ...) — is row-level (one row per input row,
+            # no GROUP BY), so appending geom_4326 is safe. Only a true,
+            # non-windowed aggregate collapses cardinality and must block it.
+            if is_agg and fn.find_ancestor(exp.Window) is None:
                 return sql
         if _selects_geometry(item):
             return sql

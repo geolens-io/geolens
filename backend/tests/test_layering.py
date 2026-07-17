@@ -896,7 +896,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#556 review P2): +~8 lines — overlay-row-budget fetch cap when
         # geometry is appended (constant + conditional row_limit). Cap
         # 425 → 445 (~12 headroom).
-        "backend/app/processing/ai/chat_actions.py": 445,
+        # fix(#556 review P2, round 7): +~15 lines — geometry-free COUNT
+        # recovery so the transfer cap doesn't corrupt the documented total
+        # row_count. Cap 445 → 470 (~18 headroom).
+        "backend/app/processing/ai/chat_actions.py": 470,
     }
 
     files_to_check = list(facade_line_budgets)

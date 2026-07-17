@@ -296,6 +296,72 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_truncated_appended_query_recovers_true_row_count(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#556 review P2): when the geometry-transfer cap truncates the
+        result, row_count is recovered from a geometry-free COUNT so the model
+        and UI see the true total, not the render budget."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        capped = SandboxResult(
+            rows=[["City %d" % i, wkb] for i in range(50)],
+            columns=["name", "geom_4326"],
+            row_count=50,
+            truncated=True,
+        )
+        count = SandboxResult(rows=[[496]], columns=["n"], row_count=1, truncated=False)
+        mock_exec.side_effect = [capped, count]
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "list every city with its location"},
+            AsyncMock(),
+            _mock_user(),
+            layers,
+        )
+        # Two calls: the capped fetch, then the COUNT recovery.
+        assert mock_exec.call_count == 2
+        count_sql = mock_exec.call_args_list[1].args[0]
+        assert count_sql.lower().startswith("select count(*)")
+        assert mock_exec.call_args_list[1].kwargs.get("row_limit") == 1
+        # The documented total is the true count, not the 50-row render budget.
+        assert result["row_count"] == 496
+        assert result["truncated"] is True
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_untruncated_appended_query_skips_count_recovery(
+        self, mock_gen, mock_exec
+    ):
+        """The COUNT recovery only fires when the cap actually truncated —
+        a small appended-geometry result issues a single query."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        mock_exec.return_value = SandboxResult(
+            rows=[["Springfield", wkb]],
+            columns=["name", "geom_4326"],
+            row_count=1,
+            truncated=False,
+        )
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "cities"}, AsyncMock(), _mock_user(), layers
+        )
+        assert mock_exec.call_count == 1
+        assert result["row_count"] == 1
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_rows_truncated_to_50(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT * FROM data.cities"
         mock_exec.return_value = SandboxResult(

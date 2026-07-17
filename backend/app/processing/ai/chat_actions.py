@@ -165,6 +165,25 @@ async def _handle_query_data(
         exec_kwargs["row_limit"] = _OVERLAY_ROW_BUDGET
     result = await chat_service.validate_and_execute(sql, session, user, **exec_kwargs)
 
+    # fix(#556 review P2): the transfer cap above bounds the sandbox row_count to
+    # the render budget, but show_query_result.row_count is the documented TOTAL
+    # matched rows (the model narrates it, the UI displays it). When the cap
+    # actually truncated the result, recover the true total with a geometry-free
+    # COUNT wrapping the same validated SQL (still bounded by the query's own
+    # LIMIT). Best-effort — a failure keeps the capped count rather than erroring.
+    if geom_appended and result.truncated:
+        try:
+            count_res = await chat_service.validate_and_execute(
+                f"SELECT COUNT(*) AS n FROM ({sql}) AS _geolens_total",
+                session,
+                user,
+                row_limit=1,
+                restrict_tables=restrict_tables,
+            )
+            result = result.model_copy(update={"row_count": int(count_res.rows[0][0])})
+        except Exception:  # broad: count recovery is best-effort, never fail the query
+            logger.warning("query_data.total_count_recovery_failed")
+
     # Extract GeoJSON for ephemeral result layers
     columns, rows = result.columns, result.rows[:_OVERLAY_ROW_BUDGET]
     geojson_result = _extract_geojson(columns, rows)

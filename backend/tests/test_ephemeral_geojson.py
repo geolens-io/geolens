@@ -331,6 +331,21 @@ class TestEnsureGeometrySelected:
         sql = "SELECT EVERY(name IS NOT NULL) FROM data.parks"
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_appends_for_window_count(self):
+        # fix(#556 review P2): COUNT(*) OVER () is a row-level window function
+        # (no cardinality collapse, no GROUP BY) — the append must still fire.
+        sql = ensure_geometry_selected(
+            "SELECT name, COUNT(*) OVER () AS total FROM data.parks", [_layer()]
+        )
+        assert "parks.geom_4326" in sql
+
+    def test_appends_for_window_rank(self):
+        sql = ensure_geometry_selected(
+            "SELECT name, RANK() OVER (ORDER BY name DESC) AS r FROM data.parks",
+            [_layer()],
+        )
+        assert "parks.geom_4326" in sql
+
     def test_skips_group_by(self):
         sql = "SELECT category, COUNT(*) AS n FROM data.parks GROUP BY category"
         assert ensure_geometry_selected(sql, [_layer()]) == sql
