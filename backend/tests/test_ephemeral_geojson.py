@@ -319,3 +319,22 @@ class TestStripGeometryColumns:
         )
         assert cols == ["name", "pop"]
         assert rows == [["A", None]]
+
+    def test_strips_aliased_geojson_string_column(self):
+        # Live smoke (#544): the model emitted ST_AsGeoJSON(geom_4326) AS
+        # location — a name-based strip missed it and raw GeoJSON strings
+        # rendered in the table. Value-based strip drops both geometry cols.
+        cols, rows = strip_geometry_columns(
+            ["stop_name", "location", "geom_4326"],
+            [["Jay St", POINT_GEOJSON_STR, POINT_WKB_HEX]],
+        )
+        assert cols == ["stop_name"]
+        assert rows == [["Jay St"]]
+
+    def test_json_attribute_with_type_key_kept(self):
+        meta = json.dumps({"type": "station", "zone": 2})
+        cols, rows = strip_geometry_columns(
+            ["name", "meta", "geom_4326"], [["A", meta, POINT_WKB_HEX]]
+        )
+        assert cols == ["name", "meta"]
+        assert rows == [["A", meta]]

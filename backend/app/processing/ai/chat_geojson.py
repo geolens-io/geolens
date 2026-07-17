@@ -102,18 +102,56 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     return stmt.sql(dialect="postgres")
 
 
+_GEOJSON_TYPES = {
+    "Point",
+    "MultiPoint",
+    "LineString",
+    "MultiLineString",
+    "Polygon",
+    "MultiPolygon",
+    "GeometryCollection",
+}
+
+
+def _is_geometry_cell(val: object) -> bool:
+    """Value-based geometry check for column stripping.
+
+    Like _is_geom_value but the JSON branch requires an actual GeoJSON
+    geometry type, so a jsonb attribute column that merely contains a
+    "type" key is not misclassified.
+    """
+    if not isinstance(val, str):
+        return False
+    if len(val) >= 10 and len(val) % 2 == 0 and _HEX_RE.match(val):
+        return True
+    if val.startswith("{"):
+        try:
+            return json.loads(val).get("type") in _GEOJSON_TYPES
+        except Exception:  # broad: not JSON — then not a geometry cell
+            return False
+    return False
+
+
 def strip_geometry_columns(
     columns: list[str], rows: list[list]
 ) -> tuple[list[str], list[list]]:
-    """Drop the geometry column from tabular chat output (fix #544).
+    """Drop geometry-valued columns from tabular chat output (fix #544).
 
-    Raw WKB hex is noise in a result table; geometry travels via the geojson
-    payload instead. No-op when no geometry column is detected.
+    Raw WKB hex / GeoJSON strings are noise in a result table; geometry
+    travels via the geojson payload instead. Value-based (first row), not
+    name-based: the model may alias geometry to anything (live smoke found
+    ``ST_AsGeoJSON(geom_4326) AS location`` surviving a name-only strip).
     """
-    geom_idx = _detect_geom_column(columns, rows[0]) if rows else None
-    if geom_idx is None:
+    if not rows:
         return columns, rows
-    kept = [i for i in range(len(columns)) if i != geom_idx]
+    first = rows[0]
+    kept = [
+        i
+        for i in range(len(columns))
+        if not _is_geometry_cell(first[i] if i < len(first) else None)
+    ]
+    if len(kept) == len(columns):
+        return columns, rows
     return (
         [columns[i] for i in kept],
         [[row[i] if i < len(row) else None for i in kept] for row in rows],
