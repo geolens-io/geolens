@@ -331,6 +331,22 @@ class TestEnsureGeometrySelected:
         sql = "SELECT EVERY(name IS NOT NULL) FROM data.parks"
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_skips_ordered_set_aggregate(self):
+        # MODE()/PERCENTILE_* parse as exp.AggFunc subclasses — still blocked
+        # (they collapse to one row), independent of the _ANON_AGG_NAMES gate.
+        sql = "SELECT MODE() WITHIN GROUP (ORDER BY category) FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_appends_when_casting_column_named_like_aggregate(self):
+        # fix(#556 review P2): CAST(mode AS TEXT) is exp.Cast with name="mode";
+        # the _ANON_AGG_NAMES check must not fire on named funcs, or a row-level
+        # query casting a column named `mode` loses its overlay.
+        sql = ensure_geometry_selected(
+            "SELECT name, CAST(mode AS TEXT) AS mode_text FROM data.parks",
+            [_layer()],
+        )
+        assert "parks.geom_4326" in sql
+
     def test_appends_for_window_count(self):
         # fix(#556 review P2): COUNT(*) OVER () is a row-level window function
         # (no cardinality collapse, no GROUP BY) — the append must still fire.

@@ -17,10 +17,11 @@ from sqlglot import exp
 _GEOM_NAMES = {"geom_4326", "geom", "geometry", "the_geom", "wkb_geometry"}
 _HEX_RE = re.compile(r"^[0-9a-fA-F]{10,}$")
 
-# Anonymous-func aggregates the isinstance(exp.AggFunc) check misses (sqlglot
-# parses them as exp.Anonymous — see the sandbox validator's allowlist notes).
-# Appending a bare column beside one of these without GROUP BY would make the
-# query invalid, so their presence disables the geometry append.
+# Aggregate names checked ONLY on exp.Anonymous nodes (see the guard in
+# ensure_geometry_selected). In current sqlglot only EVERY parses as Anonymous;
+# MODE/PERCENTILE_CONT/PERCENTILE_DISC are exp.AggFunc subclasses already caught
+# by isinstance. The others are retained as a version-drift guard — harmless
+# because the Anonymous gate keeps them from matching a same-named column.
 _ANON_AGG_NAMES = {"every", "mode", "percentile_cont", "percentile_disc"}
 
 # Unaliased calls to these produce an st_*-named output column that
@@ -120,11 +121,19 @@ def ensure_geometry_selected(sql: str, layers) -> str:
         ):
             return sql
         for fn in item.find_all(exp.Func):
-            is_agg = isinstance(fn, exp.AggFunc) or fn.name.lower() in _ANON_AGG_NAMES
-            # fix(#556 review P2): a WINDOWED aggregate — COUNT(*) OVER (),
-            # RANK() OVER (ORDER BY ...) — is row-level (one row per input row,
-            # no GROUP BY), so appending geom_4326 is safe. Only a true,
-            # non-windowed aggregate collapses cardinality and must block it.
+            # fix(#556 review P2): only consult _ANON_AGG_NAMES for exp.Anonymous
+            # nodes. On a named Func, fn.name is arg-derived, not the function
+            # name — CAST(mode AS TEXT) reports name="mode", which would falsely
+            # trip the guard and drop the overlay for any row-level query that
+            # casts a column named mode/every/percentile_*. (Mirrors the
+            # sandbox validator's Anonymous-vs-named name resolution.)
+            is_agg = isinstance(fn, exp.AggFunc) or (
+                isinstance(fn, exp.Anonymous) and fn.name.lower() in _ANON_AGG_NAMES
+            )
+            # A WINDOWED aggregate — COUNT(*) OVER (), RANK() OVER (ORDER BY ...)
+            # — is row-level (one row per input row, no GROUP BY), so appending
+            # geom_4326 is safe. Only a true, non-windowed aggregate collapses
+            # cardinality and must block it.
             if is_agg and fn.find_ancestor(exp.Window) is None:
                 return sql
         if _selects_geometry(item):
