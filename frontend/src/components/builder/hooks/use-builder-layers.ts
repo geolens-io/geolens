@@ -519,7 +519,17 @@ export function useBuilderLayers(
               // POST-created layer alone IS the saved state — so marking dirty
               // falsely triggers the unsaved-changes prompt on every new
               // Add-to-Map / chat-created map.
-              const hadOtherLayers = layersRef.current.some((l) => l.id !== createdLayer.id);
+              // fix(#554 codex P2): layersRef is committed via useLayoutEffect, so
+              // when two add mutations resolve before React commits (e.g. AI
+              // "Accept all" staging several add_layer actions) it is stale-empty
+              // for BOTH onSuccess calls, yet the second add renumbers the first.
+              // savedLayerBaselineRef is updated synchronously in this callback
+              // (below), so it sees layers from earlier same-batch adds; check
+              // both refs rather than side-effecting inside the setLocalLayers
+              // updater (which must stay pure — StrictMode double-invokes it).
+              const hadOtherLayers =
+                layersRef.current.some((l) => l.id !== createdLayer.id) ||
+                savedLayerBaselineRef.current.some((l) => l.id !== createdLayer.id);
               const insertedLayer: GroupedLayer = parentGroupId
                 ? { ...createdLayer, parent_group_id: parentGroupId }
                 : { ...createdLayer };

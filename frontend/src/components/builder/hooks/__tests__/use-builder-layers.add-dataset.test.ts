@@ -186,6 +186,28 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('fix(#554 codex P2): two adds resolving in one batch on a fresh map still mark dirty (second add renumbers the first)', () => {
+    const { result, mutate } = renderBuilderLayers(makeMapData([]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-1');
+      result.current.handleAddDataset('ds-2');
+    });
+
+    const [, { onSuccess: onSuccess1 }] = mutate.mock.calls[0];
+    const [, { onSuccess: onSuccess2 }] = mutate.mock.calls[1];
+    // Both resolve inside ONE act/batch: layersRef has not committed layer-1
+    // yet when layer-2's onSuccess runs, but the renumber of layer-1 is real
+    // unpersisted local state — the map must be dirty.
+    act(() => {
+      onSuccess1({ id: 'layer-1', dataset_id: 'ds-1', sort_order: 0 });
+      onSuccess2({ id: 'layer-2', dataset_id: 'ds-2', sort_order: 0 });
+    });
+
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['layer-2', 'layer-1']);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('fix(#545)/WR-02: add onto a map with existing layers STILL marks dirty (sibling renumber is unpersisted)', () => {
     const existing = makeMockLayer({ id: 'existing', sort_order: 0 });
     const { result, mutate } = renderBuilderLayers(makeMapData([existing]));
