@@ -231,6 +231,39 @@ class TestQueryDataTool:
         "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_geometry_appended_and_stripped_from_table(self, mock_gen, mock_exec):
+        """fix(#544): geom_4326 is appended to the executed SQL when the model
+        omits it, and the raw WKB column is stripped from the tabular payload
+        once the geojson is extracted."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT name FROM data.cities"
+        mock_exec.return_value = SandboxResult(
+            rows=[["Springfield", wkb]],
+            columns=["name", "geom_4326"],
+            row_count=1,
+            truncated=False,
+        )
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        result = await _handle_query_data(
+            {"question": "List the names and locations of cities"},
+            AsyncMock(),
+            _mock_user(),
+            layers,
+        )
+        executed_sql = mock_exec.call_args.args[0]
+        assert "geom_4326" in executed_sql
+        assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
+        assert result["bbox"] == [1.0, 2.0, 1.0, 2.0]
+        assert result["columns"] == ["name"]
+        assert result["rows"] == [["Springfield"]]
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_rows_truncated_to_50(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT * FROM data.cities"
         mock_exec.return_value = SandboxResult(

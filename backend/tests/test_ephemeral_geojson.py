@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 
 import shapely
@@ -14,6 +15,8 @@ from app.processing.ai.chat_service import (
     _detect_geom_column,
     _safe_value,
     _extract_geojson,
+    ensure_geometry_selected,
+    strip_geometry_columns,
 )
 
 
@@ -194,3 +197,125 @@ class TestExtractGeojson:
         cols = ["id", "geom"]
         rows = []
         assert _extract_geojson(cols, rows) is None
+
+
+# ---------------------------------------------------------------------------
+# fix(#544): deterministic geometry append + WKB stripping
+# ---------------------------------------------------------------------------
+
+
+def _layer(table="parks", geometry_type="Polygon"):
+    return SimpleNamespace(dataset_table_name=table, geometry_type=geometry_type)
+
+
+class TestEnsureGeometrySelected:
+    def test_appends_geometry_to_plain_select(self):
+        sql = ensure_geometry_selected("SELECT name FROM data.parks", [_layer()])
+        assert sql == "SELECT name, parks.geom_4326 FROM data.parks"
+
+    def test_uses_table_alias(self):
+        sql = ensure_geometry_selected(
+            "SELECT p.name FROM data.parks AS p WHERE p.name ILIKE '%river%'",
+            [_layer()],
+        )
+        assert "p.geom_4326" in sql
+
+    def test_skips_when_geometry_already_selected(self):
+        sql = "SELECT name, geom_4326 FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_unaliased_st_asgeojson(self):
+        sql = "SELECT name, ST_ASGEOJSON(geom_4326) FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_appends_when_st_x_only(self):
+        # ST_X yields a float, not a detectable geometry — still append.
+        sql = ensure_geometry_selected(
+            "SELECT name, ST_X(geom_4326) AS longitude, ST_Y(geom_4326) AS latitude"
+            " FROM data.parks",
+            [_layer()],
+        )
+        assert sql.count("geom_4326") == 3
+        assert "parks.geom_4326" in sql
+
+    def test_skips_select_star(self):
+        sql = "SELECT * FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_aggregates(self):
+        sql = "SELECT COUNT(*) FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_anonymous_aggregate(self):
+        sql = "SELECT EVERY(name IS NOT NULL) FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_group_by(self):
+        sql = "SELECT category, COUNT(*) AS n FROM data.parks GROUP BY category"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_distinct(self):
+        sql = "SELECT DISTINCT category FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_joins(self):
+        sql = (
+            "SELECT p.name FROM data.parks AS p"
+            " JOIN data.cities AS c ON ST_INTERSECTS(p.geom_4326, c.geom_4326)"
+        )
+        assert ensure_geometry_selected(sql, [_layer(), _layer(table="cities")]) == sql
+
+    def test_skips_cte(self):
+        sql = "WITH big AS (SELECT name FROM data.parks) SELECT name FROM big"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_union(self):
+        sql = "SELECT name FROM data.parks UNION SELECT name FROM data.cities"
+        assert ensure_geometry_selected(sql, [_layer(), _layer(table="cities")]) == sql
+
+    def test_skips_non_geometry_layer(self):
+        sql = "SELECT name FROM data.attendance"
+        layers = [_layer(table="attendance", geometry_type=None)]
+        assert ensure_geometry_selected(sql, layers) == sql
+
+    def test_skips_table_not_in_layers(self):
+        sql = "SELECT name FROM data.other_table"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_unparseable_sql_unchanged(self):
+        sql = "SELECT FROM WHERE ((("
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_row_level_spatial_expr_still_appends(self):
+        # ST_Distance is row-level (not an aggregate) — append proceeds.
+        sql = ensure_geometry_selected(
+            "SELECT name, ST_DISTANCE(geom_4326, geom_4326) AS d FROM data.parks",
+            [_layer()],
+        )
+        assert "parks.geom_4326" in sql
+
+
+class TestStripGeometryColumns:
+    def test_strips_wkb_column(self):
+        cols, rows = strip_geometry_columns(
+            ["name", "geom_4326"], [["A", POINT_WKB_HEX], ["B", POINT2_WKB_HEX]]
+        )
+        assert cols == ["name"]
+        assert rows == [["A"], ["B"]]
+
+    def test_no_geom_column_unchanged(self):
+        cols, rows = strip_geometry_columns(["name", "pop"], [["A", 1]])
+        assert cols == ["name", "pop"]
+        assert rows == [["A", 1]]
+
+    def test_empty_rows_unchanged(self):
+        cols, rows = strip_geometry_columns(["name", "geom_4326"], [])
+        assert cols == ["name", "geom_4326"]
+        assert rows == []
+
+    def test_short_row_padded_with_none(self):
+        cols, rows = strip_geometry_columns(
+            ["geom_4326", "name", "pop"], [[POINT_WKB_HEX, "A"]]
+        )
+        assert cols == ["name", "pop"]
+        assert rows == [["A", None]]

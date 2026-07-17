@@ -21,7 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.platform.sandbox import SandboxError
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
-from app.processing.ai.chat_geojson import _extract_geojson
+from app.processing.ai.chat_geojson import (
+    _extract_geojson,
+    ensure_geometry_selected,
+    strip_geometry_columns,
+)
 from app.processing.ai.colors import is_css_colorish, label_halo_color
 from app.processing.ai.chat_styles import _build_data_driven_style
 from app.processing.ai.schemas import (
@@ -133,17 +137,31 @@ async def _handle_query_data(
         error_msg = sql.strip().removeprefix("-- ERROR:").strip()
         return {"error": error_msg, "category": "llm_cannot_answer"}
 
+    # fix(#544): geometry must reach _extract_geojson regardless of which
+    # columns the model chose, or every map surface silently loses its overlay.
+    sql = ensure_geometry_selected(sql, layers)
+
     if stage_callback:
         stage_callback("Running query...")
 
     result = await chat_service.validate_and_execute(
         sql, session, user, restrict_tables=restrict_tables
     )
+
+    # Extract GeoJSON for ephemeral result layers
+    columns, rows = result.columns, result.rows[:50]
+    geojson_result = _extract_geojson(columns, rows)
+    if geojson_result is not None:
+        # fix(#544): geometry now travels via geojson only — raw WKB in the
+        # tabular payload is token noise for the model and renders as hex in
+        # the chat result tables.
+        columns, rows = strip_geometry_columns(columns, rows)
+
     # Limit rows in tool result for token economy
     # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
     out: dict = {
-        "columns": result.columns,
-        "rows": result.rows[:50],
+        "columns": columns,
+        "rows": rows,
         "row_count": result.row_count,
         "truncated": result.truncated,
     }
@@ -151,9 +169,6 @@ async def _handle_query_data(
         out["note"] = (
             "No matching results found. The user may want to try different criteria."
         )
-
-    # Extract GeoJSON for ephemeral result layers
-    geojson_result = _extract_geojson(result.columns, result.rows[:50])
     if geojson_result is not None:
         out["geojson"] = geojson_result[0]
         out["bbox"] = geojson_result[1]

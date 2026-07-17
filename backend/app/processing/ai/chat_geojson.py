@@ -10,10 +10,114 @@ from decimal import Decimal
 from uuid import UUID
 
 import shapely
+import sqlglot
 from shapely.geometry import shape as shapely_shape
+from sqlglot import exp
 
 _GEOM_NAMES = {"geom_4326", "geom", "geometry", "the_geom", "wkb_geometry"}
 _HEX_RE = re.compile(r"^[0-9a-fA-F]{10,}$")
+
+# Anonymous-func aggregates the isinstance(exp.AggFunc) check misses (sqlglot
+# parses them as exp.Anonymous — see the sandbox validator's allowlist notes).
+# Appending a bare column beside one of these without GROUP BY would make the
+# query invalid, so their presence disables the geometry append.
+_ANON_AGG_NAMES = {"every", "mode", "percentile_cont", "percentile_disc"}
+
+# Unaliased calls to these produce an st_*-named output column that
+# _detect_geom_column already recognizes as geometry — no append needed.
+_GEOM_RETURNING_FUNCS = {
+    "st_asgeojson",
+    "st_buffer",
+    "st_centroid",
+    "st_collect",
+    "st_makepoint",
+    "st_point",
+    "st_setsrid",
+    "st_transform",
+    "st_union",
+}
+
+
+def _selects_geometry(item: exp.Expression) -> bool:
+    """True when a select item already yields a geometry-detectable column."""
+    if isinstance(item, exp.Alias):
+        name = item.alias.lower()
+        return name in _GEOM_NAMES or name.startswith("st_")
+    if isinstance(item, exp.Column):
+        return item.name.lower() in _GEOM_NAMES
+    if isinstance(item, exp.Func):
+        return item.name.lower() in _GEOM_RETURNING_FUNCS
+    return False
+
+
+def ensure_geometry_selected(sql: str, layers) -> str:
+    """fix(#544): deterministically append geom_4326 to row-level selects.
+
+    The SQL model is free to answer a location-shaped question with attribute
+    columns only, which silently drops the map overlay on every chat surface.
+    Rather than a model-dependent prompt rule, rewrite the generated SQL: when
+    it is a plain single-table SELECT from a layer that has geometry and no
+    geometry column in the select list, append the table's geom_4326.
+
+    Conservative by design — any shape where the appended column could change
+    results or break the query (aggregates, GROUP BY, DISTINCT, joins, CTEs,
+    set operations, SELECT *) is returned unchanged.
+    """
+    geom_tables = {layer.dataset_table_name for layer in layers if layer.geometry_type}
+    if not geom_tables:
+        return sql
+    try:
+        stmt = sqlglot.parse_one(sql, dialect="postgres")
+    except Exception:  # broad: unparseable SQL is the sandbox validator's job
+        return sql
+    if not isinstance(stmt, exp.Select):
+        return sql
+    if (
+        stmt.args.get("group")
+        or stmt.args.get("distinct")
+        or stmt.find(exp.With)  # any CTE, top-level or nested — stay out
+        or stmt.args.get("joins")
+    ):
+        return sql
+    # sqlglot renamed the arg key "from" -> "from_" across versions
+    from_clause = stmt.args.get("from") or stmt.args.get("from_")
+    if from_clause is None:
+        return sql
+    table = from_clause.this
+    if (
+        not isinstance(table, exp.Table)
+        or table.db != "data"
+        or table.name not in geom_tables
+    ):
+        return sql
+    for item in stmt.expressions:
+        if item.find(exp.Star):
+            return sql  # SELECT * already includes the geometry column
+        for fn in item.find_all(exp.Func):
+            if isinstance(fn, exp.AggFunc) or fn.name.lower() in _ANON_AGG_NAMES:
+                return sql
+        if _selects_geometry(item):
+            return sql
+    stmt.select(f"{table.alias_or_name}.geom_4326", copy=False)
+    return stmt.sql(dialect="postgres")
+
+
+def strip_geometry_columns(
+    columns: list[str], rows: list[list]
+) -> tuple[list[str], list[list]]:
+    """Drop the geometry column from tabular chat output (fix #544).
+
+    Raw WKB hex is noise in a result table; geometry travels via the geojson
+    payload instead. No-op when no geometry column is detected.
+    """
+    geom_idx = _detect_geom_column(columns, rows[0]) if rows else None
+    if geom_idx is None:
+        return columns, rows
+    kept = [i for i in range(len(columns)) if i != geom_idx]
+    return (
+        [columns[i] for i in kept],
+        [[row[i] if i < len(row) else None for i in kept] for row in rows],
+    )
 
 
 def _is_geom_value(val: object) -> bool:

@@ -205,6 +205,7 @@ async def eval_dataset(test_db_session):
     yield {
         "admin": admin,
         "schema_context": schema_context,
+        "layers": [parks_layer, stations_layer],
         "truth_acres": float(truth_acres),
         "truth_miles": float(truth_miles),
     }
@@ -352,3 +353,33 @@ async def test_spatial_containment(client, test_db_session, eval_dataset):
     assert found == {_STATION_IN_LARGEST}, (
         f"expected {{{_STATION_IN_LARGEST!r}}}, got {found}\nSQL: {sql}"
     )
+
+
+async def test_locations_reach_geojson_deterministically(
+    client, test_db_session, eval_dataset
+):
+    """fix(#544): a 'names and locations' question must produce mappable
+    geometry after the deterministic geometry-append pass, no matter which
+    columns the model chose (attribute-only selects previously dropped the
+    map overlay on every chat surface)."""
+    from app.processing.ai.chat_geojson import (
+        _extract_geojson,
+        ensure_geometry_selected,
+    )
+
+    sql = await generate_sql(
+        test_db_session,
+        "List the name and location of every station.",
+        eval_dataset["schema_context"],
+    )
+    sql = ensure_geometry_selected(sql, eval_dataset["layers"])
+    result = await validate_and_execute(sql, test_db_session, eval_dataset["admin"])
+    geo = _extract_geojson(result.columns, result.rows[:50])
+    assert geo is not None, (
+        f"no extractable geometry in result columns {result.columns}\nSQL: {sql}"
+    )
+    fc, bbox = geo
+    assert len(fc["features"]) == len(_STATIONS), (
+        f"expected {len(_STATIONS)} features, got {len(fc['features'])}\nSQL: {sql}"
+    )
+    assert len(bbox) == 4
