@@ -893,7 +893,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#544): +~14 lines — deterministic geom_4326 append before
         # execution and WKB-column strip after geojson extraction in
         # _handle_query_data. Cap 400 → 425 (~11 headroom).
-        "backend/app/processing/ai/chat_actions.py": 425,
+        # fix(#556 review P2): +~8 lines — overlay-row-budget fetch cap when
+        # geometry is appended (constant + conditional row_limit). Cap
+        # 425 → 445 (~12 headroom).
+        "backend/app/processing/ai/chat_actions.py": 445,
     }
 
     files_to_check = list(facade_line_budgets)

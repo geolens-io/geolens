@@ -254,10 +254,42 @@ class TestQueryDataTool:
         )
         executed_sql = mock_exec.call_args.args[0]
         assert "geom_4326" in executed_sql
+        # fix(#556 review P2): appended-geometry queries cap the fetch to the
+        # overlay render budget so full geometries for discarded rows are not
+        # transferred.
+        assert mock_exec.call_args.kwargs.get("row_limit") == 50
         assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
         assert result["bbox"] == [1.0, 2.0, 1.0, 2.0]
         assert result["columns"] == ["name"]
         assert result["rows"] == [["Springfield"]]
+
+    @pytest.mark.asyncio
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    async def test_no_row_limit_cap_when_geometry_not_appended(
+        self, mock_gen, mock_exec
+    ):
+        """fix(#556 review P2): the fetch cap is scoped to the append. A query
+        the model wrote with its own geometry (or SELECT *) keeps the default
+        row limit, preserving the accurate row_count."""
+        import shapely
+
+        wkb = shapely.to_wkb(shapely.Point(1, 2), hex=True)
+        mock_gen.return_value = "SELECT * FROM data.cities"
+        mock_exec.return_value = SandboxResult(
+            rows=[["Springfield", wkb]],
+            columns=["name", "geom_4326"],
+            row_count=1,
+            truncated=False,
+        )
+        layers = [_make_layer(column_info=[{"name": "name", "type": "text"}])]
+        await _handle_query_data(
+            {"question": "everything"}, AsyncMock(), _mock_user(), layers
+        )
+        # SELECT * already carries geometry — nothing appended, no cap passed.
+        assert mock_exec.call_args.kwargs.get("row_limit") is None
 
     @pytest.mark.asyncio
     @patch(

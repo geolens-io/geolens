@@ -132,13 +132,15 @@ _GEOJSON_TYPES = {
 }
 
 
-def _is_geometry_cell(val: object) -> bool:
-    """Strict value-based geometry check for detection fallback + stripping.
+def _is_geom_value(val: object) -> bool:
+    """Strict, parse-verified geometry check.
 
-    Unlike the name-gated _is_geom_value, candidates here must actually
-    parse: a hex-like attribute (md5(name) AS id) must not shadow the real
-    geometry column, and a jsonb attribute that merely contains a "type"
-    key must not be misclassified (#556 review P2s).
+    A candidate must actually parse — a hex-like attribute (``md5(name)``)
+    or a jsonb attribute that merely contains a ``"type"`` key is NOT a
+    geometry, and must not shadow the real geometry column (#556 review).
+    Used for both name-preferred detection and value-based stripping, so a
+    geometry-*named* column holding a non-WKB hash falls through to the
+    real column instead of being accepted and failing extraction later.
     """
     if not isinstance(val, str):
         return False
@@ -180,9 +182,7 @@ def strip_geometry_columns(
     if not rows:
         return columns, rows
     kept = [
-        i
-        for i in range(len(columns))
-        if not _is_geometry_cell(_first_non_null(rows, i))
+        i for i in range(len(columns)) if not _is_geom_value(_first_non_null(rows, i))
     ]
     if len(kept) == len(columns):
         return columns, rows
@@ -192,26 +192,15 @@ def strip_geometry_columns(
     )
 
 
-def _is_geom_value(val: object) -> bool:
-    """Check if a value looks like WKB hex or ST_AsGeoJSON output."""
-    if not isinstance(val, str):
-        return False
-    # WKB hex: long even-length hex string
-    if len(val) >= 10 and len(val) % 2 == 0 and _HEX_RE.match(val):
-        return True
-    # ST_AsGeoJSON: JSON string containing geometry type
-    if val.startswith("{") and '"type"' in val:
-        return True
-    return False
-
-
 def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
     """Find the index of a geometry column.
 
-    Geometry-named columns are preferred; otherwise fall back to any column
-    whose value looks like geometry (fix #556 review P2: aliased computed
-    geometry such as ``ST_Buffer(...) AS buffer``). Values are probed at the
-    first non-null row, not row 0, so a NULL leading geometry still detects.
+    A geometry-*named* column that actually parses is preferred; otherwise
+    fall back to any column whose value parses as geometry (fix #556 review:
+    aliased computed geometry such as ``ST_Buffer(...) AS buffer``). Both
+    phases use the strict, parse-verified _is_geom_value so a geometry-named
+    hash column cannot shadow the real geometry, and values are probed at the
+    first non-null row (not row 0) so a NULL leading geometry still detects.
     """
     for i, col in enumerate(columns):
         name = col.lower()
@@ -219,7 +208,7 @@ def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
             if _is_geom_value(_first_non_null(rows, i)):
                 return i
     for i in range(len(columns)):
-        if _is_geometry_cell(_first_non_null(rows, i)):
+        if _is_geom_value(_first_non_null(rows, i)):
             return i
     return None
 

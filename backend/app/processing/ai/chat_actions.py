@@ -44,6 +44,13 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _DEFAULT_LABEL_TEXT_COLOR = "#333333"
 
+# Overlay/table render budget: only this many rows reach the chat result table
+# and the ephemeral map overlay. fix(#556 review P2): when we append geom_4326
+# to an otherwise attribute-only query, cap the fetch to this budget so a
+# large polygon/line layer doesn't transfer up to 1000 full geometries just to
+# discard all but these.
+_OVERLAY_ROW_BUDGET = 50
+
 
 def _safe_label_text_color(value: object) -> str:
     # fix(#394) CH-02: hex / real CSS named color / numeric-arg functional form
@@ -139,17 +146,27 @@ async def _handle_query_data(
 
     # fix(#544): geometry must reach _extract_geojson regardless of which
     # columns the model chose, or every map surface silently loses its overlay.
-    sql = ensure_geometry_selected(sql, layers)
+    sql_with_geom = ensure_geometry_selected(sql, layers)
+    geom_appended = sql_with_geom != sql
+    sql = sql_with_geom
 
     if stage_callback:
         stage_callback("Running query...")
 
-    result = await chat_service.validate_and_execute(
-        sql, session, user, restrict_tables=restrict_tables
-    )
+    # fix(#556 review P2): when we appended geometry, cap the fetch to the
+    # overlay render budget. Only _OVERLAY_ROW_BUDGET rows reach the table and
+    # overlay anyway, so fetching (and holding) up to 1000 full geometries for
+    # a large polygon/line layer is a transfer/memory regression. row_count
+    # then reflects the rendered budget with the truncated flag signalling more
+    # rows exist. Queries where the model selected geometry itself keep the
+    # default limit (pre-existing behavior, out of this rewrite's scope).
+    exec_kwargs: dict = {"restrict_tables": restrict_tables}
+    if geom_appended:
+        exec_kwargs["row_limit"] = _OVERLAY_ROW_BUDGET
+    result = await chat_service.validate_and_execute(sql, session, user, **exec_kwargs)
 
     # Extract GeoJSON for ephemeral result layers
-    columns, rows = result.columns, result.rows[:50]
+    columns, rows = result.columns, result.rows[:_OVERLAY_ROW_BUDGET]
     geojson_result = _extract_geojson(columns, rows)
     if geojson_result is not None:
         # fix(#544): geometry now travels via geojson only — raw WKB in the
