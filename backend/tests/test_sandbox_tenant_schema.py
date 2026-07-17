@@ -88,6 +88,33 @@ def test_schema_rewrite_preserves_l2_and_cosine_together():
     assert f'"{_SCHEMA_A}".t' in rewritten
 
 
+def test_schema_rewrite_preserves_sentinel_lookalike_literals():
+    """fix(#559 review): a string literal containing the sentinel (``&&``) or the
+    cosine operator text (``<=>``) must survive the rewrite. The swap skips
+    string literals, so ``note = '&&'`` and ``note = '<=>'`` pass through verbatim
+    while the real ``<=>`` operator is still protected. A raw substring swap
+    corrupted or rejected these legitimate queries."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    sql = (
+        "SELECT id FROM data.t WHERE note = '&&' "
+        "ORDER BY embedding <=> '[1,2,3]'::vector LIMIT 5"
+    )
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert "'&&'" in rewritten  # literal left untouched
+    assert rewritten.count("<=>") == 1  # the operator, not the literal
+    assert "IS NOT DISTINCT FROM" not in rewritten
+    assert f'"{_SCHEMA_A}".t' in rewritten
+
+    # a literal that looks like the operator is also preserved
+    sql2 = "SELECT id FROM data.t WHERE note = '<=>' ORDER BY embedding <=> '[1]'::vector LIMIT 5"
+    rewritten2 = _rewrite_logical_data_schema(sql2, _SCHEMA_A)
+    assert "'<=>'" in rewritten2
+    assert rewritten2.count("<=>") == 2  # literal + operator both intact
+    assert "IS NOT DISTINCT FROM" not in rewritten2
+
+
 @pytest.mark.asyncio
 async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)

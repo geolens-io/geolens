@@ -7,6 +7,8 @@ for end users while full details are logged server-side.
 
 from __future__ import annotations
 
+import re
+
 import structlog
 import sqlglot
 from sqlglot import exp
@@ -29,14 +31,34 @@ DEFAULT_TIMEOUT_MS = 10_000
 # boolean equality test. The multi-tenant schema rewrite MUST re-render (the
 # logical `data.` schema has no physical table), so unlike the optional
 # geometry-append guard (#556) it cannot bail to the original SQL. Instead we
-# swap `<=>` for a sentinel operator that DOES round-trip, rewrite the schema on
-# the parsed AST, then restore. `&&` is chosen because the sandbox validator
-# rejects it (unlisted_function: array_overlaps), so validated SQL can never
-# contain it and the restore can't collide with real input. `<->` (L2) already
-# round-trips and `<#>` fails parse upstream, so `<=>` is the only operator that
-# reaches here valid-but-corrupted.
+# swap the `<=>` OPERATOR for a sentinel that DOES round-trip (`&&`, which the
+# validator rejects as array_overlaps so it never appears as a real operator in
+# validated SQL), rewrite the schema on the parsed AST, then restore. Both swaps
+# skip single-quoted string literals, so a literal such as `note = '&&'` or
+# `note = '<=>'` is preserved verbatim (fix(#559) review: a raw substring swap
+# corrupted or rejected such literals). `<->` (L2) already round-trips and `<#>`
+# fails parse upstream, so `<=>` is the only operator that reaches here
+# valid-but-corrupted.
 _COSINE_OP = "<=>"
 _COSINE_SENTINEL = "&&"
+_STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
+
+
+def _swap_outside_string_literals(sql: str, old: str, new: str) -> str:
+    """Replace ``old`` with ``new`` only outside single-quoted string literals.
+
+    Splitting on the literal pattern keeps operator tokens in the code segments
+    replaceable while literal contents (which may legitimately contain the same
+    characters) pass through untouched.
+    """
+    segments = _STRING_LITERAL_RE.split(sql)
+    literals = _STRING_LITERAL_RE.findall(sql)
+    out: list[str] = []
+    for i, segment in enumerate(segments):
+        out.append(segment.replace(old, new))
+        if i < len(literals):
+            out.append(literals[i])
+    return "".join(out)
 
 
 def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
@@ -52,17 +74,13 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     ``physical_schema`` is produced by :func:`tenant_data_schema`, which accepts
     only a normalized UUID-derived identifier in multi-tenant mode.
     """
-    protect_cosine = _COSINE_OP in sql
-    if protect_cosine:
-        if _COSINE_SENTINEL in sql:
-            # Only reachable if a direct, unvalidated caller passes the
-            # validator-rejected sentinel alongside `<=>`. Fail closed rather
-            # than risk restoring the sentinel over real input.
-            raise SandboxError("invalid_query", "Invalid SQL syntax")
-        sql = sql.replace(_COSINE_OP, _COSINE_SENTINEL)
+    guarded = _swap_outside_string_literals(sql, _COSINE_OP, _COSINE_SENTINEL)
+    # protect only when an actual `<=>` operator was swapped (a literal `'<=>'`
+    # leaves `guarded` equal to `sql` and needs no restore pass).
+    protect_cosine = guarded != sql
 
     try:
-        statement = sqlglot.parse_one(sql, dialect="postgres")
+        statement = sqlglot.parse_one(guarded, dialect="postgres")
     except sqlglot.errors.ParseError as exc:
         # execute_safe receives validated SQL in normal operation.  Keep direct
         # callers fail-closed if that contract is accidentally violated.
@@ -78,7 +96,7 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
 
     rendered = statement.sql(dialect="postgres")
     if protect_cosine:
-        rendered = rendered.replace(_COSINE_SENTINEL, _COSINE_OP)
+        rendered = _swap_outside_string_literals(rendered, _COSINE_SENTINEL, _COSINE_OP)
     return rendered
 
 
