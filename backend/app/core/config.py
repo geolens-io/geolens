@@ -78,8 +78,11 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = ""
     upload_max_size_mb: int = Field(default=500, gt=0)
     upload_staging_dir: str = "/app/staging"
+    # NOTE: this is a PersistentConfig default — deployments where an admin
+    # has stored an override keep their stored list and must add new
+    # extensions (e.g. .parquet) themselves in Admin → Storage.
     upload_allowed_extensions: str = (
-        ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls"
+        ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet"
     )
     presigned_multipart_threshold_mb: int = Field(default=100, gt=0)
     procrastinate_schema: str = "catalog"

@@ -381,11 +381,9 @@ async def ingest_file(
 
             # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
             # Non-spatial files don't need CRS at all
-            lower_path = file_path.lower()
-            assumes_4326 = any(
-                lower_path.endswith(ext)
-                for ext in (".csv", ".geojson", ".json", ".xlsx", ".xls")
-            )
+            from app.processing.ingest.tasks_common import ASSUMES_4326_SUFFIXES
+
+            assumes_4326 = file_path.lower().endswith(ASSUMES_4326_SUFFIXES)
             if (
                 has_geometry
                 and srid is None
@@ -475,6 +473,7 @@ async def ingest_file(
             geometry_type=ogr_geometry_type,
             layer_name=layer_name,
             schema=_current_tenant_schema(),
+            effective_srid=effective_srid,
         )
 
         # ----------------------------------------------------------------- #

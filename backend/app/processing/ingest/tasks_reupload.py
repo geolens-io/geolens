@@ -64,6 +64,49 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
         )
 
 
+async def _detect_reupload_crs(
+    file_path: str,
+    layer_name: str | None,
+    user_metadata: dict,
+) -> tuple[dict, int]:
+    """Detect CRS/geometry for a reupload file and resolve the effective SRID.
+
+    GPKG-01 Phase 1058: layer_name targets the user-chosen layer in
+    multi-layer GPKG files rather than defaulting to layers[0].
+
+    fix(#541 review): applies the same missing-CRS gate as ``ingest_file``.
+    Without it an unknown-CRS reupload (GeoParquet with explicit crs:null, or
+    a shapefile missing its .prj) silently fell through to the 4326 default
+    and could corrupt the replacement dataset. Raises IngestionError — the
+    task's outer exception handler records the message on the failed job.
+
+    Returns (ogrinfo result dict, effective_srid).
+    """
+    from app.processing.ingest.ogr import IngestionError, run_ogrinfo
+    from app.processing.ingest.tasks_common import check_missing_crs
+
+    info = await run_ogrinfo(file_path, layer_name=layer_name)
+    srid = info.get("srid")
+    geometry_type = info.get("geometry_type")
+    srid_override = user_metadata.get("srid_override")
+
+    missing_crs = check_missing_crs(
+        file_path=file_path,
+        has_geometry=geometry_type is not None,
+        detected_srid=srid,
+        srid_override=srid_override,
+    )
+    if missing_crs:
+        raise IngestionError(missing_crs)
+
+    effective_srid = (
+        srid_override
+        if srid_override is not None
+        else (srid if srid is not None else 4326)
+    )
+    return info, effective_srid
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
 @tenant_task
 async def reupload_file(
@@ -90,7 +133,7 @@ async def reupload_file(
     from app.core.db import async_session
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import _qtable
-    from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
+    from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr
     from app.platform.jobs.models import IngestJob
     from sqlalchemy import text
     from sqlalchemy.orm import joinedload
@@ -206,21 +249,14 @@ async def reupload_file(
         # bridge state — same root cause as gh #100.
         # ----------------------------------------------------------------- #
 
-        # 2. Detect CRS from new file
-        # GPKG-01 Phase 1058: pass layer_name so ogrinfo targets the user-chosen
-        # layer in multi-layer GPKG files rather than defaulting to layers[0].
-        info = await run_ogrinfo(file_path, layer_name=layer_name)
+        # 2-3. Detect CRS from the new file, enforce the missing-CRS gate,
+        # and resolve the effective SRID (override > detected > 4326).
+        info, effective_srid = await _detect_reupload_crs(
+            file_path, layer_name, user_metadata
+        )
         srid = info.get("srid")
         geometry_type = info.get("geometry_type")
         has_geometry = geometry_type is not None
-
-        # 3. Check for srid_override from user metadata
-        srid_override = user_metadata.get("srid_override")
-        effective_srid = (
-            srid_override
-            if srid_override is not None
-            else (srid if srid is not None else 4326)
-        )
 
         # 4. Load into staging table
         # GPKG-01 Phase 1058: pass layer_name to ogr2ogr to ingest the correct
@@ -234,6 +270,7 @@ async def reupload_file(
             geometry_type=geometry_type,
             layer_name=layer_name,
             schema=_current_tenant_schema(),
+            effective_srid=effective_srid,
         )
 
         # 7. Compute file hash (moved up — must be outside any session)

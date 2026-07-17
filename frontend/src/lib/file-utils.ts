@@ -8,6 +8,7 @@ const EXT_MIME_MAP: Record<string, string> = {
   '.tiff': 'image/tiff',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.xls': 'application/vnd.ms-excel',
+  '.parquet': 'application/vnd.apache.parquet',
 };
 
 /** Convert extension list to react-dropzone accept map. Unknown extensions use application/octet-stream. */
