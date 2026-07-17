@@ -57,34 +57,53 @@ class TestDetectGeomColumn:
     def test_geom_column_by_name(self):
         cols = ["id", "name", "geom_4326"]
         row = [1, "test", POINT_WKB_HEX]
-        assert _detect_geom_column(cols, row) == 2
+        assert _detect_geom_column(cols, [row]) == 2
 
     def test_geometry_column_name(self):
         cols = ["id", "geometry"]
         row = [1, POINT_WKB_HEX]
-        assert _detect_geom_column(cols, row) == 1
+        assert _detect_geom_column(cols, [row]) == 1
 
     def test_the_geom_column_name(self):
         cols = ["the_geom", "name"]
         row = [POINT_WKB_HEX, "test"]
-        assert _detect_geom_column(cols, row) == 0
+        assert _detect_geom_column(cols, [row]) == 0
 
     def test_st_prefix_column(self):
         cols = ["id", "st_asgeojson"]
         row = [1, POINT_GEOJSON_STR]
-        assert _detect_geom_column(cols, row) == 1
+        assert _detect_geom_column(cols, [row]) == 1
 
     def test_no_geom_column(self):
         cols = ["id", "name", "population"]
         row = [1, "test", 1000]
-        assert _detect_geom_column(cols, row) is None
+        assert _detect_geom_column(cols, [row]) is None
 
     def test_geom_name_but_null_value(self):
         """Column name matches but value is null -- still detected (None values are skipped later)."""
         cols = ["id", "geom"]
         row = [1, None]
         # With null value, _is_geom_value returns False, so no detection
-        assert _detect_geom_column(cols, row) is None
+        assert _detect_geom_column(cols, [row]) is None
+
+    def test_null_leading_row_probes_later_rows(self):
+        # fix(#556 review P2): a NULL geometry in row 0 must not break
+        # detection when later rows are mappable.
+        cols = ["id", "geom_4326"]
+        rows = [[1, None], [2, POINT_WKB_HEX]]
+        assert _detect_geom_column(cols, rows) == 1
+
+    def test_value_fallback_detects_aliased_geometry(self):
+        # fix(#556 review P2): aliased computed geometry (ST_Buffer(...) AS
+        # buffer) has no geometry-ish name — detect it by value.
+        cols = ["name", "buffer"]
+        rows = [["A", POINT_WKB_HEX]]
+        assert _detect_geom_column(cols, rows) == 1
+
+    def test_value_fallback_ignores_non_geometry_json(self):
+        cols = ["name", "meta"]
+        rows = [["A", json.dumps({"type": "station", "zone": 2})]]
+        assert _detect_geom_column(cols, rows) is None
 
 
 class TestSafeValue:
@@ -198,6 +217,25 @@ class TestExtractGeojson:
         rows = []
         assert _extract_geojson(cols, rows) is None
 
+    def test_null_leading_geometry_still_extracts(self):
+        # fix(#556 review P2): first row NULL, later rows mappable.
+        cols = ["id", "geom_4326"]
+        rows = [[1, None], [2, POINT_WKB_HEX]]
+        result = _extract_geojson(cols, rows)
+        assert result is not None
+        fc, _ = result
+        assert len(fc["features"]) == 1
+
+    def test_aliased_computed_geometry_extracts(self):
+        # fix(#556 review P2): ST_Buffer(...) AS buffer — the overlay must
+        # come from the computed geometry, found by value.
+        cols = ["name", "buffer"]
+        rows = [["A", POINT_WKB_HEX]]
+        result = _extract_geojson(cols, rows)
+        assert result is not None
+        fc, _ = result
+        assert fc["features"][0]["properties"] == {"name": "A"}
+
 
 # ---------------------------------------------------------------------------
 # fix(#544): deterministic geometry append + WKB stripping
@@ -286,6 +324,21 @@ class TestEnsureGeometrySelected:
         sql = "SELECT FROM WHERE ((("
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_skips_aliased_geometry_column(self):
+        # fix(#556 review P2): geom_4326 AS location already yields geometry
+        # (found by value) — appending the source column would duplicate it.
+        sql = "SELECT name, geom_4326 AS location FROM data.parks"
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_skips_aliased_computed_geometry(self):
+        # fix(#556 review P2): the overlay must show the buffers, not the
+        # source geometry — don't append geom_4326 beside them.
+        sql = (
+            "SELECT name, ST_BUFFER(geom_4326::geography, 1000)::geometry"
+            " AS buffer FROM data.parks"
+        )
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
     def test_row_level_spatial_expr_still_appends(self):
         # ST_Distance is row-level (not an aggregate) — append proceeds.
         sql = ensure_geometry_selected(
@@ -338,3 +391,12 @@ class TestStripGeometryColumns:
         )
         assert cols == ["name", "meta"]
         assert rows == [["A", meta]]
+
+    def test_null_leading_geometry_still_stripped(self):
+        # fix(#556 review P2): NULL geometry in row 0 must not leak later
+        # rows' WKB into the table.
+        cols, rows = strip_geometry_columns(
+            ["name", "geom_4326"], [["A", None], ["B", POINT_WKB_HEX]]
+        )
+        assert cols == ["name"]
+        assert rows == [["A"], ["B"]]

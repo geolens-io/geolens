@@ -38,15 +38,34 @@ _GEOM_RETURNING_FUNCS = {
 }
 
 
+def _func_name(fn: exp.Func) -> str:
+    if isinstance(fn, exp.Anonymous):
+        return fn.name.lower()
+    return fn.sql_name().lower() if hasattr(fn, "sql_name") else ""
+
+
 def _selects_geometry(item: exp.Expression) -> bool:
-    """True when a select item already yields a geometry-detectable column."""
+    """True when a select item already yields a geometry-valued column."""
     if isinstance(item, exp.Alias):
         name = item.alias.lower()
-        return name in _GEOM_NAMES or name.startswith("st_")
+        if name in _GEOM_NAMES or name.startswith("st_"):
+            return True
+        # fix(#556 review P2): an aliased geometry expression — geom_4326 AS
+        # location, ST_Buffer(...)::geometry AS buffer — yields geometry the
+        # value-based detection in _detect_geom_column will find; appending
+        # the source geom_4326 would overlay the wrong shapes.
+        inner = item.this
+        while isinstance(inner, exp.Cast):
+            inner = inner.this
+        if isinstance(inner, exp.Column):
+            return inner.name.lower() in _GEOM_NAMES
+        if isinstance(inner, exp.Func):
+            return _func_name(inner) in _GEOM_RETURNING_FUNCS
+        return False
     if isinstance(item, exp.Column):
         return item.name.lower() in _GEOM_NAMES
     if isinstance(item, exp.Func):
-        return item.name.lower() in _GEOM_RETURNING_FUNCS
+        return _func_name(item) in _GEOM_RETURNING_FUNCS
     return False
 
 
@@ -132,23 +151,32 @@ def _is_geometry_cell(val: object) -> bool:
     return False
 
 
+def _first_non_null(rows: list[list], i: int) -> object:
+    """First non-null value in column i (fix #556 review P2: probing only
+    rows[0] made a NULL leading geometry break detection and stripping)."""
+    for row in rows:
+        val = row[i] if i < len(row) else None
+        if val is not None:
+            return val
+    return None
+
+
 def strip_geometry_columns(
     columns: list[str], rows: list[list]
 ) -> tuple[list[str], list[list]]:
     """Drop geometry-valued columns from tabular chat output (fix #544).
 
     Raw WKB hex / GeoJSON strings are noise in a result table; geometry
-    travels via the geojson payload instead. Value-based (first row), not
-    name-based: the model may alias geometry to anything (live smoke found
+    travels via the geojson payload instead. Value-based, not name-based:
+    the model may alias geometry to anything (live smoke found
     ``ST_AsGeoJSON(geom_4326) AS location`` surviving a name-only strip).
     """
     if not rows:
         return columns, rows
-    first = rows[0]
     kept = [
         i
         for i in range(len(columns))
-        if not _is_geometry_cell(first[i] if i < len(first) else None)
+        if not _is_geometry_cell(_first_non_null(rows, i))
     ]
     if len(kept) == len(columns):
         return columns, rows
@@ -171,13 +199,22 @@ def _is_geom_value(val: object) -> bool:
     return False
 
 
-def _detect_geom_column(columns: list[str], first_row: list) -> int | None:
-    """Find the index of a geometry column by name + value check."""
+def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
+    """Find the index of a geometry column.
+
+    Geometry-named columns are preferred; otherwise fall back to any column
+    whose value looks like geometry (fix #556 review P2: aliased computed
+    geometry such as ``ST_Buffer(...) AS buffer``). Values are probed at the
+    first non-null row, not row 0, so a NULL leading geometry still detects.
+    """
     for i, col in enumerate(columns):
         name = col.lower()
         if name in _GEOM_NAMES or name.startswith("st_"):
-            if i < len(first_row) and _is_geom_value(first_row[i]):
+            if _is_geom_value(_first_non_null(rows, i)):
                 return i
+    for i in range(len(columns)):
+        if _is_geometry_cell(_first_non_null(rows, i)):
+            return i
     return None
 
 
@@ -197,7 +234,7 @@ def _extract_geojson(
     if not rows:
         return None
 
-    geom_idx = _detect_geom_column(columns, rows[0])
+    geom_idx = _detect_geom_column(columns, rows)
     if geom_idx is None:
         return None
 
