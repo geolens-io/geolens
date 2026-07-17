@@ -290,6 +290,30 @@ class TestEnsureGeometrySelected:
         sql = "SELECT name, ST_ASGEOJSON(geom_4326) FROM data.parks"
         assert ensure_geometry_selected(sql, [_layer()]) == sql
 
+    def test_preserves_pgvector_cosine_operator(self):
+        # fix(#556 review P2): sqlglot rewrites `<=>` (cosine) to
+        # IS NOT DISTINCT FROM on re-render — appending must not corrupt a
+        # nearest-neighbor query. The append is skipped, original preserved.
+        sql = (
+            "SELECT name, embedding <=> '[1,2,3]'::vector AS dist "
+            "FROM data.parks ORDER BY dist LIMIT 10"
+        )
+        result = ensure_geometry_selected(sql, [_layer()])
+        assert result == sql
+        assert "<=>" in result
+        assert "IS NOT DISTINCT FROM" not in result.upper()
+
+    def test_appends_for_l2_knn_operator(self):
+        # `<->` round-trips faithfully, so a spatial-KNN query still gains its
+        # overlay (geom_4326 appended) while the operator is preserved.
+        sql = (
+            "SELECT name FROM data.parks "
+            "ORDER BY geom_4326 <-> ST_SETSRID(ST_MAKEPOINT(0, 0), 4326) LIMIT 5"
+        )
+        result = ensure_geometry_selected(sql, [_layer()])
+        assert "parks.geom_4326" in result
+        assert "<->" in result
+
     def test_appends_when_st_x_only(self):
         # ST_X yields a float, not a detectable geometry — still append.
         sql = ensure_geometry_selected(

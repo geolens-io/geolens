@@ -151,7 +151,18 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     ref_ident = alias_node.this if alias_node is not None else table.this
     geom_col = exp.Column(this=exp.to_identifier("geom_4326"), table=ref_ident.copy())
     stmt.select(geom_col, copy=False)
-    return stmt.sql(dialect="postgres")
+    rendered = stmt.sql(dialect="postgres")
+    # fix(#556 review P2): sqlglot's postgres dialect does not faithfully
+    # round-trip every pgvector/PostGIS distance operator — `<=>` (cosine) is
+    # re-serialized as IS NOT DISTINCT FROM, silently turning nearest-neighbor
+    # ranking into boolean equality. Re-rendering only happens on the append
+    # path, so if it dropped any distance operator the original had, sacrifice
+    # the overlay and return the untouched SQL. (`<#>` already fails parse_one
+    # above and never reaches here.)
+    for op in ("<=>", "<->", "<#>"):
+        if sql.count(op) > rendered.count(op):
+            return sql
+    return rendered
 
 
 _GEOJSON_TYPES = {
