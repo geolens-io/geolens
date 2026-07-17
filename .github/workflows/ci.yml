@@ -59,6 +59,11 @@ jobs:
               - '.dockerignore'
               - 'nginx.conf'
               - 'db/**'
+              # fix(#561): a change to this workflow can alter HOW Backend Tests
+              # runs (e.g. the -n4 parallelization / coverage core), so the suite
+              # must run on PRs that touch it — otherwise CI-config changes ship
+              # unvalidated by the very tests they configure.
+              - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
