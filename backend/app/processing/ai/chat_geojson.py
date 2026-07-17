@@ -45,23 +45,22 @@ def _func_name(fn: exp.Func) -> str:
 
 
 def _selects_geometry(item: exp.Expression) -> bool:
-    """True when a select item already yields a geometry-valued column."""
+    """True when a select item already yields a geometry-valued column.
+
+    Structural, never name-based (#556 review P2): a scalar aliased to a
+    geometry-looking name — ``md5(name) AS geometry``, ``ST_X(geom_4326) AS
+    st_x`` — must NOT count as selected geometry. If it did, the append is
+    skipped and the strict value parser then finds no geometry to overlay,
+    reintroducing the missing-map regression. Only the underlying expression
+    (an aliased ``geom_4326``, or a geometry-returning function) decides;
+    Cast/Paren wrappers are unwrapped first (``ST_Buffer(...)::geometry AS
+    buffer`` genuinely is geometry and correctly suppresses the append).
+    """
     if isinstance(item, exp.Alias):
-        name = item.alias.lower()
-        if name in _GEOM_NAMES or name.startswith("st_"):
-            return True
-        # fix(#556 review P2): an aliased geometry expression — geom_4326 AS
-        # location, ST_Buffer(...)::geometry AS buffer — yields geometry the
-        # value-based detection in _detect_geom_column will find; appending
-        # the source geom_4326 would overlay the wrong shapes.
         inner = item.this
         while isinstance(inner, (exp.Cast, exp.Paren)):
             inner = inner.this
-        if isinstance(inner, exp.Column):
-            return inner.name.lower() in _GEOM_NAMES
-        if isinstance(inner, exp.Func):
-            return _func_name(inner) in _GEOM_RETURNING_FUNCS
-        return False
+        item = inner
     if isinstance(item, exp.Column):
         return item.name.lower() in _GEOM_NAMES
     if isinstance(item, exp.Func):

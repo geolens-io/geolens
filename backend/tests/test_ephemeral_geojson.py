@@ -284,6 +284,25 @@ class TestEnsureGeometrySelected:
         assert sql.count("geom_4326") == 3
         assert "parks.geom_4326" in sql
 
+    def test_appends_when_scalar_aliased_to_geometry_name(self):
+        # fix(#556 review P2): md5(name) AS geometry is a scalar aliased to a
+        # geometry-looking name — the append must still fire (the alias name
+        # alone must not count as selected geometry).
+        sql = ensure_geometry_selected(
+            "SELECT md5(name) AS geometry FROM data.parks", [_layer()]
+        )
+        assert "parks.geom_4326" in sql
+
+    def test_appends_when_st_x_aliased_to_st_name(self):
+        # fix(#556 review P2): ST_X(...) AS st_x — scalar under an st_-prefixed
+        # alias; append must fire.
+        sql = ensure_geometry_selected(
+            "SELECT name, ST_X(geom_4326) AS st_x FROM data.parks", [_layer()]
+        )
+        assert "parks.geom_4326" in sql
+        # the scalar st_x is untouched; only the source geom_4326 is added
+        assert sql.count("geom_4326") == 2
+
     def test_skips_select_star(self):
         sql = "SELECT * FROM data.parks"
         assert ensure_geometry_selected(sql, [_layer()]) == sql
