@@ -349,13 +349,19 @@ async def load_parquet_to_postgis(
 
     read_cols = [src for src, _, _, _ in plan] + ([geom_col] if geom_col else [])
 
+    if not insert_cols:
+        # fix(#569): geometry-only file loaded as non-spatial would silently
+        # publish an empty dataset — fail with a clear message instead.
+        from app.processing.ingest.ogr import IngestionError
+
+        raise IngestionError(
+            "Parquet file contains only a geometry column; loading it "
+            "without geometry would produce an empty dataset."
+        )
+
     async with async_session() as session:
         await session.execute(text(f"DROP TABLE IF EXISTS {tref}"))
         await session.execute(text(ddl))
-        if not insert_cols:
-            # geometry-only file loaded as non-spatial: nothing to insert.
-            await session.commit()
-            return
         # Blocking parquet decode runs in a thread per batch so the worker's
         # event loop (job heartbeats) stays responsive.
         batches = pf.iter_batches(batch_size=_INSERT_BATCH_ROWS, columns=read_cols)

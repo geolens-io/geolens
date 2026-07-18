@@ -19,22 +19,32 @@ def inline_json_schema(model: type[BaseModel]) -> dict:
     the exported OpenAPI document, where pydantic's ``#/$defs/...`` pointers
     resolve against the document root and dangle — strict consumers (docs
     generators, ref bundlers) reject the whole document. Only safe for
-    non-recursive models; the GeoJSON models here are deliberately acyclic.
+    non-recursive models; a recursive model raises instead of looping
+    (fix(#569): cycle guard so a future self-referential model fails fast
+    with a clear error at import time rather than hanging).
     """
     schema = model.model_json_schema()
     defs = schema.pop("$defs", {})
 
-    def resolve(node: Any) -> Any:
+    def resolve(node: Any, expanding: frozenset[str] = frozenset()) -> Any:
         if isinstance(node, dict):
             ref = node.get("$ref")
             if isinstance(ref, str) and ref.startswith("#/$defs/"):
-                target = resolve(defs[ref.rsplit("/", 1)[-1]])
+                name = ref.rsplit("/", 1)[-1]
+                if name in expanding:
+                    raise ValueError(
+                        f"inline_json_schema({model.__name__}): recursive "
+                        f"$ref to {name!r}; only acyclic models can be inlined"
+                    )
+                target = resolve(defs[name], expanding | {name})
                 # Keep sibling keys (description, default) over the target's.
-                extras = {k: resolve(v) for k, v in node.items() if k != "$ref"}
+                extras = {
+                    k: resolve(v, expanding) for k, v in node.items() if k != "$ref"
+                }
                 return {**target, **extras}
-            return {k: resolve(v) for k, v in node.items()}
+            return {k: resolve(v, expanding) for k, v in node.items()}
         if isinstance(node, list):
-            return [resolve(item) for item in node]
+            return [resolve(item, expanding) for item in node]
         return node
 
     return resolve(schema)

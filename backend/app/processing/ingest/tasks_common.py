@@ -64,7 +64,7 @@ async def rename_pkey_to_match_table(session: "AsyncSession", table_name: str) -
     """
     from sqlalchemy import text
 
-    from app.processing.ingest.metadata import _qtable
+    from app.processing.ingest.metadata import _qtable, _sql_quote_ident
 
     schema = _current_tenant_schema()
     desired = f"{table_name[:58]}_pkey"
@@ -85,7 +85,8 @@ async def rename_pkey_to_match_table(session: "AsyncSession", table_name: str) -
                 await session.execute(
                     text(
                         f"ALTER TABLE {_qtable(table_name, schema=schema)} "
-                        f'RENAME CONSTRAINT "{current}" TO "{desired}"'
+                        f"RENAME CONSTRAINT {_sql_quote_ident(current)} "
+                        f"TO {_sql_quote_ident(desired)}"
                     )
                 )
     except Exception:  # broad: cosmetic rename must never fail the publish

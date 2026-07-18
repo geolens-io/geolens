@@ -56,6 +56,20 @@ def _write_plain_parquet(path) -> None:
     )
 
 
+@pytest.mark.anyio
+async def test_geometry_only_without_geometry_raises(tmp_path):
+    """fix(#569): geometry-only file + include_geometry=False must fail fast
+    instead of silently publishing an empty dataset."""
+    from shapely.geometry import Point
+
+    p = tmp_path / "geomonly.parquet"
+    pq.write_table(build_geoparquet_table([Point(0, 0).wkb], {}, []), p)
+    with pytest.raises(IngestionError, match="only a geometry column"):
+        await load_parquet_to_postgis(
+            str(p), "t_geomonly", schema="data", srid=4326, include_geometry=False
+        )
+
+
 class TestParquetValidation:
     def test_valid_parquet_passes(self, tmp_path):
         p = tmp_path / "ok.parquet"
