@@ -46,6 +46,7 @@ GeoLens se publica en los registros de paquetes estándar:
 ```bash
 pip install geolens          # Python SDK
 pip install geolens-cli      # CLI; installs the `geolens` command
+pip install geolens-mcp      # MCP server for coding agents (read-only)
 npm install @geolens/sdk     # TypeScript/JavaScript SDK
 ```
 
@@ -110,7 +111,7 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 
 ### Ingesta y exportación de datos
 
-- **Vector:** Shapefile, GeoPackage, GeoJSON, CSV, XLSX
+- **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
 - **Ráster:** GeoTIFF y Cloud-Optimized GeoTIFF (COG) con conversión automática
 - **Mosaicos:** mosaicos ráster basados en VRT a partir de varios archivos fuente
 - **Exportación:** GeoJSON, Shapefile, GeoPackage y CSV, con reproyección del CRS
