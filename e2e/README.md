@@ -29,6 +29,14 @@ catalog-dependent flows. The cleanup project removes it after the browser tests
 finish, including failed runs. The API-only export suite manages its own fixture
 and does not require a browser install.
 
+Against a host-run backend (uvicorn on the host + docker Postgres), the seeding
+ingest cannot work — set `E2E_SKIP_SEED=1` to make setup authenticate and save
+storage state without creating the shared fixture:
+
+```bash
+E2E_SKIP_SEED=1 E2E_BASE_URL=http://localhost:5173 npx playwright test e2e/foo.spec.ts --project=chromium
+```
+
 ## Smoke groups
 
 The `e2e:smoke:*` scripts in the root `package.json` group specs by area

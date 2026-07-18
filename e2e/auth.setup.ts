@@ -55,6 +55,12 @@ setup('authenticate as admin', async ({ page }) => {
   // Save storage state (includes localStorage with auth token)
   await page.context().storageState({ path: authFile });
 
+  // fix(#547): host-backend stacks (uvicorn on the host + docker Postgres)
+  // cannot run the real ingest that seedDataset needs, so E2E_SKIP_SEED=1
+  // stops here — auth state is saved, no shared fixture is created, and
+  // catalog.teardown already no-ops when the manifest is absent.
+  if (process.env.E2E_SKIP_SEED === '1') return;
+
   // An interrupted local run may leave its manifest behind. Remove that
   // fixture before recording a replacement so repeated runs cannot orphan it.
   if (fs.existsSync(catalogFixtureFile)) {
