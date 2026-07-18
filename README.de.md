@@ -183,7 +183,7 @@ bash scripts/install.sh
 
 In beiden Fällen kopiert `scripts/install.sh` `.env.example` nach `.env`, erzeugt ein JWT-Signaturgeheimnis, richtet Admin-Zugangsdaten ein und führt `docker compose up -d` aus. Der Admin-**Benutzername** ist standardmäßig `admin`; das **Passwort** wird als starker Zufallswert automatisch erzeugt (in `.env` geschrieben und nie im Terminal ausgegeben), sofern Sie keines angeben. Für unbeaufsichtigte Installationen setzen Sie vorher `GEOLENS_ADMIN_USERNAME` und `GEOLENS_ADMIN_PASSWORD`; die Abfragen entfallen. Erneutes Ausführen ist idempotent und erhält bestehende `.env`-Werte.
 
-Warten Sie etwa 60 Sekunden und öffnen Sie [http://localhost:8080](http://localhost:8080). Melden Sie sich mit dem Admin-Benutzernamen und dem erzeugten Passwort an (abrufbar mit `grep '^GEOLENS_ADMIN_PASSWORD=' .env`).
+Warten Sie etwa 60 Sekunden und öffnen Sie [http://localhost:8080](http://localhost:8080). Melden Sie sich mit dem Admin-Benutzernamen und dem erzeugten Passwort an (abrufbar mit `grep '^GEOLENS_ADMIN_PASSWORD=' geolens/.env` — der Einzeilen-Installer klont nach `geolens/` unterhalb des Verzeichnisses, aus dem Sie ihn gestartet haben; in einem Quell-Checkout einfach `.env`).
 
 Prüfen Sie den Zustand aller Dienste:
 
