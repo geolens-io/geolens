@@ -29,7 +29,7 @@ on:
   # different times; the concurrency group below collapses the duplicate triggers
   # into a single verify run once both are done.
   workflow_run:
-    workflows: ["Publish SDKs", "Publish CLI"]
+    workflows: ["Publish SDKs", "Publish CLI", "Publish MCP Server"]
     types: [completed]
 
 permissions:
@@ -58,34 +58,42 @@ jobs:
     name: Verify Python packages on python:3.13-slim
     runs-on: ubuntu-latest
     steps:
-      - name: pip install + smoke import (geolens SDK + geolens-cli)
+      - name: pip install + smoke import (geolens SDK + geolens-cli + geolens-mcp)
         env:
           VERSION: ${{ env.VERIFY_VERSION }}
         run: |
           if [ "${VERSION}" = "latest" ]; then
             SDK_SPEC="geolens"
             CLI_SPEC="geolens-cli"
+            MCP_SPEC="geolens-mcp"
           else
             PACKAGE_VERSION="${VERSION#v}"
             SDK_SPEC="geolens==${PACKAGE_VERSION}"
             CLI_SPEC="geolens-cli==${PACKAGE_VERSION}"
+            MCP_SPEC="geolens-mcp==${PACKAGE_VERSION}"
           fi
 
           attempt=1
           while true; do
+            # geolens-mcp import builds the FastMCP server and registers its 5
+            # tools; the console script is asserted present but NOT run (it is
+            # a stdio server and would block).
             if docker run --rm \
               -e SDK_SPEC="${SDK_SPEC}" \
               -e CLI_SPEC="${CLI_SPEC}" \
+              -e MCP_SPEC="${MCP_SPEC}" \
               python:3.13-slim sh -c '
-              pip install --no-cache-dir "${SDK_SPEC}" "${CLI_SPEC}" &&
+              pip install --no-cache-dir "${SDK_SPEC}" "${CLI_SPEC}" "${MCP_SPEC}" &&
               geolens --version &&
-              python -c "from geolens import GeolensClient; print(GeolensClient)"
+              command -v geolens-mcp &&
+              python -c "from geolens import GeolensClient; print(GeolensClient)" &&
+              python -c "import geolens_mcp.server as s; assert s.mcp.name == \"geolens\"; print(\"geolens-mcp server import ok\")"
             '; then
-              echo "verified ${SDK_SPEC} + ${CLI_SPEC} on attempt ${attempt}"
+              echo "verified ${SDK_SPEC} + ${CLI_SPEC} + ${MCP_SPEC} on attempt ${attempt}"
               break
             fi
             if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
-              echo "::error::${SDK_SPEC} / ${CLI_SPEC} not installable after ${attempt} attempts (~$((MAX_ATTEMPTS * RETRY_DELAY))s)"
+              echo "::error::${SDK_SPEC} / ${CLI_SPEC} / ${MCP_SPEC} not installable after ${attempt} attempts (~$((MAX_ATTEMPTS * RETRY_DELAY))s)"
               exit 1
             fi
             echo "attempt ${attempt}/${MAX_ATTEMPTS} failed; retrying in ${RETRY_DELAY}s (registry may still be propagating)"
