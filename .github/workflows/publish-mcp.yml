@@ -1,0 +1,137 @@
+# Publish workflow for the GeoLens MCP server (PyPI `geolens-mcp`).
+#
+# Triggers:
+#   - push a `v*.*.*` tag → publish job queues behind the `publish` environment
+#     and pauses for required-reviewer approval (one click) before publishing.
+#   - workflow_dispatch → same gate; for ad-hoc / re-publish, run from a tag ref:
+#     `gh workflow run publish-mcp.yml --ref vX.Y.Z`
+#
+# One-time cold-start credentials required before the first publish:
+#   1. PyPI Trusted Publishing configured for `geolens-mcp` at https://pypi.org/manage/account/publishing/
+#      (pending publisher; environment left BLANK — see the gate-job note below)
+#   2. The maintainer claims the `geolens-mcp` PyPI name (one-time, automatic on first publish via pending-publisher OIDC)
+name: Publish MCP Server
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build only, do not publish'
+        required: false
+        type: boolean
+        default: false
+      force_publish:
+        description: 'Override pre-flight gate (allow re-publishing over an existing version). Only set true after confirming the existing version is intentionally being re-published.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write  # for PyPI Trusted Publishing
+
+jobs:
+  # Approval checkpoint. This is the ONLY job that targets the `publish`
+  # environment, so it alone pauses for required-reviewer approval. The publish
+  # job depends on it but deliberately does NOT set `environment:` itself —
+  # that keeps its OIDC token free of an `environment` claim, so it continues to
+  # match the PyPI trusted publisher (configured with no environment).
+  gate:
+    if: ${{ !inputs.dry_run }}
+    name: Approve release publish
+    runs-on: ubuntu-latest
+    environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
+    steps:
+      - run: echo "Release publish approved (ref ${GITHUB_REF_NAME})"
+
+  publish-mcp:
+    needs: [gate]
+    # Run after approval (gate success) or on a build-only dry run (gate skipped).
+    # `!cancelled()` is REQUIRED: without a status-check function the `if` gets an
+    # implicit success() that skips this job whenever a `needs` is skipped (dry run).
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
+    name: Publish geolens-mcp to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          version: "0.10.2"
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+
+      - name: Assert tag matches package version (tag push only)
+        if: ${{ github.event_name == 'push' }}
+        working-directory: mcp
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )
+          if [ "${TAG}" != "${PKG}" ]; then
+            echo "::error::tag v${TAG} != mcp version ${PKG} — refusing to publish a mismatched version"
+            exit 1
+          fi
+          echo "tag v${TAG} matches mcp version ${PKG}"
+
+      - name: Build wheel + sdist
+        working-directory: mcp
+        run: uv build
+
+      - name: List built artifacts
+        working-directory: mcp
+        run: ls -la dist/
+
+      - name: Pre-flight version gate (geolens-mcp on PyPI)
+        if: ${{ !inputs.dry_run }}
+        working-directory: mcp
+        run: |
+          set -e
+          PROJECT_NAME=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["name"])
+          PY
+          )
+          PACKAGE_VERSION=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )
+          VERSION_PATTERN=$(printf '%s\n' "$PACKAGE_VERSION" | python -c 'import re, sys; print(re.escape(sys.stdin.read().strip()))')
+          if PIP_OUTPUT=$(pip3 index versions "$PROJECT_NAME" 2>&1); then
+            echo "$PIP_OUTPUT"
+            if echo "$PIP_OUTPUT" | grep -Eq "(^|[ ,(])${VERSION_PATTERN}([, )]|$)"; then
+              if [ "${{ inputs.force_publish }}" = "true" ]; then
+                echo "::warning::PyPI $PROJECT_NAME already has $PACKAGE_VERSION — force_publish=true override active; proceeding"
+              else
+                echo "::error::PyPI $PROJECT_NAME already has $PACKAGE_VERSION. Refusing to re-publish without force_publish=true."
+                exit 1
+              fi
+            else
+              echo "PyPI $PROJECT_NAME exists but $PACKAGE_VERSION is not present; proceeding with first publish of this version"
+            fi
+          elif echo "$PIP_OUTPUT" | grep -q "No matching distribution"; then
+            echo "PyPI $PROJECT_NAME: unclaimed (safe to publish)"
+          elif [ "${{ inputs.force_publish }}" = "true" ]; then
+            echo "::warning::PyPI $PROJECT_NAME lookup failed — force_publish=true override active; proceeding"
+          else
+            echo "::error::Could not determine PyPI state for $PROJECT_NAME:"
+            echo "$PIP_OUTPUT"
+            exit 1
+          fi
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        working-directory: mcp
+        run: uv publish --trusted-publishing automatic
