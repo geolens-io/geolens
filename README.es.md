@@ -14,7 +14,7 @@ GeoLens es un catálogo y constructor de mapas de código abierto y autohospedad
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)]()
+[![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)](https://www.python.org/)
 [![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
@@ -183,7 +183,7 @@ bash scripts/install.sh
 
 En ambos casos, `scripts/install.sh` copia `.env.example` a `.env`, genera un secreto de firma JWT, configura las credenciales de administrador y ejecuta `docker compose up -d`. El **nombre de usuario** administrador predeterminado es `admin`; la **contraseña** se genera automáticamente como un valor aleatorio robusto (se escribe en `.env` y nunca se muestra en el terminal), salvo que proporciones la tuya. Para instalaciones desatendidas, define `GEOLENS_ADMIN_USERNAME` y `GEOLENS_ADMIN_PASSWORD` en el entorno antes de ejecutar el script y se omitirán las preguntas. Volver a ejecutarlo es idempotente: conserva los valores existentes en `.env`.
 
-Espera unos 60 segundos a que se inicien los servicios y abre [http://localhost:8080](http://localhost:8080). Inicia sesión con el usuario administrador y la contraseña generada (recupérala con `grep '^GEOLENS_ADMIN_PASSWORD=' .env`).
+Espera unos 60 segundos a que se inicien los servicios y abre [http://localhost:8080](http://localhost:8080). Inicia sesión con el usuario administrador y la contraseña generada (recupérala con `grep '^GEOLENS_ADMIN_PASSWORD=' geolens/.env` — el instalador de una línea clona en `geolens/` bajo el directorio desde el que lo ejecutaste; dentro de un checkout del código fuente es simplemente `.env`).
 
 Comprueba que todos los servicios están en buen estado:
 

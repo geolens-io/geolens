@@ -198,7 +198,9 @@ existing values in `.env` are preserved.
 
 Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080).
 Log in with your admin username and the generated password (retrieve it with
-`grep '^GEOLENS_ADMIN_PASSWORD=' .env`).
+`grep '^GEOLENS_ADMIN_PASSWORD=' geolens/.env` — the one-line installer clones
+into `geolens/` under the directory you ran it from; inside a source checkout
+it's just `.env`).
 
 Verify all services are healthy:
 

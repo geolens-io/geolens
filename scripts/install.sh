@@ -569,6 +569,19 @@ main() {
     say "  docker compose ps"
   fi
 
+  # fix(#572): repeat the generated-password hint in the final banner — the
+  # one-time note printed mid-install scrolls away, and a piped `curl | sh`
+  # first-timer otherwise dead-ends at the login screen.
+  if [ "${generated_admin_pw:-false}" = "true" ]; then
+    say ""
+    say "Log in as '${admin_user:-admin}' — the generated admin password is stored in .env:"
+    if [ -n "$PROJECT_HINT" ]; then
+      say "  grep '^GEOLENS_ADMIN_PASSWORD=' $PROJECT_HINT/.env"
+    else
+      say "  grep '^GEOLENS_ADMIN_PASSWORD=' .env"
+    fi
+  fi
+
   # BKP-01 (Phase 1247): backups are DEFAULT-ON. A plain `docker compose up`
   # runs the backup container (no --profile flag needed). Surface the active
   # mode: S3 offload when BACKUP_S3_ENABLED=true, otherwise local retention.

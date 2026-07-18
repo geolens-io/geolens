@@ -14,7 +14,7 @@ GeoLens est un catalogue et un générateur de cartes open source et auto-héber
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)]()
+[![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)](https://www.python.org/)
 [![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
@@ -183,7 +183,7 @@ bash scripts/install.sh
 
 Dans les deux cas, `scripts/install.sh` copie `.env.example` vers `.env`, génère un secret de signature JWT, configure les identifiants administrateur et exécute `docker compose up -d`. Le **nom d’utilisateur** administrateur vaut `admin` par défaut ; le **mot de passe** est automatiquement généré de façon robuste (écrit dans `.env`, jamais affiché dans le terminal), sauf si vous fournissez le vôtre. Pour une installation sans intervention, définissez `GEOLENS_ADMIN_USERNAME` et `GEOLENS_ADMIN_PASSWORD` dans l’environnement avant l’exécution afin d’ignorer les questions. Le script est idempotent : les valeurs existantes de `.env` sont conservées.
 
-Attendez environ 60 secondes, puis ouvrez [http://localhost:8080](http://localhost:8080). Connectez-vous avec votre nom administrateur et le mot de passe généré (obtenez-le avec `grep '^GEOLENS_ADMIN_PASSWORD=' .env`).
+Attendez environ 60 secondes, puis ouvrez [http://localhost:8080](http://localhost:8080). Connectez-vous avec votre nom administrateur et le mot de passe généré (obtenez-le avec `grep '^GEOLENS_ADMIN_PASSWORD=' geolens/.env` — l'installateur en une ligne clone dans `geolens/` sous le répertoire d'où vous l'avez lancé ; depuis un checkout des sources, c'est simplement `.env`).
 
 Vérifiez que tous les services sont opérationnels :
 
