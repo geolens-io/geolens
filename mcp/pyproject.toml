@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "geolens-mcp"
+version = "1.4.7"
+description = "Apache-2.0 read-only Model Context Protocol (MCP) server for GeoLens. Lets coding agents discover datasets, inspect schemas, and ask spatial questions against any GeoLens instance."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "Carto Concepts, LLC", email = "noreply@getgeolens.com" }]
+keywords = ["geolens", "geospatial", "mcp", "model-context-protocol", "agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+  # Floor at 1.28.1: clears every known MCP SDK advisory (FastMCP/HTTP/
+  # WebSocket transport DoS), so a downstream install can't resolve to a
+  # known-vulnerable runtime. Highest first-patched across the set is
+  # GHSA-vj7q-gjh5-988w (1.28.1); <2 excludes the v2 alpha's FastMCP rename.
+  "mcp>=1.28.1,<2.0.0",
+  "geolens>=1.2.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.0,<10.0.0",
+]
+
+# Source map for uv-managed development environments (mirrors cli/pyproject.toml).
+# uv resolves the `geolens` SDK from the local sibling tree; the published wheel
+# carries only the `dependencies` list and resolves `geolens` from PyPI.
+[tool.uv.sources]
+geolens = { path = "../sdks/python", editable = true }
+
+[project.scripts]
+geolens-mcp = "geolens_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/geolens-io/geolens"
+Repository = "https://github.com/geolens-io/geolens"
+Documentation = "https://docs.getgeolens.com/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["geolens_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

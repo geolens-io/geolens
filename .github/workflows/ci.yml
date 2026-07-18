@@ -32,6 +32,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
+      mcp: ${{ steps.filter.outputs.mcp }}
       alembic: ${{ steps.filter.outputs.alembic }}
       installer: ${{ steps.filter.outputs.installer }}
       backup: ${{ steps.filter.outputs.backup }}
@@ -77,6 +78,9 @@ jobs:
               - 'docker-compose*.yml'
             cli:
               - 'cli/**'
+              - 'sdks/python/**'
+            mcp:
+              - 'mcp/**'
               - 'sdks/python/**'
             alembic:
               - 'backend/alembic/**'
@@ -717,6 +721,28 @@ jobs:
       - name: CLI round-trip integration test
         working-directory: backend
         run: uv run pytest tests/test_cli_round_trip.py -v
+
+  mcp-test:
+    name: MCP Server Tests
+    needs: changes
+    if: needs.changes.outputs.mcp == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "mcp/pyproject.toml"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+
+      # DB-less unit tests (httpx.MockTransport). The geolens SDK resolves from
+      # the sibling tree via mcp/pyproject.toml [tool.uv.sources]; `mcp` comes
+      # from PyPI. No Postgres needed — every tool is mocked at the transport.
+      - name: MCP server unit tests
+        run: make mcp-test
 
   backend-test:
     name: Backend Tests

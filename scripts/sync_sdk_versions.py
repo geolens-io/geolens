@@ -4,11 +4,12 @@ Idempotent: same input always produces the same output. Run as part of
 `make sdks` so the drift gate (`make sdks-check`) catches version drift in
 the same diff that catches code drift (CONTEXT.md D-08).
 
-Touches four files:
+Touches five files:
   - sdks/python/pyproject.toml          ([project] version)
   - sdks/python/.openapi-python-client.yaml  (package_version_override)
   - sdks/typescript/package.json        (.version)
   - cli/pyproject.toml                  ([project] version — lockstep with the SDK)
+  - mcp/pyproject.toml                  ([project] version — lockstep with the SDK)
 
 NEVER add timestamps, build numbers, hashes, or environment-derived suffixes.
 The drift gate is a static equality check — every variation breaks CI.
@@ -30,6 +31,7 @@ PY_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
 CLI_PYPROJECT = REPO_ROOT / "cli" / "pyproject.toml"
+MCP_PYPROJECT = REPO_ROOT / "mcp" / "pyproject.toml"
 
 
 def _read_openapi_version() -> str:
@@ -127,6 +129,19 @@ def main() -> int:
             CLI_PYPROJECT.write_text(new_cli_text)
             print(
                 f"Updated {CLI_PYPROJECT.relative_to(REPO_ROOT)} version → {version}"
+            )
+
+    # MCP server pyproject.toml (lockstep version with the SDK). Same
+    # .exists() guard as the CLI block above.
+    if MCP_PYPROJECT.exists():
+        mcp_text = MCP_PYPROJECT.read_text()
+        new_mcp_text = _replace_pyproject_version(
+            mcp_text, version, source=MCP_PYPROJECT
+        )
+        if new_mcp_text != mcp_text:
+            MCP_PYPROJECT.write_text(new_mcp_text)
+            print(
+                f"Updated {MCP_PYPROJECT.relative_to(REPO_ROOT)} version → {version}"
             )
 
     return 0
