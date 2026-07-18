@@ -91,6 +91,36 @@ def _params(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
+def _datasets_only(fc: Any) -> Any:
+    """Drop catalog-collection features from a ``/search/datasets`` response.
+
+    The endpoint augments page 0 of a text search with up to five ``collection``
+    records. This tool advertises every returned feature ``id`` as a dataset id,
+    and a collection id 404s in ``get_dataset_schema`` / ``get_features``, so
+    strip collections and keep the ``numberReturned`` count consistent. All
+    dataset kinds (vector/raster/vrt) are retained — only ``collection`` goes.
+    """
+    if not isinstance(fc, dict):
+        return fc
+    feats = fc.get("features")
+    if not isinstance(feats, list):
+        return fc
+    kept = [
+        f
+        for f in feats
+        if not (
+            isinstance(f, dict)
+            and (f.get("properties") or {}).get("record_type") == "collection"
+        )
+    ]
+    if len(kept) == len(feats):
+        return fc
+    out = {**fc, "features": kept}
+    if isinstance(out.get("numberReturned"), int):
+        out["numberReturned"] = len(kept)
+    return out
+
+
 def _id_segment(value: str) -> str:
     """Validate a path-parameter id as a UUID and return its canonical string.
 
@@ -140,8 +170,10 @@ class GeoLensReadOnlyAPI:
         return resp.json()
 
     def search_datasets(self, query: str, limit: int = 10, offset: int = 0) -> Any:
-        return self._get(
-            "/search/datasets", _params(q=query, limit=limit, offset=offset)
+        # /search/datasets augments page 0 with up to 5 collection records; drop
+        # them so every returned id is usable by the dataset tools.
+        return _datasets_only(
+            self._get("/search/datasets", _params(q=query, limit=limit, offset=offset))
         )
 
     def get_dataset_schema(self, dataset_id: str) -> Any:

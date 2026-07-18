@@ -76,6 +76,35 @@ def test_search_datasets_path_and_params():
     assert req.url.params["offset"] == "10"
 
 
+def test_search_datasets_drops_collection_features():
+    # /search/datasets augments page 0 with up to 5 `collection` records whose
+    # ids 404 in the dataset tools; the wrapper must strip them.
+    payload = {
+        "type": "FeatureCollection",
+        "numberReturned": 3,
+        "numberMatched": 3,
+        "features": [
+            {
+                "id": "d1",
+                "properties": {"record_type": "vector_dataset", "type": "dataset"},
+            },
+            {
+                "id": "c1",
+                "properties": {"record_type": "collection", "type": "collection"},
+            },
+            {
+                "id": "r1",
+                "properties": {"record_type": "raster_dataset", "type": "dataset"},
+            },
+        ],
+    }
+    api, _ = _api(_ok(payload))
+    out = api.search_datasets("parks")
+    ids = [f["id"] for f in out["features"]]
+    assert ids == ["d1", "r1"]  # collection c1 removed; raster kept
+    assert out["numberReturned"] == 2  # count kept consistent
+
+
 def test_get_dataset_schema_has_no_trailing_slash():
     api, seen = _api(_ok({"id": DS, "column_info": []}))
     api.get_dataset_schema(DS)
