@@ -150,7 +150,7 @@ export const listAuditLogsAdminAuditLogsGet = <ThrowOnError extends boolean = fa
 });
 
 /**
- * Export Audit Logs
+ * Download audit records
  *
  * Export up to 100,000 audit log rows as CSV or JSON.
  */
@@ -4863,7 +4863,7 @@ export const detectEmbeddingDimsSettingsDetectEmbeddingDimsPost = <ThrowOnError 
 });
 
 /**
- * Edition Info
+ * Get runtime capabilities
  *
  * Return runtime capability metadata. Public, no auth required.
  */
@@ -4877,7 +4877,7 @@ export const editionInfoSettingsEditionGet = <ThrowOnError extends boolean = fal
 export const getEnabledPluginsSettingsEnabledPluginsGet = <ThrowOnError extends boolean = false>(options?: Options<GetEnabledPluginsSettingsEnabledPluginsGetData, ThrowOnError>): RequestResult<GetEnabledPluginsSettingsEnabledPluginsGetResponses, GetEnabledPluginsSettingsEnabledPluginsGetErrors, ThrowOnError> => (options?.client ?? client).get<GetEnabledPluginsSettingsEnabledPluginsGetResponses, GetEnabledPluginsSettingsEnabledPluginsGetErrors, ThrowOnError>({ url: '/settings/enabled-plugins/', ...options });
 
 /**
- * Get Enterprise Only Tabs
+ * List restricted settings tabs
  *
  * Return the canonical list of restricted Settings tab keys.
  *

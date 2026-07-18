@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EnterpriseTabsResponse | ProblemDetail]:
-    """Get Enterprise Only Tabs
+    """List restricted settings tabs
 
      Return the canonical list of restricted Settings tab keys.
 
@@ -120,7 +120,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> EnterpriseTabsResponse | ProblemDetail | None:
-    """Get Enterprise Only Tabs
+    """List restricted settings tabs
 
      Return the canonical list of restricted Settings tab keys.
 
@@ -146,7 +146,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EnterpriseTabsResponse | ProblemDetail]:
-    """Get Enterprise Only Tabs
+    """List restricted settings tabs
 
      Return the canonical list of restricted Settings tab keys.
 
@@ -174,7 +174,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> EnterpriseTabsResponse | ProblemDetail | None:
-    """Get Enterprise Only Tabs
+    """List restricted settings tabs
 
      Return the canonical list of restricted Settings tab keys.
 

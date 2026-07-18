@@ -27,7 +27,7 @@ T = TypeVar(
 
 @_attrs_define
 class GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse:
-    """OGC API Features compliant feature collection response.
+    """FeatureCollection response as defined by OGC API - Features.
 
     Attributes:
         features (list[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem]): GeoJSON

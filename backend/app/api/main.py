@@ -403,7 +403,7 @@ _DESCRIPTION = """\
 
 GeoLens is a self-hosted spatial data catalog that ingests vector files
 (GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes
-them through a standards-compliant OGC API.
+them through OGC API endpoints.
 
 ## OGC Conformance Classes
 

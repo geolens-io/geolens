@@ -178,7 +178,7 @@ def sync_detailed(
     search: None | str | Unset = UNSET,
     max_rows: int | Unset = 100000,
 ) -> Response[Any | ProblemDetail]:
-    """Export Audit Logs
+    """Download audit records
 
      Export up to 100,000 audit log rows as CSV or JSON.
 
@@ -233,7 +233,7 @@ def sync(
     search: None | str | Unset = UNSET,
     max_rows: int | Unset = 100000,
 ) -> Any | ProblemDetail | None:
-    """Export Audit Logs
+    """Download audit records
 
      Export up to 100,000 audit log rows as CSV or JSON.
 
@@ -283,7 +283,7 @@ async def asyncio_detailed(
     search: None | str | Unset = UNSET,
     max_rows: int | Unset = 100000,
 ) -> Response[Any | ProblemDetail]:
-    """Export Audit Logs
+    """Download audit records
 
      Export up to 100,000 audit log rows as CSV or JSON.
 
@@ -336,7 +336,7 @@ async def asyncio(
     search: None | str | Unset = UNSET,
     max_rows: int | Unset = 100000,
 ) -> Any | ProblemDetail | None:
-    """Export Audit Logs
+    """Download audit records
 
      Export up to 100,000 audit log rows as CSV or JSON.
 

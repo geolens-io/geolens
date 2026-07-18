@@ -14455,7 +14455,7 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
     /**
      * OGCFeatureItemsResponse
      *
-     * OGC API Features compliant feature collection response.
+     * FeatureCollection response as defined by OGC API - Features.
      */
     200: {
         /**

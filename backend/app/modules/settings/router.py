@@ -247,6 +247,10 @@ async def get_all_settings(
 @router.get(
     "/enterprise-tabs/",
     response_model=EnterpriseTabsResponse,
+    # fix(scripts/deployed_surface_gate.json#enterprise_tabs_op): neutral summary
+    # replacing the auto-derived "Get Enterprise Only Tabs" banned public-copy id;
+    # operationId/path unchanged.
+    summary="List restricted settings tabs",
 )
 async def get_enterprise_only_tabs(
     _user: Identity = Depends(require_settings_admin),
