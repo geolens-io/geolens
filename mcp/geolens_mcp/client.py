@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -90,6 +90,16 @@ def _params(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
+def _seg(value: str) -> str:
+    """URL-encode a path segment. MCP tool args are model-controlled, so a raw
+    id like ``../admin/users`` interpolated into a path would let httpx collapse
+    the ``..`` and turn a read helper into an arbitrary authenticated GET.
+    Encoding the ``/`` (to ``%2F``) neutralizes traversal. Mirrors the generated
+    SDK's ``quote(str(x), safe="")``.
+    """
+    return quote(str(value), safe="")
+
+
 class GeoLensReadOnlyAPI:
     """Read-only calls against a GeoLens instance.
 
@@ -128,7 +138,7 @@ class GeoLensReadOnlyAPI:
 
     def get_dataset_schema(self, dataset_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/datasets/{dataset_id}")
+        return self._get(f"/datasets/{_seg(dataset_id)}")
 
     def get_features(
         self,
@@ -138,7 +148,7 @@ class GeoLensReadOnlyAPI:
         bbox: Optional[str] = None,
     ) -> Any:
         return self._get(
-            f"/collections/{dataset_id}/items",
+            f"/collections/{_seg(dataset_id)}/items",
             _params(limit=limit, offset=offset, bbox=bbox),
         )
 
@@ -150,4 +160,4 @@ class GeoLensReadOnlyAPI:
 
     def get_map(self, map_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/maps/{map_id}")
+        return self._get(f"/maps/{_seg(map_id)}")

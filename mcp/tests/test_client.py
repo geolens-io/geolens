@@ -109,6 +109,26 @@ def test_none_params_are_dropped():
     assert "search" not in seen[-1].url.params
 
 
+def test_ids_are_path_escaped_against_traversal():
+    # Model-controlled ids must not be able to traverse out of the resource
+    # path. Without escaping, httpx collapses `..` and this would hit
+    # GET /api/admin/users with the caller's credentials.
+    for call in (
+        lambda a: a.get_dataset_schema("../admin/users"),
+        lambda a: a.get_map("../admin/users"),
+        lambda a: a.get_features("../../admin/users"),
+    ):
+        api, seen = _api(_ok({}))
+        call(api)
+        raw = seen[-1].url.raw_path.decode()
+        assert "/api/admin/users" not in raw
+        assert (
+            raw.startswith("/api/datasets/")
+            or raw.startswith("/api/collections/")
+            or raw.startswith("/api/maps/")
+        )
+
+
 def test_http_error_surfaces_detail():
     def handler(request):
         return httpx.Response(404, json={"detail": "Dataset not found"})
