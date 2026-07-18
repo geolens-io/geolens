@@ -257,7 +257,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "geolens", editable = "../sdks/python" },
-    { name = "mcp", specifier = ">=1.2.0,<2.0.0" },
+    { name = "mcp", specifier = ">=1.28.1,<2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.0,<10.0.0" },
 ]
 provides-extras = ["dev"]
