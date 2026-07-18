@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Coding agents can work with a GeoLens instance through a Model Context
+  Protocol (MCP) server.** The new `geolens-mcp` package exposes read-only
+  tools — catalog search, dataset schema inspection, feature reads, and
+  saved-map metadata — so assistants such as Claude Code, Cursor, and Codex
+  can discover and read a catalog from inside a dev session. It authenticates
+  with an existing API key (or runs anonymously against public data) and is
+  scoped to exactly what that credential can see.
+
 ### Fixed
 
 - **The OpenAPI document no longer contains unresolvable schema references.**
