@@ -160,11 +160,13 @@ export function AdminSidebar() {
     // top-14 + height calc keep the viewport-fixed sidebar below the sticky
     // h-14 navbar: without the offset the navbar buries the sidebar header and
     // slides over the sidebar during macOS elastic overscroll.
+    // fix(#569): include env(safe-area-inset-top) so the sidebar header
+    // doesn't sit under the navbar by the inset on notched devices.
     <Sidebar
       collapsible="icon"
       variant="sidebar"
       side="left"
-      className="top-14 h-[calc(100svh-3.5rem)]"
+      className="top-[calc(3.5rem+env(safe-area-inset-top))] h-[calc(100svh-3.5rem-env(safe-area-inset-top))]"
     >
       <SidebarHeader className="px-4 py-3 group-data-[collapsible=icon]:hidden">
         <span className="eyebrow">{t('adminNav.admin')}</span>

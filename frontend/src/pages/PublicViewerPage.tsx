@@ -83,10 +83,14 @@ export function PublicViewerPage() {
   if (isError || !data) {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
-      <>
+      // fix(#569): h-dvh column like the loading/main branches — SiteBanner +
+      // min-h-screen overflowed the viewport by the banner's height.
+      <div className="flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
-      <div className="app-surface-gradient flex min-h-screen items-center justify-center px-6">
-        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
+      <div className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
+        {/* m-auto (not items-center on the parent) so a card taller than a
+            short viewport scrolls instead of clipping its top */}
+        <div className="m-auto flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
           {isExpired ? (
             <>
               <Clock className="size-10 text-muted-foreground" />
@@ -132,7 +136,7 @@ export function PublicViewerPage() {
           </div>
         </div>
       </div>
-      </>
+      </div>
     );
   }
 

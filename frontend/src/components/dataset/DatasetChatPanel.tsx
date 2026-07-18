@@ -187,9 +187,12 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
   // bottom-10/end-16 (not bottom-6/end-6) clears the global ReportProblemHost
   // lifebuoy (fixed bottom-10 right-4 z-40, size-10 + count badge): same
   // baseline, 8px gap to its left, so neither the FAB nor the open dialog
-  // ever sits under the higher-z reporter.
+  // ever sits under the reporter (no spatial overlap, so the z-tie is moot).
+  // fix(#569): z-40 (was z-30) so the sticky z-40 PendingEditsBar can't cover
+  // the FAB when pending edits and AI chat coexist; this panel renders later
+  // in the DOM, so it wins the tie.
   return (
-    <div className="fixed bottom-10 end-16 z-30 flex flex-col items-end gap-2">
+    <div className="fixed bottom-10 end-16 z-40 flex flex-col items-end gap-2">
       {open && (
         <section
           role="dialog"

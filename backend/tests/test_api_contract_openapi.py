@@ -399,3 +399,17 @@ def test_openapi_has_no_dangling_local_ref_pointers() -> None:
 
     walk(spec, "")
     assert dangling == []
+
+
+def test_inline_json_schema_rejects_recursive_model() -> None:
+    """fix(#569): a self-referential model must fail fast, not loop forever."""
+    import pytest
+    from pydantic import BaseModel
+
+    from app.modules.catalog.features.schemas import inline_json_schema
+
+    class Node(BaseModel):
+        children: list["Node"] = []
+
+    with pytest.raises(ValueError, match="recursive"):
+        inline_json_schema(Node)
