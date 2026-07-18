@@ -1,6 +1,6 @@
 [project]
 name = "geolens-backend"
-version = "1.4.7"
+version = "1.4.8"
 description = "PostGIS-native GIS data catalog"
 # Docker image (Dockerfile) ships python:3.14-slim (see the Dockerfile FROM for
 # the exact patch pin) as the project's tested runtime.

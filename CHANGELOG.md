@@ -7,8 +7,20 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-07-18
+
 ### Added
 
+- **Ask questions about a dataset in natural language, from its page.** The
+  dataset page gains an AI chat panel that answers questions about that
+  dataset — counts, statistics, attribute filters, and spatial analysis — and
+  can hand a result straight into the map builder to visualize. It uses the
+  same read-only, sandboxed NL→SQL path as the builder assistant and is
+  scoped to the single dataset in view. Requires a configured AI provider.
+- **GeoParquet files can be uploaded and ingested.** `.parquet` joins the
+  accepted upload formats, so a GeoParquet dataset is added the same way as
+  a GeoPackage, Shapefile, or GeoJSON. (Complements GeoParquet *export*,
+  added in 1.4.6.)
 - **Coding agents can work with a GeoLens instance through a Model Context
   Protocol (MCP) server.** The new `geolens-mcp` package exposes read-only
   tools — catalog search, dataset schema inspection, feature reads, and
@@ -16,15 +28,46 @@ and releases use semantic versioning.
   can discover and read a catalog from inside a dev session. It authenticates
   with an existing API key (or runs anonymously against public data) and is
   scoped to exactly what that credential can see.
+- **Site-wide announcement banner.** Administrators can show a banner across
+  the app — enable/disable, message text, and color (info, warning, success,
+  destructive) live in Admin → General settings. Disabled by default, and
+  empty text means no banner, so existing deployments see no change.
+
+### Changed
+
+- **Accessibility and design-system pass.** A design audit closed contrast,
+  color-token, and instrument-system findings across the frontend, including
+  a dark-mode warning-text contrast fix.
 
 ### Fixed
 
+- **Tile caches roll over after content edits, not only re-uploads.** A
+  dedicated per-dataset cache-buster now advances on single-feature edits,
+  column DDL, and tile-column changes, so CDN and browser caches stop
+  serving stale tiles until max-age expiry.
+- **Map builder correctness and polish.** Three builder-audit passes closed
+  styling, filtering, viewer, and interaction findings, and adding a dataset
+  to a brand-new map no longer leaves it looking unsaved before any edit.
+- **Feature and schema editing hardening.** An editing audit tightened
+  write-path validation and edit-flag enforcement across single-feature
+  edits, column DDL, and record metadata updates.
+- **The top navbar and admin sidebar stay pinned** while content scrolls,
+  instead of scrolling away or overlapping one another.
+- **Dataset quicklook thumbnails no longer crash their consumers on a
+  cached 404 response.**
 - **The OpenAPI document no longer contains unresolvable schema references.**
   GeoJSON response schemas on the feature and collection-items endpoints
   embedded `#/$defs/...` pointers that dangled at document scope, so strict
   OpenAPI consumers (documentation generators, reference bundlers) rejected
   the whole contract. Those schemas are now fully inlined, and a contract
   test guards every `$ref` in the exported document.
+
+### Upgrade notes
+
+- **PostgreSQL `max_connections` is raised to 80** in the bundled
+  `db/postgresql.conf` to cover the API-side job-queue connector. Recreate
+  or restart the `db` container after pulling so the new value takes
+  effect.
 
 ## [1.4.7] - 2026-07-15
 
@@ -747,7 +790,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.7...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.8...HEAD
+[1.4.8]: https://github.com/geolens-io/geolens/compare/v1.4.7...v1.4.8
 [1.4.7]: https://github.com/geolens-io/geolens/compare/v1.4.6...v1.4.7
 [1.4.6]: https://github.com/geolens-io/geolens/compare/v1.4.5...v1.4.6
 [1.4.5]: https://github.com/geolens-io/geolens/compare/v1.4.4...v1.4.5
