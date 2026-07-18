@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import os
 from typing import Any, Optional
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 
@@ -90,14 +91,21 @@ def _params(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-def _seg(value: str) -> str:
-    """URL-encode a path segment. MCP tool args are model-controlled, so a raw
-    id like ``../admin/users`` interpolated into a path would let httpx collapse
-    the ``..`` and turn a read helper into an arbitrary authenticated GET.
-    Encoding the ``/`` (to ``%2F``) neutralizes traversal. Mirrors the generated
-    SDK's ``quote(str(x), safe="")``.
+def _id_segment(value: str) -> str:
+    """Validate a path-parameter id as a UUID and return its canonical string.
+
+    All three detail routes take ``uuid.UUID`` path params, so the backend only
+    ever accepts UUIDs here. MCP tool args are model-controlled, and a raw id
+    interpolated into a path is a redirection primitive: httpx normalizes it, so
+    ``../admin/users`` collapses to ``GET /api/admin/users`` and even a bare
+    ``.``/``..`` turns a detail call into a different authenticated endpoint.
+    Parsing as a UUID rejects all of these with a clear error and yields a
+    segment with no ``/`` or ``.`` to normalize.
     """
-    return quote(str(value), safe="")
+    try:
+        return str(UUID(str(value)))
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise ValueError(f"Invalid id (expected a UUID): {value!r}") from exc
 
 
 class GeoLensReadOnlyAPI:
@@ -138,7 +146,7 @@ class GeoLensReadOnlyAPI:
 
     def get_dataset_schema(self, dataset_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/datasets/{_seg(dataset_id)}")
+        return self._get(f"/datasets/{_id_segment(dataset_id)}")
 
     def get_features(
         self,
@@ -148,7 +156,7 @@ class GeoLensReadOnlyAPI:
         bbox: Optional[str] = None,
     ) -> Any:
         return self._get(
-            f"/collections/{_seg(dataset_id)}/items",
+            f"/collections/{_id_segment(dataset_id)}/items",
             _params(limit=limit, offset=offset, bbox=bbox),
         )
 
@@ -160,4 +168,4 @@ class GeoLensReadOnlyAPI:
 
     def get_map(self, map_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/maps/{_seg(map_id)}")
+        return self._get(f"/maps/{_id_segment(map_id)}")

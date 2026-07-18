@@ -17,6 +17,10 @@ from geolens_mcp.client import (
     normalize_instance_url,
 )
 
+# A valid UUID (with hex letters, so .upper() exercises canonicalization) —
+# the detail routes (dataset/map/collection) take uuid.UUID.
+DS = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
 
 # --- normalize_instance_url (the /api footgun-guard) ---
 
@@ -73,16 +77,16 @@ def test_search_datasets_path_and_params():
 
 
 def test_get_dataset_schema_has_no_trailing_slash():
-    api, seen = _api(_ok({"id": "abc", "column_info": []}))
-    api.get_dataset_schema("abc")
-    assert seen[-1].url.path == "/api/datasets/abc"  # detail route: NO trailing slash
+    api, seen = _api(_ok({"id": DS, "column_info": []}))
+    api.get_dataset_schema(DS)
+    assert seen[-1].url.path == f"/api/datasets/{DS}"  # detail route: NO trailing slash
 
 
 def test_get_features_uses_ogc_items_and_bbox():
     api, seen = _api(_ok({"type": "FeatureCollection"}))
-    api.get_features("d1", limit=3, bbox="-1,-1,1,1")
+    api.get_features(DS, limit=3, bbox="-1,-1,1,1")
     req = seen[-1]
-    assert req.url.path == "/api/collections/d1/items"
+    assert req.url.path == f"/api/collections/{DS}/items"
     assert req.url.params["limit"] == "3"
     assert req.url.params["bbox"] == "-1,-1,1,1"
 
@@ -98,9 +102,9 @@ def test_list_maps_pages_with_skip_not_offset():
 
 
 def test_get_map_has_no_trailing_slash():
-    api, seen = _api(_ok({"id": "m1", "layers": []}))
-    api.get_map("m1")
-    assert seen[-1].url.path == "/api/maps/m1"
+    api, seen = _api(_ok({"id": DS, "layers": []}))
+    api.get_map(DS)
+    assert seen[-1].url.path == f"/api/maps/{DS}"
 
 
 def test_none_params_are_dropped():
@@ -109,24 +113,27 @@ def test_none_params_are_dropped():
     assert "search" not in seen[-1].url.params
 
 
-def test_ids_are_path_escaped_against_traversal():
-    # Model-controlled ids must not be able to traverse out of the resource
-    # path. Without escaping, httpx collapses `..` and this would hit
-    # GET /api/admin/users with the caller's credentials.
-    for call in (
-        lambda a: a.get_dataset_schema("../admin/users"),
-        lambda a: a.get_map("../admin/users"),
-        lambda a: a.get_features("../../admin/users"),
-    ):
-        api, seen = _api(_ok({}))
-        call(api)
-        raw = seen[-1].url.raw_path.decode()
-        assert "/api/admin/users" not in raw
-        assert (
-            raw.startswith("/api/datasets/")
-            or raw.startswith("/api/collections/")
-            or raw.startswith("/api/maps/")
-        )
+def test_ids_must_be_uuids_no_path_redirection():
+    # Model-controlled ids are validated as UUIDs before touching the path, so
+    # traversal ("../admin/users"), bare dot-segments (".", "..") that httpx
+    # would normalize into a different endpoint, and any non-UUID garbage are
+    # all rejected before a request is made.
+    for bad in ("../admin/users", ".", "..", "abc", "", "1 or 1=1"):
+        for call in (
+            lambda a, x=bad: a.get_dataset_schema(x),
+            lambda a, x=bad: a.get_map(x),
+            lambda a, x=bad: a.get_features(x),
+        ):
+            api, seen = _api(_ok({}))
+            with pytest.raises(ValueError, match="UUID"):
+                call(api)
+            assert seen == []  # no request left the client
+
+
+def test_valid_uuid_is_canonicalized():
+    api, seen = _api(_ok({"id": DS}))
+    api.get_dataset_schema(DS.upper())  # accepts any UUID spelling
+    assert seen[-1].url.path == f"/api/datasets/{DS}"  # canonical (lowercased)
 
 
 def test_http_error_surfaces_detail():
@@ -135,6 +142,6 @@ def test_http_error_surfaces_detail():
 
     api, _ = _api(handler)
     with pytest.raises(RuntimeError) as exc:
-        api.get_dataset_schema("missing")
+        api.get_dataset_schema(DS)
     assert "404" in str(exc.value)
     assert "Dataset not found" in str(exc.value)
