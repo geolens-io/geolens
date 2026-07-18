@@ -60,7 +60,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[EditionInfoResponse | ProblemDetail]:
-    """Edition Info
+    """Get runtime capabilities
 
      Return runtime capability metadata. Public, no auth required.
 
@@ -85,7 +85,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> EditionInfoResponse | ProblemDetail | None:
-    """Edition Info
+    """Get runtime capabilities
 
      Return runtime capability metadata. Public, no auth required.
 
@@ -106,7 +106,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[EditionInfoResponse | ProblemDetail]:
-    """Edition Info
+    """Get runtime capabilities
 
      Return runtime capability metadata. Public, no auth required.
 
@@ -129,7 +129,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> EditionInfoResponse | ProblemDetail | None:
-    """Edition Info
+    """Get runtime capabilities
 
      Return runtime capability metadata. Public, no auth required.
 

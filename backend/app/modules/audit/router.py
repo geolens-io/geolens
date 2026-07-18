@@ -293,6 +293,10 @@ async def list_audit_logs(
 @router.get(
     "/audit-logs/export/{format}",
     response_class=StreamingResponse,
+    # fix(scripts/deployed_surface_gate.json#export_audit_op): neutral summary
+    # replacing the auto-derived "Export Audit Logs" banned public-copy id;
+    # operationId/path unchanged.
+    summary="Download audit records",
 )
 async def export_audit_logs(
     format: str,

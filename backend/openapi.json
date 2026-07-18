@@ -17132,7 +17132,7 @@
       "name": "GeoLens",
       "url": "https://github.com/geolens-io/geolens"
     },
-    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through a standards-compliant OGC API.\n\n## OGC Conformance Classes\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0\n* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0\n* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports three authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key query param** | `?api_key=<key>` |\n\nPriority: header API key > query param API key > JWT > anonymous.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo \"OAPIF:{your-server}/api/?api_key=YOUR_KEY\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg \"OAPIF:{your-server}/api/?api_key=YOUR_KEY\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL.\n",
+    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0\n* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0\n* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports three authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key query param** | `?api_key=<key>` |\n\nPriority: header API key > query param API key > JWT > anonymous.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo \"OAPIF:{your-server}/api/?api_key=YOUR_KEY\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg \"OAPIF:{your-server}/api/?api_key=YOUR_KEY\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL.\n",
     "license": {
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
@@ -18435,7 +18435,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Export Audit Logs",
+        "summary": "Download audit records",
         "tags": [
           "Admin"
         ]
@@ -27551,7 +27551,7 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "description": "OGC API Features compliant feature collection response.",
+                  "description": "FeatureCollection response as defined by OGC API - Features.",
                   "properties": {
                     "features": {
                       "description": "GeoJSON features returned by the query.",
@@ -51431,7 +51431,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Edition Info",
+        "summary": "Get runtime capabilities",
         "tags": [
           "Admin"
         ]
@@ -51625,7 +51625,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Enterprise Only Tabs",
+        "summary": "List restricted settings tabs",
         "tags": [
           "Admin"
         ]

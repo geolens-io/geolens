@@ -69,7 +69,7 @@ class OGCCollectionMetadata(BaseModel):
 
 # Feature collection response for /collections/{id}/items
 class OGCFeatureItemsResponse(BaseModel):
-    """OGC API Features compliant feature collection response."""
+    """FeatureCollection response as defined by OGC API - Features."""
 
     type: Literal["FeatureCollection"] = Field(
         default="FeatureCollection", description="GeoJSON object type."

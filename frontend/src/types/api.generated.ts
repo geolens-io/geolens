@@ -122,7 +122,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Audit Logs
+         * Download audit records
          * @description Export up to 100,000 audit log rows as CSV or JSON.
          */
         get: operations["export_audit_logs_admin_audit_logs_export__format__get"];
@@ -4349,7 +4349,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Edition Info
+         * Get runtime capabilities
          * @description Return runtime capability metadata. Public, no auth required.
          */
         get: operations["edition_info_settings_edition__get"];
@@ -4389,7 +4389,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Enterprise Only Tabs
+         * List restricted settings tabs
          * @description Return the canonical list of restricted Settings tab keys.
          *
          *     The frontend AdminSidebar uses this to avoid rendering tabs that the
