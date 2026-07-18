@@ -33,7 +33,7 @@ This policy covers:
 
 - The `geolens` source repository (this repo)
 - Official container images published to GHCR (`ghcr.io/geolens-io/*`)
-- Official packages published to PyPI (`geolens`, `geolens-cli`) and npm (`@geolens/sdk`)
+- Official packages published to PyPI (`geolens`, `geolens-cli`, `geolens-mcp`) and npm (`@geolens/sdk`)
 - The public demo at demo.getgeolens.com
 
 Out of scope here (report to the respective repo or contact): the marketing/docs website (getgeolens.com), and Helm/deployment packaging ([geolens-deployments](https://github.com/geolens-io/geolens-deployments)).

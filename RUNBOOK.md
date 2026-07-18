@@ -271,6 +271,11 @@ GeoLens exports Prometheus metrics out of the box. Reference scrape config, aler
 rules, and a Grafana dashboard ship in [`infra/monitoring/`](infra/monitoring/) —
 point your monitoring stack at them, or use them as a base for an existing one.
 
+**Uptime/liveness checks must target `/api/health`** (JSON `status`, `version`,
+`build`). Behind the bundled Nginx, a bare `/health` is not an API route — the
+frontend SPA catch-all answers it with HTML `200`, which an uptime monitor will
+happily (and wrongly) accept.
+
 ### Metrics & alerting (Prometheus / Grafana)
 
 Metrics are exposed on **two separate endpoints** — the API and the worker each
