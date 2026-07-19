@@ -22,11 +22,13 @@ dataset URL is constructed via a follow-up ``GET /jobs/{job_id}`` poll
 that resolves ``job_id`` to ``dataset_id``. With ``--no-wait``, the URL
 falls back to a job-search form ``<instance>/datasets?job_id=<id>``.
 
-Open Question 4 (--tags wiring) — DEFERRED per Task 0 Q2:
-``CommitRequest`` has no ``tags`` field. The flag is accepted but its
-value is dropped with a verbose-mode debug log. See the
-``# TODO(OCCLI-deferred)`` markers below.
+Open Question 4 (--tags wiring) — RESOLVED, fix(#569): ``CommitRequest``
+still has no ``tags`` field, so ``--tags`` and ``--collection`` are
+applied AFTER the commit resolves a dataset id (see
+``apply_publish_extras``): tags become record keywords, and the
+collection is resolved by id or exact name. Both need ``--wait``.
 """
+
 from __future__ import annotations
 
 import mimetypes
@@ -34,6 +36,7 @@ import time
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 import typer
@@ -151,9 +154,9 @@ def build_commit_request(
     """Construct a ``CommitRequest`` from the publish CLI flags.
 
     Field set is constrained by Task 0 Q2 — the SDK-generated
-    ``CommitRequest`` model has no ``tags`` field, so ``--tags`` is
-    accepted by the command but not wired into this body. ``description``
-    maps to the model's ``summary`` attribute (the actual field name).
+    ``CommitRequest`` model has no ``tags`` field, so ``--tags`` rides the
+    post-commit path (``apply_publish_extras``) rather than this body.
+    ``description`` maps to the model's ``summary`` attribute.
     """
     from geolens.models.commit_request import CommitRequest
     from geolens.types import UNSET
@@ -184,11 +187,31 @@ def construct_dataset_url(
       - Otherwise, fall back to ``<instance>/datasets?job_id=<job_id>``
         which the GeoLens record list can filter on. The user can also
         re-resolve manually via ``GET /jobs/<job_id>`` later.
+
+    fix(#588): the stored instance is always ``/api``-suffixed
+    (``normalize_instance_url`` canonicalizes it that way for credential
+    lookup), so this printed a JSON API endpoint instead of the browser
+    page. Drop that one trailing PATH segment — parsed, not string-
+    trimmed, so a host literally named ``api`` is untouched.
     """
-    base = instance.rstrip("/")
+    base = _web_origin(instance)
     if dataset_id:
         return f"{base}/datasets/{dataset_id}"
     return f"{base}/datasets?job_id={job_id}"
+
+
+def _web_origin(instance: str) -> str:
+    """Strip the canonical trailing ``/api`` path segment for display URLs."""
+    parts = urlsplit(instance.rstrip("/"))
+    if not parts.scheme or not parts.netloc:
+        # Not a parseable absolute URL — leave it alone rather than mangle it.
+        return instance.rstrip("/")
+    path = parts.path.rstrip("/")
+    if path.endswith("/api"):
+        path = path[: -len("/api")]
+    elif path == "/api":
+        path = ""
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +328,24 @@ def _split_tags(tags_csv: str) -> list[str]:
     return out
 
 
+def _resolve_record_id(client: Any, dataset_id: str) -> UUID | str:
+    """Fetch the dataset's parent catalog record id.
+
+    The keyword API is record-scoped and ``Dataset.id != Dataset.record_id``
+    — fix(#588): posting the dataset id returns 404 "Record not found" on
+    every tagged publish. Returns a UUID, or a failure description string.
+    """
+    from geolens.api.datasets import (
+        get_single_dataset_datasets_dataset_id_get as _get,
+    )
+
+    resp = call_sdk(_get.sync_detailed, dataset_id=UUID(dataset_id), client=client)
+    record_id = getattr(resp.parsed, "record_id", None)
+    if int(resp.status_code) != 200 or record_id is None:
+        return f"record lookup failed: HTTP {int(resp.status_code)}"
+    return record_id
+
+
 def _apply_tags(client: Any, dataset_id: str, tags_csv: str) -> list[str]:
     """POST each tag as a record keyword. Returns failure descriptions."""
     from geolens.api.records import (
@@ -312,11 +353,15 @@ def _apply_tags(client: Any, dataset_id: str, tags_csv: str) -> list[str]:
     )
     from geolens.models.keyword_create import KeywordCreate
 
+    record_id = _resolve_record_id(client, dataset_id)
+    if isinstance(record_id, str):
+        return [record_id]
+
     failures: list[str] = []
     for tag in _split_tags(tags_csv):
         resp = call_sdk(
             _kw.sync_detailed,
-            record_id=UUID(dataset_id),
+            record_id=record_id,
             client=client,
             body=KeywordCreate(keyword=tag),
         )
