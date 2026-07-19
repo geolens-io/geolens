@@ -432,9 +432,25 @@ main() {
   db_port="$(get_env_value DB_PORT)"
   api_port="$(get_env_value API_PORT)"
   fe_port="$(get_env_value FRONTEND_PORT)"
-  [ -n "$db_port" ] || db_port=5434
-  [ -n "$api_port" ] || api_port=8001
-  [ -n "$fe_port" ] || fe_port=8080
+  # fix(#444): when a key is missing from .env, defaulting only this shell
+  # variable made the installer probe (and later print) a port compose would
+  # never bind — compose falls back to its own no-.env baseline of 5432/8000,
+  # which is a deliberate, separately pinned decision. Persist the documented
+  # value instead, so the port we check, the port compose binds, and the port
+  # we print to the operator are the same one. A verbatim install is
+  # unaffected: .env.example already ships all three keys.
+  if [ -z "$db_port" ]; then
+    db_port=5434
+    update_env_value DB_PORT "$db_port"
+  fi
+  if [ -z "$api_port" ]; then
+    api_port=8001
+    update_env_value API_PORT "$api_port"
+  fi
+  if [ -z "$fe_port" ]; then
+    fe_port=8080
+    update_env_value FRONTEND_PORT "$fe_port"
+  fi
 
   check_port "$db_port"
   check_port "$api_port"
