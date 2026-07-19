@@ -44,6 +44,7 @@ function createMockMap() {
     setFilter: vi.fn(),
     getFilter: vi.fn().mockReturnValue(null),
     isStyleLoaded: vi.fn(() => true),
+    refreshTiles: vi.fn(),
     getStyle: vi.fn(() => ({ layers: Array.from(layerIds).map((id) => ({ id })) })),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
@@ -121,5 +122,38 @@ describe('syncLayersToMap non-cluster vector tile refresh guard', () => {
     // Re-syncing the labeled layer with no further change must not refetch again.
     syncLayersToMap(map, [labeled], tokens, undefined, managed, order);
     expect(setTiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('fix(#584): popup visible_fields ride cols= and the reload is re-issued via refreshTiles on a macrotask', () => {
+    vi.useFakeTimers();
+    try {
+      const map = createMockMap();
+      const managed = { current: new Set<string>() };
+      const order = { current: '' };
+      const layer = makeLayer();
+      const tokens = new Map<string, TileToken>([[layer.dataset_id, makeVectorToken()]]);
+      const sourceId = getSourceIdForLayer(layer);
+
+      syncLayersToMap(map, [layer], tokens, undefined, managed, order); // create
+      const setTiles = getSetTiles(map, sourceId)!;
+
+      // Selecting a popup field changes the cols= set → setTiles fires...
+      const withPopup = makeLayer({
+        popup_config: { enabled: true, expression: null, visible_fields: ['borough'] },
+      });
+      syncLayersToMap(map, [withPopup], tokens, undefined, managed, order);
+      expect(setTiles).toHaveBeenCalledTimes(1);
+      expect(setTiles).toHaveBeenCalledWith([expect.stringContaining('cols=borough')]);
+
+      // ...and the reload backstop is deferred to a macrotask (after the
+      // source's async load() adopts the new URL), because maplibre 5.x drops
+      // setTiles' own reload when the TileManager is paused.
+      const refreshTiles = (map as unknown as { refreshTiles: ReturnType<typeof vi.fn> }).refreshTiles;
+      expect(refreshTiles).not.toHaveBeenCalled();
+      vi.runAllTimers();
+      expect(refreshTiles).toHaveBeenCalledWith(sourceId);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

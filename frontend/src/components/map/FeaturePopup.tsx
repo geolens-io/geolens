@@ -134,9 +134,11 @@ export function FeaturePopup({
   const visibleEntries = useMemo<[string, unknown][]>(() => {
     if (visibleFields !== undefined && visibleFields !== null) {
       const propMap = new Map(baseEntries);
-      return visibleFields
-        .filter((k) => propMap.has(k))
-        .map((k) => [k, propMap.get(k)] as [string, unknown]);
+      // fix(#584): render EVERY configured field. ST_AsMVT omits null-valued
+      // properties from the tile, so intersecting with the present keys
+      // silently hid configured fields that are null on the clicked feature —
+      // formatValue's '--' placeholder was unreachable.
+      return visibleFields.map((k) => [k, propMap.get(k)] as [string, unknown]);
     }
     if (columnInfo) {
       const columnNames = new Set(columnInfo.map((c) => c.name));
@@ -246,7 +248,15 @@ export function FeaturePopup({
         {/* Properties */}
         <div className="max-h-48 overflow-y-auto">
           {visibleEntries.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-1">{t('featurePopup.noAttributes')}</p>
+            <p className="text-xs text-muted-foreground py-1">
+              {/* fix(#584): at z<10 the tile server strips attribute columns
+                  unless opted in via cols=; in all-fields mode nothing is
+                  opted in, so a dataset WITH columns arriving property-less
+                  means "zoom in", not "no attributes". */}
+              {(columnInfo?.length ?? 0) > 0
+                ? t('featurePopup.zoomForAttributes')
+                : t('featurePopup.noAttributes')}
+            </p>
           ) : (
             <table className="w-full">
               <tbody>

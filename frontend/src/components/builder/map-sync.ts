@@ -494,6 +494,21 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   if (store.get(sourceId) === tileUrl) return false;
   source.setTiles([tileUrl]);
   store.set(sourceId, tileUrl);
+  // fix(#584): maplibre 5.x silently drops setTiles' tile reload when the
+  // source's TileManager is paused (any same-pass layer update pauses it):
+  // the 'content' data event returns early without setting the
+  // reload-on-resume flag, so loaded tiles keep serving the pre-edit cols=
+  // payload until an unrelated re-tile. Re-issue the reload through the
+  // public refreshTiles API on a macrotask (after the source's async load()
+  // has adopted the new URL) — that path DOES set the resume flag, so the
+  // refetch can no longer be lost.
+  setTimeout(() => {
+    try {
+      (map as MaplibreMap & { refreshTiles?: (id: string) => void }).refreshTiles?.(sourceId);
+    } catch {
+      /* source or style torn down before the timer fired */
+    }
+  }, 0);
   return true;
 }
 

@@ -782,6 +782,7 @@
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",
+    "zoomForAttributes": "Zum Anzeigen der Attribute hineinzoomen",
     "booleanTrue": "Ja",
     "booleanFalse": "Nein",
     "clickToCopy": "Klicken zum Kopieren",

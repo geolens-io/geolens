@@ -137,6 +137,45 @@ describe('FeaturePopup', () => {
     expect(screen.queryByText('NYC')).not.toBeInTheDocument();
   });
 
+  it('fix(#584): renders configured fields absent from tile properties as "--" instead of dropping them', () => {
+    // ST_AsMVT omits null-valued properties from the tile, so a configured
+    // field can be missing from `properties` on the clicked feature.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { present: 'value' },
+        visibleFields: ['present', 'missing_null_field'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const cells = screen.getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent('Present');
+    expect(cells[1]).toHaveTextContent('value');
+    expect(cells[2]).toHaveTextContent('Missing Null Field');
+    expect(cells[3]).toHaveTextContent('--');
+  });
+
+  it('fix(#584): empty properties on a dataset WITH columns show the zoom hint, not "No attributes"', () => {
+    // z<10 tiles strip attribute columns unless opted in via cols= — the
+    // all-fields default opts nothing in, so properties arrive empty.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: {},
+        columnInfo: [{ name: 'borough', type: 'text' }],
+        visibleFields: null,
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('Zoom in to view attributes')).toBeInTheDocument();
+  });
+
+  it('empty properties on a column-less dataset still show "No attributes"', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({ properties: {}, columnInfo: null, visibleFields: null }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('No attributes')).toBeInTheDocument();
+  });
+
   it('honors visible_fields ordering', () => {
     const features: FeatureInfo[] = [
       makeFeature({
