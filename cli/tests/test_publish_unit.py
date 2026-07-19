@@ -933,6 +933,50 @@ class TestApplyPublishExtras:
         assert apply_publish_extras(MagicMock(), "d-id", None, None) == []
 
 
+class TestApplyPublishExtrasNeverRaises:
+    """fix(#588): a transport error after commit must not swallow the URL."""
+
+    def test_typer_exit_from_tags_becomes_a_failure_line(self, monkeypatch) -> None:
+        import typer
+
+        import geolens_cli.publish as publish
+
+        def boom(*a, **k):
+            raise typer.Exit(4)
+
+        monkeypatch.setattr(publish, "_apply_tags", boom)
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", "x", None)
+        assert failures == ["tags: request failed (exit code 4)"]
+
+    def test_collection_still_attempted_after_tags_transport_failure(
+        self, monkeypatch
+    ) -> None:
+        import typer
+
+        import geolens_cli.publish as publish
+
+        def boom(*a, **k):
+            raise typer.Exit(4)
+
+        monkeypatch.setattr(publish, "_apply_tags", boom)
+        monkeypatch.setattr(publish, "_apply_collection", lambda *a: [])
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", "x", "Terrain")
+        # tags reported; the collection attempt was NOT skipped (it succeeded)
+        assert failures == ["tags: request failed (exit code 4)"]
+
+    def test_unexpected_exception_is_described_not_propagated(
+        self, monkeypatch
+    ) -> None:
+        import geolens_cli.publish as publish
+
+        def boom(*a, **k):
+            raise ValueError("bad uuid")
+
+        monkeypatch.setattr(publish, "_apply_collection", boom)
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", None, "Terrain")
+        assert failures == ["collection: ValueError: bad uuid"]
+
+
 class TestPublishExtrasCli:
     def test_tags_with_no_wait_exits_usage(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
@@ -973,6 +1017,42 @@ class TestPublishExtrasCli:
 
         result = runner.invoke(app, ["publish", str(sample_geojson), "--tags", "x"])
         assert result.exit_code == 1, result.output
+        assert "Dataset created, but" in result.output
+
+    def test_transport_failure_in_extras_still_prints_dataset_url(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix(#588): the dataset exists — never exit without the recovery info."""
+        import typer
+
+        import geolens_cli.publish as publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
+        )
+
+        def network_boom(*a, **k):
+            raise typer.Exit(4)
+
+        # Simulate the raise happening INSIDE the extras (call_sdk's behavior).
+        monkeypatch.setattr(publish, "_apply_tags", network_boom)
+
+        result = runner.invoke(app, ["publish", str(sample_geojson), "--tags", "x"])
+        assert result.exit_code == 1, result.output
+        assert "00000000-0000-0000-0000-000000000042" in result.output
         assert "Dataset created, but" in result.output
 
     def test_extras_success_keeps_exit_zero(

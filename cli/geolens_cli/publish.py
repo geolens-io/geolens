@@ -429,6 +429,24 @@ def _apply_collection(client: Any, dataset_id: str, collection_ref: str) -> list
     return []
 
 
+def _guard(label: str, run: Any) -> list[str]:
+    """Run one post-commit extra, converting ANY raise into a failure line.
+
+    fix(#588): ``call_sdk`` maps httpx timeouts/network errors to
+    ``typer.Exit(EXIT_NETWORK)``. Propagating that from here would abort
+    the command before the dataset URL and job id are printed — losing the
+    recovery info for a dataset that WAS created. Every failure becomes
+    data instead, so ``apply_publish_extras`` never raises.
+    """
+    try:
+        return run()
+    except Exception as exc:  # noqa: BLE001 — see docstring: nothing may escape
+        if isinstance(exc, typer.Exit):
+            # call_sdk already printed the cause (e.g. "Network error: ...").
+            return [f"{label}: request failed (exit code {exc.exit_code})"]
+        return [f"{label}: {type(exc).__name__}: {exc}"]
+
+
 def apply_publish_extras(
     client: Any,
     dataset_id: str,
@@ -437,13 +455,25 @@ def apply_publish_extras(
 ) -> list[str]:
     """Apply post-commit --tags / --collection. Returns failure descriptions.
 
-    The dataset already exists by the time this runs — callers must report
-    failures WITHOUT implying the publish itself failed, then exit non-zero
-    so scripts notice the partial result.
+    Never raises. The dataset already exists by the time this runs — callers
+    must report failures WITHOUT implying the publish itself failed, then
+    exit non-zero so scripts notice the partial result.
+
+    The caller's non-zero exit is deliberately EXIT_GENERIC even for
+    transport failures: re-running `publish` would upload the file again
+    and create a DUPLICATE dataset, so this must not look retryable the
+    way EXIT_NETWORK does.
     """
     failures: list[str] = []
     if tags_csv:
-        failures.extend(_apply_tags(client, dataset_id, tags_csv))
+        failures.extend(
+            _guard("tags", lambda: _apply_tags(client, dataset_id, tags_csv))
+        )
     if collection_ref:
-        failures.extend(_apply_collection(client, dataset_id, collection_ref))
+        failures.extend(
+            _guard(
+                "collection",
+                lambda: _apply_collection(client, dataset_id, collection_ref),
+            )
+        )
     return failures
