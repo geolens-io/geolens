@@ -8,9 +8,13 @@ import structlog
 # docstring. Originally added inline for gh #101 (260508-rr5), now shared with
 # the worker (which had the same /tmp tmpfs problem during COG conversion).
 from app.core.config import settings
+from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import redirect_tempfile_to_staging
 
 redirect_tempfile_to_staging(settings.upload_staging_dir)
+# fix(#579): before any GDAL/rasterio import — /vsis3/ reads need the custom
+# S3 endpoint derived into AWS_* env, and subprocesses inherit os.environ.
+configure_gdal_s3_env(settings)
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse

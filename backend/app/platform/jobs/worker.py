@@ -18,6 +18,7 @@ from sqlalchemy import func, text, update
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
+from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import (
     ensure_staging_ready,
     redirect_tempfile_to_staging,
@@ -30,6 +31,10 @@ from app.core.runtime.staging import (
 # `/tmp` tmpfs and rejects rasters that would fit fine on the multi-GB
 # staging volume. Mirrors the same redirect in `app.api.main`.
 redirect_tempfile_to_staging(settings.upload_staging_dir)
+
+# fix(#579): before any GDAL/rasterio use — /vsis3/ reads need the custom
+# S3 endpoint derived into AWS_* env, and GDAL subprocesses inherit os.environ.
+configure_gdal_s3_env(settings)
 
 # Configure structured logging with service label
 setup_logging(json_logs=settings.log_json, log_level=settings.log_level)

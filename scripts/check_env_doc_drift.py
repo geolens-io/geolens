@@ -149,7 +149,10 @@ def compose_host_keys(compose_files: tuple[Path, ...]) -> set[str]:
             for line in path.read_text().splitlines()
             if not line.lstrip().startswith("#")
         )
-        keys.update(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", text))
+        # fix(#582): (?<!\$) skips $$-escaped references — Compose passes those
+        # through as literal ${...} for in-container shells (e.g. the titiler
+        # command wrapper), so they are not host inputs.
+        keys.update(re.findall(r"(?<!\$)\$\{([A-Z][A-Z0-9_]*)", text))
     return keys
 
 
