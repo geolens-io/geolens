@@ -30,8 +30,19 @@ function createMockMap() {
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
     addSource: vi.fn((id: string, spec: { type: string; tiles?: string[] }) => {
       // Vector sources expose setTiles in MapLibre — mirror that so the refresh
-      // path under test can be exercised and counted.
-      sources.set(id, spec.type === 'vector' ? { ...spec, setTiles: vi.fn() } : { ...spec });
+      // path under test can be exercised and counted. Real setTiles adopts the
+      // new URL asynchronously (load() copies _options.tiles → source.tiles);
+      // the mock adopts on the NEXT 50ms timer tick so the fix(#584)
+      // adoption-gated refresh has something realistic to wait for.
+      if (spec.type === 'vector') {
+        const src: { type: string; tiles?: string[]; setTiles?: ReturnType<typeof vi.fn> } = { ...spec };
+        src.setTiles = vi.fn((tiles: string[]) => {
+          setTimeout(() => { src.tiles = tiles; }, 50);
+        });
+        sources.set(id, src);
+      } else {
+        sources.set(id, { ...spec });
+      }
     }),
     removeSource: vi.fn((id: string) => { sources.delete(id); }),
     addLayer: vi.fn((layer: { id: string }) => { layerIds.add(layer.id); }),
@@ -145,13 +156,20 @@ describe('syncLayersToMap non-cluster vector tile refresh guard', () => {
       expect(setTiles).toHaveBeenCalledTimes(1);
       expect(setTiles).toHaveBeenCalledWith([expect.stringContaining('cols=borough')]);
 
-      // ...and the reload backstop is deferred to a macrotask (after the
-      // source's async load() adopts the new URL), because maplibre 5.x drops
-      // setTiles' own reload when the TileManager is paused.
+      // ...and the reload backstop waits for the source to ADOPT the new URL
+      // (maplibre's async load() copies it into source.tiles) before calling
+      // refreshTiles — refreshing earlier would reload the OLD url while the
+      // signature store has already advanced (codex #586 P2), re-stranding
+      // the tiles. The mock adopts at +50ms.
       const refreshTiles = (map as unknown as { refreshTiles: ReturnType<typeof vi.fn> }).refreshTiles;
       expect(refreshTiles).not.toHaveBeenCalled();
-      vi.runAllTimers();
+      vi.advanceTimersByTime(1); // the t=0 probe runs pre-adoption → must NOT refresh yet
+      expect(refreshTiles).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(200); // adoption at +50, retry probe at +101 → refresh
+      expect(refreshTiles).toHaveBeenCalledTimes(1);
       expect(refreshTiles).toHaveBeenCalledWith(sourceId);
+      vi.runAllTimers(); // no further probes fire after success
+      expect(refreshTiles).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
