@@ -52,6 +52,10 @@ interface DatasetChatPanelProps {
   /** fix(#531): non-spatial tables can chat but have no map-layer flow —
    * the rest of the UI (AddToMapButton) hides builder handoffs for them. */
   showOpenInBuilder: boolean;
+  /** fix(#583): notifies the page when the panel opens/closes so it can pad
+   * its content clear of the fixed panel (which otherwise covers the sticky
+   * detail tabs and other controls). */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -68,7 +72,7 @@ interface DatasetChatPanelProps {
  * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured),
  * so anonymous or unpermitted visitors render nothing.
  */
-export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }: DatasetChatPanelProps) {
+export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, onOpenChange }: DatasetChatPanelProps) {
   const { t, i18n } = useTranslation('dataset');
   const navigate = useNavigate();
   const { isAIAvailable } = useAIAvailability();
@@ -95,6 +99,14 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder }:
   useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
+
+  // fix(#583): keep the page informed so it can reflow content clear of the
+  // fixed panel. Effect (not inline in the setOpen calls) so unmount while
+  // open also reports closed.
+  useEffect(() => {
+    onOpenChange?.(open);
+    return () => onOpenChange?.(false);
+  }, [open, onOpenChange]);
 
   const handleSend = useCallback(async () => {
     const userMsg = input.trim();
