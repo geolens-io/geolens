@@ -134,11 +134,17 @@ export function FeaturePopup({
   const visibleEntries = useMemo<[string, unknown][]>(() => {
     if (visibleFields !== undefined && visibleFields !== null) {
       const propMap = new Map(baseEntries);
-      // fix(#584): render EVERY configured field. ST_AsMVT omits null-valued
-      // properties from the tile, so intersecting with the present keys
-      // silently hid configured fields that are null on the clicked feature —
-      // formatValue's '--' placeholder was unreachable.
-      return visibleFields.map((k) => [k, propMap.get(k)] as [string, unknown]);
+      // fix(#584): render configured fields even when absent from the tile
+      // properties — ST_AsMVT omits null-valued properties, so intersecting
+      // with the present keys silently hid configured fields that are null on
+      // the clicked feature (formatValue's '--' placeholder was unreachable).
+      // A name absent from BOTH the tile and the known schema is a stale
+      // config leftover (e.g. reupload/rename) and stays hidden; with no
+      // schema to consult, favor showing.
+      const known = columnInfo ? new Set(columnInfo.map((c) => c.name)) : null;
+      return visibleFields
+        .filter((k) => propMap.has(k) || known === null || known.has(k))
+        .map((k) => [k, propMap.get(k)] as [string, unknown]);
     }
     if (columnInfo) {
       const columnNames = new Set(columnInfo.map((c) => c.name));

@@ -154,6 +154,28 @@ describe('FeaturePopup', () => {
     expect(cells[3]).toHaveTextContent('--');
   });
 
+  it('fix(#584): hides configured fields absent from BOTH tile properties and the schema (stale config)', () => {
+    // codex #586 P3: a reupload/rename can strand old names in visible_fields;
+    // those stay hidden, while schema-present-but-null fields render '--'.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { present: 'value' },
+        columnInfo: [
+          { name: 'present', type: 'text' },
+          { name: 'null_but_in_schema', type: 'text' },
+        ],
+        visibleFields: ['present', 'null_but_in_schema', 'stale_removed_column'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const cells = screen.getAllByRole('cell');
+    expect(cells).toHaveLength(4); // two rows only — stale field hidden
+    expect(cells[0]).toHaveTextContent('Present');
+    expect(cells[2]).toHaveTextContent('Null But In Schema');
+    expect(cells[3]).toHaveTextContent('--');
+    expect(screen.queryByText('Stale Removed Column')).not.toBeInTheDocument();
+  });
+
   it('fix(#584): empty properties on a dataset WITH columns show the zoom hint, not "No attributes"', () => {
     // z<10 tiles strip attribute columns unless opted in via cols= — the
     // all-fields default opts nothing in, so properties arrive empty.

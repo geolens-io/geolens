@@ -102,11 +102,13 @@ export function DatasetChatPanel({ datasetId, datasetTitle, showOpenInBuilder, o
 
   // fix(#583): keep the page informed so it can reflow content clear of the
   // fixed panel. Effect (not inline in the setOpen calls) so unmount while
-  // open also reports closed.
+  // open also reports closed. ANDed with availability — if AI availability
+  // flips off while open, the render below bails to null but the component
+  // stays mounted, and the page must not keep padding for an invisible panel.
   useEffect(() => {
-    onOpenChange?.(open);
+    onOpenChange?.(open && isAIAvailable);
     return () => onOpenChange?.(false);
-  }, [open, onOpenChange]);
+  }, [open, isAIAvailable, onOpenChange]);
 
   const handleSend = useCallback(async () => {
     const userMsg = input.trim();
