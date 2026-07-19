@@ -24,5 +24,27 @@ if [ -n "${PUBLIC_APP_URL:-}" ]; then
   rm -f /tmp/index.html.new
 fi
 
+# Render the nginx vhost from its template (see the TEMPLATE header in
+# frontend/nginx.conf). API_UPSTREAM points the /api, raster-tile, and embed
+# proxy blocks at the API service; NGINX_RESOLVER is the DNS server nginx uses
+# to re-resolve that hostname. Defaults preserve the Docker Compose topology:
+# the resolver falls back to the container's own /etc/resolv.conf nameserver,
+# which is 127.0.0.11 under Docker and the cluster DNS service on Kubernetes,
+# so the same image runs in both without configuration.
+API_UPSTREAM="${API_UPSTREAM:-http://api:8000}"
+if [ -z "${NGINX_RESOLVER:-}" ]; then
+  NGINX_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null || true)"
+fi
+NGINX_RESOLVER="${NGINX_RESOLVER:-127.0.0.11}"
+case "$NGINX_RESOLVER" in
+  \[*) ;;
+  *:*:*) NGINX_RESOLVER="[$NGINX_RESOLVER]" ;;  # bare IPv6 nameserver → nginx bracket syntax
+esac
+export API_UPSTREAM NGINX_RESOLVER
+mkdir -p /tmp/geolens-nginx
+envsubst '$API_UPSTREAM $NGINX_RESOLVER' \
+  < /opt/geolens/default.conf.template \
+  > /tmp/geolens-nginx/default.conf
+
 # Replace shell with nginx (PID 1).
 exec nginx -g 'daemon off;'
