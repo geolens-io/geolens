@@ -161,7 +161,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_PORT:-5434}:5432" # fix(#444): fallback matches .env.example/install.sh/docs (5434)
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
@@ -250,7 +250,7 @@ services:
       - /home/appuser:size=128m,uid=1001,gid=1001
       - /var/run:size=8m
     ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8001}:8000" # fix(#444): fallback matches .env.example/install.sh/docs (8001)
     volumes:
       - upload_staging:/app/staging
     environment:
