@@ -1,8 +1,8 @@
-"""Derive GDAL's AWS_* config for /vsis3/ reads from the app's S3_* settings.
+"""Derive GDAL's AWS_* config for its S3 VSI reads from the app's S3_* settings.
 
 fix(#579): with STORAGE_PROVIDER=s3 on an S3-compatible endpoint (MinIO, R2),
-stored raster assets resolve as /vsis3/<bucket>/<key> open-paths, but nothing
-told GDAL about the custom endpoint — /vsis3/ reads targeted the default AWS
+stored raster assets resolve as GDAL S3 VSI open-paths, but nothing told GDAL
+about the custom endpoint — those reads targeted the default AWS
 endpoint and failed. The application-side SDK honors S3_ENDPOINT /
 S3_ADDRESSING_STYLE, so only the GDAL read path was unaware.
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 def derive_gdal_s3_env(settings: "Settings") -> dict[str, str]:
-    """Return the AWS_* variables GDAL needs to read /vsis3/ paths.
+    """Return the AWS_* variables GDAL needs for its S3 VSI reads.
 
     Empty when the storage provider is not s3. Endpoint-specific keys
     (AWS_S3_ENDPOINT, AWS_HTTPS) appear only for a custom S3_ENDPOINT;
