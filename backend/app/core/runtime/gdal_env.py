@@ -49,13 +49,16 @@ def derive_gdal_s3_env(settings: "Settings") -> dict[str, str]:
     if endpoint:
         # GDAL wants a scheme-less host[:port]; the scheme maps to AWS_HTTPS.
         # (GDAL >= 3.5.2 would accept a full URL, but the scheme-less form
-        # works on every GDAL the images ship.)
+        # works on every GDAL the images ship.) Scheme resolution mirrors
+        # S3StorageProvider: an explicit scheme wins; a scheme-less endpoint
+        # is http exactly when S3_ALLOW_HTTP is set.
         scheme, sep, rest = endpoint.partition("://")
         host = rest if sep else endpoint
         host = host.split("/", 1)[0]
         if host:
             derived["AWS_S3_ENDPOINT"] = host
-            if sep and scheme == "http":
+            uses_http = scheme == "http" if sep else settings.s3_allow_http
+            if uses_http:
                 derived["AWS_HTTPS"] = "NO"
 
     if settings.s3_addressing_style == "path":

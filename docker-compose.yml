@@ -462,9 +462,13 @@ services:
       - |
         if [ -z "$${AWS_S3_ENDPOINT:-}" ]; then
           ep="$${S3_ENDPOINT:-}"
+          allow_http=$$(printf '%s' "$${S3_ALLOW_HTTP:-}" | tr '[:upper:]' '[:lower:]')
           case "$$ep" in
             http://*)  export AWS_HTTPS="$${AWS_HTTPS:-NO}"; ep="$${ep#http://}" ;;
             https://*) ep="$${ep#https://}" ;;
+            # scheme-less endpoint: http exactly when S3_ALLOW_HTTP is truthy,
+            # mirroring the app SDK's S3StorageProvider scheme resolution.
+            ?*) case "$$allow_http" in true|1|yes|on) export AWS_HTTPS="$${AWS_HTTPS:-NO}" ;; esac ;;
           esac
           ep="$${ep%%/*}"
           [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
@@ -474,6 +478,7 @@ services:
     environment:
       # fix(#579): inputs for the AWS_* derivation in the command wrapper above.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
+      S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
       # GDAL raster I/O tuning — these control how Titiler reads COG/VRT files
       GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)

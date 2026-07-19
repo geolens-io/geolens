@@ -14,6 +14,7 @@ def _s3_settings(**overrides):
         s3_access_key_id="test-access-key",
         s3_secret_access_key=SecretStr("test-secret-key"),
         s3_region="us-east-1",
+        s3_allow_http=False,
         s3_addressing_style="auto",
     )
     base.update(overrides)
@@ -62,6 +63,19 @@ def test_endpoint_path_suffix_and_schemeless_form_reduce_to_host():
     schemeless = derive_gdal_s3_env(_s3_settings(s3_endpoint="minio:9000"))
     assert schemeless["AWS_S3_ENDPOINT"] == "minio:9000"
     assert "AWS_HTTPS" not in schemeless
+
+
+def test_schemeless_endpoint_honors_allow_http():
+    # Mirrors S3StorageProvider: scheme-less + S3_ALLOW_HTTP -> http endpoint.
+    derived = derive_gdal_s3_env(
+        _s3_settings(s3_endpoint="minio:9000", s3_allow_http=True)
+    )
+    assert derived["AWS_HTTPS"] == "NO"
+    # An explicit https scheme wins over allow_http, as in the provider.
+    explicit = derive_gdal_s3_env(
+        _s3_settings(s3_endpoint="https://minio:9000", s3_allow_http=True)
+    )
+    assert "AWS_HTTPS" not in explicit
 
 
 def test_empty_region_omits_default_region():
