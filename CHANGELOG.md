@@ -7,6 +7,28 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.11] - 2026-07-19
+
+### Fixed
+
+- **Raster resolutions in geographic coordinate systems are reported honestly.**
+  Resolution is stored in the dataset's own CRS units, but the catalog and
+  search cards formatted every value as meters — so a 60-arc-second global DEM
+  advertised a "2 cm" ground sample distance. Geographic datasets now render
+  arc units alongside an approximate ground distance, e.g. `60″ (≈1.9 km)`, and
+  sub-arcsecond imagery keeps meaningful precision instead of rounding to `0″`.
+- **`geolens publish --tags` and `--collection` now apply.** Both flags were
+  accepted and silently ignored. They are applied after the dataset commits,
+  so a failure to tag or file the dataset reports which step failed and leaves
+  the uploaded dataset in place rather than aborting before its URL is printed.
+  The printed dataset URL also points at the web page instead of the JSON API.
+- **The installer no longer probes ports it will not bind.** When `DB_PORT`,
+  `API_PORT`, or `FRONTEND_PORT` was missing from `.env`, the installer
+  defaulted only its own shell variables — so it health-checked and printed
+  ports that differed from the ones Compose actually bound. The documented
+  values are now persisted to `.env`, keeping the installer, Compose, and the
+  printed URLs in agreement.
+
 ## [1.4.10] - 2026-07-19
 
 ### Added
@@ -855,7 +877,10 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.8...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.11...HEAD
+[1.4.11]: https://github.com/geolens-io/geolens/compare/v1.4.10...v1.4.11
+[1.4.10]: https://github.com/geolens-io/geolens/compare/v1.4.9...v1.4.10
+[1.4.9]: https://github.com/geolens-io/geolens/compare/v1.4.8...v1.4.9
 [1.4.8]: https://github.com/geolens-io/geolens/compare/v1.4.7...v1.4.8
 [1.4.7]: https://github.com/geolens-io/geolens/compare/v1.4.6...v1.4.7
 [1.4.6]: https://github.com/geolens-io/geolens/compare/v1.4.5...v1.4.6
