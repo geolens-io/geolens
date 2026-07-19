@@ -252,8 +252,10 @@ export function FeaturePopup({
               {/* fix(#584): at z<10 the tile server strips attribute columns
                   unless opted in via cols=; in all-fields mode nothing is
                   opted in, so a dataset WITH columns arriving property-less
-                  means "zoom in", not "no attributes". */}
-              {(columnInfo?.length ?? 0) > 0
+                  means "zoom in", not "no attributes". Gated to the
+                  all-fields case (visibleFields == null) — an explicit [] is
+                  the intentional title-only mode and must stay as-is. */}
+              {visibleFields == null && (columnInfo?.length ?? 0) > 0
                 ? t('featurePopup.zoomForAttributes')
                 : t('featurePopup.noAttributes')}
             </p>

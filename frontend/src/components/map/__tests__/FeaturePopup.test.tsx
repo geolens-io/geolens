@@ -176,6 +176,22 @@ describe('FeaturePopup', () => {
     expect(screen.getByText('No attributes')).toBeInTheDocument();
   });
 
+  it('title-only mode (visibleFields []) never shows the zoom hint, even with columnInfo present', () => {
+    // codex #586 P2: [] is the intentional "title only" contract — the zoom
+    // hint is for the all-fields (null) case only.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        title: 'Just a title',
+        properties: {},
+        columnInfo: [{ name: 'borough', type: 'text' }],
+        visibleFields: [],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('Just a title')).toBeInTheDocument();
+    expect(screen.queryByText('Zoom in to view attributes')).not.toBeInTheDocument();
+  });
+
   it('honors visible_fields ordering', () => {
     const features: FeatureInfo[] = [
       makeFeature({
