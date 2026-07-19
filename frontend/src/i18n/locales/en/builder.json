@@ -782,6 +782,7 @@
   },
   "featurePopup": {
     "noAttributes": "No attributes",
+    "zoomForAttributes": "No attributes at this zoom",
     "booleanTrue": "Yes",
     "booleanFalse": "No",
     "clickToCopy": "Click to copy",

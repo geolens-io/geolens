@@ -656,6 +656,7 @@ export const ViewerMap = memo(function ViewerMap({
           columnInfo: layer.column_info ?? null,
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
+          zoomAtClick: map.getZoom(),
         });
       }
 

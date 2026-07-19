@@ -137,6 +137,100 @@ describe('FeaturePopup', () => {
     expect(screen.queryByText('NYC')).not.toBeInTheDocument();
   });
 
+  it('fix(#584): renders configured fields absent from tile properties as "--" instead of dropping them', () => {
+    // ST_AsMVT omits null-valued properties from the tile, so a configured
+    // field can be missing from `properties` on the clicked feature.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { present: 'value' },
+        visibleFields: ['present', 'missing_null_field'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const cells = screen.getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent('Present');
+    expect(cells[1]).toHaveTextContent('value');
+    expect(cells[2]).toHaveTextContent('Missing Null Field');
+    expect(cells[3]).toHaveTextContent('--');
+  });
+
+  it('fix(#584): hides configured fields absent from BOTH tile properties and the schema (stale config)', () => {
+    // fix(#586): a reupload/rename can strand old names in visible_fields;
+    // those stay hidden, while schema-present-but-null fields render '--'.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { present: 'value' },
+        columnInfo: [
+          { name: 'present', type: 'text' },
+          { name: 'null_but_in_schema', type: 'text' },
+        ],
+        visibleFields: ['present', 'null_but_in_schema', 'stale_removed_column'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const cells = screen.getAllByRole('cell');
+    expect(cells).toHaveLength(4); // two rows only — stale field hidden
+    expect(cells[0]).toHaveTextContent('Present');
+    expect(cells[2]).toHaveTextContent('Null But In Schema');
+    expect(cells[3]).toHaveTextContent('--');
+    expect(screen.queryByText('Stale Removed Column')).not.toBeInTheDocument();
+  });
+
+  it('fix(#584): empty properties on a dataset WITH columns show the zoom hint, not "No attributes"', () => {
+    // z<10 tiles strip attribute columns unless opted in via cols= — the
+    // all-fields default opts nothing in, so properties arrive empty.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: {},
+        columnInfo: [{ name: 'borough', type: 'text' }],
+        visibleFields: null,
+        zoomAtClick: 8,
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('No attributes at this zoom')).toBeInTheDocument();
+  });
+
+  it('fix(#586): all-null feature clicked ABOVE the attribute budget shows "No attributes", not the zoom hint', () => {
+    // At z>=10 tiles carry every column; an empty property set means the
+    // values genuinely are all null — zooming cannot reveal anything.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: {},
+        columnInfo: [{ name: 'borough', type: 'text' }],
+        visibleFields: null,
+        zoomAtClick: 12,
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('No attributes')).toBeInTheDocument();
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
+  });
+
+  it('empty properties on a column-less dataset still show "No attributes"', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({ properties: {}, columnInfo: null, visibleFields: null }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('No attributes')).toBeInTheDocument();
+  });
+
+  it('title-only mode (visibleFields []) never shows the zoom hint, even with columnInfo present', () => {
+    // fix(#586): [] is the intentional "title only" contract — the zoom
+    // hint is for the all-fields (null) case only.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        title: 'Just a title',
+        properties: {},
+        columnInfo: [{ name: 'borough', type: 'text' }],
+        visibleFields: [],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('Just a title')).toBeInTheDocument();
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
+  });
+
   it('honors visible_fields ordering', () => {
     const features: FeatureInfo[] = [
       makeFeature({

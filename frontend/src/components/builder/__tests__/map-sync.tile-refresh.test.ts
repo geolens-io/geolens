@@ -30,8 +30,19 @@ function createMockMap() {
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
     addSource: vi.fn((id: string, spec: { type: string; tiles?: string[] }) => {
       // Vector sources expose setTiles in MapLibre — mirror that so the refresh
-      // path under test can be exercised and counted.
-      sources.set(id, spec.type === 'vector' ? { ...spec, setTiles: vi.fn() } : { ...spec });
+      // path under test can be exercised and counted. Real setTiles adopts the
+      // new URL asynchronously (load() copies _options.tiles → source.tiles);
+      // the mock adopts on the NEXT 50ms timer tick so the fix(#584)
+      // adoption-gated refresh has something realistic to wait for.
+      if (spec.type === 'vector') {
+        const src: { type: string; tiles?: string[]; setTiles?: ReturnType<typeof vi.fn> } = { ...spec };
+        src.setTiles = vi.fn((tiles: string[]) => {
+          setTimeout(() => { src.tiles = tiles; }, 50);
+        });
+        sources.set(id, src);
+      } else {
+        sources.set(id, { ...spec });
+      }
     }),
     removeSource: vi.fn((id: string) => { sources.delete(id); }),
     addLayer: vi.fn((layer: { id: string }) => { layerIds.add(layer.id); }),
@@ -44,6 +55,7 @@ function createMockMap() {
     setFilter: vi.fn(),
     getFilter: vi.fn().mockReturnValue(null),
     isStyleLoaded: vi.fn(() => true),
+    refreshTiles: vi.fn(),
     getStyle: vi.fn(() => ({ layers: Array.from(layerIds).map((id) => ({ id })) })),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
@@ -121,5 +133,45 @@ describe('syncLayersToMap non-cluster vector tile refresh guard', () => {
     // Re-syncing the labeled layer with no further change must not refetch again.
     syncLayersToMap(map, [labeled], tokens, undefined, managed, order);
     expect(setTiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('fix(#584): popup visible_fields ride cols= and the reload is re-issued via refreshTiles on a macrotask', () => {
+    vi.useFakeTimers();
+    try {
+      const map = createMockMap();
+      const managed = { current: new Set<string>() };
+      const order = { current: '' };
+      const layer = makeLayer();
+      const tokens = new Map<string, TileToken>([[layer.dataset_id, makeVectorToken()]]);
+      const sourceId = getSourceIdForLayer(layer);
+
+      syncLayersToMap(map, [layer], tokens, undefined, managed, order); // create
+      const setTiles = getSetTiles(map, sourceId)!;
+
+      // Selecting a popup field changes the cols= set → setTiles fires...
+      const withPopup = makeLayer({
+        popup_config: { enabled: true, expression: null, visible_fields: ['borough'] },
+      });
+      syncLayersToMap(map, [withPopup], tokens, undefined, managed, order);
+      expect(setTiles).toHaveBeenCalledTimes(1);
+      expect(setTiles).toHaveBeenCalledWith([expect.stringContaining('cols=borough')]);
+
+      // ...and the reload backstop waits for the source to ADOPT the new URL
+      // (maplibre's async load() copies it into source.tiles) before calling
+      // refreshTiles — refreshing earlier would reload the OLD url while the
+      // signature store has already advanced (fix(#586)), re-stranding
+      // the tiles. The mock adopts at +50ms.
+      const refreshTiles = (map as unknown as { refreshTiles: ReturnType<typeof vi.fn> }).refreshTiles;
+      expect(refreshTiles).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1); // the t=0 probe runs pre-adoption → must NOT refresh yet
+      expect(refreshTiles).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(200); // adoption at +50, retry probe at +101 → refresh
+      expect(refreshTiles).toHaveBeenCalledTimes(1);
+      expect(refreshTiles).toHaveBeenCalledWith(sourceId);
+      vi.runAllTimers(); // no further probes fire after success
+      expect(refreshTiles).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

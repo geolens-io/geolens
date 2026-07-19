@@ -494,6 +494,33 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   if (store.get(sourceId) === tileUrl) return false;
   source.setTiles([tileUrl]);
   store.set(sourceId, tileUrl);
+  // fix(#584): maplibre 5.x silently drops setTiles' tile reload when the
+  // source's TileManager is paused (any same-pass layer update pauses it):
+  // the 'content' data event returns early without setting the
+  // reload-on-resume flag, so loaded tiles keep serving the pre-edit cols=
+  // payload until an unrelated re-tile. Re-issue the reload through the
+  // public refreshTiles API — that path DOES set the resume flag, so the
+  // refetch can no longer be lost. The refresh must wait until the source's
+  // async load() has copied the new URL into `source.tiles` (fix(#586):
+  // refreshing before adoption reloads the OLD url while the signature store
+  // has already advanced, re-stranding the tiles), so poll for adoption with
+  // a bounded retry that bails when the url is superseded by a newer edit or
+  // the source is torn down.
+  const awaitAdoptionThenRefresh = (attempt: number) => {
+    if (store.get(sourceId) !== tileUrl) return; // superseded by a newer edit
+    const src = map.getSource(sourceId) as { tiles?: string[] } | undefined;
+    if (!src) return; // source removed
+    if (src.tiles?.[0] === tileUrl) {
+      try {
+        (map as MaplibreMap & { refreshTiles?: (id: string) => void }).refreshTiles?.(sourceId);
+      } catch {
+        /* style torn down between the check and the refresh */
+      }
+      return;
+    }
+    if (attempt < 40) setTimeout(() => awaitAdoptionThenRefresh(attempt + 1), 100);
+  };
+  setTimeout(() => awaitAdoptionThenRefresh(0), 0);
   return true;
 }
 

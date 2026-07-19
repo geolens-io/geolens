@@ -18,7 +18,15 @@ export interface FeatureInfo {
   /** Ordered allowlist of property keys to display; null/undefined → fall
    *  back to columnInfo legacy default; [] → render zero rows. */
   visibleFields?: string[] | null;
+  /** Map zoom when the feature was clicked — distinguishes low-zoom
+   *  attribute stripping ("zoom in" hint) from a feature whose values are
+   *  genuinely all null ("no attributes"). */
+  zoomAtClick?: number;
 }
+
+/** MVT attribute budget (backend Phase 269 H-23): below this zoom the tile
+ *  server strips attribute columns unless opted in via `cols=`. */
+const ATTRIBUTE_BUDGET_MINZOOM = 10;
 
 export interface FeaturePopupProps {
   longitude: number;
@@ -134,8 +142,16 @@ export function FeaturePopup({
   const visibleEntries = useMemo<[string, unknown][]>(() => {
     if (visibleFields !== undefined && visibleFields !== null) {
       const propMap = new Map(baseEntries);
+      // fix(#584): render configured fields even when absent from the tile
+      // properties — ST_AsMVT omits null-valued properties, so intersecting
+      // with the present keys silently hid configured fields that are null on
+      // the clicked feature (formatValue's '--' placeholder was unreachable).
+      // A name absent from BOTH the tile and the known schema is a stale
+      // config leftover (e.g. reupload/rename) and stays hidden; with no
+      // schema to consult, favor showing.
+      const known = columnInfo ? new Set(columnInfo.map((c) => c.name)) : null;
       return visibleFields
-        .filter((k) => propMap.has(k))
+        .filter((k) => propMap.has(k) || known === null || known.has(k))
         .map((k) => [k, propMap.get(k)] as [string, unknown]);
     }
     if (columnInfo) {
@@ -246,7 +262,22 @@ export function FeaturePopup({
         {/* Properties */}
         <div className="max-h-48 overflow-y-auto">
           {visibleEntries.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-1">{t('featurePopup.noAttributes')}</p>
+            <p className="text-xs text-muted-foreground py-1">
+              {/* fix(#584): at z<10 the tile server strips attribute columns
+                  unless opted in via cols=; in all-fields mode nothing is
+                  opted in, so a dataset WITH columns arriving property-less
+                  at low zoom means "zoom in", not "no attributes". Gated to
+                  the all-fields case (visibleFields == null — an explicit []
+                  is the intentional title-only mode) AND to a click below
+                  the attribute budget — at higher zooms an empty property
+                  set means the values really are all null (fix(#586)). */}
+              {visibleFields == null
+                && (columnInfo?.length ?? 0) > 0
+                && feature.zoomAtClick !== undefined
+                && feature.zoomAtClick < ATTRIBUTE_BUDGET_MINZOOM
+                ? t('featurePopup.zoomForAttributes')
+                : t('featurePopup.noAttributes')}
+            </p>
           ) : (
             <table className="w-full">
               <tbody>

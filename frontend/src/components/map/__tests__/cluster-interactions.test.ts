@@ -45,6 +45,18 @@ describe('cluster interactions', () => {
     });
   });
 
+  it('fix(#584): omits absent optional keys from visibleFields so the popup never renders them as "--"', () => {
+    const feature = {
+      properties: { point_count: 42 },
+      geometry: { type: 'Point', coordinates: [0, 0] },
+    };
+    expect(clusterAggregateFeatureInfo(feature, {
+      layerName: 'Stops',
+      sourceKind: 'server-tile',
+      locale: 'en-US',
+    }).visibleFields).toEqual(['feature_count', 'source']);
+  });
+
   it('zooms to server-provided expansion zoom for MVT clusters', async () => {
     const map = {
       getSource: vi.fn(),

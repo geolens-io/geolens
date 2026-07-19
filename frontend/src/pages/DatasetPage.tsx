@@ -184,6 +184,9 @@ export function DatasetPage() {
 
   const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
   const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
+  // fix(#583): pad the page clear of the open AI chat panel — the fixed panel
+  // otherwise floats over the sticky detail tabs and header stat cells.
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const isEditor = useAuthStore((s) => s.isEditor());
   // Owner-or-admin: mutating this dataset requires the editor capability AND
   // ownership (or admin), mirroring the backend check_dataset_write_access.
@@ -475,7 +478,7 @@ export function DatasetPage() {
   ];
 
   return (
-    <PageShell>
+    <PageShell className={cn('transition-[padding] duration-200', isChatOpen && 'lg:pe-[26.5rem]')}>
       <DatasetDetailHeader
         title={dataset.title}
         onTitleSave={handleSaveName}
@@ -629,6 +632,7 @@ export function DatasetPage() {
           datasetId={dataset.id}
           datasetTitle={dataset.title}
           showOpenInBuilder={!isTable}
+          onOpenChange={setIsChatOpen}
         />
       )}
 
