@@ -7,6 +7,41 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-07-19
+
+### Added
+
+- **Three deployment knobs for running GeoLens outside Docker Compose.** Each
+  is a plain container environment variable with a byte-preserving default,
+  so existing Compose deployments are unchanged:
+  - GDAL now honors custom S3 endpoints. Reads against MinIO, R2, or any
+    other non-AWS S3 backend derive `AWS_S3_ENDPOINT`, `AWS_HTTPS`, and
+    `AWS_VIRTUAL_HOSTING` from the existing `S3_*` settings at api and worker
+    start, and GDAL subprocesses inherit them. Explicit operator `AWS_*`
+    environment — and ambient-credential setups — always wins.
+  - `CLIENT_MAX_BODY_SIZE` replaces the frontend image's hardwired `500m`
+    upload ceiling. Invalid values fail fast at boot with a clear error
+    instead of crash-looping on an nginx config error.
+  - `TRUSTED_PROXY_CIDRS` recovers the real client address from
+    `X-Forwarded-For` behind a trusted load balancer, restoring accurate
+    access logs and anonymous raster rate limiting. Left unset, the rendered
+    configuration is equivalent to the previous overwrite behavior. Entries
+    are charset-validated, so environment values cannot inject nginx
+    directives.
+
+### Fixed
+
+- Dataset detail tabs are clickable again while the Ask AI panel is open. The
+  fixed panel covered the Access tab at 1440px, and Structure as well at
+  narrower widths; the page now reflows beside the panel.
+- Popup custom fields appear as soon as they are configured. Editing a layer's
+  popup fields rebuilt the tile request correctly, but maplibre-gl 5.x
+  silently dropped the reload while the tile source was paused, so the map
+  kept serving the pre-edit column set until a full page reload.
+- Popup fields that are configured but null on the clicked feature render as
+  `--` instead of vanishing, and the popup's empty state now reads "Zoom in to
+  view attributes" when the dataset has columns that low zoom levels strip.
+
 ## [1.4.9] - 2026-07-18
 
 ### Changed
