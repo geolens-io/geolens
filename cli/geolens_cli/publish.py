@@ -284,3 +284,121 @@ def handle_commit_already_processed(job_id: str, output: Any) -> None:
     """Per Pitfall 6: commit is not idempotent. Print + exit cleanly."""
     output.error(f"Job {job_id} was already committed (resume not supported in MVP)")
     raise typer.Exit(EXIT_GENERIC)
+
+
+# ---------------------------------------------------------------------------
+# Post-commit extras — --tags / --collection wiring (fix(#569))
+# ---------------------------------------------------------------------------
+
+
+def _split_tags(tags_csv: str) -> list[str]:
+    """Split a comma-separated tag list, trimming blanks and duplicates."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in tags_csv.split(","):
+        tag = raw.strip()
+        key = tag.lower()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    return out
+
+
+def _apply_tags(client: Any, dataset_id: str, tags_csv: str) -> list[str]:
+    """POST each tag as a record keyword. Returns failure descriptions."""
+    from geolens.api.records import (
+        create_keyword_endpoint_records_record_id_keywords_post as _kw,
+    )
+    from geolens.models.keyword_create import KeywordCreate
+
+    failures: list[str] = []
+    for tag in _split_tags(tags_csv):
+        resp = call_sdk(
+            _kw.sync_detailed,
+            record_id=UUID(dataset_id),
+            client=client,
+            body=KeywordCreate(keyword=tag),
+        )
+        if int(resp.status_code) != 201:
+            failures.append(f"tag {tag!r}: HTTP {int(resp.status_code)}")
+    return failures
+
+
+def _resolve_collection_id(client: Any, collection_ref: str) -> UUID | str:
+    """Resolve --collection to a collection id.
+
+    Accepts a UUID directly; otherwise matches the collection NAME
+    (case-insensitive, exact). Returns a UUID on success or a failure
+    description string.
+    """
+    try:
+        return UUID(collection_ref)
+    except ValueError:
+        pass
+
+    from geolens.api.datasets import (
+        list_collections_endpoint_catalog_collections_get as _list,
+    )
+
+    wanted = collection_ref.strip().lower()
+    matches: list[UUID] = []
+    skip = 0
+    page = 100
+    while True:
+        resp = call_sdk(_list.sync_detailed, client=client, skip=skip, limit=page)
+        if int(resp.status_code) != 200 or resp.parsed is None:
+            return f"collection lookup failed: HTTP {int(resp.status_code)}"
+        collections = getattr(resp.parsed, "collections", []) or []
+        matches.extend(c.id for c in collections if c.name.strip().lower() == wanted)
+        if len(collections) < page:
+            break
+        skip += page
+    if not matches:
+        return f"collection {collection_ref!r} not found (pass its id or exact name)"
+    if len(matches) > 1:
+        return f"collection name {collection_ref!r} is ambiguous ({len(matches)} matches) — pass its id"
+    return matches[0]
+
+
+def _apply_collection(client: Any, dataset_id: str, collection_ref: str) -> list[str]:
+    """Add the dataset to the referenced collection. Returns failures."""
+    from geolens.api.datasets import (
+        add_datasets_endpoint_catalog_collections_collection_id_datasets_post as _add,
+    )
+    from geolens.models.collection_add_datasets_request import (
+        CollectionAddDatasetsRequest,
+    )
+
+    resolved = _resolve_collection_id(client, collection_ref)
+    if isinstance(resolved, str):
+        return [resolved]
+    resp = call_sdk(
+        _add.sync_detailed,
+        collection_id=resolved,
+        client=client,
+        body=CollectionAddDatasetsRequest(dataset_ids=[UUID(dataset_id)]),
+    )
+    if int(resp.status_code) != 200:
+        return [f"collection add: HTTP {int(resp.status_code)}"]
+    return []
+
+
+def apply_publish_extras(
+    client: Any,
+    dataset_id: str,
+    tags_csv: Optional[str],
+    collection_ref: Optional[str],
+) -> list[str]:
+    """Apply post-commit --tags / --collection. Returns failure descriptions.
+
+    The dataset already exists by the time this runs — callers must report
+    failures WITHOUT implying the publish itself failed, then exit non-zero
+    so scripts notice the partial result.
+    """
+    failures: list[str] = []
+    if tags_csv:
+        failures.extend(_apply_tags(client, dataset_id, tags_csv))
+    if collection_ref:
+        failures.extend(_apply_collection(client, dataset_id, collection_ref))
+    return failures

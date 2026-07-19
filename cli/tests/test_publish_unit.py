@@ -641,3 +641,137 @@ class TestResolveDatasetIdNetworkError:
                 monotonic=iter([0.0, 1.0]).__next__,
             )
         assert exc_info.value.exit_code == EXIT_NETWORK
+
+
+# ---------------------------------------------------------------------------
+# fix(#569) — --tags / --collection wiring
+# ---------------------------------------------------------------------------
+
+
+class TestSplitTags:
+    def test_trims_dedupes_and_preserves_order(self) -> None:
+        from geolens_cli.publish import _split_tags
+
+        assert _split_tags(" hydro, Hydro, dem ,, terrain ") == ["hydro", "dem", "terrain"]
+
+
+class TestResolveCollectionId:
+    def test_uuid_passthrough(self) -> None:
+        from geolens_cli.publish import _resolve_collection_id
+
+        cid = "00000000-0000-0000-0000-00000000abcd"
+        assert _resolve_collection_id(MagicMock(), cid) == UUID(cid)
+
+    def _collections_response(self, names_ids: list[tuple[str, str]]) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.parsed = MagicMock(
+            collections=[
+                MagicMock(id=UUID(cid), name=name) for name, cid in names_ids
+            ]
+        )
+        # MagicMock(name=...) sets the mock's name, not the attribute
+        for m, (name, _cid) in zip(resp.parsed.collections, names_ids):
+            m.name = name
+        return resp
+
+    def test_exact_name_match_case_insensitive(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        resp = self._collections_response(
+            [("Human World", "00000000-0000-0000-0000-000000000001"),
+             ("Terrain", "00000000-0000-0000-0000-000000000002")]
+        )
+        monkeypatch.setattr(publish, "call_sdk", lambda *a, **k: resp)
+        got = publish._resolve_collection_id(MagicMock(), "human world")
+        assert got == UUID("00000000-0000-0000-0000-000000000001")
+
+    def test_missing_name_returns_failure_string(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        resp = self._collections_response([("Terrain", "00000000-0000-0000-0000-000000000002")])
+        monkeypatch.setattr(publish, "call_sdk", lambda *a, **k: resp)
+        got = publish._resolve_collection_id(MagicMock(), "nope")
+        assert isinstance(got, str) and "not found" in got
+
+
+class TestApplyPublishExtras:
+    def test_collects_failures_from_both_paths(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        monkeypatch.setattr(publish, "_apply_tags", lambda *a: ["tag 'x': HTTP 500"])
+        monkeypatch.setattr(publish, "_apply_collection", lambda *a: ["collection add: HTTP 404"])
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", "x", "c")
+        assert failures == ["tag 'x': HTTP 500", "collection add: HTTP 404"]
+
+    def test_noop_without_flags(self) -> None:
+        from geolens_cli.publish import apply_publish_extras
+
+        assert apply_publish_extras(MagicMock(), "d-id", None, None) == []
+
+
+class TestPublishExtrasCli:
+    def test_tags_with_no_wait_exits_usage(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        result = runner.invoke(
+            app, ["publish", str(sample_geojson), "--no-wait", "--tags", "a,b"]
+        )
+        assert result.exit_code == 2, result.output
+        assert "--wait" in result.output
+
+    def test_extras_failure_reports_partial_and_exits_nonzero(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+    ) -> None:
+        import geolens_cli.publish as publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id="00000000-0000-0000-0000-000000000042"),
+        )
+        monkeypatch.setattr(
+            publish, "apply_publish_extras", lambda *a, **k: ["tag 'x': HTTP 500"]
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson), "--tags", "x"])
+        assert result.exit_code == 1, result.output
+        assert "Dataset created, but" in result.output
+
+    def test_extras_success_keeps_exit_zero(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+    ) -> None:
+        import geolens_cli.publish as publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id="00000000-0000-0000-0000-000000000042"),
+        )
+        applied: dict = {}
+
+        def fake_extras(client, dataset_id, tags, collection):
+            applied["args"] = (dataset_id, tags, collection)
+            return []
+
+        monkeypatch.setattr(publish, "apply_publish_extras", fake_extras)
+
+        result = runner.invoke(
+            app,
+            ["publish", str(sample_geojson), "--tags", "hydro,dem", "--collection", "Terrain"],
+        )
+        assert result.exit_code == 0, result.output
+        assert applied["args"] == (
+            "00000000-0000-0000-0000-000000000042",
+            "hydro,dem",
+            "Terrain",
+        )

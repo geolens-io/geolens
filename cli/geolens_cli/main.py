@@ -594,14 +594,14 @@ def publish(
         Optional[str],
         typer.Option(
             "--tags",
-            help="Comma-separated keyword tags (currently a no-op; see docs.getgeolens.com)",
+            help="Comma-separated keywords added to the dataset after commit (requires --wait)",
         ),
     ] = None,
     collection: Annotated[
         Optional[str],
         typer.Option(
             "--collection",
-            help="Add to this collection after commit (currently a no-op; see docs.getgeolens.com)",
+            help="Collection id or exact name to add the dataset to after commit (requires --wait)",
         ),
     ] = None,
     wait: Annotated[
@@ -629,24 +629,16 @@ def publish(
         state.output.error("No instance configured. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
 
+    # fix(#569): --tags / --collection are wired post-commit, which needs the
+    # resolved dataset id — fail fast instead of silently dropping them.
+    if (tags or collection) and not wait:
+        state.output.error(
+            "--tags/--collection require --wait (the dataset id is resolved by waiting)"
+        )
+        raise typer.Exit(EXIT_USAGE)
+
     sdk = state.sdk()
     title = name or file.stem
-
-    # Deferred-flag warnings (Task 0 Q2 + Q5). These flags exist for forward
-    # compatibility but currently no-op; the docs site captures the
-    # user-facing TODO.
-    if tags:
-        # TODO(OCCLI-deferred): tags requires a post-commit PATCH or a
-        # `keywords` field on CommitRequest; see Phase 216 Open Question 4.
-        state.output.debug(
-            "tags deferred — CommitRequest does not expose a tags field; see Phase 216 Open Question 4",
-        )
-    if collection:
-        # TODO(OCCLI-deferred): collection-add endpoint not in SDK; see
-        # Phase 216 Open Question / CONTEXT.md Deferred Ideas.
-        state.output.debug(
-            "collection deferred — no add-to-collection endpoint in SDK; see Phase 216 Deferred Ideas",
-        )
 
     # Lazy SDK imports — keeps `geolens --help` snappy.
     from geolens.api.datasets import (
@@ -703,6 +695,21 @@ def publish(
         if wait:
             dataset_id = _publish.resolve_dataset_id(sdk.client, job_id)
 
+        # Stage 5 — fix(#569): apply --tags / --collection now that the
+        # dataset id exists. Failures here are PARTIAL: the dataset was
+        # created, so report honestly and exit non-zero below.
+        extras_failures: list[str] = []
+        if tags or collection:
+            if dataset_id is None:
+                extras_failures.append(
+                    "dataset id could not be resolved — tags/collection not applied"
+                )
+            else:
+                progress.add_task("Applying tags/collection...", total=None)
+                extras_failures = _publish.apply_publish_extras(
+                    sdk.client, dataset_id, tags, collection
+                )
+
     dataset_url = _publish.construct_dataset_url(
         instance,
         dataset_id=dataset_id,
@@ -715,11 +722,17 @@ def publish(
         "dataset_id": str(dataset_id) if dataset_id else None,
         "status": getattr(commit, "status", None),
     }
+    if tags or collection:
+        payload["extras_failures"] = extras_failures
 
     if state.json_mode:
         state.output.json(payload)
     else:
         state.output.success(f"Published: {dataset_url}")
+        for failure in extras_failures:
+            state.output.warn(f"Dataset created, but: {failure}")
+    if extras_failures:
+        raise typer.Exit(EXIT_GENERIC)
 
 
 @export_app.command("stac")
