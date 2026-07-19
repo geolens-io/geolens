@@ -27,10 +27,14 @@ fi
 # Render the nginx vhost from its template (see the TEMPLATE header in
 # frontend/nginx.conf). API_UPSTREAM points the /api, raster-tile, and embed
 # proxy blocks at the API service; NGINX_RESOLVER is the DNS server nginx uses
-# to re-resolve that hostname. Defaults preserve the Docker Compose topology:
-# the resolver falls back to the container's own /etc/resolv.conf nameserver,
-# which is 127.0.0.11 under Docker and the cluster DNS service on Kubernetes,
-# so the same image runs in both without configuration.
+# to re-resolve that hostname. The resolver default reads the container's own
+# /etc/resolv.conf nameserver (127.0.0.11 under Docker, cluster DNS on
+# Kubernetes) and needs no configuration anywhere. The upstream default
+# (http://api:8000) is compose-only: nginx's resolver does not apply
+# resolv.conf search domains, so on Kubernetes API_UPSTREAM must be set to
+# the api Service's fully qualified name
+# (e.g. http://geolens-api.<namespace>.svc.cluster.local:8000) — a short
+# service name will NXDOMAIN. The Helm chart passes exactly that.
 API_UPSTREAM="${API_UPSTREAM:-http://api:8000}"
 # Codex P2 (#577): strip trailing slashes — a URI component in a variable
 # proxy_pass replaces the rewritten request URI wholesale, so a value like
