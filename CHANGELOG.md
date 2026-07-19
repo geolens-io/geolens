@@ -7,6 +7,36 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.9] - 2026-07-18
+
+### Changed
+
+- **The frontend image can now front the API outside Docker Compose.** Its
+  bundled nginx renders its proxy configuration at container start, taking
+  the API upstream (`API_UPSTREAM`) and DNS resolver (`NGINX_RESOLVER`) from
+  the environment instead of hardwiring Docker-only values. Compose
+  deployments are unchanged (the defaults are identical); Kubernetes
+  deployments set `API_UPSTREAM` to the api Service's fully qualified name —
+  which the community Helm chart
+  ([geolens-deployments](https://github.com/geolens-io/geolens-deployments)
+  0.3.x) now does. Trailing slashes on `API_UPSTREAM` are stripped, and bare
+  IPv6 resolvers are bracketed.
+- The install script's ready banner now points at where the admin password
+  was configured, and README/SECURITY polish landed alongside it (badge
+  links, MCP server in the security-policy scope, an `/api/health` note).
+
+### Fixed
+
+- The public OpenAPI document no longer carries internal operation labels or
+  compliance-implying wording.
+- Post-1.4.8 audit follow-ups: geometry-only GeoParquet uploads fail with a
+  clear ingestion error instead of publishing an empty dataset; primary-key
+  rename migrations quote constraint identifiers; the admin sidebar clears
+  the navbar on notched devices; the dataset Ask-AI button is no longer
+  covered by the pending-edits bar; the public viewer's error page no longer
+  overflows when the site banner is shown; Spanish AI-chat wording is
+  consistent with the rest of the locale.
+
 ## [1.4.8] - 2026-07-18
 
 ### Added
