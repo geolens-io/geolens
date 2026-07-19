@@ -89,7 +89,11 @@ export function clusterAggregateFeatureInfo(
     // fix(#438): I18N-02 — was `Cluster: N feature(s)` with manual English
     // pluralization; now an i18next plural key.
     title: i18n.t('builder:cluster.popupTitle', { count, countLabel }),
-    visibleFields: ['feature_count', 'source', 'expansion_zoom', 'cluster_id'],
+    // fix(#584, codex #586 r4): only list keys actually present — the popup's
+    // no-schema fallback renders configured-but-absent fields as '--', which
+    // would surface a meaningless "Expansion Zoom: --" on clusters without one.
+    visibleFields: ['feature_count', 'source', 'expansion_zoom', 'cluster_id']
+      .filter((k) => k in aggregateProperties),
   };
 }
 
