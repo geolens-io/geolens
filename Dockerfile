@@ -285,6 +285,15 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 USER root
 RUN apk upgrade --no-cache
+# The vhost ships as a template rendered into /tmp/geolens-nginx at startup
+# (envsubst of API_UPSTREAM/NGINX_RESOLVER — see frontend/docker-entrypoint.sh),
+# so the stock conf.d include must point at the rendered location. Remove the
+# base image's default vhost so nothing can serve if conf.d ever gets
+# re-included, and assert the include rewrite matched so a base-image layout
+# change fails this build instead of shipping an nginx with no server block.
+RUN rm -f /etc/nginx/conf.d/default.conf && \
+    sed -i 's|include /etc/nginx/conf\.d/\*\.conf;|include /tmp/geolens-nginx/*.conf;|' /etc/nginx/nginx.conf && \
+    grep -q 'include /tmp/geolens-nginx/\*\.conf;' /etc/nginx/nginx.conf
 USER nginx
 
 # Keep the built SPA immutable. The entrypoint copies it into /tmp at startup,
@@ -292,7 +301,7 @@ USER nginx
 # read-only production root filesystem without mutating image layers.
 COPY --from=frontend-build --chown=nginx:nginx /app/dist /opt/geolens/html
 COPY --from=frontend-build --chown=nginx:nginx /app/public/env-config.template.js /opt/geolens/html/env-config.template.js
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /opt/geolens/default.conf.template
 COPY --chmod=755 frontend/docker-entrypoint.sh /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

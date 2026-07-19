@@ -24,5 +24,37 @@ if [ -n "${PUBLIC_APP_URL:-}" ]; then
   rm -f /tmp/index.html.new
 fi
 
+# Render the nginx vhost from its template (see the TEMPLATE header in
+# frontend/nginx.conf). API_UPSTREAM points the /api, raster-tile, and embed
+# proxy blocks at the API service; NGINX_RESOLVER is the DNS server nginx uses
+# to re-resolve that hostname. The resolver default reads the container's own
+# /etc/resolv.conf nameserver (127.0.0.11 under Docker, cluster DNS on
+# Kubernetes) and needs no configuration anywhere. The upstream default
+# (http://api:8000) is compose-only: nginx's resolver does not apply
+# resolv.conf search domains, so on Kubernetes API_UPSTREAM must be set to
+# the api Service's fully qualified name
+# (e.g. http://geolens-api.<namespace>.svc.cluster.local:8000) — a short
+# service name will NXDOMAIN. The Helm chart passes exactly that.
+API_UPSTREAM="${API_UPSTREAM:-http://api:8000}"
+# Codex P2 (#577): strip trailing slashes — a URI component in a variable
+# proxy_pass replaces the rewritten request URI wholesale, so a value like
+# http://api:8000/ would proxy every /api, raster, and embed request to "/".
+while [ "${API_UPSTREAM%/}" != "$API_UPSTREAM" ]; do
+  API_UPSTREAM="${API_UPSTREAM%/}"
+done
+if [ -z "${NGINX_RESOLVER:-}" ]; then
+  NGINX_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null || true)"
+fi
+NGINX_RESOLVER="${NGINX_RESOLVER:-127.0.0.11}"
+case "$NGINX_RESOLVER" in
+  \[*) ;;
+  *:*:*) NGINX_RESOLVER="[$NGINX_RESOLVER]" ;;  # bare IPv6 nameserver → nginx bracket syntax
+esac
+export API_UPSTREAM NGINX_RESOLVER
+mkdir -p /tmp/geolens-nginx
+envsubst '$API_UPSTREAM $NGINX_RESOLVER' \
+  < /opt/geolens/default.conf.template \
+  > /tmp/geolens-nginx/default.conf
+
 # Replace shell with nginx (PID 1).
 exec nginx -g 'daemon off;'
