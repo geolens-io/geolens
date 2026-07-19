@@ -88,6 +88,18 @@ describe('formatGsd', () => {
     expect(formatGsd(2, { isGeographic: true }, 'en-US')).toContain('2°');
   });
 
+  it('fix(#588): sub-arcsecond pixels keep their precision instead of rounding to 0\u2033', () => {
+    // ~30 cm EPSG:4326 imagery ≈ 0.0097 arc-seconds — a fixed 1-decimal
+    // format rendered this as '0″ (≈30 cm)'.
+    const label = formatGsd(0.3 / 111_320, { isGeographic: true }, 'en-US');
+    expect(label).not.toMatch(/(^|[^.\d])0\u2033/);
+    expect(label).toContain('0.0097');
+    expect(label).toContain('30 cm');
+    // 1″ and above keep the compact single-decimal form
+    expect(formatGsd(1 / 3600, { isGeographic: true }, 'en-US')).toContain('1\u2033');
+    expect(formatGsd(1.5 / 3600, { isGeographic: true }, 'en-US')).toContain('1.5\u2033');
+  });
+
   it('falls back to the EPSG:4326 heuristic for payloads without the flag', () => {
     expect(formatGsd(1 / 60, { crs: 'EPSG:4326' }, 'en-US')).toContain('″');
     // unknown CRS without the flag keeps the legacy meters formatting

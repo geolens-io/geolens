@@ -110,7 +110,12 @@ export function formatGsd(
     // arc-seconds ("30 arc-second", "60 arc-second"), so 60″ stays 60″.
     arc = `${(arcSeconds / 60).toLocaleString(locale, { maximumFractionDigits: 1 })}′`;
   } else {
-    arc = `${arcSeconds.toLocaleString(locale, { maximumFractionDigits: 1 })}″`;
+    // fix(#588): sub-arcsecond pixels (e.g. ~0.01″ / 30 cm EPSG:4326 drone
+    // imagery) round to a meaningless "0″" at a fixed 1 decimal. Below 1″,
+    // switch to significant digits so any magnitude stays readable.
+    const secondsOpts: Intl.NumberFormatOptions =
+      arcSeconds >= 1 ? { maximumFractionDigits: 1 } : { maximumSignificantDigits: 2 };
+    arc = `${arcSeconds.toLocaleString(locale, secondsOpts)}″`;
   }
   return `${arc} (≈${formatMetersGsd(gsd * METERS_PER_DEGREE, locale)})`;
 }
