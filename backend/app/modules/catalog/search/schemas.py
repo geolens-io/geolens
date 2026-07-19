@@ -118,6 +118,13 @@ class OGCRecordProperties(BaseModel):
     record_status: str | None = None
     has_quicklook: bool = False
     gsd: float | None = None
+    crs_is_geographic: bool | None = Field(
+        default=None,
+        description=(
+            "True when the raster CRS is geographic (gsd/res are degrees, "
+            "not meters); None when the CRS class is unknown."
+        ),
+    )
     vrt_type: str | None = None
     source_count: int | None = None
     dataset_count: int | None = None

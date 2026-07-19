@@ -7,6 +7,7 @@ main.py and the rich.Progress UI.
 
 Hand-maintained — NOT regenerated.
 """
+
 from __future__ import annotations
 
 import json
@@ -88,6 +89,54 @@ class TestConstructDatasetUrl:
         assert "job_id=job-9" in url
         assert url.startswith("https://x.example.com/datasets")
 
+    def test_fix588_drops_the_canonical_api_suffix_for_the_web_url(self) -> None:
+        """The stored instance is always /api-suffixed; the printed URL must
+        point at the browser page, not the JSON endpoint."""
+        from geolens_cli.publish import construct_dataset_url
+
+        assert (
+            construct_dataset_url(
+                "http://localhost:8080/api", dataset_id="ds-1", job_id="j"
+            )
+            == "http://localhost:8080/datasets/ds-1"
+        )
+        # subpath deployments keep their prefix
+        assert (
+            construct_dataset_url(
+                "https://x.example.com/geolens/api", dataset_id="ds-1", job_id="j"
+            )
+            == "https://x.example.com/geolens/datasets/ds-1"
+        )
+        # no-dataset-id fallback strips it too
+        assert (
+            construct_dataset_url(
+                "http://localhost:8080/api", dataset_id=None, job_id="j9"
+            )
+            == "http://localhost:8080/datasets?job_id=j9"
+        )
+
+    def test_fix588_leaves_a_host_named_api_alone(self) -> None:
+        from geolens_cli.publish import construct_dataset_url
+
+        # Path-segment aware: 'api' as the HOST is not a trailing /api path.
+        assert (
+            construct_dataset_url(
+                "https://api.example.com", dataset_id="ds-1", job_id="j"
+            )
+            == "https://api.example.com/datasets/ds-1"
+        )
+        assert (
+            construct_dataset_url("http://api", dataset_id="ds-1", job_id="j")
+            == "http://api/datasets/ds-1"
+        )
+        # …but a real /api path segment on such a host still goes
+        assert (
+            construct_dataset_url(
+                "https://api.example.com/api", dataset_id="ds-1", job_id="j"
+            )
+            == "https://api.example.com/datasets/ds-1"
+        )
+
 
 class TestBuildCommitRequest:
     def test_title_only(self) -> None:
@@ -139,10 +188,19 @@ class TestIsDuplicateCommitResponse:
     def test_400_with_already_processed_detail(self) -> None:
         from geolens_cli.publish import is_duplicate_commit_response
 
-        resp = MagicMock(status_code=HTTPStatus.BAD_REQUEST, parsed=MagicMock(detail="Job already processed"))
+        resp = MagicMock(
+            status_code=HTTPStatus.BAD_REQUEST,
+            parsed=MagicMock(detail="Job already processed"),
+        )
         # Make isinstance(resp.parsed, ProblemDetail) work for the helper:
         from geolens.models.problem_detail import ProblemDetail
-        resp.parsed = ProblemDetail(detail="Job already processed", status=400, title="Bad Request", type_="about:blank")
+
+        resp.parsed = ProblemDetail(
+            detail="Job already processed",
+            status=400,
+            title="Bad Request",
+            type_="about:blank",
+        )
         resp.status_code = HTTPStatus.BAD_REQUEST
         assert is_duplicate_commit_response(resp) is True
 
@@ -152,7 +210,12 @@ class TestIsDuplicateCommitResponse:
 
         resp = MagicMock()
         resp.status_code = HTTPStatus.CONFLICT
-        resp.parsed = ProblemDetail(detail="Job already processed", status=409, title="Conflict", type_="about:blank")
+        resp.parsed = ProblemDetail(
+            detail="Job already processed",
+            status=409,
+            title="Conflict",
+            type_="about:blank",
+        )
         assert is_duplicate_commit_response(resp) is True
 
     def test_400_with_unrelated_detail_returns_false(self) -> None:
@@ -161,7 +224,12 @@ class TestIsDuplicateCommitResponse:
 
         resp = MagicMock()
         resp.status_code = HTTPStatus.BAD_REQUEST
-        resp.parsed = ProblemDetail(detail="Validation failed", status=400, title="Bad Request", type_="about:blank")
+        resp.parsed = ProblemDetail(
+            detail="Validation failed",
+            status=400,
+            title="Bad Request",
+            type_="about:blank",
+        )
         assert is_duplicate_commit_response(resp) is False
 
     def test_202_returns_false(self) -> None:
@@ -251,9 +319,7 @@ def patch_sdk_for_publish(monkeypatch):
     def _install(*, upload, preview, commit, job_status=None):
         # BUG-034: publish now invokes upload_file via call_sdk with keyword
         # args (client=, path=); accept both positional and keyword shapes.
-        monkeypatch.setattr(
-            "geolens_cli.publish.upload_file", lambda *a, **k: upload
-        )
+        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda *a, **k: upload)
         monkeypatch.setattr(
             "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: preview,
@@ -282,7 +348,9 @@ def _ok_upload(job_id: str = "00000000-0000-0000-0000-000000000001"):
 def _ok_preview():
     from geolens_cli import publish as _publish
 
-    return MagicMock(status_code=HTTPStatus(_publish.PREVIEW_OK_STATUS), parsed=MagicMock())
+    return MagicMock(
+        status_code=HTTPStatus(_publish.PREVIEW_OK_STATUS), parsed=MagicMock()
+    )
 
 
 def _ok_commit(job_id: str = "00000000-0000-0000-0000-000000000001"):
@@ -301,7 +369,9 @@ def _ok_job_status(dataset_id: str | None, status: str = "completed"):
     parsed = MagicMock()
     parsed.dataset_id = UUID(dataset_id) if dataset_id else None
     parsed.status = status
-    return MagicMock(status_code=HTTPStatus(_publish.JOB_STATUS_OK_STATUS), parsed=parsed)
+    return MagicMock(
+        status_code=HTTPStatus(_publish.JOB_STATUS_OK_STATUS), parsed=parsed
+    )
 
 
 class TestPublishCli:
@@ -318,7 +388,13 @@ class TestPublishCli:
         assert result.exit_code != 0, result.output
 
     def test_publish_success_prints_dataset_url(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         from geolens_cli.main import app
 
@@ -328,15 +404,26 @@ class TestPublishCli:
             upload=_ok_upload(),
             preview=_ok_preview(),
             commit=_ok_commit(),
-            job_status=_ok_job_status(dataset_id="00000000-0000-0000-0000-000000000042"),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
         )
 
         result = runner.invoke(app, ["publish", str(sample_geojson)])
         assert result.exit_code == 0, result.output
-        assert "https://x.example.com/datasets/00000000-0000-0000-0000-000000000042" in result.output
+        assert (
+            "https://x.example.com/datasets/00000000-0000-0000-0000-000000000042"
+            in result.output
+        )
 
     def test_publish_no_wait_emits_job_search_url(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         from geolens_cli.main import app
 
@@ -354,7 +441,13 @@ class TestPublishCli:
         assert "job_id=00000000-0000-0000-0000-000000000001" in result.output
 
     def test_publish_409_exits_generic(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         from geolens_cli.main import app
         from geolens.models.problem_detail import ProblemDetail
@@ -384,7 +477,13 @@ class TestPublishCli:
         assert "already committed" in result.output
 
     def test_publish_400_already_processed_exits_generic(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         """Task 0 Q3: backend actually emits 400 (not 409) for duplicate commits."""
         from geolens_cli.main import app
@@ -413,7 +512,13 @@ class TestPublishCli:
         assert "already committed" in result.output
 
     def test_progress_suppressed_non_tty(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         """CliRunner output is not a TTY; rich.Progress(disable=True) emits nothing."""
         from geolens_cli.main import app
@@ -424,7 +529,9 @@ class TestPublishCli:
             upload=_ok_upload(),
             preview=_ok_preview(),
             commit=_ok_commit(),
-            job_status=_ok_job_status(dataset_id="00000000-0000-0000-0000-000000000042"),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
         )
 
         result = runner.invoke(app, ["publish", str(sample_geojson)])
@@ -433,7 +540,13 @@ class TestPublishCli:
             assert spinner not in result.output
 
     def test_json_mode_emits_payload(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         from geolens_cli.main import app
 
@@ -443,17 +556,27 @@ class TestPublishCli:
             upload=_ok_upload(),
             preview=_ok_preview(),
             commit=_ok_commit(),
-            job_status=_ok_job_status(dataset_id="00000000-0000-0000-0000-000000000042"),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
         )
 
         result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
-        assert payload["dataset_url"].endswith("/datasets/00000000-0000-0000-0000-000000000042")
+        assert payload["dataset_url"].endswith(
+            "/datasets/00000000-0000-0000-0000-000000000042"
+        )
         assert payload["job_id"] == "00000000-0000-0000-0000-000000000001"
 
     def test_publish_uses_filename_stem_when_no_name(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
     ) -> None:
         """The CommitRequest title falls back to file.stem when --name is omitted."""
         from geolens_cli.main import app
@@ -477,7 +600,9 @@ class TestPublishCli:
                 ),
             )
 
-        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload())
+        monkeypatch.setattr(
+            "geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload()
+        )
         monkeypatch.setattr(
             "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: _ok_preview(),
@@ -516,7 +641,9 @@ class TestPublishCli:
                 ),
             )
 
-        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload())
+        monkeypatch.setattr(
+            "geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload()
+        )
         monkeypatch.setattr(
             "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: _ok_preview(),
@@ -527,7 +654,16 @@ class TestPublishCli:
         )
 
         result = runner.invoke(
-            app, ["publish", str(sample_geojson), "--name", "My Cities", "--description", "hello", "--no-wait"]
+            app,
+            [
+                "publish",
+                str(sample_geojson),
+                "--name",
+                "My Cities",
+                "--description",
+                "hello",
+                "--no-wait",
+            ],
         )
         assert result.exit_code == 0, result.output
         assert isinstance(captured["body"], CommitRequest)
@@ -586,7 +722,12 @@ class TestPublishNetworkErrors:
         assert result.exit_code == EXIT_NETWORK, result.output
 
     def test_job_status_poll_network_error_exits_network(
-        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson,
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
         import httpx
@@ -641,3 +782,322 @@ class TestResolveDatasetIdNetworkError:
                 monotonic=iter([0.0, 1.0]).__next__,
             )
         assert exc_info.value.exit_code == EXIT_NETWORK
+
+
+# ---------------------------------------------------------------------------
+# fix(#569) — --tags / --collection wiring
+# ---------------------------------------------------------------------------
+
+
+class TestSplitTags:
+    def test_trims_dedupes_and_preserves_order(self) -> None:
+        from geolens_cli.publish import _split_tags
+
+        assert _split_tags(" hydro, Hydro, dem ,, terrain ") == [
+            "hydro",
+            "dem",
+            "terrain",
+        ]
+
+
+class TestResolveRecordId:
+    """fix(#588): keywords are RECORD-scoped; Dataset.id != Dataset.record_id."""
+
+    def test_returns_record_id_not_dataset_id(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        dataset_id = "40e4c02d-d509-4046-8718-baadad2b59c7"
+        record_id = UUID("d736d1bb-0191-4ca4-a473-c2bcc6d123da")
+        resp = MagicMock(status_code=200, parsed=MagicMock(record_id=record_id))
+        monkeypatch.setattr(publish, "call_sdk", lambda *a, **k: resp)
+
+        got = publish._resolve_record_id(MagicMock(), dataset_id)
+        assert got == record_id
+        assert str(got) != dataset_id
+
+    def test_lookup_failure_returns_description(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        resp = MagicMock(status_code=404, parsed=None)
+        monkeypatch.setattr(publish, "call_sdk", lambda *a, **k: resp)
+        got = publish._resolve_record_id(
+            MagicMock(), "40e4c02d-d509-4046-8718-baadad2b59c7"
+        )
+        assert isinstance(got, str) and "record lookup failed" in got
+
+
+class TestApplyTags:
+    def test_posts_keywords_against_the_record_id(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        dataset_id = "40e4c02d-d509-4046-8718-baadad2b59c7"
+        record_id = UUID("d736d1bb-0191-4ca4-a473-c2bcc6d123da")
+        monkeypatch.setattr(publish, "_resolve_record_id", lambda *a: record_id)
+        seen: list = []
+
+        def fake_call_sdk(fn, **kwargs):
+            seen.append(kwargs)
+            return MagicMock(status_code=201)
+
+        monkeypatch.setattr(publish, "call_sdk", fake_call_sdk)
+        failures = publish._apply_tags(MagicMock(), dataset_id, "hydro, dem")
+
+        assert failures == []
+        assert [k["record_id"] for k in seen] == [record_id, record_id]
+        assert [k["body"].keyword for k in seen] == ["hydro", "dem"]
+
+    def test_record_lookup_failure_short_circuits(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        monkeypatch.setattr(
+            publish, "_resolve_record_id", lambda *a: "record lookup failed: HTTP 404"
+        )
+
+        def explode(*a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("keyword POST attempted despite failed record lookup")
+
+        monkeypatch.setattr(publish, "call_sdk", explode)
+        assert publish._apply_tags(MagicMock(), "d-id", "x") == [
+            "record lookup failed: HTTP 404"
+        ]
+
+    def test_non_201_is_reported_per_tag(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        monkeypatch.setattr(publish, "_resolve_record_id", lambda *a: UUID(int=7))
+        monkeypatch.setattr(
+            publish, "call_sdk", lambda *a, **k: MagicMock(status_code=500)
+        )
+        assert publish._apply_tags(MagicMock(), "d-id", "x,y") == [
+            "tag 'x': HTTP 500",
+            "tag 'y': HTTP 500",
+        ]
+
+
+class TestResolveCollectionId:
+    def test_uuid_passthrough(self) -> None:
+        from geolens_cli.publish import _resolve_collection_id
+
+        cid = "00000000-0000-0000-0000-00000000abcd"
+        assert _resolve_collection_id(MagicMock(), cid) == UUID(cid)
+
+    def _collections_response(self, names_ids: list[tuple[str, str]]) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.parsed = MagicMock(
+            collections=[MagicMock(id=UUID(cid), name=name) for name, cid in names_ids]
+        )
+        # MagicMock(name=...) sets the mock's name, not the attribute
+        for m, (name, _cid) in zip(resp.parsed.collections, names_ids):
+            m.name = name
+        return resp
+
+    def test_exact_name_match_case_insensitive(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        resp = self._collections_response(
+            [
+                ("Human World", "00000000-0000-0000-0000-000000000001"),
+                ("Terrain", "00000000-0000-0000-0000-000000000002"),
+            ]
+        )
+        monkeypatch.setattr(publish, "call_sdk", lambda *a, **k: resp)
+        got = publish._resolve_collection_id(MagicMock(), "human world")
+        assert got == UUID("00000000-0000-0000-0000-000000000001")
+
+    def test_missing_name_returns_failure_string(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        resp = self._collections_response(
+            [("Terrain", "00000000-0000-0000-0000-000000000002")]
+        )
+        monkeypatch.setattr(publish, "call_sdk", lambda *a, **k: resp)
+        got = publish._resolve_collection_id(MagicMock(), "nope")
+        assert isinstance(got, str) and "not found" in got
+
+
+class TestApplyPublishExtras:
+    def test_collects_failures_from_both_paths(self, monkeypatch) -> None:
+        import geolens_cli.publish as publish
+
+        monkeypatch.setattr(publish, "_apply_tags", lambda *a: ["tag 'x': HTTP 500"])
+        monkeypatch.setattr(
+            publish, "_apply_collection", lambda *a: ["collection add: HTTP 404"]
+        )
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", "x", "c")
+        assert failures == ["tag 'x': HTTP 500", "collection add: HTTP 404"]
+
+    def test_noop_without_flags(self) -> None:
+        from geolens_cli.publish import apply_publish_extras
+
+        assert apply_publish_extras(MagicMock(), "d-id", None, None) == []
+
+
+class TestApplyPublishExtrasNeverRaises:
+    """fix(#588): a transport error after commit must not swallow the URL."""
+
+    def test_typer_exit_from_tags_becomes_a_failure_line(self, monkeypatch) -> None:
+        import typer
+
+        import geolens_cli.publish as publish
+
+        def boom(*a, **k):
+            raise typer.Exit(4)
+
+        monkeypatch.setattr(publish, "_apply_tags", boom)
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", "x", None)
+        assert failures == ["tags: request failed (exit code 4)"]
+
+    def test_collection_still_attempted_after_tags_transport_failure(
+        self, monkeypatch
+    ) -> None:
+        import typer
+
+        import geolens_cli.publish as publish
+
+        def boom(*a, **k):
+            raise typer.Exit(4)
+
+        monkeypatch.setattr(publish, "_apply_tags", boom)
+        monkeypatch.setattr(publish, "_apply_collection", lambda *a: [])
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", "x", "Terrain")
+        # tags reported; the collection attempt was NOT skipped (it succeeded)
+        assert failures == ["tags: request failed (exit code 4)"]
+
+    def test_unexpected_exception_is_described_not_propagated(
+        self, monkeypatch
+    ) -> None:
+        import geolens_cli.publish as publish
+
+        def boom(*a, **k):
+            raise ValueError("bad uuid")
+
+        monkeypatch.setattr(publish, "_apply_collection", boom)
+        failures = publish.apply_publish_extras(MagicMock(), "d-id", None, "Terrain")
+        assert failures == ["collection: ValueError: bad uuid"]
+
+
+class TestPublishExtrasCli:
+    def test_tags_with_no_wait_exits_usage(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        result = runner.invoke(
+            app, ["publish", str(sample_geojson), "--no-wait", "--tags", "a,b"]
+        )
+        assert result.exit_code == 2, result.output
+        assert "--wait" in result.output
+
+    def test_extras_failure_reports_partial_and_exits_nonzero(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        import geolens_cli.publish as publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
+        )
+        monkeypatch.setattr(
+            publish, "apply_publish_extras", lambda *a, **k: ["tag 'x': HTTP 500"]
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson), "--tags", "x"])
+        assert result.exit_code == 1, result.output
+        assert "Dataset created, but" in result.output
+
+    def test_transport_failure_in_extras_still_prints_dataset_url(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix(#588): the dataset exists — never exit without the recovery info."""
+        import typer
+
+        import geolens_cli.publish as publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
+        )
+
+        def network_boom(*a, **k):
+            raise typer.Exit(4)
+
+        # Simulate the raise happening INSIDE the extras (call_sdk's behavior).
+        monkeypatch.setattr(publish, "_apply_tags", network_boom)
+
+        result = runner.invoke(app, ["publish", str(sample_geojson), "--tags", "x"])
+        assert result.exit_code == 1, result.output
+        assert "00000000-0000-0000-0000-000000000042" in result.output
+        assert "Dataset created, but" in result.output
+
+    def test_extras_success_keeps_exit_zero(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        import geolens_cli.publish as publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042"
+            ),
+        )
+        applied: dict = {}
+
+        def fake_extras(client, dataset_id, tags, collection):
+            applied["args"] = (dataset_id, tags, collection)
+            return []
+
+        monkeypatch.setattr(publish, "apply_publish_extras", fake_extras)
+
+        result = runner.invoke(
+            app,
+            [
+                "publish",
+                str(sample_geojson),
+                "--tags",
+                "hydro,dem",
+                "--collection",
+                "Terrain",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert applied["args"] == (
+            "00000000-0000-0000-0000-000000000042",
+            "hydro,dem",
+            "Terrain",
+        )

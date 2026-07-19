@@ -46,3 +46,24 @@ def make_bbox_filter(
     else:
         envelope = func.ST_MakeEnvelope(west, south, east, north, 4326)
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
+
+
+def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
+    """Classify a CRS WKT as geographic (degree units) or projected.
+
+    fix(#569): the frontend rendered geographic-CRS pixel resolutions as
+    meters ("60 arc-second" ETOPO showed "2 cm"). The API has no proj
+    library, but the stored WKT's root/inner keyword is enough: a projected
+    CRS contains PROJCRS (WKT2) / PROJCS (WKT1) — checked FIRST because
+    WKT1 nests a GEOGCS inside every PROJCS — otherwise a GEOGCRS/GEOGCS
+    keyword (including inside a COMPOUNDCRS like EPSG:9518) means
+    geographic. Engineering/local/unknown CRSs return None.
+    """
+    if not crs_wkt:
+        return None
+    head = crs_wkt[:2000].upper()
+    if "PROJCRS" in head or "PROJCS" in head:
+        return False
+    if "GEOGCRS" in head or "GEOGCS" in head:
+        return True
+    return None

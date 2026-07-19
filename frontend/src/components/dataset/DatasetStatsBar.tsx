@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { formatNumber, formatRelativeDate } from '@/lib/format';
+import { formatGsd, formatNumber, formatRelativeDate } from '@/lib/format';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { computeRasterGsd } from '@/lib/geo-utils';
 import type { DatasetResponse } from '@/types/api';
@@ -38,7 +38,7 @@ interface DatasetStatsBarProps {
 }
 
 export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
-  const { t } = useTranslation('dataset');
+  const { t, i18n } = useTranslation('dataset');
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -59,7 +59,16 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
     if (rasterGsd != null) {
       cells.push({
         label: t('raster.resolution', { defaultValue: 'Resolution' }),
-        value: `${rasterGsd} m`,
+        // fix(#569): res_x/res_y are CRS units — a geographic CRS delivers
+        // degrees, which must not be labeled meters.
+        value: formatGsd(
+          rasterGsd,
+          {
+            isGeographic: dataset.raster?.crs_is_geographic,
+            crs: dataset.raster?.epsg != null ? `EPSG:${dataset.raster.epsg}` : null,
+          },
+          i18n.language,
+        ),
         mono: true,
       });
     }

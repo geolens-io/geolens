@@ -26,6 +26,8 @@ class RasterMetadata:
         bands (list[RasterBandInfo] | Unset):
         compression (None | str | Unset): Internal compression, e.g. DEFLATE, LZW
         connect (None | RasterConnect | Unset):
+        crs_is_geographic (bool | None | Unset): True when the raster CRS is geographic (res_x/res_y are degrees, not
+            meters); None when the CRS class is unknown.
         epsg (int | None | Unset): EPSG code of the raster CRS
         height (int | None | Unset): Raster height in pixels
         is_dem (bool | None | Unset): True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade
@@ -45,6 +47,7 @@ class RasterMetadata:
     bands: list[RasterBandInfo] | Unset = UNSET
     compression: None | str | Unset = UNSET
     connect: None | RasterConnect | Unset = UNSET
+    crs_is_geographic: bool | None | Unset = UNSET
     epsg: int | None | Unset = UNSET
     height: int | None | Unset = UNSET
     is_dem: bool | None | Unset = UNSET
@@ -89,6 +92,12 @@ class RasterMetadata:
             connect = self.connect.to_dict()
         else:
             connect = self.connect
+
+        crs_is_geographic: bool | None | Unset
+        if isinstance(self.crs_is_geographic, Unset):
+            crs_is_geographic = UNSET
+        else:
+            crs_is_geographic = self.crs_is_geographic
 
         epsg: int | None | Unset
         if isinstance(self.epsg, Unset):
@@ -179,6 +188,8 @@ class RasterMetadata:
             field_dict["compression"] = compression
         if connect is not UNSET:
             field_dict["connect"] = connect
+        if crs_is_geographic is not UNSET:
+            field_dict["crs_is_geographic"] = crs_is_geographic
         if epsg is not UNSET:
             field_dict["epsg"] = epsg
         if height is not UNSET:
@@ -258,6 +269,15 @@ class RasterMetadata:
             return cast(None | RasterConnect | Unset, data)
 
         connect = _parse_connect(d.pop("connect", UNSET))
+
+        def _parse_crs_is_geographic(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        crs_is_geographic = _parse_crs_is_geographic(d.pop("crs_is_geographic", UNSET))
 
         def _parse_epsg(data: object) -> int | None | Unset:
             if data is None:
@@ -383,6 +403,7 @@ class RasterMetadata:
             bands=bands,
             compression=compression,
             connect=connect,
+            crs_is_geographic=crs_is_geographic,
             epsg=epsg,
             height=height,
             is_dem=is_dem,

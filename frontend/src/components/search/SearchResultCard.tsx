@@ -10,6 +10,7 @@ import { BBoxPreview } from '@/components/layout/BBoxPreview';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
+import { formatGsd } from '@/lib/format';
 import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
@@ -32,15 +33,6 @@ const statusVariants: Record<string, 'outline' | 'secondary'> = {
   archived: 'secondary',
   deprecated: 'outline',
 };
-
-function formatGsd(gsd: number, crs: string | null | undefined, locale: string): string {
-  // For geographic CRS (degree-based), don't show GSD — it's meaningless as a distance
-  if (crs && /^EPSG:4326$/i.test(crs)) return '';
-  // Sub-meter
-  if (gsd < 1) return `${(gsd * 100).toLocaleString(locale, { maximumFractionDigits: 0 })} cm`;
-  if (gsd < 1000) return `${Math.round(gsd).toLocaleString(locale)} m`;
-  return `${(gsd / 1000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
-}
 
 function capitalizeVrtType(vrtType: string): string {
   // 'mosaic' -> 'Mosaic', 'band_stack' -> 'Band Stack'
@@ -75,7 +67,7 @@ function buildCardSpecs(
   }
 
   if (isRaster && properties.gsd != null) {
-    const label = formatGsd(properties.gsd, properties.crs, locale);
+    const label = formatGsd(properties.gsd, { isGeographic: properties.crs_is_geographic, crs: properties.crs }, locale);
     if (label) specs.push({ icon: Ruler, label });
   }
 
@@ -128,7 +120,7 @@ function buildAutoDescription(
     case 'raster_dataset':
       return t('card.autoDesc.raster', {
         count: properties.band_count ?? 0,
-        gsd: properties.gsd != null ? formatGsd(properties.gsd, properties.crs, locale) : '',
+        gsd: properties.gsd != null ? formatGsd(properties.gsd, { isGeographic: properties.crs_is_geographic, crs: properties.crs }, locale) : '',
       });
     case 'vrt_dataset':
       return t('card.autoDesc.vrt', {

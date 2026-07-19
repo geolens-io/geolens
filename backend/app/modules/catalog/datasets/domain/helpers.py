@@ -19,7 +19,7 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.core.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox, wkt_is_geographic
 
 
 async def _load_actor_identities(
@@ -95,6 +95,7 @@ def _build_raster_metadata(
 
     return RasterMetadata(
         epsg=raster_asset.epsg,
+        crs_is_geographic=wkt_is_geographic(raster_asset.crs_wkt),
         res_x=raster_asset.res_x,
         res_y=raster_asset.res_y,
         band_count=raster_asset.band_count,

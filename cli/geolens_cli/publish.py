@@ -22,11 +22,13 @@ dataset URL is constructed via a follow-up ``GET /jobs/{job_id}`` poll
 that resolves ``job_id`` to ``dataset_id``. With ``--no-wait``, the URL
 falls back to a job-search form ``<instance>/datasets?job_id=<id>``.
 
-Open Question 4 (--tags wiring) — DEFERRED per Task 0 Q2:
-``CommitRequest`` has no ``tags`` field. The flag is accepted but its
-value is dropped with a verbose-mode debug log. See the
-``# TODO(OCCLI-deferred)`` markers below.
+Open Question 4 (--tags wiring) — RESOLVED, fix(#569): ``CommitRequest``
+still has no ``tags`` field, so ``--tags`` and ``--collection`` are
+applied AFTER the commit resolves a dataset id (see
+``apply_publish_extras``): tags become record keywords, and the
+collection is resolved by id or exact name. Both need ``--wait``.
 """
+
 from __future__ import annotations
 
 import mimetypes
@@ -34,6 +36,7 @@ import time
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 import typer
@@ -151,9 +154,9 @@ def build_commit_request(
     """Construct a ``CommitRequest`` from the publish CLI flags.
 
     Field set is constrained by Task 0 Q2 — the SDK-generated
-    ``CommitRequest`` model has no ``tags`` field, so ``--tags`` is
-    accepted by the command but not wired into this body. ``description``
-    maps to the model's ``summary`` attribute (the actual field name).
+    ``CommitRequest`` model has no ``tags`` field, so ``--tags`` rides the
+    post-commit path (``apply_publish_extras``) rather than this body.
+    ``description`` maps to the model's ``summary`` attribute.
     """
     from geolens.models.commit_request import CommitRequest
     from geolens.types import UNSET
@@ -184,11 +187,31 @@ def construct_dataset_url(
       - Otherwise, fall back to ``<instance>/datasets?job_id=<job_id>``
         which the GeoLens record list can filter on. The user can also
         re-resolve manually via ``GET /jobs/<job_id>`` later.
+
+    fix(#588): the stored instance is always ``/api``-suffixed
+    (``normalize_instance_url`` canonicalizes it that way for credential
+    lookup), so this printed a JSON API endpoint instead of the browser
+    page. Drop that one trailing PATH segment — parsed, not string-
+    trimmed, so a host literally named ``api`` is untouched.
     """
-    base = instance.rstrip("/")
+    base = _web_origin(instance)
     if dataset_id:
         return f"{base}/datasets/{dataset_id}"
     return f"{base}/datasets?job_id={job_id}"
+
+
+def _web_origin(instance: str) -> str:
+    """Strip the canonical trailing ``/api`` path segment for display URLs."""
+    parts = urlsplit(instance.rstrip("/"))
+    if not parts.scheme or not parts.netloc:
+        # Not a parseable absolute URL — leave it alone rather than mangle it.
+        return instance.rstrip("/")
+    path = parts.path.rstrip("/")
+    if path.endswith("/api"):
+        path = path[: -len("/api")]
+    elif path == "/api":
+        path = ""
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -284,3 +307,173 @@ def handle_commit_already_processed(job_id: str, output: Any) -> None:
     """Per Pitfall 6: commit is not idempotent. Print + exit cleanly."""
     output.error(f"Job {job_id} was already committed (resume not supported in MVP)")
     raise typer.Exit(EXIT_GENERIC)
+
+
+# ---------------------------------------------------------------------------
+# Post-commit extras — --tags / --collection wiring (fix(#569))
+# ---------------------------------------------------------------------------
+
+
+def _split_tags(tags_csv: str) -> list[str]:
+    """Split a comma-separated tag list, trimming blanks and duplicates."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in tags_csv.split(","):
+        tag = raw.strip()
+        key = tag.lower()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    return out
+
+
+def _resolve_record_id(client: Any, dataset_id: str) -> UUID | str:
+    """Fetch the dataset's parent catalog record id.
+
+    The keyword API is record-scoped and ``Dataset.id != Dataset.record_id``
+    — fix(#588): posting the dataset id returns 404 "Record not found" on
+    every tagged publish. Returns a UUID, or a failure description string.
+    """
+    from geolens.api.datasets import (
+        get_single_dataset_datasets_dataset_id_get as _get,
+    )
+
+    resp = call_sdk(_get.sync_detailed, dataset_id=UUID(dataset_id), client=client)
+    record_id = getattr(resp.parsed, "record_id", None)
+    if int(resp.status_code) != 200 or record_id is None:
+        return f"record lookup failed: HTTP {int(resp.status_code)}"
+    return record_id
+
+
+def _apply_tags(client: Any, dataset_id: str, tags_csv: str) -> list[str]:
+    """POST each tag as a record keyword. Returns failure descriptions."""
+    from geolens.api.records import (
+        create_keyword_endpoint_records_record_id_keywords_post as _kw,
+    )
+    from geolens.models.keyword_create import KeywordCreate
+
+    record_id = _resolve_record_id(client, dataset_id)
+    if isinstance(record_id, str):
+        return [record_id]
+
+    failures: list[str] = []
+    for tag in _split_tags(tags_csv):
+        resp = call_sdk(
+            _kw.sync_detailed,
+            record_id=record_id,
+            client=client,
+            body=KeywordCreate(keyword=tag),
+        )
+        if int(resp.status_code) != 201:
+            failures.append(f"tag {tag!r}: HTTP {int(resp.status_code)}")
+    return failures
+
+
+def _resolve_collection_id(client: Any, collection_ref: str) -> UUID | str:
+    """Resolve --collection to a collection id.
+
+    Accepts a UUID directly; otherwise matches the collection NAME
+    (case-insensitive, exact). Returns a UUID on success or a failure
+    description string.
+    """
+    try:
+        return UUID(collection_ref)
+    except ValueError:
+        pass
+
+    from geolens.api.datasets import (
+        list_collections_endpoint_catalog_collections_get as _list,
+    )
+
+    wanted = collection_ref.strip().lower()
+    matches: list[UUID] = []
+    skip = 0
+    page = 100
+    while True:
+        resp = call_sdk(_list.sync_detailed, client=client, skip=skip, limit=page)
+        if int(resp.status_code) != 200 or resp.parsed is None:
+            return f"collection lookup failed: HTTP {int(resp.status_code)}"
+        collections = getattr(resp.parsed, "collections", []) or []
+        matches.extend(c.id for c in collections if c.name.strip().lower() == wanted)
+        if len(collections) < page:
+            break
+        skip += page
+    if not matches:
+        return f"collection {collection_ref!r} not found (pass its id or exact name)"
+    if len(matches) > 1:
+        return f"collection name {collection_ref!r} is ambiguous ({len(matches)} matches) — pass its id"
+    return matches[0]
+
+
+def _apply_collection(client: Any, dataset_id: str, collection_ref: str) -> list[str]:
+    """Add the dataset to the referenced collection. Returns failures."""
+    from geolens.api.datasets import (
+        add_datasets_endpoint_catalog_collections_collection_id_datasets_post as _add,
+    )
+    from geolens.models.collection_add_datasets_request import (
+        CollectionAddDatasetsRequest,
+    )
+
+    resolved = _resolve_collection_id(client, collection_ref)
+    if isinstance(resolved, str):
+        return [resolved]
+    resp = call_sdk(
+        _add.sync_detailed,
+        collection_id=resolved,
+        client=client,
+        body=CollectionAddDatasetsRequest(dataset_ids=[UUID(dataset_id)]),
+    )
+    if int(resp.status_code) != 200:
+        return [f"collection add: HTTP {int(resp.status_code)}"]
+    return []
+
+
+def _guard(label: str, run: Any) -> list[str]:
+    """Run one post-commit extra, converting ANY raise into a failure line.
+
+    fix(#588): ``call_sdk`` maps httpx timeouts/network errors to
+    ``typer.Exit(EXIT_NETWORK)``. Propagating that from here would abort
+    the command before the dataset URL and job id are printed — losing the
+    recovery info for a dataset that WAS created. Every failure becomes
+    data instead, so ``apply_publish_extras`` never raises.
+    """
+    try:
+        return run()
+    except Exception as exc:  # noqa: BLE001 — see docstring: nothing may escape
+        if isinstance(exc, typer.Exit):
+            # call_sdk already printed the cause (e.g. "Network error: ...").
+            return [f"{label}: request failed (exit code {exc.exit_code})"]
+        return [f"{label}: {type(exc).__name__}: {exc}"]
+
+
+def apply_publish_extras(
+    client: Any,
+    dataset_id: str,
+    tags_csv: Optional[str],
+    collection_ref: Optional[str],
+) -> list[str]:
+    """Apply post-commit --tags / --collection. Returns failure descriptions.
+
+    Never raises. The dataset already exists by the time this runs — callers
+    must report failures WITHOUT implying the publish itself failed, then
+    exit non-zero so scripts notice the partial result.
+
+    The caller's non-zero exit is deliberately EXIT_GENERIC even for
+    transport failures: re-running `publish` would upload the file again
+    and create a DUPLICATE dataset, so this must not look retryable the
+    way EXIT_NETWORK does.
+    """
+    failures: list[str] = []
+    if tags_csv:
+        failures.extend(
+            _guard("tags", lambda: _apply_tags(client, dataset_id, tags_csv))
+        )
+    if collection_ref:
+        failures.extend(
+            _guard(
+                "collection",
+                lambda: _apply_collection(client, dataset_id, collection_ref),
+            )
+        )
+    return failures

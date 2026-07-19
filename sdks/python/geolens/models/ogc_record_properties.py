@@ -49,6 +49,8 @@ class OGCRecordProperties:
         constraints (None | OGCRecordPropertiesConstraintsType0 | Unset):
         created (datetime.datetime | None | Unset):
         crs (None | str | Unset):
+        crs_is_geographic (bool | None | Unset): True when the raster CRS is geographic (gsd/res are degrees, not
+            meters); None when the CRS class is unknown.
         dataset_count (int | None | Unset):
         distributions (list[OGCRecordPropertiesDistributionsType0Item] | None | Unset):
         external_ids (list[str] | Unset): Identifiers assigned by the described resource's source system.
@@ -90,6 +92,7 @@ class OGCRecordProperties:
     constraints: None | OGCRecordPropertiesConstraintsType0 | Unset = UNSET
     created: datetime.datetime | None | Unset = UNSET
     crs: None | str | Unset = UNSET
+    crs_is_geographic: bool | None | Unset = UNSET
     dataset_count: int | None | Unset = UNSET
     distributions: list[OGCRecordPropertiesDistributionsType0Item] | None | Unset = (
         UNSET
@@ -180,6 +183,12 @@ class OGCRecordProperties:
             crs = UNSET
         else:
             crs = self.crs
+
+        crs_is_geographic: bool | None | Unset
+        if isinstance(self.crs_is_geographic, Unset):
+            crs_is_geographic = UNSET
+        else:
+            crs_is_geographic = self.crs_is_geographic
 
         dataset_count: int | None | Unset
         if isinstance(self.dataset_count, Unset):
@@ -349,6 +358,8 @@ class OGCRecordProperties:
             field_dict["created"] = created
         if crs is not UNSET:
             field_dict["crs"] = crs
+        if crs_is_geographic is not UNSET:
+            field_dict["crs_is_geographic"] = crs_is_geographic
         if dataset_count is not UNSET:
             field_dict["dataset_count"] = dataset_count
         if distributions is not UNSET:
@@ -510,6 +521,15 @@ class OGCRecordProperties:
             return cast(None | str | Unset, data)
 
         crs = _parse_crs(d.pop("crs", UNSET))
+
+        def _parse_crs_is_geographic(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        crs_is_geographic = _parse_crs_is_geographic(d.pop("crs_is_geographic", UNSET))
 
         def _parse_dataset_count(data: object) -> int | None | Unset:
             if data is None:
@@ -767,6 +787,7 @@ class OGCRecordProperties:
             constraints=constraints,
             created=created,
             crs=crs,
+            crs_is_geographic=crs_is_geographic,
             dataset_count=dataset_count,
             distributions=distributions,
             external_ids=external_ids,

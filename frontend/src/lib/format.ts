@@ -75,6 +75,51 @@ export function formatRelativeDate(dateString: string | null): string {
   return result.relative;
 }
 
+/** Approx meters per degree of latitude (equatorial) — for the "≈" ground
+ *  distance shown next to arc-unit resolutions. */
+const METERS_PER_DEGREE = 111_320;
+
+function formatMetersGsd(meters: number, locale: string): string {
+  if (meters < 1) return `${(meters * 100).toLocaleString(locale, { maximumFractionDigits: 0 })} cm`;
+  if (meters < 1000) return `${Math.round(meters).toLocaleString(locale)} m`;
+  return `${(meters / 1000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
+}
+
+/**
+ * Format a raster ground-sample distance given in CRS units.
+ *
+ * fix(#569): geographic CRSs deliver `gsd` in DEGREES — formatting them as
+ * meters showed "2 cm" for a 60-arc-second global DEM. When the payload says
+ * the CRS is geographic (or, for older payloads without the flag, the CRS is
+ * EPSG:4326), render arc units with an approximate equatorial ground
+ * distance, e.g. `60″ (≈1.9 km)`.
+ */
+export function formatGsd(
+  gsd: number,
+  opts: { isGeographic?: boolean | null; crs?: string | null },
+  locale: string,
+): string {
+  const geographic = opts.isGeographic ?? (opts.crs != null && /^EPSG:4326$/i.test(opts.crs));
+  if (!geographic) return formatMetersGsd(gsd, locale);
+  const arcSeconds = gsd * 3600;
+  let arc: string;
+  if (gsd >= 1) {
+    arc = `${gsd.toLocaleString(locale, { maximumFractionDigits: 2 })}°`;
+  } else if (arcSeconds >= 120) {
+    // Arc-minutes only from 2′ up: global DEMs are conventionally named in
+    // arc-seconds ("30 arc-second", "60 arc-second"), so 60″ stays 60″.
+    arc = `${(arcSeconds / 60).toLocaleString(locale, { maximumFractionDigits: 1 })}′`;
+  } else {
+    // fix(#588): sub-arcsecond pixels (e.g. ~0.01″ / 30 cm EPSG:4326 drone
+    // imagery) round to a meaningless "0″" at a fixed 1 decimal. Below 1″,
+    // switch to significant digits so any magnitude stays readable.
+    const secondsOpts: Intl.NumberFormatOptions =
+      arcSeconds >= 1 ? { maximumFractionDigits: 1 } : { maximumSignificantDigits: 2 };
+    arc = `${arcSeconds.toLocaleString(locale, secondsOpts)}″`;
+  }
+  return `${arc} (≈${formatMetersGsd(gsd * METERS_PER_DEGREE, locale)})`;
+}
+
 /** Format raster resolution: 2 decimals for values >= 0.01, otherwise 6. */
 export function formatResolution(value: number | null | undefined): string {
   if (value == null) return '—';

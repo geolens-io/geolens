@@ -6412,6 +6412,12 @@ export type OgcRecordProperties = {
      */
     crs?: string | null;
     /**
+     * Crs Is Geographic
+     *
+     * True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
+     */
+    crs_is_geographic?: boolean | null;
+    /**
      * Dataset Count
      */
     dataset_count?: number | null;
@@ -7034,6 +7040,12 @@ export type RasterMetadata = {
      */
     compression?: string | null;
     connect?: RasterConnect | null;
+    /**
+     * Crs Is Geographic
+     *
+     * True when the raster CRS is geographic (res_x/res_y are degrees, not meters); None when the CRS class is unknown.
+     */
+    crs_is_geographic?: boolean | null;
     /**
      * Epsg
      *

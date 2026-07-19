@@ -148,6 +148,13 @@ class RasterConnect(BaseModel):
 
 class RasterMetadata(BaseModel):
     epsg: int | None = Field(default=None, description="EPSG code of the raster CRS")
+    crs_is_geographic: bool | None = Field(
+        default=None,
+        description=(
+            "True when the raster CRS is geographic (res_x/res_y are degrees, "
+            "not meters); None when the CRS class is unknown."
+        ),
+    )
     res_x: float | None = Field(
         default=None, description="Pixel resolution in X (CRS units)"
     )

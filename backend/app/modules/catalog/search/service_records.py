@@ -420,6 +420,13 @@ def dataset_to_ogc_record(
             ogc_record["properties"]["gsd"] = min(
                 abs(raster_meta["res_x"]), abs(raster_meta["res_y"])
             )
+            # fix(#569): gsd is in CRS units — geographic CRSs deliver degrees,
+            # and without this flag the UI formatted them as meters ("2 cm"
+            # for a 60-arc-second global DEM).
+            if raster_meta.get("crs_is_geographic") is not None:
+                ogc_record["properties"]["crs_is_geographic"] = raster_meta[
+                    "crs_is_geographic"
+                ]
         if raster_meta.get("band_count"):
             ogc_record["properties"]["band_count"] = raster_meta["band_count"]
 
