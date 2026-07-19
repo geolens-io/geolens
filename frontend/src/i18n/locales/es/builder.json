@@ -782,7 +782,7 @@
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",
-    "zoomForAttributes": "Acércate para ver los atributos",
+    "zoomForAttributes": "Sin atributos en este nivel de zoom",
     "booleanTrue": "Sí",
     "booleanFalse": "No",
     "clickToCopy": "Haz clic para copiar",

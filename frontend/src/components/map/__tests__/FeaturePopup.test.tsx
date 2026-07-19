@@ -188,7 +188,7 @@ describe('FeaturePopup', () => {
       }),
     ];
     render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
-    expect(screen.getByText('Zoom in to view attributes')).toBeInTheDocument();
+    expect(screen.getByText('No attributes at this zoom')).toBeInTheDocument();
   });
 
   it('fix(#586): all-null feature clicked ABOVE the attribute budget shows "No attributes", not the zoom hint', () => {
@@ -204,7 +204,7 @@ describe('FeaturePopup', () => {
     ];
     render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
     expect(screen.getByText('No attributes')).toBeInTheDocument();
-    expect(screen.queryByText('Zoom in to view attributes')).not.toBeInTheDocument();
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
   });
 
   it('empty properties on a column-less dataset still show "No attributes"', () => {
@@ -228,7 +228,7 @@ describe('FeaturePopup', () => {
     ];
     render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
     expect(screen.getByText('Just a title')).toBeInTheDocument();
-    expect(screen.queryByText('Zoom in to view attributes')).not.toBeInTheDocument();
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
   });
 
   it('honors visible_fields ordering', () => {
