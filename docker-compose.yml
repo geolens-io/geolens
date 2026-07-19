@@ -451,8 +451,30 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
-    command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
+    # fix(#579): derive GDAL's AWS_* trio from the app's S3_* settings before
+    # exec'ing uvicorn — /vsis3/ reads against a custom endpoint (MinIO, R2)
+    # otherwise target the default AWS endpoint and fail. Compose has no
+    # string functions, so a sh wrapper does the scheme/host split ($$ escapes
+    # compose interpolation; the vars come from this container's environment).
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -z "$${AWS_S3_ENDPOINT:-}" ]; then
+          ep="$${S3_ENDPOINT:-}"
+          case "$$ep" in
+            http://*)  export AWS_HTTPS="$${AWS_HTTPS:-NO}"; ep="$${ep#http://}" ;;
+            https://*) ep="$${ep#https://}" ;;
+          esac
+          ep="$${ep%%/*}"
+          [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
+        fi
+        [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
+        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
+      # fix(#579): inputs for the AWS_* derivation in the command wrapper above.
+      S3_ENDPOINT: "${S3_ENDPOINT:-}"
+      S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
       # GDAL raster I/O tuning — these control how Titiler reads COG/VRT files
       GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"         # Skip directory listing on S3/HTTP — avoids slow LIST calls per tile
