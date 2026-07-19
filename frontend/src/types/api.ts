@@ -119,6 +119,8 @@ export interface StacAsset {
 
 export interface RasterMetadata {
   epsg: number | null;
+  /** True when the CRS is geographic (res_x/res_y are degrees, not meters). */
+  crs_is_geographic?: boolean | null;
   res_x: number | null;
   res_y: number | null;
   band_count: number | null;
@@ -442,6 +444,8 @@ export interface OGCRecordProperties {
   vrt_type?: string | null;
   source_count?: number | null;
   gsd?: number | null;
+  /** True when the raster CRS is geographic (gsd is degrees, not meters). */
+  crs_is_geographic?: boolean | null;
 }
 
 export interface OGCRecordLink {

@@ -9649,6 +9649,11 @@ export interface components {
             created?: string | null;
             /** Crs */
             crs?: string | null;
+            /**
+             * Crs Is Geographic
+             * @description True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
+             */
+            crs_is_geographic?: boolean | null;
             /** Dataset Count */
             dataset_count?: number | null;
             /** Description */
@@ -10111,6 +10116,11 @@ export interface components {
              */
             compression?: string | null;
             connect?: components["schemas"]["RasterConnect"] | null;
+            /**
+             * Crs Is Geographic
+             * @description True when the raster CRS is geographic (res_x/res_y are degrees, not meters); None when the CRS class is unknown.
+             */
+            crs_is_geographic?: boolean | null;
             /**
              * Epsg
              * @description EPSG code of the raster CRS

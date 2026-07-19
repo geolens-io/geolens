@@ -1,4 +1,4 @@
-import { formatDateTimeSmart, formatBytes } from '@/lib/format';
+import { formatDateTimeSmart, formatBytes, formatGsd } from '@/lib/format';
 
 describe('formatDateTimeSmart', () => {
   beforeEach(() => {
@@ -67,5 +67,35 @@ describe('formatBytes', () => {
 
   it('returns a GB value for 2_500_000_000 bytes', () => {
     expect(formatBytes(2_500_000_000)).toContain('GB');
+  });
+});
+
+describe('formatGsd', () => {
+  it('formats projected-CRS gsd as cm/m/km (unchanged behavior)', () => {
+    expect(formatGsd(0.5, { isGeographic: false }, 'en-US')).toBe('50 cm');
+    expect(formatGsd(30, { isGeographic: false }, 'en-US')).toBe('30 m');
+    expect(formatGsd(2000, { isGeographic: false }, 'en-US')).toBe('2.0 km');
+  });
+
+  it('fix(#569): geographic-CRS gsd renders arc units with approx ground distance, not meters', () => {
+    // 60 arc-seconds = 1/60 degree — previously rendered "2 cm"
+    const label = formatGsd(1 / 60, { isGeographic: true }, 'en-US');
+    expect(label).toContain('60″');
+    expect(label).toContain('≈');
+    expect(label).toContain('km');
+    // arc-minutes and degrees branches
+    expect(formatGsd(0.5, { isGeographic: true }, 'en-US')).toContain('30′');
+    expect(formatGsd(2, { isGeographic: true }, 'en-US')).toContain('2°');
+  });
+
+  it('falls back to the EPSG:4326 heuristic for payloads without the flag', () => {
+    expect(formatGsd(1 / 60, { crs: 'EPSG:4326' }, 'en-US')).toContain('″');
+    // unknown CRS without the flag keeps the legacy meters formatting
+    expect(formatGsd(30, { crs: 'EPSG:32618' }, 'en-US')).toBe('30 m');
+  });
+
+  it('explicit flag wins over the CRS heuristic', () => {
+    expect(formatGsd(1 / 60, { isGeographic: true, crs: 'EPSG:9518' }, 'en-US')).toContain('″');
+    expect(formatGsd(30, { isGeographic: false, crs: 'EPSG:4326' }, 'en-US')).toBe('30 m');
   });
 });
