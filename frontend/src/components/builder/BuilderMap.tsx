@@ -928,6 +928,7 @@ export const BuilderMap = memo(function BuilderMap({
           columnInfo: layer.dataset_column_info ?? null,
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
+          zoomAtClick: map.getZoom(),
         });
       }
 

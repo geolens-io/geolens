@@ -159,7 +159,7 @@ describe('syncLayersToMap non-cluster vector tile refresh guard', () => {
       // ...and the reload backstop waits for the source to ADOPT the new URL
       // (maplibre's async load() copies it into source.tiles) before calling
       // refreshTiles — refreshing earlier would reload the OLD url while the
-      // signature store has already advanced (codex #586 P2), re-stranding
+      // signature store has already advanced (fix(#586)), re-stranding
       // the tiles. The mock adopts at +50ms.
       const refreshTiles = (map as unknown as { refreshTiles: ReturnType<typeof vi.fn> }).refreshTiles;
       expect(refreshTiles).not.toHaveBeenCalled();

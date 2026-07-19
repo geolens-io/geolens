@@ -155,7 +155,7 @@ describe('FeaturePopup', () => {
   });
 
   it('fix(#584): hides configured fields absent from BOTH tile properties and the schema (stale config)', () => {
-    // codex #586 P3: a reupload/rename can strand old names in visible_fields;
+    // fix(#586): a reupload/rename can strand old names in visible_fields;
     // those stay hidden, while schema-present-but-null fields render '--'.
     const features: FeatureInfo[] = [
       makeFeature({
@@ -184,10 +184,27 @@ describe('FeaturePopup', () => {
         properties: {},
         columnInfo: [{ name: 'borough', type: 'text' }],
         visibleFields: null,
+        zoomAtClick: 8,
       }),
     ];
     render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
     expect(screen.getByText('Zoom in to view attributes')).toBeInTheDocument();
+  });
+
+  it('fix(#586): all-null feature clicked ABOVE the attribute budget shows "No attributes", not the zoom hint', () => {
+    // At z>=10 tiles carry every column; an empty property set means the
+    // values genuinely are all null — zooming cannot reveal anything.
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: {},
+        columnInfo: [{ name: 'borough', type: 'text' }],
+        visibleFields: null,
+        zoomAtClick: 12,
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('No attributes')).toBeInTheDocument();
+    expect(screen.queryByText('Zoom in to view attributes')).not.toBeInTheDocument();
   });
 
   it('empty properties on a column-less dataset still show "No attributes"', () => {
@@ -199,7 +216,7 @@ describe('FeaturePopup', () => {
   });
 
   it('title-only mode (visibleFields []) never shows the zoom hint, even with columnInfo present', () => {
-    // codex #586 P2: [] is the intentional "title only" contract — the zoom
+    // fix(#586): [] is the intentional "title only" contract — the zoom
     // hint is for the all-fields (null) case only.
     const features: FeatureInfo[] = [
       makeFeature({
