@@ -32,6 +32,12 @@ fi
 # which is 127.0.0.11 under Docker and the cluster DNS service on Kubernetes,
 # so the same image runs in both without configuration.
 API_UPSTREAM="${API_UPSTREAM:-http://api:8000}"
+# Codex P2 (#577): strip trailing slashes — a URI component in a variable
+# proxy_pass replaces the rewritten request URI wholesale, so a value like
+# http://api:8000/ would proxy every /api, raster, and embed request to "/".
+while [ "${API_UPSTREAM%/}" != "$API_UPSTREAM" ]; do
+  API_UPSTREAM="${API_UPSTREAM%/}"
+done
 if [ -z "${NGINX_RESOLVER:-}" ]; then
   NGINX_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null || true)"
 fi
