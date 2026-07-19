@@ -363,8 +363,30 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
-    command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
+    # fix(#579): derive GDAL's AWS_* trio from the app's S3_* settings before
+    # exec'ing uvicorn — /vsis3/ reads against a custom endpoint (MinIO, R2)
+    # otherwise target the default AWS endpoint and fail. Mirrors the wrapper
+    # in docker-compose.yml ($$ escapes compose interpolation; explicitly set
+    # AWS_* env always wins).
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -z "$${AWS_S3_ENDPOINT:-}" ]; then
+          ep="$${S3_ENDPOINT:-}"
+          case "$$ep" in
+            http://*)  export AWS_HTTPS="$${AWS_HTTPS:-NO}"; ep="$${ep#http://}" ;;
+            https://*) ep="$${ep#https://}" ;;
+          esac
+          ep="$${ep%%/*}"
+          [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
+        fi
+        [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
+        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
+      # fix(#579): inputs for the AWS_* derivation in the command wrapper above.
+      S3_ENDPOINT: "${S3_ENDPOINT:-}"
+      S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
       GDAL_CACHEMAX: "200"
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
       CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"
@@ -426,6 +448,13 @@ services:
       # Empty default on purpose: the api service's localhost fallback must not
       # leak into og:image; unset keeps the built relative URL.
       PUBLIC_APP_URL: "${PUBLIC_APP_URL:-}"
+      # fix(#580): keep the edge upload cap in lockstep with the backend's
+      # UPLOAD_MAX_SIZE_MB (same host var the api service reads).
+      CLIENT_MAX_BODY_SIZE: "${UPLOAD_MAX_SIZE_MB:-500}m"
+      # fix(#581): CIDRs of proxies trusted to set X-Forwarded-For/-Proto
+      # (e.g. Cloudflare's published ranges when fronted by Cloudflare).
+      # Empty keeps the anti-spoofing overwrite unchanged.
+      TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-}"
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
       interval: 30s
