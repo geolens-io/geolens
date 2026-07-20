@@ -31,9 +31,8 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 
 > [!NOTE]
 > **Version initiale.** GeoLens est activement développé et maintenu, et vient
-> d’être publié en open source. Le cœur a été utilisé en production, mais la
-> distribution auto-hébergée est jeune et certaines fonctions et APIs peuvent
-> encore évoluer. [Ouvrez un ticket](https://github.com/geolens-io/geolens/issues) en cas de difficulté.
+> d’être publié en open source. La distribution auto-hébergée est jeune et
+> certaines fonctions et APIs peuvent encore évoluer. [Ouvrez un ticket](https://github.com/geolens-io/geolens/issues) en cas de difficulté.
 
 ## Documentation
 
@@ -67,6 +66,7 @@ GeoLens remplace ce processus :
 
 - **Un catalogue unique :** chargez des Shapefiles, GeoPackages, GeoTIFFs, CSVs ou XLSX ; ils deviennent consultables, prévisualisables et exportables en quelques minutes
 - **Compatible avec vos outils :** OGC API Features/Records, STAC API 1.0, catalogues DCAT 3/DCAT-US/GeoDCAT-AP et URLs directes de tuiles pour QGIS, ArcGIS et MapLibre
+- **Sans verrouillage :** vos données restent dans votre propre PostGIS et en sortent via des standards ouverts. Exportez en GeoPackage, GeoJSON, Shapefile, CSV ou GeoParquet, ou pointez n’importe quel client OGC API directement dessus
 - **Recherche sémantique et spatiale :** correspondance approximative pg_trgm prête à l’emploi ; ajoutez un fournisseur d’embeddings et activez la recherche sémantique pour classer les jeux de données par sens (pgvector)
 - **Générateur de cartes intégré :** composez des cartes multicouches, stylisez-les et partagez-les par lien public ou iframe intégrable
 - **Assistance IA (facultative) :** dialogue avec les cartes, génération automatique de descriptions et recherche en langage naturel. Utilisez un point de terminaison compatible OpenAI ou une clé Anthropic, ou ignorez entièrement cette fonction

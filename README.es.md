@@ -31,8 +31,8 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 
 > [!NOTE]
 > **Versión inicial.** GeoLens se desarrolla y mantiene activamente y se ha publicado
-> recientemente como código abierto. El núcleo se ha ejecutado en producción, pero la
-> distribución autohospedada es joven y algunas funciones y APIs aún pueden cambiar.
+> recientemente como código abierto. La distribución autohospedada es joven y
+> algunas funciones y APIs aún pueden cambiar.
 > [Abre una incidencia](https://github.com/geolens-io/geolens/issues) si encuentras algún problema.
 
 ## Documentación
@@ -67,6 +67,7 @@ GeoLens sustituye ese flujo de trabajo:
 
 - **Un solo catálogo:** sube Shapefiles, GeoPackages, GeoTIFFs, CSVs o XLSX y en minutos serán consultables, previsualizables y exportables
 - **Funciona con tus herramientas:** OGC API Features/Records, STAC API 1.0, catálogos DCAT 3/DCAT-US/GeoDCAT-AP y URLs directas de teselas para QGIS, ArcGIS y MapLibre
+- **Sin dependencia de proveedor:** tus datos permanecen en tu propio PostGIS y salen mediante estándares abiertos. Exporta a GeoPackage, GeoJSON, Shapefile, CSV o GeoParquet, o apunta cualquier cliente OGC API directamente a ellos
 - **Búsqueda semántica y espacial:** coincidencia difusa con pg_trgm desde el primer momento; añade un proveedor de embeddings y activa la búsqueda semántica para clasificar conjuntos de datos por significado (pgvector)
 - **Constructor de mapas integrado:** compón mapas multicapa, aplica estilos y compártelos mediante un enlace público o un iframe incrustable
 - **Asistencia de IA (opcional):** conversa con tus mapas, genera descripciones automáticamente y busca con lenguaje natural. Aporta un endpoint compatible con OpenAI o una clave de Anthropic, o prescinde por completo de esta función
