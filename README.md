@@ -31,8 +31,8 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 
 > [!NOTE]
 > **Early release.** GeoLens is actively developed and maintained, and newly
-> open-sourced. The core has run in production, but the self-hosted distribution is
-> young and some features and APIs may still change. Please
+> open-sourced. The self-hosted distribution is young and some features and APIs
+> may still change. Please
 > [open an issue](https://github.com/geolens-io/geolens/issues) if you hit a rough edge.
 
 ## Documentation
@@ -67,6 +67,7 @@ GeoLens replaces that workflow:
 
 - **One catalog:** upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
 - **Works with your tools:** OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
+- **No lock-in:** your data stays on infrastructure you control and leaves through open formats. Vector datasets export to GeoPackage, GeoJSON, Shapefile, CSV, or GeoParquet; rasters download as Cloud-Optimized GeoTIFF; and any OGC API client reads the catalog directly
 - **Semantic and spatial search:** pg_trgm fuzzy matching out of the box; add an embedding provider and enable semantic search to rank datasets by meaning (pgvector)
 - **Built-in map builder:** compose multi-layer maps, style them, and share via public link or embeddable iframe
 - **AI-assisted (optional):** chat with your maps, auto-generate descriptions, search by natural language. Bring an OpenAI-compatible endpoint or Anthropic key, or skip it entirely
