@@ -66,7 +66,7 @@ GeoLens ersetzt diesen Ablauf:
 
 - **Ein Katalog:** Laden Sie Shapefiles, GeoPackages, GeoTIFFs, CSVs oder XLSX hoch; innerhalb weniger Minuten sind sie durchsuchbar, als Vorschau verfügbar und exportierbar
 - **Funktioniert mit Ihren Werkzeugen:** OGC API Features/Records, STAC API 1.0, DCAT-3-/DCAT-US-/GeoDCAT-AP-Kataloge und direkte Kachel-URLs für QGIS, ArcGIS und MapLibre
-- **Kein Lock-in:** Ihre Daten bleiben in Ihrem eigenen PostGIS und verlassen es über offene Standards. Exportieren Sie nach GeoPackage, GeoJSON, Shapefile, CSV oder GeoParquet, oder richten Sie einen beliebigen OGC-API-Client direkt darauf
+- **Kein Lock-in:** Ihre Daten bleiben auf der Infrastruktur, die Sie kontrollieren, und verlassen sie über offene Formate. Vektordatensätze werden als GeoPackage, GeoJSON, Shapefile, CSV oder GeoParquet exportiert; Raster werden als Cloud-optimiertes GeoTIFF (COG) heruntergeladen; und jeder OGC-API-Client liest den Katalog direkt
 - **Semantische und räumliche Suche:** sofort einsatzbereiter unscharfer Abgleich mit pg_trgm; mit Embedding-Anbieter und aktivierter semantischer Suche werden Datensätze nach Bedeutung geordnet (pgvector)
 - **Integrierter Karteneditor:** mehrschichtige Karten zusammenstellen, gestalten und über öffentlichen Link oder einbettbares iframe teilen
 - **KI-Unterstützung (optional):** mit Karten chatten, Beschreibungen automatisch erzeugen und in natürlicher Sprache suchen. Verwenden Sie einen OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel – oder verzichten Sie vollständig darauf

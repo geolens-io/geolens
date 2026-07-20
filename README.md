@@ -67,7 +67,7 @@ GeoLens replaces that workflow:
 
 - **One catalog:** upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
 - **Works with your tools:** OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
-- **No lock-in:** your data stays in your own PostGIS and leaves through open standards. Export to GeoPackage, GeoJSON, Shapefile, CSV, or GeoParquet, or point any OGC API client straight at it
+- **No lock-in:** your data stays on infrastructure you control and leaves through open formats. Vector datasets export to GeoPackage, GeoJSON, Shapefile, CSV, or GeoParquet; rasters download as Cloud-Optimized GeoTIFF; and any OGC API client reads the catalog directly
 - **Semantic and spatial search:** pg_trgm fuzzy matching out of the box; add an embedding provider and enable semantic search to rank datasets by meaning (pgvector)
 - **Built-in map builder:** compose multi-layer maps, style them, and share via public link or embeddable iframe
 - **AI-assisted (optional):** chat with your maps, auto-generate descriptions, search by natural language. Bring an OpenAI-compatible endpoint or Anthropic key, or skip it entirely

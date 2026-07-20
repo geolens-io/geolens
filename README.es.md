@@ -67,7 +67,7 @@ GeoLens sustituye ese flujo de trabajo:
 
 - **Un solo catálogo:** sube Shapefiles, GeoPackages, GeoTIFFs, CSVs o XLSX y en minutos serán consultables, previsualizables y exportables
 - **Funciona con tus herramientas:** OGC API Features/Records, STAC API 1.0, catálogos DCAT 3/DCAT-US/GeoDCAT-AP y URLs directas de teselas para QGIS, ArcGIS y MapLibre
-- **Sin dependencia de proveedor:** tus datos permanecen en tu propio PostGIS y salen mediante estándares abiertos. Exporta a GeoPackage, GeoJSON, Shapefile, CSV o GeoParquet, o apunta cualquier cliente OGC API directamente a ellos
+- **Sin dependencia de proveedor:** tus datos permanecen en la infraestructura que controlas y salen mediante formatos abiertos. Los datasets vectoriales se exportan a GeoPackage, GeoJSON, Shapefile, CSV o GeoParquet; los ráster se descargan como GeoTIFF optimizado para la nube (COG); y cualquier cliente OGC API lee el catálogo directamente
 - **Búsqueda semántica y espacial:** coincidencia difusa con pg_trgm desde el primer momento; añade un proveedor de embeddings y activa la búsqueda semántica para clasificar conjuntos de datos por significado (pgvector)
 - **Constructor de mapas integrado:** compón mapas multicapa, aplica estilos y compártelos mediante un enlace público o un iframe incrustable
 - **Asistencia de IA (opcional):** conversa con tus mapas, genera descripciones automáticamente y busca con lenguaje natural. Aporta un endpoint compatible con OpenAI o una clave de Anthropic, o prescinde por completo de esta función
