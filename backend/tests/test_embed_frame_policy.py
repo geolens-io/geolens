@@ -250,3 +250,27 @@ def test_nginx_spa_route_keeps_sameorigin():
     assert "frame-ancestors 'self'" in conf, (
         "P0-02: the SPA catch-all CSP must keep frame-ancestors 'self'."
     )
+
+
+def test_nginx_m_route_serves_in_place_not_try_files():
+    """The /m/ block must serve the SPA shell in place via `rewrite ... break`,
+    NOT via `try_files $uri /index.html`. try_files internal-redirects to
+    /index.html which re-enters `location /`, and nginx then emits location /'s
+    add_header set — discarding this block's per-token frame-ancestors CSP and
+    re-adding X-Frame-Options: SAMEORIGIN, which blocks every cross-origin embed.
+    Regression guard for the 2026-07-21 fix (verified on the demo's live nginx)."""
+    conf = _nginx_conf_text()
+    start = conf.index("location ~ ^/m/ {")
+    block = conf[start : conf.index("\n    }", start)]
+    # Strip comment lines — the fix's own comment names `try_files` when
+    # explaining the bug, so only inspect actual directives.
+    directives = "\n".join(
+        ln for ln in block.splitlines() if not ln.strip().startswith("#")
+    )
+    assert "rewrite ^ /index.html break;" in directives, (
+        "the /m/ block must serve the SPA shell in place via `rewrite ... break`."
+    )
+    assert "try_files" not in directives, (
+        "the /m/ block must NOT use try_files — its internal redirect to "
+        "/index.html re-enters `location /` and discards the per-token embed headers."
+    )
