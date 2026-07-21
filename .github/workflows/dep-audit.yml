@@ -97,7 +97,7 @@ jobs:
         # gated (tracked via Dependabot + this report; revisit at each postgis
         # base bump).
         include:
-          - image: "node:26.3.0-alpine"
+          - image: "node:26.5.0-alpine"
             enforce: "1"
           - image: "python:3.14.6-slim"
             enforce: "1"
@@ -123,6 +123,10 @@ jobs:
           severity: "CRITICAL"
           exit-code: ${{ matrix.enforce }}
           ignore-unfixed: true
+          # Scoped, justified CVE suppressions only (see .trivyignore.yaml's
+          # `vulnerabilities:` section). Trivy <0.71 does not auto-detect the YAML
+          # ignore file, so point at it explicitly.
+          trivyignores: ".trivyignore.yaml"
 
   iac-scan:
     name: IaC config scan (Trivy)
