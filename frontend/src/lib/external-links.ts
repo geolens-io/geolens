@@ -7,5 +7,8 @@ export const GEOLENS_DOCS_URL = 'https://docs.getgeolens.com/';
 // Privacy policy page — the page returns 404 today; it will be added in the marketing-site phase.
 export const GEOLENS_PRIVACY_URL = 'https://getgeolens.com/privacy';
 
-// Requires the production reverse proxy to forward /api → backend (same as Vite dev proxy).
-export const GEOLENS_API_DOCS_URL = '/api/docs';
+// Footer "API" link. Points at the canonical public API guide (always 200) rather
+// than the instance's /api/docs Swagger, which 404s whenever interactive docs are
+// disabled (ENVIRONMENT=production — the recommended self-host setting), so the
+// footer link is live on every deployment including the demo.
+export const GEOLENS_API_DOCS_URL = 'https://docs.getgeolens.com/guides/api/';

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
@@ -207,41 +208,51 @@ async def landing_page(
     # the requested language.
     response.headers["Content-Language"] = "en"
     public_api_url = await get_public_api_url(db, request=request)
-    return LandingPage(
-        title="GeoLens",
-        description="OGC API Records catalog for geospatial datasets",
-        links=[
-            OGCLink(
-                href=build_url("/", base_url=public_api_url),
-                rel="self",
-                type="application/json",
-                title="This document",
-            ),
-            OGCLink(
-                href=build_url("/conformance", base_url=public_api_url),
-                rel="conformance",
-                type="application/json",
-                title="Conformance classes",
-            ),
-            OGCLink(
-                href=build_url("/collections", base_url=public_api_url),
-                rel="data",
-                type="application/json",
-                title="Collections",
-            ),
-            OGCLink(
-                href=build_url("/openapi.json", base_url=public_api_url),
-                rel="service-desc",
-                type="application/vnd.oai.openapi+json;version=3.1",
-                title="OpenAPI definition",
-            ),
+    links = [
+        OGCLink(
+            href=build_url("/", base_url=public_api_url),
+            rel="self",
+            type="application/json",
+            title="This document",
+        ),
+        OGCLink(
+            href=build_url("/conformance", base_url=public_api_url),
+            rel="conformance",
+            type="application/json",
+            title="Conformance classes",
+        ),
+        OGCLink(
+            href=build_url("/collections", base_url=public_api_url),
+            rel="data",
+            type="application/json",
+            title="Collections",
+        ),
+        OGCLink(
+            href=build_url("/openapi.json", base_url=public_api_url),
+            rel="service-desc",
+            type="application/vnd.oai.openapi+json;version=3.1",
+            title="OpenAPI definition",
+        ),
+    ]
+    # service-doc points at the interactive Swagger UI (/docs), which FastAPI
+    # disables in production (settings.is_production -> docs_url=None, see
+    # api/main.py). Advertising it unconditionally makes the OGC landing link a
+    # dead /docs (404) on every production instance and the demo. service-doc is
+    # optional in OGC API Common, so only emit it when /docs actually resolves.
+    # service-desc -> /openapi.json stays available in production and is kept.
+    if not settings.is_production:
+        links.append(
             OGCLink(
                 href=build_url("/docs", base_url=public_api_url),
                 rel="service-doc",
                 type="text/html",
                 title="API documentation",
-            ),
-        ],
+            )
+        )
+    return LandingPage(
+        title="GeoLens",
+        description="OGC API Records catalog for geospatial datasets",
+        links=links,
     )
 
 
