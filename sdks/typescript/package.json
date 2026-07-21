@@ -41,6 +41,9 @@
     "@hey-api/openapi-ts": "0.99.0",
     "typescript": "5.9.3"
   },
+  "overrides": {
+    "js-yaml": "^4.3.0"
+  },
   "publishConfig": {
     "access": "public"
   },
