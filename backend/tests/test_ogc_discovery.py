@@ -65,6 +65,20 @@ async def test_landing_page_service_doc_link(client):
     assert service_doc["type"] == "text/html"
 
 
+async def test_landing_page_omits_service_doc_in_production(client, monkeypatch):
+    """In production, FastAPI disables Swagger (/docs -> 404), so the landing page
+    must NOT advertise a dead service-doc link. service-desc (/openapi.json stays
+    served in production) must remain."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    response = await client.get("/")
+    assert response.status_code == 200
+    rels = {link["rel"] for link in response.json()["links"]}
+    assert "service-doc" not in rels
+    assert "service-desc" in rels
+
+
 async def test_landing_page_openapi_link(client):
     """The service-desc link points to a valid OpenAPI JSON endpoint."""
     response = await client.get("/")
