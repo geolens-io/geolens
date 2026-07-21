@@ -1,5 +1,16 @@
 # Trivy ignore policy (enforcing config + image scans — see .github/workflows/dep-audit.yml).
 # Scoped, justified suppressions only. Everything not listed here is still enforced.
+vulnerabilities:
+  - id: CVE-2026-59873
+    statement: >-
+      node-tar Denial of Service via a crafted gzip bomb. Fixed upstream in
+      tar 7.5.19, but no node:*-alpine image ships tar >= 7.5.19 yet (node
+      26.5.0 bundles npm's tar 7.5.16), so no tag bump can clear it. node is a
+      BUILD stage only (frontend-build in Dockerfile / frontend/Dockerfile.dev);
+      the runtime image is nginx serving static files, so the vulnerable tar
+      never reaches production, and the DoS requires feeding a crafted archive
+      to `tar` — not a surface in our controlled build. Scoped to this single
+      CVE. REMOVE once a node alpine base ships tar >= 7.5.19.
 misconfigurations:
   - id: AVD-DS-0002
     paths:
