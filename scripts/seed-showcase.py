@@ -432,6 +432,30 @@ class Api:
         )
         r.raise_for_status()
 
+    def dataset_record_id(self, dataset_id: str) -> str:
+        # Keywords hang off the catalog RECORD, not the dataset, and the two ids
+        # differ - resolve the parent record_id from the dataset detail.
+        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
+        r.raise_for_status()
+        return r.json()["record_id"]
+
+    def existing_keywords(self, record_id: str) -> set[str]:
+        r = self.client.get(
+            f"{self.base}/api/records/{record_id}/keywords/", headers=self.h
+        )
+        r.raise_for_status()
+        return {k["keyword"] for k in r.json().get("keywords", [])}
+
+    def add_keyword(self, record_id: str, keyword: str) -> None:
+        # One keyword per POST (KeywordCreate); keyword_type "theme" matches the
+        # ISO MD_KeywordTypeCode default for free-text subject tags.
+        r = self.client.post(
+            f"{self.base}/api/records/{record_id}/keywords/",
+            headers=self.h,
+            json={"keyword": keyword, "keyword_type": "theme"},
+        )
+        r.raise_for_status()
+
     def delete_map(self, map_id: str) -> None:
         r = self.client.delete(f"{self.base}/api/maps/{map_id}", headers=self.h)
         r.raise_for_status()
@@ -2954,6 +2978,142 @@ def build_collections(api: Api, force: bool = False) -> str:
     return ids[0] if ids else "(none)"
 
 
+# Per-dataset catalog metadata for the hand-seeded showcase datasets. The
+# ingest flow (ingest_geojson / manifest) only sets title + summary, so every
+# one of these defaulted to license "proprietary" with zero keywords - which
+# reads as a proprietary raster dump and contradicts the open sources their
+# own summaries cite (fix(#614): proprietary licenses + empty keyword facets on
+# the demo, flagged in the 2026-07-20 pre-launch audit).
+# Licenses are each dataset's real upstream terms; keywords power the faceted-
+# search sidebar. "World States & Provinces" is intentionally omitted - it is
+# the summary-less canvas for the AI metadata-generation demo and must stay bare.
+SHOWCASE_METADATA: dict[str, dict] = {
+    "World Countries (Natural Earth 1:50m)": {
+        "license": "Natural Earth (public domain)",
+        "keywords": ["countries", "boundaries", "admin-0", "natural earth"],
+    },
+    "World Major Cities (500k+)": {
+        "license": "Natural Earth (public domain)",
+        "keywords": ["cities", "populated places", "urban", "natural earth"],
+    },
+    "Manhattan Building Heights": {
+        "license": "NYC Open Data (public domain)",
+        "keywords": ["buildings", "3d", "heights", "manhattan", "nyc"],
+    },
+    "NYC Subway Lines (MTA)": {
+        "license": "MTA open data (data.ny.gov)",
+        "keywords": ["subway", "transit", "mta", "nyc", "rail"],
+    },
+    "NYC Subway Stations (MTA)": {
+        "license": "MTA open data (data.ny.gov)",
+        "keywords": [
+            "subway",
+            "stations",
+            "transit",
+            "mta",
+            "nyc",
+            "ada",
+            "accessibility",
+        ],
+    },
+    "New York Median Household Income by County": {
+        "license": "US Census Bureau, ACS 2017-21 (public domain)",
+        "keywords": ["census", "income", "demographics", "acs", "new york"],
+    },
+    "Recent Earthquakes (M4.5+, last 30 days)": {
+        "license": "USGS Earthquake Hazards Program (US public domain)",
+        "keywords": ["earthquakes", "seismic", "usgs", "hazards", "magnitude"],
+    },
+    "Recent Earthquakes - Heatmap source": {
+        "license": "USGS Earthquake Hazards Program (US public domain)",
+        "keywords": ["earthquakes", "seismic", "usgs", "density", "heatmap"],
+        # fix(#614): the old summary read as an internal rendering workaround;
+        # describe it as the map's density layer instead.
+        "summary": (
+            "USGS M4.5+ earthquakes from the last 30 days, styled as the "
+            "magnitude-weighted heat surface on the Restless Earth map. "
+            "Source: USGS Earthquake Hazards Program (public domain)."
+        ),
+    },
+    "Tectonic Plate Boundaries (PB2002)": {
+        "license": "Peter Bird (2003), PB2002 - free for research, please cite",
+        "keywords": ["plate tectonics", "geology", "boundaries", "pb2002"],
+    },
+    "Significant Volcanic Eruptions (NCEI, 4360 BC-present)": {
+        "license": "NOAA NCEI (US public domain)",
+        "keywords": ["volcanoes", "eruptions", "hazards", "geology", "ncei"],
+    },
+    "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)": {
+        "license": "NOAA NHC HURDAT2 (US public domain)",
+        "keywords": [
+            "hurricanes",
+            "tropical cyclones",
+            "noaa",
+            "hurdat2",
+            "storms",
+        ],
+    },
+    "Meteorite Landings (Meteoritical Society)": {
+        "license": "NASA open data (public domain)",
+        "keywords": ["meteorites", "impacts", "nasa", "meteoritical society"],
+    },
+    "Matterhorn Climbing Routes": {
+        "license": "(C) OpenStreetMap contributors (ODbL)",
+        "keywords": ["climbing", "alpinism", "routes", "osm", "matterhorn"],
+    },
+    "Matterhorn Peaks": {
+        "license": "(C) OpenStreetMap contributors (ODbL)",
+        "keywords": ["peaks", "summits", "mountains", "osm", "matterhorn"],
+    },
+    "ETOPO 2022 Global Relief (60 arc-second)": {
+        "license": "US public domain (NOAA NCEI)",
+        "keywords": ["bathymetry", "relief", "etopo", "global", "elevation"],
+    },
+    "swissALTI3D Matterhorn DEM (2m mosaic)": {
+        "license": "swisstopo OGD",
+        "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
+    },
+}
+
+
+def enrich_showcase_metadata(api: "Api") -> None:
+    """Backfill license + keywords (and, where noted, a cleaner summary) on the
+    hand-seeded showcase datasets.
+
+    Idempotent: the license/summary PATCH is a plain overwrite and keywords are
+    added only when absent, so re-running the seeder never duplicates. Only
+    datasets that actually exist are touched, so this composes with --only. Each
+    dataset is isolated the same way the builders are - one flaky PATCH must not
+    skip the rest - and the whole pass is best-effort: it never fails the seed.
+
+    Iterates every dataset rather than a title->newest-id map: titles are NOT
+    unique (a --force reseed leaves same-titled predecessors, see
+    datasets_by_title), and enriching only the newest would leave the older
+    public duplicates still "proprietary"/keyword-less - the exact pollution
+    this fixes. Every matching copy gets patched.
+    """
+    for ds in api.list_datasets_full():
+        spec = SHOWCASE_METADATA.get(ds["title"])
+        if not spec:
+            continue
+        title, dataset_id = ds["title"], ds["id"]
+        try:
+            fields = {"license": spec["license"]}
+            if spec.get("summary"):
+                fields["summary"] = spec["summary"]
+            api.patch_dataset(dataset_id, **fields)
+            record_id = api.dataset_record_id(dataset_id)
+            have = api.existing_keywords(record_id)
+            for kw in spec.get("keywords", ()):
+                if kw not in have:
+                    api.add_keyword(record_id, kw)
+            print(f"  enriched metadata: {title}")
+        except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
+            print(
+                f"  WARNING: metadata enrich failed for {title!r}: {e}", file=sys.stderr
+            )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed GeoLens showcase maps.")
     ap.add_argument(
@@ -3092,6 +3252,12 @@ def main() -> int:
             built[bname] = result
         else:
             print(f"  {bname}: already exists, skipped (use --force to recreate)")
+
+    # Backfill license + keywords on whatever showcase datasets now exist (the
+    # ingest flow leaves them "proprietary" with no keywords). Best-effort and
+    # self-isolating - see enrich_showcase_metadata - so it never fails the seed.
+    print("\nEnriching catalog metadata (license + keywords)...")
+    enrich_showcase_metadata(api)
 
     print("\nDone. Showcase:")
     for bname, mid in built.items():
