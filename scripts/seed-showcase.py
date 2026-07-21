@@ -2982,7 +2982,8 @@ def build_collections(api: Api, force: bool = False) -> str:
 # ingest flow (ingest_geojson / manifest) only sets title + summary, so every
 # one of these defaulted to license "proprietary" with zero keywords - which
 # reads as a proprietary raster dump and contradicts the open sources their
-# own summaries cite (2026-07-20 pre-launch demo audit, findings 1006/2317/976).
+# own summaries cite (fix(#614): proprietary licenses + empty keyword facets on
+# the demo, flagged in the 2026-07-20 pre-launch audit).
 # Licenses are each dataset's real upstream terms; keywords power the faceted-
 # search sidebar. "World States & Provinces" is intentionally omitted - it is
 # the summary-less canvas for the AI metadata-generation demo and must stay bare.
@@ -3026,7 +3027,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     "Recent Earthquakes - Heatmap source": {
         "license": "USGS Earthquake Hazards Program (US public domain)",
         "keywords": ["earthquakes", "seismic", "usgs", "density", "heatmap"],
-        # fix(976): the old summary read as an internal rendering workaround;
+        # fix(#614): the old summary read as an internal rendering workaround;
         # describe it as the map's density layer instead.
         "summary": (
             "USGS M4.5+ earthquakes from the last 30 days, styled as the "
@@ -3084,12 +3085,18 @@ def enrich_showcase_metadata(api: "Api") -> None:
     datasets that actually exist are touched, so this composes with --only. Each
     dataset is isolated the same way the builders are - one flaky PATCH must not
     skip the rest - and the whole pass is best-effort: it never fails the seed.
+
+    Iterates every dataset rather than a title->newest-id map: titles are NOT
+    unique (a --force reseed leaves same-titled predecessors, see
+    datasets_by_title), and enriching only the newest would leave the older
+    public duplicates still "proprietary"/keyword-less - the exact pollution
+    this fixes. Every matching copy gets patched.
     """
-    by_title = api.datasets_by_title()
-    for title, spec in SHOWCASE_METADATA.items():
-        dataset_id = by_title.get(title)
-        if not dataset_id:
+    for ds in api.list_datasets_full():
+        spec = SHOWCASE_METADATA.get(ds["title"])
+        if not spec:
             continue
+        title, dataset_id = ds["title"], ds["id"]
         try:
             fields = {"license": spec["license"]}
             if spec.get("summary"):
