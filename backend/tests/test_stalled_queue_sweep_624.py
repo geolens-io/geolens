@@ -124,3 +124,29 @@ async def test_sweep_loop_keeps_running_after_a_failure():
             await asyncio.gather(task, return_exceptions=True)
 
     assert len(calls) >= 3  # kept sweeping past the exception on call 1
+
+
+def test_procrastinate_prune_window_matches_the_sweep_window():
+    """fix(#624 codex P1): the two stalled-worker windows must not diverge.
+
+    Procrastinate's own ``Worker.run()`` prunes workers silent longer than
+    ``stalled_worker_timeout``. ``procrastinate_jobs.worker_id`` is ON DELETE SET
+    NULL, and ``select_stalled_jobs_by_heartbeat`` treats a ``doing`` job with a
+    NULL worker_id as stalled outright — there is no heartbeat left to compare
+    against. At procrastinate's 30s default, a live worker that merely stalls
+    gets pruned by another worker's startup and our 300s sweep then fails its
+    in-flight work.
+
+    Source-asserted because the call sits in ``main()`` behind bootstrap; what
+    matters is that the kwarg is present and bound to the same constant, which a
+    future "tidy up the redundant argument" edit would silently undo.
+    """
+    from pathlib import Path
+
+    import app.platform.jobs.worker as worker_mod
+
+    source = Path(worker_mod.__file__).read_text()
+    assert "stalled_worker_timeout=STALLED_WORKER_SECONDS" in source, (
+        "run_worker_async must pin procrastinate's prune window to "
+        "STALLED_WORKER_SECONDS — see the comment at that call site"
+    )

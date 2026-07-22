@@ -395,6 +395,18 @@ async def main() -> None:
                     install_signal_handlers=True,
                     delete_jobs="successful",
                     shutdown_graceful_timeout=shutdown_timeout,
+                    # fix(#624 codex P1): MUST match STALLED_WORKER_SECONDS.
+                    # Procrastinate's own Worker.run() prunes workers silent for
+                    # longer than this. procrastinate_jobs.worker_id is ON DELETE
+                    # SET NULL, and select_stalled_jobs_by_heartbeat treats a
+                    # `doing` job with a NULL worker_id as stalled OUTRIGHT — no
+                    # heartbeat comparison, because there is no longer a heartbeat
+                    # to compare. So at the 30s default, a live worker that merely
+                    # stalls (DB blip, long GC) gets pruned by another worker's
+                    # startup, its in-flight jobs go worker_id=NULL, and the sweep
+                    # below fails them as stalled despite the 300s cushion. Equal
+                    # windows mean a NULL worker_id can only mean 300s of silence.
+                    stalled_worker_timeout=STALLED_WORKER_SECONDS,
                 )
             finally:
                 # Cancel inside the connector context — a sweep mid-query when
