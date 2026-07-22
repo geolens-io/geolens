@@ -25,27 +25,23 @@ class _FakeAPIStatusError(Exception):
         self.status_code = status_code
 
 
-class _FakeCreate:
+class _FakeAIProvider:
+    """Stands in for a registered AIProviderExtension (the probe's dispatch
+    seam — AIEXT-03 forbids hardcoded provider branches in processing/).
+    Also serves resolve_provider's runtime-config lookup."""
+
     def __init__(self, exc: Exception | None = None) -> None:
         self.exc = exc
-        self.calls = 0
+        self.complete_calls = 0
 
-    async def create(self, **kwargs):
-        self.calls += 1
+    async def resolve_runtime_config(self, db):
+        return {"default_model": "probe-model", "base_url": None}
+
+    async def complete(self, **kwargs):
+        self.complete_calls += 1
         if self.exc is not None:
             raise self.exc
-        return SimpleNamespace(choices=[])
-
-
-def _fake_openai_client(exc: Exception | None = None):
-    completions = _FakeCreate(exc)
-    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
-    return client, completions
-
-
-def _fake_anthropic_client(exc: Exception | None = None):
-    messages = _FakeCreate(exc)
-    return SimpleNamespace(messages=messages), messages
+        return SimpleNamespace(text="p")
 
 
 class _FakeEmbeddingProvider:
@@ -97,9 +93,9 @@ async def test_probe_with_working_keys_reports_ok(
     monkeypatch.setattr(settings, "openai_api_key", SecretStr("synthetic-test-key"))
     monkeypatch.setattr(settings, "anthropic_api_key", None)
 
-    chat_client, chat_calls = _fake_openai_client()
+    chat_provider = _FakeAIProvider()
     monkeypatch.setattr(
-        "app.processing.ai.llm_loop.get_openai_client", lambda base_url: chat_client
+        "app.platform.extensions.get_ai_provider", lambda name: chat_provider
     )
     embed_provider = _FakeEmbeddingProvider()
     monkeypatch.setattr(
@@ -112,7 +108,7 @@ async def test_probe_with_working_keys_reports_ok(
     probe = resp.json()["probe"]
     assert probe["chat"] == {"configured": True, "ok": True}
     assert probe["embeddings"] == {"configured": True, "ok": True}
-    assert chat_calls.calls == 1
+    assert chat_provider.complete_calls == 1
     assert embed_provider.embed_calls == 1
 
 
@@ -125,9 +121,9 @@ async def test_probe_with_invalid_key_is_sanitized_and_still_200(
     chat_exc = _FakeAPIStatusError(
         f"Error code: 401 - Access denied {_SECRET_MARKER}", status_code=401
     )
-    chat_client, _ = _fake_openai_client(chat_exc)
     monkeypatch.setattr(
-        "app.processing.ai.llm_loop.get_openai_client", lambda base_url: chat_client
+        "app.platform.extensions.get_ai_provider",
+        lambda name: _FakeAIProvider(chat_exc),
     )
     embed_exc = _FakeAPIStatusError(
         f"Error code: 401 - invalid subscription key {_SECRET_MARKER}",
@@ -166,9 +162,9 @@ async def test_probe_chat_only_config_reports_embeddings_not_configured(
     )
     monkeypatch.setattr(settings, "openai_api_key", None)
 
-    anthropic_client, chat_calls = _fake_anthropic_client()
+    chat_provider = _FakeAIProvider()
     monkeypatch.setattr(
-        "app.processing.ai.llm_loop.get_anthropic_client", lambda: anthropic_client
+        "app.platform.extensions.get_ai_provider", lambda name: chat_provider
     )
 
     resp = await client.get("/admin/ai-status/?probe=true", headers=admin_auth_header)
@@ -177,4 +173,4 @@ async def test_probe_chat_only_config_reports_embeddings_not_configured(
     assert probe["chat"] == {"configured": True, "ok": True}
     # Anthropic has no embedding API: not configured, NOT an error.
     assert probe["embeddings"] == {"configured": False}
-    assert chat_calls.calls == 1
+    assert chat_provider.complete_calls == 1

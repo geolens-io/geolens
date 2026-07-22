@@ -51,44 +51,52 @@ def _sanitized_failure(exc: Exception) -> tuple[int | None, str]:
 
 
 async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
-    """One-token completion against the SELECTED chat provider.
+    """One-token completion through the SELECTED chat provider extension.
 
-    Mirrors the real chat path's provider/model/base-URL resolution
-    (resolve_provider) and its cached SDK clients, so ``ok`` here means the
-    actual chat route would authenticate.
+    Dispatches via ``get_ai_provider(name).complete(...)`` with no tools and
+    ``max_rounds=1`` — the same seam and no-tools shape sql_generator uses —
+    so ``ok`` means the real chat route would authenticate, and overlay
+    providers are probed through their own registered extension (AIEXT-03:
+    no hardcoded provider branches in processing/).
     """
-    # Deferred imports — same discipline as llm_loop's own SDK handling.
-    from app.processing.ai.llm_loop import (
-        get_anthropic_client,
-        get_openai_client,
-        resolve_provider,
-    )
+    import asyncio
+
+    from app.platform.extensions import get_ai_provider
+    from app.processing.ai.llm_loop import resolve_provider
 
     provider, model, runtime_config = await resolve_provider(db)
+    # Same configured-predicate as the chat route (_check_ai_available): the
+    # SELECTED provider's key. Overlay providers aren't in this map — if one
+    # is selected it is treated as configured and the probe call itself
+    # surfaces any auth failure.
     keys = {
         "anthropic": settings.anthropic_api_key,
         "openai_compatible": settings.openai_api_key,
     }
-    if not keys.get(provider):
+    if provider in keys and not keys[provider]:
         return AIProbeCheck(configured=False)
 
+    provider_ext = get_ai_provider(provider)
+
+    async def _noop_executor(name: str, args: dict) -> dict:
+        # tools=[] + max_rounds=1: the loop exits before any tool call.
+        return {}
+
     try:
-        if provider == "anthropic":
-            client = get_anthropic_client()
-            await client.messages.create(
+        await asyncio.wait_for(
+            provider_ext.complete(
                 model=model,
+                system_prompt="Connectivity probe. Reply with a single character.",
+                user_message="ping",
+                tools=[],
+                tool_executor=_noop_executor,
+                max_rounds=1,
                 max_tokens=1,
-                messages=[{"role": "user", "content": "ping"}],
-                timeout=_PROBE_TIMEOUT_SECONDS,
-            )
-        else:
-            client = get_openai_client(runtime_config.get("base_url"))
-            await client.chat.completions.create(
-                model=model,
-                max_tokens=1,
-                messages=[{"role": "user", "content": "ping"}],
-                timeout=_PROBE_TIMEOUT_SECONDS,
-            )
+                temperature=0.0,
+                base_url=runtime_config.get("base_url"),
+            ),
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
         return AIProbeCheck(configured=True, ok=True)
     except Exception as exc:
         status, reason = _sanitized_failure(exc)
