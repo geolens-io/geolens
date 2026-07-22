@@ -13,6 +13,17 @@ const apiProxyTarget =
   process.env.API_PROXY_TARGET ||
   'http://localhost:8000'
 
+// FRONTEND_ALLOWED_HOSTS: comma-separated Host header values the dev server
+// accepts in addition to localhost/LAN, for serving the dev app behind a tunnel
+// or reverse proxy that presents a public hostname (e.g. a Cloudflare tunnel).
+// Vite blocks unknown Host headers as DNS-rebinding protection, so a tunnelled
+// host must be listed here. Consumed Node-side only (no VITE_ prefix — this is
+// dev-server config, not a browser var). Unset → Vite's default allowlist.
+const allowedHosts = (process.env.FRONTEND_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean)
+
 // Stamp the frontend package version into the bundle at build time so the
 // in-app "Report a problem" flow can auto-fill the GitHub issue version field
 // without a runtime fetch. Exposed as the `__APP_VERSION__` global (see
@@ -88,6 +99,9 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Only narrow the host allowlist when values are provided (tunnel/proxy
+    // deployments); otherwise leave Vite's default behavior intact.
+    ...(allowedHosts.length > 0 ? { allowedHosts } : {}),
     fs: {
       allow: fsAllow,
     },
