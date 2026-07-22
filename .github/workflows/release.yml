@@ -49,6 +49,8 @@ jobs:
 
       - name: Generate release notes
         id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PREV="${{ steps.prev.outputs.tag }}"
 
@@ -63,6 +65,24 @@ jobs:
 
           # Write to file to preserve newlines
           echo "$NOTES" > release-notes.md
+
+          # Append contributor credits from GitHub's auto-generated notes: the
+          # "New Contributors" section (first-time contributors) and the
+          # "Full Changelog" compare link. The curated CHANGELOG section above
+          # stays the body; a failed generate-notes call must never block the
+          # release, so every step here degrades to appending nothing.
+          GEN=$(gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${TAG}" ${PREV:+-f previous_tag_name="${PREV}"} \
+            --jq '.body' || true)
+          NEW_CONTRIBUTORS=$(printf '%s\n' "$GEN" \
+            | awk '/^## New Contributors/{f=1; print; next} /^## /||/^\*\*Full Changelog\*\*/{if(f) exit} f{print}')
+          FULL_CHANGELOG=$(printf '%s\n' "$GEN" | grep '^\*\*Full Changelog\*\*' || true)
+          if [ -n "$NEW_CONTRIBUTORS" ]; then
+            printf '\n%s\n' "$NEW_CONTRIBUTORS" >> release-notes.md
+          fi
+          if [ -n "$FULL_CHANGELOG" ]; then
+            printf '\n%s\n' "$FULL_CHANGELOG" >> release-notes.md
+          fi
 
       - name: Create release
         env:
