@@ -169,6 +169,8 @@ NE_BASE = (
 NE_COUNTRIES = NE_BASE + "ne_50m_admin_0_countries.geojson"
 NE_PLACES = NE_BASE + "ne_50m_populated_places.geojson"
 NE_ADMIN1 = NE_BASE + "ne_50m_admin_1_states_provinces.geojson"
+NE_RIVERS = NE_BASE + "ne_50m_rivers_lake_centerlines.geojson"
+NE_LAKES = NE_BASE + "ne_50m_lakes.geojson"
 # PB2002 plate-boundary steps (Peter Bird 2003, via Hugo Ahlenius/Nordpil; the
 # *steps* file - not boundaries - carries per-segment STEPCLASS + velocity).
 PB2002_STEPS = (
@@ -1054,6 +1056,7 @@ def build_catalog(api: Api, force: bool = False) -> str:
       build the choropleth live instead of shipping a static one.
     * Admin-1 states/provinces committed SUMMARY-LESS: raw material for the
       AI metadata-generation demo.
+    * Rivers + lakes: the water/hydrology searches every GIS user types first.
     """
     print("\n[catalog] AI-demo + search-breadth datasets (no maps)")
     by_title = api.datasets_by_title()
@@ -1094,6 +1097,31 @@ def build_catalog(api: Api, force: bool = False) -> str:
         lambda: fetch(USDA_INCOME),
         "Median household income (2017-21 ACS) for all 62 NY counties. "
         "Source: USDA ERS Atlas of Rural & Small-Town America.",
+        force=force,
+    )
+    # fix(#626): water/hydrology terms (water, water bodies, rivers, lakes,
+    # hydrology) were the top zero-result organic searches on the public demo,
+    # and the README's own `q=hydrology` curl returned nothing - the showcase
+    # had no aquatic data at all. Both files are ~800 KB and public domain.
+    _get_or_ingest(
+        api,
+        by_title,
+        "World Rivers & Lake Centerlines (Natural Earth 1:50m)",
+        "world_rivers.geojson",
+        lambda: fetch(NE_RIVERS),
+        "Major rivers and lake centerlines worldwide - the global surface "
+        "hydrology network, named and scale-ranked. Source: Natural Earth "
+        "1:50m (public domain).",
+        force=force,
+    )
+    _get_or_ingest(
+        api,
+        by_title,
+        "World Lakes & Reservoirs (Natural Earth 1:50m)",
+        "world_lakes.geojson",
+        lambda: fetch(NE_LAKES),
+        "Lakes and reservoirs worldwide - named inland water bodies with "
+        "scale rank. Source: Natural Earth 1:50m (public domain).",
         force=force,
     )
     if force or "World States & Provinces (Natural Earth 1:50m)" not in by_title:
@@ -2991,6 +3019,14 @@ SHOWCASE_METADATA: dict[str, dict] = {
     "World Countries (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
         "keywords": ["countries", "boundaries", "admin-0", "natural earth"],
+    },
+    "World Rivers & Lake Centerlines (Natural Earth 1:50m)": {
+        "license": "Natural Earth (public domain)",
+        "keywords": ["rivers", "hydrology", "water", "water bodies", "natural earth"],
+    },
+    "World Lakes & Reservoirs (Natural Earth 1:50m)": {
+        "license": "Natural Earth (public domain)",
+        "keywords": ["lakes", "hydrology", "water", "water bodies", "reservoirs"],
     },
     "World Major Cities (500k+)": {
         "license": "Natural Earth (public domain)",

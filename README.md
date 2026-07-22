@@ -84,8 +84,8 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
 Semantic search takes a one-time admin setup: an embedding provider and the AI + Semantic Search toggles in the admin AI settings, plus an embedding backfill for data ingested before setup (the [search guide](https://docs.getgeolens.com/guides/user/search/) walks through it). Once that's on, search datasets by meaning instead of exact keyword matches:
 
 ```bash
-# Semantic search ranks by meaning: "hydrology" surfaces subwatersheds, lakes,
-# and river networks whose titles never mention the word
+# Semantic search ranks by meaning: "hydrology" surfaces the lake and river
+# network datasets whose titles never mention the word
 curl "http://localhost:8080/api/search/datasets/?q=hydrology&limit=3" \
   -H "Authorization: Bearer $TOKEN" | jq '.features[].properties.title'
 ```
