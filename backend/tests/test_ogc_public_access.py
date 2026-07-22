@@ -464,3 +464,39 @@ async def test_externalid_no_auth_public_returns_200(
     assert body["type"] == "FeatureCollection"
     assert body["numberMatched"] == 1
     assert [feature["id"] for feature in body["features"]] == [str(pub.id)]
+
+
+# ---------------------------------------------------------------------------
+# fix(#401): supplied-but-stale credentials must 401, not fall to anon 404
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/collections/{dataset_id}",
+        "/collections/{dataset_id}/items",
+        "/collections/{dataset_id}/items/1",
+    ],
+)
+async def test_ogc_stale_bearer_returns_401_not_404(client: AsyncClient, path: str):
+    """fix(#401): a request that supplied credentials which failed to resolve
+    (expired/revoked JWT) gets 401 — not the anonymous path's 404 — so the
+    client's refresh-on-401 retry fires instead of a private dataset
+    permanently 404ing. Fires before dataset lookup, so no fixture needed."""
+    resp = await client.get(
+        path.format(dataset_id=uuid.uuid4()),
+        headers={"Authorization": "Bearer not-a-valid-token"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_ogc_invalid_api_key_returns_401(client: AsyncClient):
+    """fix(#401): an unresolvable X-Api-Key is a supplied credential too."""
+    resp = await client.get(
+        f"/collections/{uuid.uuid4()}/items",
+        headers={"X-Api-Key": "not-a-valid-key"},
+    )
+    assert resp.status_code == 401

@@ -15,7 +15,7 @@ from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import get_optional_user_or_401
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.features.schemas import inline_json_schema
@@ -302,7 +302,7 @@ async def get_dataset_collection(
     request: Request,
     dataset_id: uuid.UUID,
     f: str | None = Query(None),
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_or_401),
     db: AsyncSession = Depends(get_db),
 ) -> OGCCollectionMetadata:
     """Per-dataset OGC collection metadata with extent, CRS, and items link."""
@@ -473,7 +473,7 @@ async def get_collection_items(
         True,
         description="Include geometry in response. Set to false for attribute-only queries.",
     ),
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_or_401),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
@@ -729,7 +729,7 @@ async def get_collection_item_feature(
     dataset_id: uuid.UUID,
     feature_id: int,
     f: str | None = Query(None),
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_or_401),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Features single feature endpoint -- returns a GeoJSON Feature."""
