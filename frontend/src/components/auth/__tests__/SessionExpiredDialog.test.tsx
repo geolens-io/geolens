@@ -2,28 +2,45 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { act } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
 import { notifySessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
+import { queryKeys } from '@/lib/query-keys';
+import type { AuthConfigResponse } from '@/types/api';
 
 // fix(#628): the global signed-out host — one dismissable prompt when the
 // fetch core declares the session dead, sign-in returns to the current route,
 // and anonymous-capable routes downgrade silently instead of prompting.
+
+vi.mock('@/api/auth', () => ({
+  getAuthConfig: vi.fn().mockRejectedValue(new Error('not stubbed')),
+  refreshAccessToken: vi.fn(),
+}));
 
 function LoginProbe() {
   const location = useLocation();
   return <div data-testid="login-probe">{(location.state as { from?: string } | null)?.from ?? 'no-from'}</div>;
 }
 
-function renderAt(path: string) {
+function renderAt(path: string, { landingFirst }: { landingFirst?: boolean } = {}) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (landingFirst !== undefined) {
+    queryClient.setQueryData(
+      queryKeys.authConfig.config,
+      { landing_first: landingFirst } as AuthConfigResponse,
+    );
+  }
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <SessionExpiredDialog />
-      <Routes>
-        <Route path="/login" element={<LoginProbe />} />
-        <Route path="*" element={<div />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <SessionExpiredDialog />
+        <Routes>
+          <Route path="/login" element={<LoginProbe />} />
+          <Route path="*" element={<div />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -73,5 +90,23 @@ describe('SessionExpiredDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     // The session is still cleared — queries refetch anonymously.
     expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  // fix(#633 codex P2): on landing-first deployments "/" is NOT anonymous-
+  // capable — LandingFirstGuard bounces the now-signed-out visitor to /login,
+  // so the prompt must show to explain the teleport.
+  it('prompts on "/" when landing-first would bounce the anonymous visitor', () => {
+    renderAt('/', { landingFirst: true });
+    act(() => notifySessionExpired(nextDeadToken()));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('still downgrades silently on "/" under landing-first when guest browsing was chosen', () => {
+    sessionStorage.setItem('gl-guest-browse', 'true');
+    renderAt('/', { landingFirst: true });
+    act(() => notifySessionExpired(nextDeadToken()));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

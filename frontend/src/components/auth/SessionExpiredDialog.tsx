@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { onSessionExpired } from '@/api/client';
+import { getAuthConfig } from '@/api/auth';
+import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -18,8 +21,9 @@ import {
 // instead of prompting. Detail pages (/datasets/:id, /maps/:id) are excluded:
 // whether they work anonymously depends on the resource's visibility, so they
 // keep the prompt; a public resource still recovers after dismissal via the
-// same anonymous refetch.
-const ANON_EXACT = new Set(['/', '/collections', '/maps', '/login', '/register', '/verify-email']);
+// same anonymous refetch. The root route is handled separately — see the
+// landing-first check in the handler.
+const ANON_EXACT = new Set(['/collections', '/maps', '/login', '/register', '/verify-email']);
 const ANON_PREFIXES = ['/m/', '/oauth/'];
 
 function isAnonymousCapable(pathname: string): boolean {
@@ -46,23 +50,36 @@ export function SessionExpiredDialog() {
   const locationRef = useRef(location);
   locationRef.current = location;
 
+  // fix(#633 codex P2): whether "/" is anonymous-capable depends on the
+  // landing-first flag — LandingFirstGuard bounces anonymous visitors without
+  // the guest-browse marker to /login. Held in a ref because at event time
+  // the logout has already fired wireAuthCacheReset's queryClient.clear(),
+  // so the cache read would race the wipe; the ref keeps the last-known value.
+  const { data: authConfig } = useQuery({
+    queryKey: queryKeys.authConfig.config,
+    queryFn: getAuthConfig,
+    staleTime: 5 * 60 * 1000,
+  });
+  const landingFirstRef = useRef(false);
+  if (authConfig) landingFirstRef.current = authConfig.landing_first ?? false;
+
   useEffect(
     () =>
       onSessionExpired(() => {
         const { pathname, search } = locationRef.current;
-        if (isAnonymousCapable(pathname)) return;
+        if (pathname === '/') {
+          // Anonymous catalog browsing exists on "/" unless landing-first
+          // would bounce this (now signed-out) visitor to /login — there the
+          // prompt is exactly the context the teleport otherwise lacks.
+          const guestBrowse = sessionStorage.getItem('gl-guest-browse') === 'true';
+          if (!landingFirstRef.current || guestBrowse) return;
+        } else if (isAnonymousCapable(pathname)) {
+          return;
+        }
         setFrom(pathname + search);
       }),
     [],
   );
-
-  // A protected route bounces to /login on its own the moment the store is
-  // cleared (ProtectedRoute) — the prompt over the login form is noise.
-  useEffect(() => {
-    if (from && (location.pathname === '/login' || location.pathname === '/register')) {
-      setFrom(null);
-    }
-  }, [from, location.pathname]);
 
   const signIn = () => {
     if (from) sessionStorage.setItem('geolens-login-redirect', from);
