@@ -98,7 +98,7 @@ async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
             timeout=_PROBE_TIMEOUT_SECONDS,
         )
         return AIProbeCheck(configured=True, ok=True)
-    except Exception as exc:
+    except Exception as exc:  # broad: any SDK/network failure maps to a sanitized probe result, never a 500
         status, reason = _sanitized_failure(exc)
         logger.warning(
             "AI chat probe failed",
@@ -136,7 +136,7 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
             timeout=_PROBE_TIMEOUT_SECONDS,
         )
         return AIProbeCheck(configured=True, ok=True)
-    except Exception as exc:
+    except Exception as exc:  # broad: any SDK/network failure maps to a sanitized probe result, never a 500
         status, reason = _sanitized_failure(exc)
         logger.warning(
             "AI embeddings probe failed",
