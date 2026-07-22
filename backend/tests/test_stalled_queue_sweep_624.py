@@ -9,13 +9,18 @@ live worker was left alone. What is asserted here is the sweep's decision logic
 — fail rather than requeue, keep the row, skip unpersisted jobs.
 """
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from procrastinate.jobs import Status
 
-from app.platform.jobs.worker import STALLED_WORKER_SECONDS, fail_stalled_queue_jobs
+from app.platform.jobs.worker import (
+    STALLED_WORKER_SECONDS,
+    fail_stalled_queue_jobs,
+    run_stalled_queue_sweeps,
+)
 
 
 def _fake_task_app(stalled: list, pruned: list | None = None) -> SimpleNamespace:
@@ -83,3 +88,39 @@ async def test_unpersisted_job_is_skipped():
     fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
         job_id=42, status=Status.FAILED, delete_job=False
     )
+
+
+@pytest.mark.anyio
+async def test_sweep_loop_keeps_running_after_a_failure():
+    """fix(#624 codex P2): the sweep must repeat, and survive its own failures.
+
+    A startup-only sweep is always one restart behind: under
+    `restart: unless-stopped` the replacement worker is up seconds after the
+    crash, while the dead worker's heartbeat is still fresh, so the startup pass
+    skips the very row it exists to reap. The loop is what actually reaps it —
+    which makes "one bad sweep kills the loop" a silent regression to the old
+    behavior, hence the raising first call.
+    """
+    calls = []
+
+    async def _flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("transient DB blip")
+
+    with (
+        patch("app.platform.jobs.worker.fail_stalled_queue_jobs", _flaky),
+        patch("app.platform.jobs.worker.STALLED_QUEUE_SWEEP_INTERVAL_SECONDS", 0),
+    ):
+        task = asyncio.create_task(run_stalled_queue_sweeps())
+        try:
+            # Bounded: if the loop dies on the raising call this fails in 5s
+            # instead of spinning forever.
+            async with asyncio.timeout(5):
+                while len(calls) < 3:
+                    await asyncio.sleep(0)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    assert len(calls) >= 3  # kept sweeping past the exception on call 1

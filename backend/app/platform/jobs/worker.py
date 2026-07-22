@@ -181,6 +181,13 @@ async def _recover_stale_jobs_for_current_scope() -> None:
 # of being wrong is failing live work.
 STALLED_WORKER_SECONDS = 300
 
+# fix(#624 codex P2): a startup-only sweep is always one restart behind. Under
+# `restart: unless-stopped` (and Kubernetes) a crashed worker is back in seconds,
+# while the dead worker's last heartbeat is still fresh — so the startup pass
+# skips the very row it exists to reap, and nothing looks again. Sweeping on an
+# interval means a job stranded mid-run is failed ~1 cycle after it goes stale.
+STALLED_QUEUE_SWEEP_INTERVAL_SECONDS = 60
+
 
 async def fail_stalled_queue_jobs() -> int:
     """Fail procrastinate rows whose worker died mid-job. Returns the count.
@@ -228,6 +235,25 @@ async def fail_stalled_queue_jobs() -> int:
             workers_pruned=len(pruned),
         )
     return len(stalled)
+
+
+async def _sweep_stalled_queue_safely() -> None:
+    """Run one sweep; never let a failure block startup or kill the loop."""
+    try:
+        await fail_stalled_queue_jobs()
+    except Exception:  # broad: best-effort housekeeping, never fatal to the worker
+        log.warning("Stalled queue sweep failed", exc_info=True)
+
+
+async def run_stalled_queue_sweeps() -> None:
+    """Sweep stalled queue rows on an interval for the life of the worker.
+
+    Sleeps first: the caller runs the startup pass itself, and re-sweeping
+    immediately would find nothing new.
+    """
+    while True:
+        await asyncio.sleep(STALLED_QUEUE_SWEEP_INTERVAL_SECONDS)
+        await _sweep_stalled_queue_safely()
 
 
 async def _registered_tenant_ids_for_recovery() -> list[str]:
@@ -356,19 +382,25 @@ async def main() -> None:
         async with task_app.open_async():
             # fix(#624): inside the connector context (it needs an open pool) and
             # before the worker registers itself, so this process's own heartbeat
-            # can never be in the window it sweeps.
+            # can never be in the window it sweeps. This pass clears rows stranded
+            # before this process existed; the loop below owns the ones that go
+            # stale while it runs.
+            await _sweep_stalled_queue_safely()
+            sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
             try:
-                await fail_stalled_queue_jobs()
-            except Exception:  # broad: a sweep failure must not block the worker
-                log.warning("Stalled queue sweep failed", exc_info=True)
-            await task_app.run_worker_async(
-                queues=queues,
-                concurrency=settings.worker_concurrency,
-                listen_notify=not settings.db_use_external_pooler,
-                install_signal_handlers=True,
-                delete_jobs="successful",
-                shutdown_graceful_timeout=shutdown_timeout,
-            )
+                await task_app.run_worker_async(
+                    queues=queues,
+                    concurrency=settings.worker_concurrency,
+                    listen_notify=not settings.db_use_external_pooler,
+                    install_signal_handlers=True,
+                    delete_jobs="successful",
+                    shutdown_graceful_timeout=shutdown_timeout,
+                )
+            finally:
+                # Cancel inside the connector context — a sweep mid-query when
+                # the pool closes would raise on the way out.
+                sweep_task.cancel()
+                await asyncio.gather(sweep_task, return_exceptions=True)
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()
