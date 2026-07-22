@@ -48,12 +48,14 @@ class _FakeEmbeddingProvider:
     def __init__(self, exc: Exception | None = None) -> None:
         self.exc = exc
         self.embed_calls = 0
+        self.last_embed_kwargs: dict | None = None
 
     async def resolve_runtime_config(self, db):
         return {"default_model": "text-embedding-3-small", "base_url": None}
 
     async def embed(self, **kwargs):
         self.embed_calls += 1
+        self.last_embed_kwargs = kwargs
         if self.exc is not None:
             # Mirror the real provider: terminal failures are wrapped with
             # the original SDK error as __cause__ (the probe must walk it).
@@ -110,6 +112,10 @@ async def test_probe_with_working_keys_reports_ok(
     assert probe["embeddings"] == {"configured": True, "ok": True}
     assert chat_provider.complete_calls == 1
     assert embed_provider.embed_calls == 1
+    # codex P2 on #635: probe with the SAME dims production embedding uses —
+    # dimensions=None would pass while an unsupported EMBEDDING_DIMS breaks
+    # every real backfill/search call. 1536 = the persistent-config default.
+    assert embed_provider.last_embed_kwargs["dimensions"] == 1536
 
 
 async def test_probe_with_invalid_key_is_sanitized_and_still_200(

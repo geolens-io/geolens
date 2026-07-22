@@ -119,7 +119,7 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     """
     import asyncio
 
-    from app.core.persistent_config import EMBEDDING_MODEL
+    from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
     from app.platform.extensions import get_embedding_provider
 
     if not settings.openai_api_key:
@@ -128,6 +128,11 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     provider_ext = get_embedding_provider("openai_compatible")
     runtime_config = await provider_ext.resolve_runtime_config(db)
     model = await EMBEDDING_MODEL.get(db) or runtime_config.get("default_model")
+    # fix(#627, codex P2): same dims resolution as production embedding
+    # generation (generate_embeddings_batch) — probing with dimensions=None
+    # (the model's natural size) would pass while a configured-but-unsupported
+    # EMBEDDING_DIMS still breaks every real backfill/search call.
+    dims = await EMBEDDING_DIMS.get(db) or runtime_config.get("default_dims")
 
     try:
         # Outer wait_for, same as the chat probe: the provider's embed() runs
@@ -137,7 +142,7 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
             provider_ext.embed(
                 texts=["ping"],
                 model=model,
-                dimensions=None,
+                dimensions=dims,
                 base_url=runtime_config.get("base_url"),
                 timeout=_PROBE_TIMEOUT_SECONDS,
             ),

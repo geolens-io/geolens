@@ -807,7 +807,13 @@ def _ai_status(
     response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
 )
+# fix(#627, codex P2): probe=true spends real provider quota and can hold a
+# worker for up to the probe timeouts — same 30/minute cap as the PATCH
+# sibling. The plain status read shares the limit; dashboards fetch it once
+# per view, nowhere near 30/minute.
+@limiter.limit("30/minute")
 async def get_ai_status(
+    request: Request,
     probe: bool = Query(
         default=False,
         description="When true, run a minimal LIVE provider call per purpose "
