@@ -31,6 +31,11 @@ A release at version `X.Y.Z` is coherent when all of these agree:
    release tag and writes it to `GEOLENS_VERSION`, so a fresh install pulls the
    `X.Y.Z` images by default.
 8. **Demo build** — the public demo VM is pinned to a released image tag.
+9. **Helm chart** — the community chart in
+   [geolens-deployments](https://github.com/geolens-io/geolens-deployments)
+   defaults its `appVersion` / image tags to `X.Y.Z`. It lives in a sibling
+   repository, so it trails the tag by one manual bump PR rather than being
+   enforced by this repo's CI.
 
 ## Gates that enforce coherence
 
@@ -62,3 +67,33 @@ commit:
 
 The maintainer owns the tag cut and the publish approval. This document does not
 auto-publish or announce anything.
+
+## Release notes and credits
+
+`CHANGELOG.md` is the source of truth for release notes: the release workflow
+extracts the `## [X.Y.Z]` section verbatim as the GitHub Release body. Entries
+are written for operators — what changed and why it matters — not as a PR list.
+
+Credits:
+
+- A change contributed from outside the maintainer team is credited in its
+  CHANGELOG entry: `(thanks @user, #123)`.
+- The release workflow appends GitHub's auto-generated **New Contributors**
+  section and the **Full Changelog** compare link below the curated notes.
+- Security reporters are credited in the release notes of the fix, per the
+  [security policy](.github/SECURITY.md), unless they prefer anonymity.
+
+## Hotfixes and backports
+
+Only the latest release line is patched (see the
+[security policy](.github/SECURITY.md)), and fixes normally ship from `main` as
+the next `X.Y.(Z+1)`. There are no standing release branches. If `main` has
+moved past what should ship — unreleased breaking work on top of the current
+release — and that release needs an urgent fix:
+
+1. Cut `release/X.Y` from the existing `vX.Y.Z` tag.
+2. Cherry-pick the fix commit(s) onto it.
+3. Run the release-prep step there (version bump + CHANGELOG section) and tag
+   `vX.Y.(Z+1)` from that branch — the tag pipeline behaves identically.
+4. Delete the branch after the release. Release branches are on-demand and
+   short-lived, never maintained in parallel.
