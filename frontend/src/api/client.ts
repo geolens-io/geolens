@@ -28,6 +28,33 @@ export class ApiError extends Error {
 // expiration starts fresh.
 let inflightRefresh: Promise<void> | null = null;
 
+// fix(#628): once a request 401s AND the follow-up refresh cannot produce a
+// working token, the session is conclusively dead — every surface in the app
+// is about to fail the same way (silent 403 tiles, quiet query errors, generic
+// toasts). Instead of letting each surface invent its own failure UX, clear
+// the session once and notify a single app-level handler (the signed-out
+// dialog host). The latch is keyed on the dead refresh token's value: the
+// burst of concurrent in-flight failures all captured the same token, so they
+// collapse to one notification, while the next session (refresh tokens
+// rotate, so its token is always new) notifies again.
+let sessionExpiredHandler: (() => void) | null = null;
+let lastNotifiedRefreshToken: string | null = null;
+
+/** Register the app-level signed-out handler. Returns an unregister fn. */
+export function onSessionExpired(handler: () => void): () => void {
+  sessionExpiredHandler = handler;
+  return () => {
+    if (sessionExpiredHandler === handler) sessionExpiredHandler = null;
+  };
+}
+
+export function notifySessionExpired(deadRefreshToken: string): void {
+  if (deadRefreshToken === lastNotifiedRefreshToken) return;
+  lastNotifiedRefreshToken = deadRefreshToken;
+  useAuthStore.getState().logout();
+  sessionExpiredHandler?.();
+}
+
 export async function tryRefresh(): Promise<boolean> {
   const { refreshToken } = useAuthStore.getState();
   if (!refreshToken) return false;
@@ -133,6 +160,11 @@ export async function authenticatedRawFetch(
   });
 
   if (response.status === 401) {
+    // fix(#628): only a session that existed can expire. A real session always
+    // holds a refresh token; an anonymous 401 (or the transient token-only
+    // state mid-login) must not raise the signed-out prompt. Captured BEFORE
+    // tryRefresh so every concurrent failure holds the same dead token.
+    const sessionRefreshToken = useAuthStore.getState().refreshToken;
     const refreshed = await tryRefresh();
     if (refreshed) {
       const retry = await safeFetch(target, {
@@ -145,7 +177,11 @@ export async function authenticatedRawFetch(
       // a spurious logout.
       if (retry.status !== 401) return retry;
     }
-    useAuthStore.getState().logout();
+    if (sessionRefreshToken) {
+      notifySessionExpired(sessionRefreshToken);
+    } else {
+      useAuthStore.getState().logout();
+    }
     // fix(#438): UX-10 — was hardcoded English.
     throw new ApiError(i18n.t('common:errors.unauthorized'), 401);
   }

@@ -15,6 +15,7 @@ import {
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, isMvtSourceLayerConfigReady, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
+import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { isViewerTerrainExpected, useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
@@ -180,7 +181,10 @@ export const ViewerMap = memo(function ViewerMap({
   const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
 
   // Tile token management (fetch, auto-refresh, error toast)
-  const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
+  const { tokenMap, refreshTokens } = useViewerTokens({ layers, apiKey, embedToken });
+  // fix(#621): shared tile-auth recovery — a vector tile 401/403 kicks one
+  // throttled token re-mint; the token-refresh effect below re-signs sources.
+  const recoverTileAuth = useTileAuthRecovery(refreshTokens);
 
   // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
   // visibility is handled inside the hook (HT-12); this covers the client-side
@@ -454,6 +458,15 @@ export const ViewerMap = memo(function ViewerMap({
           });
           return;
         }
+        // fix(#621): a first-party tile 401/403 means the signed tile URL has
+        // gone stale (expired sig / stranded session). Kick one throttled
+        // token re-mint — the token-refresh effect re-signs the sources when
+        // it lands, and a conclusively dead session surfaces through the
+        // global signed-out handling (#628) via the mint request itself.
+        if ((status === 401 || status === 403) && !isThirdPartyUrl(e.error?.url)) {
+          recoverTileAuth();
+          return;
+        }
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
           return;
@@ -488,7 +501,7 @@ export const ViewerMap = memo(function ViewerMap({
       setMapReady(true);
       onMapReady?.(map);
     },
-    [onMapReady, embedToken, t],
+    [onMapReady, embedToken, t, recoverTileAuth],
   );
 
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { getTileTokensBatch } from '@/api/tiles';
@@ -53,6 +53,9 @@ export function useViewerTokens({
   const [tokenMap, setTokenMap] = useState<Map<string, TileToken>>(new Map());
   const [tokenError, setTokenError] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // fix(#621): latest fetchTokens, so the on-demand refresh below always runs
+  // the current effect generation's fetcher (or nothing after unmount).
+  const fetchRef = useRef<(() => void) | null>(null);
 
   const layerDatasetIds = useMemo(
     () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
@@ -109,15 +112,23 @@ export function useViewerTokens({
     }
 
     fetchTokens();
+    fetchRef.current = fetchTokens;
 
     return () => {
       cancelled = true;
+      fetchRef.current = null;
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
     };
   }, [embedToken, apiKey, layerDatasetIds]);
+
+  // fix(#621): on-demand re-mint for the tile 401/403 recovery path. Stable
+  // identity so map error handlers can depend on it without re-registering.
+  const refreshTokens = useCallback(() => {
+    fetchRef.current?.();
+  }, []);
 
   // Surface tile token fetch failures as a user-visible toast
   useEffect(() => {
@@ -128,5 +139,5 @@ export function useViewerTokens({
     }
   }, [tokenError, t]);
 
-  return { tokenMap, tokenError };
+  return { tokenMap, tokenError, refreshTokens };
 }
