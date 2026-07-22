@@ -485,6 +485,55 @@ async def test_rrf_ranking_with_embeddings(
 
 
 # ---------------------------------------------------------------------------
+# Tests: typeahead prefixes skip the provider embedding call (#625)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_short_query_skips_embedding_call(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+):
+    """fix(#625): a query below _MIN_SEMANTIC_QUERY_LEN pays no provider call.
+
+    Search-as-you-type fired one embedding round-trip per keystroke prefix, each
+    of which then missed the cosine cutoff and fell back to FTS anyway. Short
+    queries must skip the vector path entirely and still return FTS results.
+    """
+    from app.modules.catalog.search.service_semantic import _MIN_SEMANTIC_QUERY_LEN
+
+    short_q = "map"  # matches "River Systems Map" via FTS
+    assert len(short_q) < _MIN_SEMANTIC_QUERY_LEN
+
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ) as mock_embed:
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": short_q},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        mock_embed.assert_not_called()
+        titles = [f["properties"]["title"] for f in resp.json()["features"]]
+        assert "River Systems Map" in titles
+
+        # At the threshold the vector path still runs, unchanged.
+        long_q = "r" * _MIN_SEMANTIC_QUERY_LEN
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": long_q},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        mock_embed.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # Tests: unit test for _compute_rrf_scores
 # ---------------------------------------------------------------------------
 
