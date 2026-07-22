@@ -14,7 +14,7 @@ from pathlib import Path
 
 import structlog
 import uvicorn
-from sqlalchemy import func, text, update
+from sqlalchemy import func, select, text, update
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
@@ -173,6 +173,219 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             )
 
 
+# fix(#624): a worker killed mid-job leaves its queue row in `doing` forever —
+# the demo carried one from 2026-06-29 for three weeks. Procrastinate 3.x tracks
+# worker heartbeats, so "this worker is gone" is a fact we can read rather than a
+# timeout we have to guess at. The cost of waiting is a stale metric; the cost of
+# being wrong is failing live work — so the window is deliberately generous.
+#
+# Cushion over the graceful-shutdown window: covers the final heartbeat interval
+# (10s by default) plus the unregister that follows the graceful wait.
+_STALLED_SHUTDOWN_MARGIN_SECONDS = 60
+
+
+def stalled_worker_seconds() -> int:
+    """Heartbeat silence after which a worker counts as dead.
+
+    Floored at ``JOB_TIMEOUT_SECONDS`` — the same 60 minutes the ingest_jobs
+    reaper above already calls stale.
+
+    fix(#624 codex P1 r4): this sweep is global — no queue filter, and the prune
+    touches every worker row — so a threshold derived from THIS process's config
+    would let a general worker fail a split-queue raster worker's live job.
+    ``WORKER_QUEUES`` exists precisely so those pools run with different settings,
+    and nothing in procrastinate's schema exposes another worker's shutdown
+    window to read. The hour dissolves that rather than papering over it: no
+    plausible graceful window reaches it, and past it the reaper has already
+    failed the user-facing ingest_jobs row — so failing the queue row is the
+    CONSISTENT verdict, which was the point of this sweep to begin with. That
+    also means no fleet-wide config coordination is required for correctness.
+
+    Still maxed against the local graceful window (fix(#624 codex P2 r3)):
+    procrastinate cancels the heartbeat side task BEFORE waiting
+    ``shutdown_graceful_timeout`` (``Worker._shutdown``), so an operator who sets
+    a window longer than an hour on this process would otherwise have its own
+    long jobs swept out from under a shutdown it explicitly configured.
+    """
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
+    return max(
+        JOB_TIMEOUT_SECONDS,
+        settings.worker_shutdown_timeout + _STALLED_SHUTDOWN_MARGIN_SECONDS,
+    )
+
+
+# fix(#624 codex P2): a startup-only sweep is always one restart behind. Under
+# `restart: unless-stopped` (and Kubernetes) a crashed worker is back in seconds,
+# while the dead worker's last heartbeat is still fresh — so the startup pass
+# skips the very row it exists to reap, and nothing looks again. Sweeping on an
+# interval means a job stranded mid-run is failed ~1 cycle after it goes stale.
+STALLED_QUEUE_SWEEP_INTERVAL_SECONDS = 60
+
+
+async def _ingest_jobs_still_leasing(jobs: list) -> set[str]:
+    """Of ``jobs``, the ingest_jobs ids whose row is provably still working.
+
+    fix(#624 codex P2 r5): procrastinate's worker heartbeat and the ingest task's
+    own lease are INDEPENDENT signals. ``Worker._shutdown`` cancels the worker
+    heartbeat and only then waits out ``shutdown_graceful_timeout``, while
+    ``maintain_ingest_job_heartbeat`` keeps renewing the ingest_jobs lease for
+    the whole window. So a silent worker does not imply dead work, and in a
+    split-queue fleet whose raster pool configures a shutdown longer than our
+    threshold, a timeout alone would fail a job that is still running.
+
+    Trust the work's own liveness signal over any timeout: a row that is
+    ``running`` on a fresh lease is alive, and no window arithmetic overrides
+    that. The threshold remains the backstop for jobs with no lease to read —
+    non-ingest tasks such as embeddings carry no ``job_id``.
+
+    fix(#624 codex P2 r6): grouped by tenant. In hosted mode ``ingest_jobs`` is
+    FORCE-RLS scoped by ``app.current_tenant``, so an un-tenanted SELECT sees
+    nothing and every hosted lease would read as dead — the exact live-work
+    failure this guard exists to prevent. ``defer_async_with_tenant`` threads
+    ``tenant_id`` into the job kwargs (see ``tenant_task``), so each group runs
+    under its own context; single-tenant jobs carry no tenant_id and
+    ``tenant_job_context`` is a hard no-op there anyway.
+    """
+    import uuid as uuid_mod
+
+    # tenant_id (None in single-tenant) -> ingest_jobs ids deferred under it.
+    by_tenant: dict[str | None, set[uuid_mod.UUID]] = {}
+    for job in jobs:
+        # NB: the DB column is `args`, but Job.from_row maps it to `task_kwargs`.
+        kwargs = getattr(job, "task_kwargs", None)
+        if not isinstance(kwargs, dict):
+            continue
+        raw = kwargs.get("job_id")
+        if not raw:
+            continue
+        try:
+            job_uuid = uuid_mod.UUID(str(raw))
+        except ValueError:  # not an ingest task's job_id — no lease to read
+            continue
+        tenant = kwargs.get("tenant_id")
+        by_tenant.setdefault(str(tenant) if tenant else None, set()).add(job_uuid)
+    if not by_tenant:
+        return set()
+
+    from app.core.db.tenant_session import tenant_job_context
+
+    alive: set[str] = set()
+    for tenant_id, ids in by_tenant.items():
+        try:
+            if tenant_id is None:
+                alive |= await _leasing_ingest_job_ids(ids)
+            else:
+                with tenant_job_context(tenant_id):
+                    alive |= await _leasing_ingest_job_ids(ids)
+        except Exception:  # broad: one tenant's lookup must not strand the rest
+            # Liveness unknown → treat as alive. An unreaped row is a stale
+            # metric; a wrongly reaped one is lost work.
+            log.warning(
+                "Lease lookup failed — leaving those queue jobs alone this cycle",
+                tenant_id=tenant_id,
+                exc_info=True,
+            )
+            alive |= {str(i) for i in ids}
+    return alive
+
+
+async def _leasing_ingest_job_ids(ids: set) -> set[str]:
+    """Ids among ``ids`` whose ingest_jobs row is ``running`` on a fresh lease."""
+    from app.core.db import async_session
+    from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=JOB_TIMEOUT_SECONDS)
+    async with async_session() as session:
+        rows = await session.execute(
+            select(IngestJob.id).where(
+                IngestJob.id.in_(ids),
+                IngestJob.status == "running",
+                func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at) >= cutoff,
+            )
+        )
+        return {str(row[0]) for row in rows.all()}
+
+
+async def fail_stalled_queue_jobs() -> int:
+    """Fail procrastinate rows whose worker died mid-job. Returns the count.
+
+    The ingest_jobs reaper above already gives the USER a verdict ("Stale:
+    running for over 60 minutes"), but nothing ever transitioned the queue row,
+    so queue depth and admin views counted phantom in-flight work — one more per
+    worker kill, accumulating forever.
+
+    Fail rather than requeue: ingest tasks are not idempotency-audited, and
+    failing matches the verdict the user already got.
+
+    Caller must hold an open connector (``task_app.open_async()``). Runs once per
+    process rather than once per tenant — procrastinate's queue tables are shared
+    infrastructure, not RLS-partitioned like ingest_jobs.
+    """
+    from procrastinate.jobs import Status
+
+    from app.processing.ingest.tasks import task_app
+
+    manager = task_app.job_manager
+    # One value for both calls in this sweep AND for run_worker_async's
+    # stalled_worker_timeout — see that call site for why they must agree.
+    seconds = stalled_worker_seconds()
+    stalled = list(await manager.get_stalled_jobs(seconds_since_heartbeat=seconds))
+    alive = await _ingest_jobs_still_leasing(stalled)
+    failed = 0
+    for job in stalled:
+        if job.id is None:  # unpersisted job — nothing to transition
+            continue
+        kwargs = job.task_kwargs if isinstance(job.task_kwargs, dict) else {}
+        if str(kwargs.get("job_id")) in alive:
+            log.info(
+                "Skipping stalled queue job — its ingest job is still leasing",
+                procrastinate_job_id=job.id,
+                ingest_job_id=str(kwargs.get("job_id")),
+            )
+            continue
+        await manager.finish_job_by_id_async(
+            job_id=job.id, status=Status.FAILED, delete_job=False
+        )
+        failed += 1
+        log.warning(
+            "Failed stalled queue job — its worker stopped heartbeating",
+            procrastinate_job_id=job.id,
+            task_name=job.task_name,
+        )
+    # Drop the dead workers' rows too, so the heartbeat table doesn't grow one
+    # tombstone per killed worker.
+    pruned = await manager.prune_stalled_workers(seconds_since_heartbeat=seconds)
+    if failed or pruned:
+        log.info(
+            "Stalled queue sweep complete",
+            jobs_failed=failed,
+            jobs_skipped_alive=len(stalled) - failed,
+            workers_pruned=len(pruned),
+        )
+    return failed
+
+
+async def _sweep_stalled_queue_safely() -> None:
+    """Run one sweep; never let a failure block startup or kill the loop."""
+    try:
+        await fail_stalled_queue_jobs()
+    except Exception:  # broad: best-effort housekeeping, never fatal to the worker
+        log.warning("Stalled queue sweep failed", exc_info=True)
+
+
+async def run_stalled_queue_sweeps() -> None:
+    """Sweep stalled queue rows on an interval for the life of the worker.
+
+    Sleeps first: the caller runs the startup pass itself, and re-sweeping
+    immediately would find nothing new.
+    """
+    while True:
+        await asyncio.sleep(STALLED_QUEUE_SWEEP_INTERVAL_SECONDS)
+        await _sweep_stalled_queue_safely()
+
+
 async def _registered_tenant_ids_for_recovery() -> list[str]:
     """Read the global tenant registry without touching an RLS child table."""
     from app.core.db import async_session
@@ -297,14 +510,39 @@ async def main() -> None:
         # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
         queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
         async with task_app.open_async():
-            await task_app.run_worker_async(
-                queues=queues,
-                concurrency=settings.worker_concurrency,
-                listen_notify=not settings.db_use_external_pooler,
-                install_signal_handlers=True,
-                delete_jobs="successful",
-                shutdown_graceful_timeout=shutdown_timeout,
-            )
+            # fix(#624): inside the connector context (it needs an open pool) and
+            # before the worker registers itself, so this process's own heartbeat
+            # can never be in the window it sweeps. This pass clears rows stranded
+            # before this process existed; the loop below owns the ones that go
+            # stale while it runs.
+            await _sweep_stalled_queue_safely()
+            sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
+            try:
+                await task_app.run_worker_async(
+                    queues=queues,
+                    concurrency=settings.worker_concurrency,
+                    listen_notify=not settings.db_use_external_pooler,
+                    install_signal_handlers=True,
+                    delete_jobs="successful",
+                    shutdown_graceful_timeout=shutdown_timeout,
+                    # fix(#624 codex P1): MUST match the sweep's own window.
+                    # Procrastinate's Worker.run() prunes workers silent for
+                    # longer than this. procrastinate_jobs.worker_id is ON DELETE
+                    # SET NULL, and select_stalled_jobs_by_heartbeat treats a
+                    # `doing` job with a NULL worker_id as stalled OUTRIGHT — no
+                    # heartbeat comparison, because there is no longer a heartbeat
+                    # to compare. So at the 30s default, a live worker that merely
+                    # stalls (DB blip, long GC) gets pruned by another worker's
+                    # startup, its in-flight jobs go worker_id=NULL, and the sweep
+                    # fails them as stalled despite our cushion. Equal windows mean
+                    # a NULL worker_id can only mean a genuinely dead worker.
+                    stalled_worker_timeout=stalled_worker_seconds(),
+                )
+            finally:
+                # Cancel inside the connector context — a sweep mid-query when
+                # the pool closes would raise on the way out.
+                sweep_task.cancel()
+                await asyncio.gather(sweep_task, return_exceptions=True)
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()

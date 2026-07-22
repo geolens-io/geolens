@@ -1,0 +1,308 @@
+"""fix(#624): the stalled-queue sweep fails jobs whose worker died mid-job.
+
+The procrastinate API contract these mocks stand in for (``get_stalled_jobs``
+with a heartbeat window, ``finish_job_by_id_async``, ``prune_stalled_workers``)
+was verified live against a real database before this test was written: a
+``doing`` row pinned to a worker with a 5-day-old heartbeat flipped to
+``failed``, its dead worker row was pruned, and the concurrently-heartbeating
+live worker was left alone. What is asserted here is the sweep's decision logic
+— fail rather than requeue, keep the row, skip unpersisted jobs, and never touch
+a job whose ingest_jobs row is still renewing its own lease.
+"""
+
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from procrastinate.jobs import Status
+
+from app.platform.jobs.worker import (
+    fail_stalled_queue_jobs,
+    run_stalled_queue_sweeps,
+    stalled_worker_seconds,
+)
+
+
+def _job(job_id, ingest_job_id: str | None = None, task_name: str = "t"):
+    """A stand-in for procrastinate's Job.
+
+    The payload attribute is ``task_kwargs``, NOT ``args`` — the DB column is
+    ``args`` but ``Job.from_row`` maps it to ``task_kwargs``, and a mock that got
+    this wrong passed every test while failing on the first real Job.
+    """
+    return SimpleNamespace(
+        id=job_id,
+        task_name=task_name,
+        task_kwargs={"job_id": ingest_job_id} if ingest_job_id else {},
+    )
+
+
+def _fake_task_app(stalled: list, pruned: list | None = None) -> SimpleNamespace:
+    manager = SimpleNamespace(
+        get_stalled_jobs=AsyncMock(return_value=stalled),
+        finish_job_by_id_async=AsyncMock(),
+        prune_stalled_workers=AsyncMock(return_value=pruned or []),
+    )
+    return SimpleNamespace(job_manager=manager)
+
+
+@pytest.mark.anyio
+async def test_stalled_jobs_are_failed_not_requeued():
+    """A stalled job is transitioned to FAILED and its row is kept.
+
+    Requeueing would re-run an ingest task that is not idempotency-audited, and
+    failing matches the verdict the ingest_jobs reaper already gave the user.
+    Keeping the row (delete_job=False) preserves the post-mortem trail.
+    """
+    job = _job(181, task_name="app.processing.ingest.tasks.ingest_service")
+    fake = _fake_task_app([job], pruned=[7])
+
+    with patch("app.processing.ingest.tasks.task_app", fake):
+        failed = await fail_stalled_queue_jobs()
+
+    assert failed == 1
+    fake.job_manager.get_stalled_jobs.assert_awaited_once_with(
+        seconds_since_heartbeat=stalled_worker_seconds()
+    )
+    fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
+        job_id=181, status=Status.FAILED, delete_job=False
+    )
+    fake.job_manager.prune_stalled_workers.assert_awaited_once_with(
+        seconds_since_heartbeat=stalled_worker_seconds()
+    )
+
+
+@pytest.mark.anyio
+async def test_no_stalled_jobs_touches_nothing():
+    """A healthy queue transitions no jobs — the sweep must be a no-op."""
+    fake = _fake_task_app([])
+
+    with patch("app.processing.ingest.tasks.task_app", fake):
+        failed = await fail_stalled_queue_jobs()
+
+    assert failed == 0
+    fake.job_manager.finish_job_by_id_async.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_unpersisted_job_is_skipped():
+    """A Job with no id cannot be transitioned; skip it instead of crashing the
+    sweep (which would strand every job behind it)."""
+    jobs = [_job(None, task_name="unpersisted"), _job(42, task_name="real")]
+    fake = _fake_task_app(jobs)
+
+    with patch("app.processing.ingest.tasks.task_app", fake):
+        await fail_stalled_queue_jobs()
+
+    fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
+        job_id=42, status=Status.FAILED, delete_job=False
+    )
+
+
+@pytest.mark.anyio
+async def test_sweep_loop_keeps_running_after_a_failure():
+    """fix(#624 codex P2): the sweep must repeat, and survive its own failures.
+
+    A startup-only sweep is always one restart behind: under
+    `restart: unless-stopped` the replacement worker is up seconds after the
+    crash, while the dead worker's heartbeat is still fresh, so the startup pass
+    skips the very row it exists to reap. The loop is what actually reaps it —
+    which makes "one bad sweep kills the loop" a silent regression to the old
+    behavior, hence the raising first call.
+    """
+    calls = []
+
+    async def _flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("transient DB blip")
+
+    with (
+        patch("app.platform.jobs.worker.fail_stalled_queue_jobs", _flaky),
+        patch("app.platform.jobs.worker.STALLED_QUEUE_SWEEP_INTERVAL_SECONDS", 0),
+    ):
+        task = asyncio.create_task(run_stalled_queue_sweeps())
+        try:
+            # Bounded: if the loop dies on the raising call this fails in 5s
+            # instead of spinning forever.
+            async with asyncio.timeout(5):
+                while len(calls) < 3:
+                    await asyncio.sleep(0)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    assert len(calls) >= 3  # kept sweeping past the exception on call 1
+
+
+def test_procrastinate_prune_window_matches_the_sweep_window():
+    """fix(#624 codex P1): the two stalled-worker windows must not diverge.
+
+    Procrastinate's own ``Worker.run()`` prunes workers silent longer than
+    ``stalled_worker_timeout``. ``procrastinate_jobs.worker_id`` is ON DELETE SET
+    NULL, and ``select_stalled_jobs_by_heartbeat`` treats a ``doing`` job with a
+    NULL worker_id as stalled outright — there is no heartbeat left to compare
+    against. At procrastinate's 30s default, a live worker that merely stalls
+    gets pruned by another worker's startup and our 300s sweep then fails its
+    in-flight work.
+
+    Source-asserted because the call sits in ``main()`` behind bootstrap; what
+    matters is that the kwarg is present and bound to the same constant, which a
+    future "tidy up the redundant argument" edit would silently undo.
+    """
+    from pathlib import Path
+
+    import app.platform.jobs.worker as worker_mod
+
+    source = Path(worker_mod.__file__).read_text()
+    assert "stalled_worker_timeout=stalled_worker_seconds()" in source, (
+        "run_worker_async must pin procrastinate's prune window to "
+        "the sweep window — see the comment at that call site"
+    )
+
+
+def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
+    """fix(#624 codex P2 r3): honour a long WORKER_SHUTDOWN_TIMEOUT.
+
+    Procrastinate's ``Worker._shutdown`` cancels the heartbeat side task BEFORE
+    waiting ``shutdown_graceful_timeout`` for running jobs, so a worker finishing
+    a long job during a rolling restart is silent for that whole window. If the
+    stalled threshold were shorter, a sibling worker would fail exactly the work
+    the operator configured us to wait for.
+    """
+    from app.core.config import settings
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
+    # Default (30s) stays at the floor — the common case is unchanged.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
+    assert stalled_worker_seconds() == JOB_TIMEOUT_SECONDS
+
+    # fix(#624 codex P1 r4): a split-queue raster worker's long graceful window
+    # sits under the floor, so a general worker running the GLOBAL sweep cannot
+    # classify it as stalled — no fleet-wide config coordination needed.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
+    assert stalled_worker_seconds() > 600
+
+    # A local window past the floor still pushes the threshold beyond it.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", JOB_TIMEOUT_SECONDS * 2)
+    assert stalled_worker_seconds() > JOB_TIMEOUT_SECONDS * 2
+
+
+@pytest.mark.anyio
+async def test_job_whose_ingest_row_is_still_leasing_is_left_alone():
+    """fix(#624 codex P2 r5): a live lease outranks any stalled-worker timeout.
+
+    Procrastinate's worker heartbeat and the ingest task's own lease are
+    independent: `Worker._shutdown` cancels the former, then waits out
+    `shutdown_graceful_timeout` while `maintain_ingest_job_heartbeat` keeps
+    renewing the latter. So a silent worker does not mean dead work — in a
+    split-queue fleet whose raster pool configures a longer shutdown than our
+    threshold, a timeout alone would fail a job that is provably still running.
+    """
+    live = "11111111-1111-1111-1111-111111111111"
+    dead = "22222222-2222-2222-2222-222222222222"
+    fake = _fake_task_app([_job(1, live), _job(2, dead)])
+
+    with (
+        patch("app.processing.ingest.tasks.task_app", fake),
+        patch(
+            "app.platform.jobs.worker._ingest_jobs_still_leasing",
+            AsyncMock(return_value={live}),
+        ),
+    ):
+        failed = await fail_stalled_queue_jobs()
+
+    # Only the job with no live lease is failed.
+    assert failed == 1
+    fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
+        job_id=2, status=Status.FAILED, delete_job=False
+    )
+
+
+@pytest.mark.anyio
+async def test_job_with_no_lease_to_read_still_gets_swept():
+    """The liveness check must not become a blanket amnesty.
+
+    Non-ingest tasks carry no `job_id` arg, and the original three-week-old demo
+    row had no live lease either — those are exactly what the sweep is for.
+    """
+    fake = _fake_task_app([_job(3, None, task_name="embed_record")])
+
+    with (
+        patch("app.processing.ingest.tasks.task_app", fake),
+        patch(
+            "app.platform.jobs.worker._ingest_jobs_still_leasing",
+            AsyncMock(return_value=set()),
+        ),
+    ):
+        failed = await fail_stalled_queue_jobs()
+
+    assert failed == 1
+    fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
+        job_id=3, status=Status.FAILED, delete_job=False
+    )
+
+
+@pytest.mark.anyio
+async def test_lease_lookup_runs_under_each_job_s_tenant():
+    """fix(#624 codex P2 r6): hosted leases are only visible under their tenant.
+
+    `ingest_jobs` is FORCE-RLS scoped by `app.current_tenant` in hosted mode, so
+    one un-tenanted SELECT would see nothing and read every hosted lease as dead
+    — the exact live-work failure this guard exists to prevent. `tenant_id` rides
+    in the job kwargs, so each tenant's ids are queried under its own context.
+    """
+    from app.platform.jobs.worker import _ingest_jobs_still_leasing
+
+    a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    jobs = [
+        SimpleNamespace(
+            id=1, task_name="t", task_kwargs={"job_id": a, "tenant_id": "t1"}
+        ),
+        SimpleNamespace(
+            id=2, task_name="t", task_kwargs={"job_id": b, "tenant_id": "t2"}
+        ),
+    ]
+    seen: list[tuple] = []
+
+    def _ctx(tenant_id):
+        seen.append(tenant_id)
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+    with (
+        patch("app.core.db.tenant_session.tenant_job_context", _ctx),
+        patch(
+            "app.platform.jobs.worker._leasing_ingest_job_ids",
+            AsyncMock(side_effect=lambda ids: {str(i) for i in ids}),
+        ),
+    ):
+        alive = await _ingest_jobs_still_leasing(jobs)
+
+    assert sorted(seen) == ["t1", "t2"]  # one lookup per tenant, each scoped
+    assert alive == {a, b}
+
+
+@pytest.mark.anyio
+async def test_lease_lookup_failure_leaves_those_jobs_alone():
+    """A failed lookup means liveness is UNKNOWN, so those jobs are left alone.
+
+    An unreaped row is a stale metric; a wrongly reaped one is lost work. The
+    failure must also stay scoped — one tenant's broken lookup cannot strand
+    every other tenant's sweep.
+    """
+    from app.platform.jobs.worker import _ingest_jobs_still_leasing
+
+    a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    jobs = [SimpleNamespace(id=1, task_name="t", task_kwargs={"job_id": a})]
+
+    with patch(
+        "app.platform.jobs.worker._leasing_ingest_job_ids",
+        AsyncMock(side_effect=RuntimeError("RLS denied")),
+    ):
+        alive = await _ingest_jobs_still_leasing(jobs)
+
+    assert alive == {a}  # unknown → treated as alive, not swept
