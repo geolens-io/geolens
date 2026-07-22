@@ -69,6 +69,10 @@ jobs:
               - 'frontend/**'
               - 'backend/openapi.json'
               - 'scripts/flatten_openapi_defs.py'
+              # fix(#636): template-parity.test.ts asserts the in-app problem
+              # reporter's prefill against this Issue Form — a template-only PR
+              # must still run the frontend tests or drift lands silently.
+              - '.github/ISSUE_TEMPLATE/bug_report.yml'
             e2e:
               - 'backend/**'
               - 'frontend/**'
