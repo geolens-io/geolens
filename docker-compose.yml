@@ -542,6 +542,10 @@ services:
       # API_PROXY_TARGET is consumed only by vite.config.ts (Node side); nothing
       # in the browser bundle reads it.
       API_PROXY_TARGET: http://api:8000
+      # FRONTEND_ALLOWED_HOSTS: comma-separated Host values the Vite dev server
+      # accepts, for serving the dev app behind a tunnel/reverse proxy (e.g. a
+      # Cloudflare tunnel). Empty by default → Vite's localhost/LAN allowlist.
+      FRONTEND_ALLOWED_HOSTS: ${FRONTEND_ALLOWED_HOSTS:-}
     healthcheck:
       # Vite dev server inside the container; HTTP GET / returns 200 once ready.
       # Cold start can take 10-15s while Vite resolves the import graph.
