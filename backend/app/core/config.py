@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     jwt_algorithm: Literal["HS256"] = "HS256"
     access_token_expire_minutes: int = Field(default=15, gt=0)
     refresh_token_expire_days: int = Field(default=7, gt=0)
+    # fix(#621): how long a just-rotated refresh token stays usable so
+    # concurrent refreshes (multi-tab) don't strand the losers of the
+    # rotation race. 0 restores instant single-use revocation.
+    refresh_rotation_grace_seconds: int = Field(default=30, ge=0)
 
     # SEC-S16 (Phase 1062-01): password complexity policy.
     # PASSWORD_MIN_LENGTH controls the minimum character count (default 12).
