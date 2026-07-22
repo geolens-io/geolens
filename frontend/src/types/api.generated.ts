@@ -4977,6 +4977,40 @@ export interface components {
             /** Available */
             available: boolean;
         };
+        /**
+         * AIProbeCheck
+         * @description Result of one live provider check (chat or embeddings).
+         */
+        AIProbeCheck: {
+            /**
+             * Configured
+             * @description Whether this purpose has a provider key configured. False means no probe call was made.
+             */
+            configured: boolean;
+            /**
+             * Error
+             * @description Short sanitized failure reason. Never contains the key or raw provider error bodies.
+             */
+            error?: string | null;
+            /**
+             * Ok
+             * @description Whether the live provider call succeeded. None when not configured (no call was made).
+             */
+            ok?: boolean | null;
+            /**
+             * Status
+             * @description HTTP status returned by the provider on failure, when available.
+             */
+            status?: number | null;
+        };
+        /**
+         * AIProbeReport
+         * @description Per-purpose live provider probe results (admin ai-status ?probe=true).
+         */
+        AIProbeReport: {
+            chat: components["schemas"]["AIProbeCheck"];
+            embeddings: components["schemas"]["AIProbeCheck"];
+        };
         /** AIStatusResponse */
         AIStatusResponse: {
             /**
@@ -5000,6 +5034,8 @@ export interface components {
              * @description Active model name (e.g. 'claude-sonnet-4-20250514').
              */
             model: string | null;
+            /** @description Live provider probe results. Only present when the request opted in via ?probe=true. */
+            probe?: components["schemas"]["AIProbeReport"] | null;
             /**
              * Provider
              * @description Active AI provider name (e.g. 'anthropic', 'openai').
@@ -12531,7 +12567,10 @@ export interface operations {
     };
     get_ai_status_admin_ai_status__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description When true, run a minimal LIVE provider call per purpose (chat + embeddings) to verify the configured key actually works. Costs a real provider API call — never enabled by dashboards. */
+                probe?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
