@@ -242,3 +242,67 @@ async def test_job_with_no_lease_to_read_still_gets_swept():
     fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
         job_id=3, status=Status.FAILED, delete_job=False
     )
+
+
+@pytest.mark.anyio
+async def test_lease_lookup_runs_under_each_job_s_tenant():
+    """fix(#624 codex P2 r6): hosted leases are only visible under their tenant.
+
+    `ingest_jobs` is FORCE-RLS scoped by `app.current_tenant` in hosted mode, so
+    one un-tenanted SELECT would see nothing and read every hosted lease as dead
+    — the exact live-work failure this guard exists to prevent. `tenant_id` rides
+    in the job kwargs, so each tenant's ids are queried under its own context.
+    """
+    from app.platform.jobs.worker import _ingest_jobs_still_leasing
+
+    a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    jobs = [
+        SimpleNamespace(
+            id=1, task_name="t", task_kwargs={"job_id": a, "tenant_id": "t1"}
+        ),
+        SimpleNamespace(
+            id=2, task_name="t", task_kwargs={"job_id": b, "tenant_id": "t2"}
+        ),
+    ]
+    seen: list[tuple] = []
+
+    def _ctx(tenant_id):
+        seen.append(tenant_id)
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+    with (
+        patch("app.core.db.tenant_session.tenant_job_context", _ctx),
+        patch(
+            "app.platform.jobs.worker._leasing_ingest_job_ids",
+            AsyncMock(side_effect=lambda ids: {str(i) for i in ids}),
+        ),
+    ):
+        alive = await _ingest_jobs_still_leasing(jobs)
+
+    assert sorted(seen) == ["t1", "t2"]  # one lookup per tenant, each scoped
+    assert alive == {a, b}
+
+
+@pytest.mark.anyio
+async def test_lease_lookup_failure_leaves_those_jobs_alone():
+    """A failed lookup means liveness is UNKNOWN, so those jobs are left alone.
+
+    An unreaped row is a stale metric; a wrongly reaped one is lost work. The
+    failure must also stay scoped — one tenant's broken lookup cannot strand
+    every other tenant's sweep.
+    """
+    from app.platform.jobs.worker import _ingest_jobs_still_leasing
+
+    a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    jobs = [SimpleNamespace(id=1, task_name="t", task_kwargs={"job_id": a})]
+
+    with patch(
+        "app.platform.jobs.worker._leasing_ingest_job_ids",
+        AsyncMock(side_effect=RuntimeError("RLS denied")),
+    ):
+        alive = await _ingest_jobs_still_leasing(jobs)
+
+    assert alive == {a}  # unknown → treated as alive, not swept

@@ -236,13 +236,21 @@ async def _ingest_jobs_still_leasing(jobs: list) -> set[str]:
 
     Trust the work's own liveness signal over any timeout: a row that is
     ``running`` on a fresh lease is alive, and no window arithmetic overrides
-    that. The threshold stays as the backstop for jobs with no lease to read —
-    non-ingest tasks (embeddings), and hosted deployments where ingest_jobs is
-    FORCE-RLS and this un-tenanted query returns nothing.
+    that. The threshold remains the backstop for jobs with no lease to read —
+    non-ingest tasks such as embeddings carry no ``job_id``.
+
+    fix(#624 codex P2 r6): grouped by tenant. In hosted mode ``ingest_jobs`` is
+    FORCE-RLS scoped by ``app.current_tenant``, so an un-tenanted SELECT sees
+    nothing and every hosted lease would read as dead — the exact live-work
+    failure this guard exists to prevent. ``defer_async_with_tenant`` threads
+    ``tenant_id`` into the job kwargs (see ``tenant_task``), so each group runs
+    under its own context; single-tenant jobs carry no tenant_id and
+    ``tenant_job_context`` is a hard no-op there anyway.
     """
     import uuid as uuid_mod
 
-    ids: set[uuid_mod.UUID] = set()
+    # tenant_id (None in single-tenant) -> ingest_jobs ids deferred under it.
+    by_tenant: dict[str | None, set[uuid_mod.UUID]] = {}
     for job in jobs:
         # NB: the DB column is `args`, but Job.from_row maps it to `task_kwargs`.
         kwargs = getattr(job, "task_kwargs", None)
@@ -252,12 +260,38 @@ async def _ingest_jobs_still_leasing(jobs: list) -> set[str]:
         if not raw:
             continue
         try:
-            ids.add(uuid_mod.UUID(str(raw)))
+            job_uuid = uuid_mod.UUID(str(raw))
         except ValueError:  # not an ingest task's job_id — no lease to read
             continue
-    if not ids:
+        tenant = kwargs.get("tenant_id")
+        by_tenant.setdefault(str(tenant) if tenant else None, set()).add(job_uuid)
+    if not by_tenant:
         return set()
 
+    from app.core.db.tenant_session import tenant_job_context
+
+    alive: set[str] = set()
+    for tenant_id, ids in by_tenant.items():
+        try:
+            if tenant_id is None:
+                alive |= await _leasing_ingest_job_ids(ids)
+            else:
+                with tenant_job_context(tenant_id):
+                    alive |= await _leasing_ingest_job_ids(ids)
+        except Exception:  # broad: one tenant's lookup must not strand the rest
+            # Liveness unknown → treat as alive. An unreaped row is a stale
+            # metric; a wrongly reaped one is lost work.
+            log.warning(
+                "Lease lookup failed — leaving those queue jobs alone this cycle",
+                tenant_id=tenant_id,
+                exc_info=True,
+            )
+            alive |= {str(i) for i in ids}
+    return alive
+
+
+async def _leasing_ingest_job_ids(ids: set) -> set[str]:
+    """Ids among ``ids`` whose ingest_jobs row is ``running`` on a fresh lease."""
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
     from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
