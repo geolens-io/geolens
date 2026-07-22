@@ -1,0 +1,57 @@
+name: Installation / Upgrade Issue
+description: Problems installing, upgrading, or deploying GeoLens
+labels: ["installation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Deployment problems are usually environment-specific, so the details below matter — logs especially.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What went wrong
+      description: What you were doing (fresh install, upgrade, migration) and where it failed.
+    validations:
+      required: true
+  - type: dropdown
+    id: method
+    attributes:
+      label: Deployment method
+      options:
+        - Install script (install.sh)
+        - Docker Compose (manual)
+        - Kubernetes / Helm chart
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GeoLens version
+      description: The version being installed — and the version you upgraded from, if applicable.
+      placeholder: e.g., v1.4.11 (upgrading from v1.4.9)
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Host platform
+      description: OS, architecture, and container runtime.
+      placeholder: e.g., Ubuntu 24.04, x86_64, Docker 27
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of the failing step — for boot failures, `docker compose logs api worker` (or `kubectl logs`). Redact secrets before pasting.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration changes
+      description: Anything changed from the `.env.example` / chart defaults. Never paste secrets.
+    validations:
+      required: false

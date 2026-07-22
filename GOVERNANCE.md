@@ -41,8 +41,9 @@ welcome to return.
 ## Release authority
 
 Only maintainers cut release tags and publish official builds. The release
-process is documented internally; published images and packages always originate
-from a maintainer-cut `v*.*.*` tag, never from a contributor branch.
+process is documented in [RELEASE.md](RELEASE.md); published images and packages
+always originate from a maintainer-cut `v*.*.*` tag, never from a contributor
+branch.
 
 ## Deprecation policy
 

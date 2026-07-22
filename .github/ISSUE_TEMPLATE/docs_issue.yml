@@ -1,0 +1,25 @@
+name: Documentation Issue
+description: Report incorrect, unclear, or missing documentation
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Page or file
+      description: URL on docs.getgeolens.com, or a file path in this repository.
+      placeholder: e.g., https://docs.getgeolens.com/... or README.md
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: Optional — what the docs should say instead.
+    validations:
+      required: false
