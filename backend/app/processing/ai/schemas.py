@@ -493,3 +493,38 @@ class SSEErrorEvent(BaseModel):
 class ChatResponse(BaseModel):
     explanation: str
     actions: list[ChatAction]
+
+
+# ---------------------------------------------------------------------------
+# Live provider probe (fix #627)
+# ---------------------------------------------------------------------------
+
+
+class AIProbeCheck(BaseModel):
+    """Result of one live provider check (chat or embeddings)."""
+
+    configured: bool = Field(
+        description="Whether this purpose has a provider key configured. "
+        "False means no probe call was made."
+    )
+    ok: bool | None = Field(
+        default=None,
+        description="Whether the live provider call succeeded. "
+        "None when not configured (no call was made).",
+    )
+    status: int | None = Field(
+        default=None,
+        description="HTTP status returned by the provider on failure, when available.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Short sanitized failure reason. Never contains the key "
+        "or raw provider error bodies.",
+    )
+
+
+class AIProbeReport(BaseModel):
+    """Per-purpose live provider probe results (admin ai-status ?probe=true)."""
+
+    chat: AIProbeCheck
+    embeddings: AIProbeCheck

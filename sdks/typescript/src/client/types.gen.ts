@@ -22,6 +22,48 @@ export type AiAvailabilityResponse = {
 };
 
 /**
+ * AIProbeCheck
+ *
+ * Result of one live provider check (chat or embeddings).
+ */
+export type AiProbeCheck = {
+    /**
+     * Configured
+     *
+     * Whether this purpose has a provider key configured. False means no probe call was made.
+     */
+    configured: boolean;
+    /**
+     * Error
+     *
+     * Short sanitized failure reason. Never contains the key or raw provider error bodies.
+     */
+    error?: string | null;
+    /**
+     * Ok
+     *
+     * Whether the live provider call succeeded. None when not configured (no call was made).
+     */
+    ok?: boolean | null;
+    /**
+     * Status
+     *
+     * HTTP status returned by the provider on failure, when available.
+     */
+    status?: number | null;
+};
+
+/**
+ * AIProbeReport
+ *
+ * Per-purpose live provider probe results (admin ai-status ?probe=true).
+ */
+export type AiProbeReport = {
+    chat: AiProbeCheck;
+    embeddings: AiProbeCheck;
+};
+
+/**
  * AIStatusResponse
  */
 export type AiStatusResponse = {
@@ -49,6 +91,10 @@ export type AiStatusResponse = {
      * Active model name (e.g. 'claude-sonnet-4-20250514').
      */
     model: string | null;
+    /**
+     * Live provider probe results. Only present when the request opted in via ?probe=true.
+     */
+    probe?: AiProbeReport | null;
     /**
      * Provider
      *
@@ -10195,7 +10241,14 @@ export type LandingPageGetResponse = LandingPageGetResponses[keyof LandingPageGe
 export type GetAiStatusAdminAiStatusGetData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Probe
+         *
+         * When true, run a minimal LIVE provider call per purpose (chat + embeddings) to verify the configured key actually works. Costs a real provider API call — never enabled by dashboards.
+         */
+        probe?: boolean;
+    };
     url: '/admin/ai-status/';
 };
 

@@ -15,6 +15,74 @@
         "title": "AIAvailabilityResponse",
         "type": "object"
       },
+      "AIProbeCheck": {
+        "description": "Result of one live provider check (chat or embeddings).",
+        "properties": {
+          "configured": {
+            "description": "Whether this purpose has a provider key configured. False means no probe call was made.",
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short sanitized failure reason. Never contains the key or raw provider error bodies.",
+            "title": "Error"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the live provider call succeeded. None when not configured (no call was made).",
+            "title": "Ok"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HTTP status returned by the provider on failure, when available.",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "configured"
+        ],
+        "title": "AIProbeCheck",
+        "type": "object"
+      },
+      "AIProbeReport": {
+        "description": "Per-purpose live provider probe results (admin ai-status ?probe=true).",
+        "properties": {
+          "chat": {
+            "$ref": "#/components/schemas/AIProbeCheck"
+          },
+          "embeddings": {
+            "$ref": "#/components/schemas/AIProbeCheck"
+          }
+        },
+        "required": [
+          "chat",
+          "embeddings"
+        ],
+        "title": "AIProbeReport",
+        "type": "object"
+      },
       "AIStatusResponse": {
         "properties": {
           "configured": {
@@ -44,6 +112,17 @@
             ],
             "description": "Active model name (e.g. 'claude-sonnet-4-20250514').",
             "title": "Model"
+          },
+          "probe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIProbeReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Live provider probe results. Only present when the request opted in via ?probe=true."
           },
           "provider": {
             "anyOf": [
@@ -17271,6 +17350,20 @@
       "get": {
         "description": "Return single-deployment AI status; no provider-routing policy controls (admin only).",
         "operationId": "get_ai_status_admin_ai_status__get",
+        "parameters": [
+          {
+            "description": "When true, run a minimal LIVE provider call per purpose (chat + embeddings) to verify the configured key actually works. Costs a real provider API call \u2014 never enabled by dashboards.",
+            "in": "query",
+            "name": "probe",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "When true, run a minimal LIVE provider call per purpose (chat + embeddings) to verify the configured key actually works. Costs a real provider API call \u2014 never enabled by dashboards.",
+              "title": "Probe",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

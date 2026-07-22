@@ -4,18 +4,29 @@ from typing import Any
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.ai_status_response import AIStatusResponse
 from ...models.problem_detail import ProblemDetail
+from ...types import Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    probe: bool | Unset = False,
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["probe"] = probe
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/admin/ai-status/",
+        "params": params,
     }
 
     return _kwargs
@@ -89,10 +100,16 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
+    probe: bool | Unset = False,
 ) -> Response[AIStatusResponse | ProblemDetail]:
     """Get Ai Status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
+
+    Args:
+        probe (bool | Unset): When true, run a minimal LIVE provider call per purpose (chat +
+            embeddings) to verify the configured key actually works. Costs a real provider API call —
+            never enabled by dashboards. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -102,7 +119,9 @@ def sync_detailed(
         Response[AIStatusResponse | ProblemDetail]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        probe=probe,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -114,10 +133,16 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
+    probe: bool | Unset = False,
 ) -> AIStatusResponse | ProblemDetail | None:
     """Get Ai Status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
+
+    Args:
+        probe (bool | Unset): When true, run a minimal LIVE provider call per purpose (chat +
+            embeddings) to verify the configured key actually works. Costs a real provider API call —
+            never enabled by dashboards. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -129,16 +154,23 @@ def sync(
 
     return sync_detailed(
         client=client,
+        probe=probe,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
+    probe: bool | Unset = False,
 ) -> Response[AIStatusResponse | ProblemDetail]:
     """Get Ai Status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
+
+    Args:
+        probe (bool | Unset): When true, run a minimal LIVE provider call per purpose (chat +
+            embeddings) to verify the configured key actually works. Costs a real provider API call —
+            never enabled by dashboards. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -148,7 +180,9 @@ async def asyncio_detailed(
         Response[AIStatusResponse | ProblemDetail]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        probe=probe,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -158,10 +192,16 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
+    probe: bool | Unset = False,
 ) -> AIStatusResponse | ProblemDetail | None:
     """Get Ai Status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
+
+    Args:
+        probe (bool | Unset): When true, run a minimal LIVE provider call per purpose (chat +
+            embeddings) to verify the configured key actually works. Costs a real provider API call —
+            never enabled by dashboards. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -174,5 +214,6 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            probe=probe,
         )
     ).parsed
