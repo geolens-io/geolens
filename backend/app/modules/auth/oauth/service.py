@@ -833,6 +833,22 @@ async def find_or_create_oauth_user(
                     user_id=str(returning_user.id),
                 )
 
+        # fix(#623): converge accounts provisioned before the JIT path persisted
+        # email_verified. Only when the IdP asserts verification for the SAME
+        # address we store — a verified claim for a different email says nothing
+        # about this account's address — and only for OAuth-provisioned users, so
+        # a local account's own verification state is never flipped by a link.
+        if (
+            claim_trusted
+            and not returning_user.email_verified
+            and returning_user.auth_provider == "oauth"
+            and returning_user.email is not None
+            and email is not None
+            and returning_user.email.lower() == email.lower()
+        ):
+            returning_user.email_verified = True
+            await db.flush()
+
         logger.info(
             "OAuth login: existing link found",
             provider=provider.slug,
@@ -975,6 +991,12 @@ async def find_or_create_oauth_user(
         auth_provider="oauth",
         status="active",
         is_active=True,
+        # fix(#623): persist the IdP's assertion instead of falling to the model
+        # default (false), which left every SSO user unverified. Reaching here
+        # with a non-None email means the IdP verified it (the H-30 branch above
+        # nulls an unverified one), and an account with no email has nothing
+        # verified — so both halves of the AND are load-bearing.
+        email_verified=email is not None and email_verified,
     )
     db.add(new_user)
     await db.flush()
