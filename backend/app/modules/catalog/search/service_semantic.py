@@ -41,11 +41,10 @@ _EMBEDDING_CACHE_MAX_SIZE = 512
 # from the already-fetched top-k ranks instead.
 _EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
 
-# fix(#625): search-as-you-type sent every keystroke prefix ("u", "us", "usa")
-# through a paid provider embedding call that then virtually always missed the
-# 0.7 cosine cutoff and fell back to FTS anyway. Below this length the query is
-# treated as a typeahead prefix and skips the vector path entirely. The 300 s
-# embedding cache cannot help here — each prefix is a distinct cache key.
+# fix(#625): search-as-you-type spent one paid embedding call per keystroke
+# prefix ("u", "us", "usa"), each missing the 0.7 cutoff and falling back to FTS
+# anyway; the 300s cache can't help, every prefix is a distinct key. Shorter
+# queries skip the vector path entirely.
 _MIN_SEMANTIC_QUERY_LEN = 4
 _embedding_cache: "OrderedDict[tuple[str, str], tuple[float, list[float]]]" = (
     OrderedDict()
@@ -261,8 +260,7 @@ async def _run_rrf_merge(
     AND a nearer non-visible neighbour displacing a valid match out of the top-k.
 
     Returns ``None`` when RRF doesn't apply (vector backend empty/failed, or the
-    query is shorter than ``_MIN_SEMANTIC_QUERY_LEN`` = 4 characters and is
-    therefore treated as a search-as-you-type prefix). Caller falls through to
+    query is shorter than ``_MIN_SEMANTIC_QUERY_LEN``). Caller falls through to
     the standard sort path on None.
 
     Returns ``([], total)`` rather than ``None`` when the FTS-cap query
@@ -273,7 +271,6 @@ async def _run_rrf_merge(
     if filters.q is None:
         raise ValueError("_run_rrf_merge requires filters.q to be non-None")
     q_stripped = filters.q.strip()
-    # fix(#625): typeahead prefixes skip the vector path (and its provider call).
     if len(q_stripped) < _MIN_SEMANTIC_QUERY_LEN:
         return None
     # The RRF-ordered list is sliced [skip:skip+limit], so both candidate pools must

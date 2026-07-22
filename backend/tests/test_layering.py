@@ -849,8 +849,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
-        # (~19 LOC headroom above 371).
-        "backend/app/modules/catalog/search/service_semantic.py": 390,
+        # (~19 LOC headroom above 371). That headroom is now spent (386 LOC).
+        # fix(#625): +9 LOC — the _MIN_SEMANTIC_QUERY_LEN gate that drops
+        # typeahead prefixes before they reach the provider, plus its rationale
+        # comment. Cap 390 → 395, exact: the next addition needs its own review.
+        "backend/app/modules/catalog/search/service_semantic.py": 395,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
