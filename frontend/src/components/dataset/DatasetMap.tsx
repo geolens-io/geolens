@@ -11,6 +11,7 @@ import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
+import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -141,8 +142,13 @@ export const DatasetMap = memo(function DatasetMap({
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
-    const invalidateTileTokens = useInvalidateTileTokens();
+  const invalidateTileTokens = useInvalidateTileTokens();
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance, invalidateTileTokens);
+  // fix(#621): shared tile-auth recovery — a tile 401/403 kicks one throttled
+  // token re-mint; the refreshed token re-renders the declarative <Source>
+  // with a freshly signed URL.
+  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens);
+  const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number } }) => void) | null>(null);
   // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
@@ -297,6 +303,10 @@ export const DatasetMap = memo(function DatasetMap({
         }
         if (tilesIdleIdleHandlerRef.current) {
           map.off('idle', tilesIdleIdleHandlerRef.current);
+        }
+        // fix(#621): detach the tile-auth recovery handler symmetrically.
+        if (tileAuthErrorHandlerRef.current) {
+          map.off('error', tileAuthErrorHandlerRef.current);
         }
       }
       rasterListenersRef.current = {};
@@ -578,6 +588,17 @@ export const DatasetMap = memo(function DatasetMap({
       map.on('movestart', tilesIdleMovestartHandlerRef.current);
       map.on('idle', tilesIdleIdleHandlerRef.current);
 
+      // fix(#621): the dataset preview previously had NO vector-tile 401/403
+      // handling — the most likely surface in the 7-hour silent-403 incident.
+      // A stale sig kicks one throttled token re-mint, and a conclusively
+      // dead session surfaces through the global signed-out handling (#628)
+      // via the mint request itself.
+      tileAuthErrorHandlerRef.current = (e: { error?: { status?: number } }) => {
+        const s = e.error?.status;
+        if (s === 401 || s === 403) recoverTileAuth();
+      };
+      map.on('error', tileAuthErrorHandlerRef.current);
+
       if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
         // Fresh mount: detach any stale listeners and reset the fire-once guards.
         if (rasterListenersRef.current.error) {
@@ -655,7 +676,7 @@ export const DatasetMap = memo(function DatasetMap({
         onMapReady?.();
       }
     },
-    [recordType, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError],
+    [recordType, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
   );
 
   const finishDrawingSession = useCallback(() => {

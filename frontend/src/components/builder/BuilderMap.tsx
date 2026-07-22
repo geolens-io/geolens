@@ -14,6 +14,7 @@ import {
 import { buildClusterTileUrl, buildSignedTileUrl, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
+import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
 import { pushReportEntry } from '@/lib/report';
@@ -576,6 +577,12 @@ export const BuilderMap = memo(function BuilderMap({
     });
   }, [enabledPluginIds]);
 
+  const invalidateTileTokens = useInvalidateTileTokens();
+  // fix(#621): shared tile-auth recovery — a vector tile 401/403 that the
+  // cached-token re-sign can't cure kicks one throttled token re-mint; the
+  // token-sync effect re-signs sources when the fresh batch lands.
+  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens);
+
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
       const map = e.target;
@@ -648,20 +655,34 @@ export const BuilderMap = memo(function BuilderMap({
             const failingSourceId = e.sourceId;
             if (map && failingSourceId) {
               const { layers: l, tokenMap: tm, tileConfig: tc } = syncInputsRef.current;
-              if (resignVectorSourceForRetry(map, failingSourceId, l, tm, tc)) {
+              const resigned = resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
+              // fix(#621): the cached-token re-sign only cures the attach
+              // race — when the sig itself has expired (stranded session),
+              // it re-signs with the same stale sig forever. Also kick one
+              // throttled token re-mint; the token-sync effect re-signs with
+              // the fresh batch, and a conclusively dead session surfaces
+              // through the global signed-out handling (#628) via the mint
+              // request itself.
+              const reminted = recoverTileAuth();
+              if (resigned || reminted) {
                 pushReportEntry({
                   severity: 'warning',
                   source: 'maplibre',
-                  message: `Vector tile re-signed and retried after HTTP ${status} (BLDR-TILE-RACE)`,
+                  message: `Vector tile ${resigned ? 're-signed' : 're-mint requested'} after HTTP ${status} (BLDR-TILE-RACE)`,
                   detail: `source: ${failingSourceId}`,
                   suppressed: true,
                 });
                 return;
               }
             }
-            toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
-              id: 'builder-map-auth-error',
-            });
+            // fix(#628): once the session is conclusively dead the global
+            // signed-out dialog owns the UX — the stale reload-toast is
+            // noise on top of it. Keep it only while a session exists.
+            if (useAuthStore.getState().refreshToken) {
+              toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
+                id: 'builder-map-auth-error',
+              });
+            }
           }
           return;
         }
@@ -715,7 +736,7 @@ export const BuilderMap = memo(function BuilderMap({
 
       onMapRef?.(map);
     },
-    [onMapRef, t],
+    [onMapRef, t, recoverTileAuth],
   );
 
   // Helper: refresh the cached list of queryable layer IDs. Called after every
@@ -1257,7 +1278,6 @@ export const BuilderMap = memo(function BuilderMap({
     pitch: initialViewState?.pitch ?? 0,
   }), [initialViewState?.center_lng, initialViewState?.center_lat, initialViewState?.zoom, initialViewState?.bearing, initialViewState?.pitch, mapDefaults?.center_lng, mapDefaults?.center_lat, mapDefaults?.zoom]);
 
-    const invalidateTileTokens = useInvalidateTileTokens();
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady, invalidateTileTokens);
 
   return (

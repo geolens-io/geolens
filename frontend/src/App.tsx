@@ -9,6 +9,7 @@ import { SiteBanner } from '@/components/layout/SiteBanner';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
+import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
 
 // Lazy page imports — each produces a separate Vite chunk
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -51,6 +52,9 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ defa
 function RootLayout() {
   return (
     <LazyLoadErrorBoundary>
+      {/* fix(#628): global session-expiry host — needs router context for the
+          sign-in-returns-to-route action, so it lives here rather than main.tsx. */}
+      <SessionExpiredDialog />
       <Suspense fallback={<LoadingState />}>
         <Outlet />
       </Suspense>
