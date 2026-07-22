@@ -731,6 +731,141 @@ class TestFindOrCreateOAuthUser:
         role_names = {r.name for r in user.roles}
         assert "viewer" in role_names
 
+    async def test_jit_persists_email_verified_claim(self, client, test_db_session):
+        """fix(#623): JIT provisioning persists the IdP's email_verified claim.
+
+        The User(...) construction omitted the field, so every SSO account
+        persisted the model default (false) — 27 of 27 on the public demo. Both
+        halves of the persisted expression are covered: a verified claim stores
+        True, and an unverified one leaves False (its email is dropped by H-30,
+        so there is nothing verified to record).
+        """
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        verified = await find_or_create_oauth_user(
+            test_db_session,
+            provider,
+            {
+                "sub": f"verified-{uuid.uuid4().hex[:6]}",
+                "email": f"verified-{uuid.uuid4().hex[:6]}@example.com",
+                "email_verified": True,
+                "name": "Verified User",
+            },
+            {},
+        )
+        await test_db_session.commit()
+        assert verified.email is not None
+        assert verified.email_verified is True
+
+        # No email_verified claim: H-30 drops the email, so nothing is verified.
+        unverified = await find_or_create_oauth_user(
+            test_db_session,
+            provider,
+            {
+                "sub": f"unverified-{uuid.uuid4().hex[:6]}",
+                "email": f"unverified-{uuid.uuid4().hex[:6]}@example.com",
+                "name": "Unverified User",
+            },
+            {},
+        )
+        await test_db_session.commit()
+        assert unverified.email is None
+        assert unverified.email_verified is False
+
+    async def test_returning_user_email_verified_refreshes(
+        self, client, test_db_session
+    ):
+        """fix(#623): a returning OAuth user converges to the IdP's assertion.
+
+        Accounts provisioned before the JIT fix stay false forever otherwise;
+        the migration only backfills provably-verified GitHub rows, so this is
+        how OIDC populations catch up.
+        """
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        email = f"returning-{uuid.uuid4().hex[:6]}@example.com"
+        subject = f"returning-sub-{uuid.uuid4().hex[:6]}"
+        legacy_user = User(
+            username=f"returning-{uuid.uuid4().hex[:6]}",
+            email=email,
+            auth_provider="oauth",
+            status="active",
+            is_active=True,
+            email_verified=False,
+        )
+        test_db_session.add(legacy_user)
+        await test_db_session.flush()
+        test_db_session.add(
+            OAuthAccount(
+                provider_id=provider.id, user_id=legacy_user.id, subject=subject
+            )
+        )
+        await test_db_session.commit()
+
+        returned = await find_or_create_oauth_user(
+            test_db_session,
+            provider,
+            {"sub": subject, "email": email, "email_verified": True, "name": "R"},
+            {},
+        )
+        await test_db_session.commit()
+
+        assert returned.id == legacy_user.id
+        assert returned.email_verified is True
+
+    async def test_returning_user_email_verified_not_flipped_for_other_email(
+        self, client, test_db_session
+    ):
+        """fix(#623): a verified claim for a DIFFERENT address verifies nothing.
+
+        The IdP asserting it verified some other mailbox says nothing about the
+        address this account actually stores.
+        """
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        subject = f"mismatch-sub-{uuid.uuid4().hex[:6]}"
+        legacy_user = User(
+            username=f"mismatch-{uuid.uuid4().hex[:6]}",
+            email=f"stored-{uuid.uuid4().hex[:6]}@example.com",
+            auth_provider="oauth",
+            status="active",
+            is_active=True,
+            email_verified=False,
+        )
+        test_db_session.add(legacy_user)
+        await test_db_session.flush()
+        test_db_session.add(
+            OAuthAccount(
+                provider_id=provider.id, user_id=legacy_user.id, subject=subject
+            )
+        )
+        await test_db_session.commit()
+
+        returned = await find_or_create_oauth_user(
+            test_db_session,
+            provider,
+            {
+                "sub": subject,
+                "email": f"different-{uuid.uuid4().hex[:6]}@example.com",
+                "email_verified": True,
+                "name": "M",
+            },
+            {},
+        )
+        await test_db_session.commit()
+
+        assert returned.id == legacy_user.id
+        assert returned.email_verified is False
+
     async def test_microsoft_multitenant_no_cross_tenant_bare_sub_match(
         self, client, test_db_session
     ):
