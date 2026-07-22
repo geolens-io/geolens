@@ -175,11 +175,10 @@ async def _recover_stale_jobs_for_current_scope() -> None:
 
 # fix(#624): a worker killed mid-job leaves its queue row in `doing` forever —
 # the demo carried one from 2026-06-29 for three weeks. Procrastinate 3.x tracks
-# worker heartbeats (default: every 10s), so a worker that has missed 30 of them
-# is gone, not slow. Deliberately generous — the cost of waiting is a stale
-# metric, the cost of being wrong is failing live work.
-_STALLED_WORKER_FLOOR_SECONDS = 300
-
+# worker heartbeats, so "this worker is gone" is a fact we can read rather than a
+# timeout we have to guess at. The cost of waiting is a stale metric; the cost of
+# being wrong is failing live work — so the window is deliberately generous.
+#
 # Cushion over the graceful-shutdown window: covers the final heartbeat interval
 # (10s by default) plus the unregister that follows the graceful wait.
 _STALLED_SHUTDOWN_MARGIN_SECONDS = 60
@@ -188,16 +187,30 @@ _STALLED_SHUTDOWN_MARGIN_SECONDS = 60
 def stalled_worker_seconds() -> int:
     """Heartbeat silence after which a worker counts as dead.
 
-    fix(#624 codex P2 r3): never shorter than the operator's graceful-shutdown
-    window. Procrastinate cancels the heartbeat side task BEFORE waiting
-    ``shutdown_graceful_timeout`` for running jobs (``Worker._shutdown``), so a
-    worker deliberately finishing a long job during a rolling restart is silent
-    for that entire window. With WORKER_SHUTDOWN_TIMEOUT raised above the floor —
-    plausible on an instance doing long COG conversions — a sibling worker's
-    sweep would fail exactly the work the operator asked us to wait for.
+    Floored at ``JOB_TIMEOUT_SECONDS`` — the same 60 minutes the ingest_jobs
+    reaper above already calls stale.
+
+    fix(#624 codex P1 r4): this sweep is global — no queue filter, and the prune
+    touches every worker row — so a threshold derived from THIS process's config
+    would let a general worker fail a split-queue raster worker's live job.
+    ``WORKER_QUEUES`` exists precisely so those pools run with different settings,
+    and nothing in procrastinate's schema exposes another worker's shutdown
+    window to read. The hour dissolves that rather than papering over it: no
+    plausible graceful window reaches it, and past it the reaper has already
+    failed the user-facing ingest_jobs row — so failing the queue row is the
+    CONSISTENT verdict, which was the point of this sweep to begin with. That
+    also means no fleet-wide config coordination is required for correctness.
+
+    Still maxed against the local graceful window (fix(#624 codex P2 r3)):
+    procrastinate cancels the heartbeat side task BEFORE waiting
+    ``shutdown_graceful_timeout`` (``Worker._shutdown``), so an operator who sets
+    a window longer than an hour on this process would otherwise have its own
+    long jobs swept out from under a shutdown it explicitly configured.
     """
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
     return max(
-        _STALLED_WORKER_FLOOR_SECONDS,
+        JOB_TIMEOUT_SECONDS,
         settings.worker_shutdown_timeout + _STALLED_SHUTDOWN_MARGIN_SECONDS,
     )
 

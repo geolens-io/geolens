@@ -162,12 +162,18 @@ def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
     the operator configured us to wait for.
     """
     from app.core.config import settings
-    from app.platform.jobs.worker import _STALLED_WORKER_FLOOR_SECONDS
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
 
     # Default (30s) stays at the floor — the common case is unchanged.
     monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
-    assert stalled_worker_seconds() == _STALLED_WORKER_FLOOR_SECONDS
+    assert stalled_worker_seconds() == JOB_TIMEOUT_SECONDS
 
-    # A graceful window past the floor pushes the threshold out beyond it.
-    monkeypatch.setattr(settings, "worker_shutdown_timeout", 600)
+    # fix(#624 codex P1 r4): a split-queue raster worker's long graceful window
+    # sits under the floor, so a general worker running the GLOBAL sweep cannot
+    # classify it as stalled — no fleet-wide config coordination needed.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
     assert stalled_worker_seconds() > 600
+
+    # A local window past the floor still pushes the threshold beyond it.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", JOB_TIMEOUT_SECONDS * 2)
+    assert stalled_worker_seconds() > JOB_TIMEOUT_SECONDS * 2
