@@ -173,6 +173,63 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             )
 
 
+# fix(#624): a worker killed mid-job leaves its queue row in `doing` forever —
+# the demo carried one from 2026-06-29 for three weeks. Procrastinate 3.x tracks
+# worker heartbeats (default: every 10s), so a worker that has missed 30 of them
+# is gone, not slow; a graceful rolling restart keeps heartbeating and is never
+# swept. Deliberately generous — the cost of waiting is a stale metric, the cost
+# of being wrong is failing live work.
+STALLED_WORKER_SECONDS = 300
+
+
+async def fail_stalled_queue_jobs() -> int:
+    """Fail procrastinate rows whose worker died mid-job. Returns the count.
+
+    The ingest_jobs reaper above already gives the USER a verdict ("Stale:
+    running for over 60 minutes"), but nothing ever transitioned the queue row,
+    so queue depth and admin views counted phantom in-flight work — one more per
+    worker kill, accumulating forever.
+
+    Fail rather than requeue: ingest tasks are not idempotency-audited, and
+    failing matches the verdict the user already got.
+
+    Caller must hold an open connector (``task_app.open_async()``). Runs once per
+    process rather than once per tenant — procrastinate's queue tables are shared
+    infrastructure, not RLS-partitioned like ingest_jobs.
+    """
+    from procrastinate.jobs import Status
+
+    from app.processing.ingest.tasks import task_app
+
+    manager = task_app.job_manager
+    stalled = list(
+        await manager.get_stalled_jobs(seconds_since_heartbeat=STALLED_WORKER_SECONDS)
+    )
+    for job in stalled:
+        if job.id is None:  # unpersisted job — nothing to transition
+            continue
+        await manager.finish_job_by_id_async(
+            job_id=job.id, status=Status.FAILED, delete_job=False
+        )
+        log.warning(
+            "Failed stalled queue job — its worker stopped heartbeating",
+            procrastinate_job_id=job.id,
+            task_name=job.task_name,
+        )
+    # Drop the dead workers' rows too, so the heartbeat table doesn't grow one
+    # tombstone per killed worker.
+    pruned = await manager.prune_stalled_workers(
+        seconds_since_heartbeat=STALLED_WORKER_SECONDS
+    )
+    if stalled or pruned:
+        log.info(
+            "Stalled queue sweep complete",
+            jobs_failed=len(stalled),
+            workers_pruned=len(pruned),
+        )
+    return len(stalled)
+
+
 async def _registered_tenant_ids_for_recovery() -> list[str]:
     """Read the global tenant registry without touching an RLS child table."""
     from app.core.db import async_session
@@ -297,6 +354,13 @@ async def main() -> None:
         # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
         queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
         async with task_app.open_async():
+            # fix(#624): inside the connector context (it needs an open pool) and
+            # before the worker registers itself, so this process's own heartbeat
+            # can never be in the window it sweeps.
+            try:
+                await fail_stalled_queue_jobs()
+            except Exception:  # broad: a sweep failure must not block the worker
+                log.warning("Stalled queue sweep failed", exc_info=True)
             await task_app.run_worker_async(
                 queues=queues,
                 concurrency=settings.worker_concurrency,
