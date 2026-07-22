@@ -154,6 +154,41 @@ async def test_probe_with_invalid_key_is_sanitized_and_still_200(
     assert _SECRET_MARKER not in resp.text
 
 
+async def test_probe_embeddings_total_time_capped_beyond_provider_retries(
+    client: AsyncClient, admin_auth_header, monkeypatch
+):
+    """Codex P2 on #635: the provider's embed() runs its own retry loop, so
+    the per-attempt timeout alone let the probe block ~2x the cap. The outer
+    wait_for bounds the WHOLE embed half."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("synthetic-test-key"))
+    monkeypatch.setattr(settings, "anthropic_api_key", None)
+    monkeypatch.setattr("app.processing.ai.probe._PROBE_TIMEOUT_SECONDS", 0.1)
+
+    monkeypatch.setattr(
+        "app.platform.extensions.get_ai_provider", lambda name: _FakeAIProvider()
+    )
+
+    class _StallingEmbeddingProvider(_FakeEmbeddingProvider):
+        async def embed(self, **kwargs):
+            # Simulates the provider retry loop outliving any per-attempt cap.
+            await asyncio.sleep(5)
+            return [[0.0]]
+
+    monkeypatch.setattr(
+        "app.platform.extensions.get_embedding_provider",
+        lambda name: _StallingEmbeddingProvider(),
+    )
+
+    resp = await client.get("/admin/ai-status/?probe=true", headers=admin_auth_header)
+    assert resp.status_code == 200
+    embeddings = resp.json()["probe"]["embeddings"]
+    assert embeddings["configured"] is True
+    assert embeddings["ok"] is False
+    assert embeddings["error"] == "timed out"
+
+
 async def test_probe_chat_only_config_reports_embeddings_not_configured(
     client: AsyncClient, admin_auth_header, monkeypatch
 ):

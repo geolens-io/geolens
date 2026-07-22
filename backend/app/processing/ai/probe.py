@@ -117,6 +117,8 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     OpenAI-compatible key exists — a chat-only (Anthropic) deployment reports
     ``configured=False`` here rather than an error.
     """
+    import asyncio
+
     from app.core.persistent_config import EMBEDDING_MODEL
     from app.platform.extensions import get_embedding_provider
 
@@ -128,11 +130,17 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     model = await EMBEDDING_MODEL.get(db) or runtime_config.get("default_model")
 
     try:
-        await provider_ext.embed(
-            texts=["ping"],
-            model=model,
-            dimensions=None,
-            base_url=runtime_config.get("base_url"),
+        # Outer wait_for, same as the chat probe: the provider's embed() runs
+        # its own retry loop (2 attempts + backoff), so the per-attempt
+        # timeout= alone would let the probe block for ~2x the cap.
+        await asyncio.wait_for(
+            provider_ext.embed(
+                texts=["ping"],
+                model=model,
+                dimensions=None,
+                base_url=runtime_config.get("base_url"),
+                timeout=_PROBE_TIMEOUT_SECONDS,
+            ),
             timeout=_PROBE_TIMEOUT_SECONDS,
         )
         return AIProbeCheck(configured=True, ok=True)
