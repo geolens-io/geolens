@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -9,6 +9,9 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 from typing import cast
+
+if TYPE_CHECKING:
+    from ..models.ai_probe_report import AIProbeReport
 
 
 T = TypeVar("T", bound="AIStatusResponse")
@@ -23,6 +26,8 @@ class AIStatusResponse:
         model (None | str): Active model name (e.g. 'claude-sonnet-4-20250514').
         provider (None | str): Active AI provider name (e.g. 'anthropic', 'openai').
         has_embeddings (bool | Unset): Whether at least one record has embeddings stored. Default: False.
+        probe (AIProbeReport | None | Unset): Live provider probe results. Only present when the request opted in via
+            ?probe=true.
         semantic_search_enabled (bool | Unset): Whether pgvector-backed semantic search is enabled. Default: False.
     """
 
@@ -31,10 +36,13 @@ class AIStatusResponse:
     model: None | str
     provider: None | str
     has_embeddings: bool | Unset = False
+    probe: AIProbeReport | None | Unset = UNSET
     semantic_search_enabled: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.ai_probe_report import AIProbeReport
+
         configured = self.configured
 
         enabled = self.enabled
@@ -46,6 +54,14 @@ class AIStatusResponse:
         provider = self.provider
 
         has_embeddings = self.has_embeddings
+
+        probe: dict[str, Any] | None | Unset
+        if isinstance(self.probe, Unset):
+            probe = UNSET
+        elif isinstance(self.probe, AIProbeReport):
+            probe = self.probe.to_dict()
+        else:
+            probe = self.probe
 
         semantic_search_enabled = self.semantic_search_enabled
 
@@ -61,6 +77,8 @@ class AIStatusResponse:
         )
         if has_embeddings is not UNSET:
             field_dict["has_embeddings"] = has_embeddings
+        if probe is not UNSET:
+            field_dict["probe"] = probe
         if semantic_search_enabled is not UNSET:
             field_dict["semantic_search_enabled"] = semantic_search_enabled
 
@@ -68,6 +86,8 @@ class AIStatusResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.ai_probe_report import AIProbeReport
+
         d = dict(src_dict)
         configured = d.pop("configured")
 
@@ -89,6 +109,23 @@ class AIStatusResponse:
 
         has_embeddings = d.pop("has_embeddings", UNSET)
 
+        def _parse_probe(data: object) -> AIProbeReport | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                probe_type_0 = AIProbeReport.from_dict(data)
+
+                return probe_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AIProbeReport | None | Unset, data)
+
+        probe = _parse_probe(d.pop("probe", UNSET))
+
         semantic_search_enabled = d.pop("semantic_search_enabled", UNSET)
 
         ai_status_response = cls(
@@ -97,6 +134,7 @@ class AIStatusResponse:
             model=model,
             provider=provider,
             has_embeddings=has_embeddings,
+            probe=probe,
             semantic_search_enabled=semantic_search_enabled,
         )
 

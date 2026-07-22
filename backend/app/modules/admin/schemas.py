@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.modules.auth.schemas import UserResponse
+from app.processing.ai.schemas import AIProbeReport
 
 VALID_ROLES = {"admin", "editor", "viewer"}
 
@@ -259,6 +260,14 @@ class AIStatusResponse(BaseModel):
     )
     has_embeddings: bool = Field(
         default=False, description="Whether at least one record has embeddings stored."
+    )
+    # fix(#627): key presence != key validity. Present only when the caller
+    # passed ?probe=true (the ai-status routes serialize with exclude_unset,
+    # so default responses keep their exact pre-probe shape).
+    probe: AIProbeReport | None = Field(
+        default=None,
+        description="Live provider probe results. Only present when the "
+        "request opted in via ?probe=true.",
     )
 
 

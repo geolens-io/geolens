@@ -15,6 +15,8 @@ from .admin_share_token_list_response import AdminShareTokenListResponse
 from .admin_share_token_response import AdminShareTokenResponse
 from .admin_user_create import AdminUserCreate
 from .ai_availability_response import AIAvailabilityResponse
+from .ai_probe_check import AIProbeCheck
+from .ai_probe_report import AIProbeReport
 from .ai_status_response import AIStatusResponse
 from .ai_status_update import AIStatusUpdate
 from .alter_column_type_request import AlterColumnTypeRequest
@@ -715,6 +717,8 @@ __all__ = (
     "AdminShareTokenResponse",
     "AdminUserCreate",
     "AIAvailabilityResponse",
+    "AIProbeCheck",
+    "AIProbeReport",
     "AIStatusResponse",
     "AIStatusUpdate",
     "AlterColumnTypeRequest",

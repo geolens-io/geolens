@@ -791,18 +791,29 @@ def _ai_status(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# fix(#627): exclude_unset so the `probe` field appears ONLY when the caller
+# opted in — the default response keeps its exact pre-probe JSON shape.
+# Safe because _ai_status passes every other field explicitly.
 @router.get(
     "/ai-status",
     response_model=AIStatusResponse,
+    response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
     include_in_schema=False,
 )
 @router.get(
     "/ai-status/",
     response_model=AIStatusResponse,
+    response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
 )
 async def get_ai_status(
+    probe: bool = Query(
+        default=False,
+        description="When true, run a minimal LIVE provider call per purpose "
+        "(chat + embeddings) to verify the configured key actually works. "
+        "Costs a real provider API call — never enabled by dashboards.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
     """Return single-deployment AI status; no provider-routing policy controls (admin only)."""
@@ -818,20 +829,28 @@ async def get_ai_status(
     provider = await LLM_PROVIDER.get(db)
     semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
     has_embeds = await has_embeddings(db)
-    return _ai_status(
+    result = _ai_status(
         enabled, provider, semantic_search_enabled=semantic, has_embeddings=has_embeds
     )
+    if probe:
+        from app.processing.ai.probe import run_ai_probe
+
+        result.probe = await run_ai_probe(db)
+    return result
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# fix(#627): exclude_unset for shape parity with GET (probe is never set here).
 @router.patch(
     "/ai-status",
     response_model=AIStatusResponse,
+    response_model_exclude_unset=True,
     include_in_schema=False,
 )
 @router.patch(
     "/ai-status/",
     response_model=AIStatusResponse,
+    response_model_exclude_unset=True,
 )
 @limiter.limit("30/minute")
 async def update_ai_status(
