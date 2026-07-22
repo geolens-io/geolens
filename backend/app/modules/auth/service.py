@@ -201,7 +201,11 @@ class AuthService:
         expire_minutes: int | None = None,
         expire_days: int | None = None,
     ) -> tuple[str, str]:
-        """Validate refresh token, revoke it, issue new access + refresh pair.
+        """Validate refresh token, retire it, issue new access + refresh pair.
+
+        fix(#621): "retire" rather than "revoke" — the used token keeps a
+        short grace window (refresh_rotation_grace_seconds) during which a
+        concurrent caller can still rotate it and mint its own valid pair.
 
         Args:
             raw_token: The raw refresh token to validate.
@@ -225,8 +229,25 @@ class AuthService:
         if stored is None:
             raise ValueError("Invalid or expired refresh token")
 
-        # Revoke used token (rotation)
-        stored.revoked = True
+        # fix(#621): rotation grace window. Instant revocation stranded the
+        # losers of a multi-tab refresh race: every tab presents the same
+        # rotating token, one caller wins, and the rest were left holding a
+        # dead credential (observed live as recurring `200+401+401` triplets,
+        # ending in a 7-hour silent tile-403 spiral). Instead of revoking,
+        # shorten the used token's remaining lifetime to a small grace window:
+        # a concurrent caller presenting it inside the window mints its own
+        # valid pair (a short-lived family branch), then the token expires
+        # naturally. Never EXTEND a token that is already closer to expiry.
+        # Explicit revocation (logout / revoke_all_tokens) still sets
+        # revoked=True on every active row — in-grace ones included — so a
+        # hard logout remains instant. grace=0 restores single-use revocation.
+        grace = settings.refresh_rotation_grace_seconds
+        if grace > 0:
+            grace_cutoff = datetime.now(UTC) + timedelta(seconds=grace)
+            if stored.expires_at > grace_cutoff:
+                stored.expires_at = grace_cutoff
+        else:
+            stored.revoked = True
 
         # Load user and verify active status
         user_result = await self.db.execute(
