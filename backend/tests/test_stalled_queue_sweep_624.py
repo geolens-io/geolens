@@ -17,9 +17,9 @@ import pytest
 from procrastinate.jobs import Status
 
 from app.platform.jobs.worker import (
-    STALLED_WORKER_SECONDS,
     fail_stalled_queue_jobs,
     run_stalled_queue_sweeps,
+    stalled_worker_seconds,
 )
 
 
@@ -50,13 +50,13 @@ async def test_stalled_jobs_are_failed_not_requeued():
 
     assert failed == 1
     fake.job_manager.get_stalled_jobs.assert_awaited_once_with(
-        seconds_since_heartbeat=STALLED_WORKER_SECONDS
+        seconds_since_heartbeat=stalled_worker_seconds()
     )
     fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
         job_id=181, status=Status.FAILED, delete_job=False
     )
     fake.job_manager.prune_stalled_workers.assert_awaited_once_with(
-        seconds_since_heartbeat=STALLED_WORKER_SECONDS
+        seconds_since_heartbeat=stalled_worker_seconds()
     )
 
 
@@ -146,7 +146,28 @@ def test_procrastinate_prune_window_matches_the_sweep_window():
     import app.platform.jobs.worker as worker_mod
 
     source = Path(worker_mod.__file__).read_text()
-    assert "stalled_worker_timeout=STALLED_WORKER_SECONDS" in source, (
+    assert "stalled_worker_timeout=stalled_worker_seconds()" in source, (
         "run_worker_async must pin procrastinate's prune window to "
-        "STALLED_WORKER_SECONDS — see the comment at that call site"
+        "the sweep window — see the comment at that call site"
     )
+
+
+def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
+    """fix(#624 codex P2 r3): honour a long WORKER_SHUTDOWN_TIMEOUT.
+
+    Procrastinate's ``Worker._shutdown`` cancels the heartbeat side task BEFORE
+    waiting ``shutdown_graceful_timeout`` for running jobs, so a worker finishing
+    a long job during a rolling restart is silent for that whole window. If the
+    stalled threshold were shorter, a sibling worker would fail exactly the work
+    the operator configured us to wait for.
+    """
+    from app.core.config import settings
+    from app.platform.jobs.worker import _STALLED_WORKER_FLOOR_SECONDS
+
+    # Default (30s) stays at the floor — the common case is unchanged.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
+    assert stalled_worker_seconds() == _STALLED_WORKER_FLOOR_SECONDS
+
+    # A graceful window past the floor pushes the threshold out beyond it.
+    monkeypatch.setattr(settings, "worker_shutdown_timeout", 600)
+    assert stalled_worker_seconds() > 600

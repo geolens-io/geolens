@@ -176,10 +176,31 @@ async def _recover_stale_jobs_for_current_scope() -> None:
 # fix(#624): a worker killed mid-job leaves its queue row in `doing` forever —
 # the demo carried one from 2026-06-29 for three weeks. Procrastinate 3.x tracks
 # worker heartbeats (default: every 10s), so a worker that has missed 30 of them
-# is gone, not slow; a graceful rolling restart keeps heartbeating and is never
-# swept. Deliberately generous — the cost of waiting is a stale metric, the cost
-# of being wrong is failing live work.
-STALLED_WORKER_SECONDS = 300
+# is gone, not slow. Deliberately generous — the cost of waiting is a stale
+# metric, the cost of being wrong is failing live work.
+_STALLED_WORKER_FLOOR_SECONDS = 300
+
+# Cushion over the graceful-shutdown window: covers the final heartbeat interval
+# (10s by default) plus the unregister that follows the graceful wait.
+_STALLED_SHUTDOWN_MARGIN_SECONDS = 60
+
+
+def stalled_worker_seconds() -> int:
+    """Heartbeat silence after which a worker counts as dead.
+
+    fix(#624 codex P2 r3): never shorter than the operator's graceful-shutdown
+    window. Procrastinate cancels the heartbeat side task BEFORE waiting
+    ``shutdown_graceful_timeout`` for running jobs (``Worker._shutdown``), so a
+    worker deliberately finishing a long job during a rolling restart is silent
+    for that entire window. With WORKER_SHUTDOWN_TIMEOUT raised above the floor —
+    plausible on an instance doing long COG conversions — a sibling worker's
+    sweep would fail exactly the work the operator asked us to wait for.
+    """
+    return max(
+        _STALLED_WORKER_FLOOR_SECONDS,
+        settings.worker_shutdown_timeout + _STALLED_SHUTDOWN_MARGIN_SECONDS,
+    )
+
 
 # fix(#624 codex P2): a startup-only sweep is always one restart behind. Under
 # `restart: unless-stopped` (and Kubernetes) a crashed worker is back in seconds,
@@ -209,9 +230,10 @@ async def fail_stalled_queue_jobs() -> int:
     from app.processing.ingest.tasks import task_app
 
     manager = task_app.job_manager
-    stalled = list(
-        await manager.get_stalled_jobs(seconds_since_heartbeat=STALLED_WORKER_SECONDS)
-    )
+    # One value for both calls in this sweep AND for run_worker_async's
+    # stalled_worker_timeout — see that call site for why they must agree.
+    seconds = stalled_worker_seconds()
+    stalled = list(await manager.get_stalled_jobs(seconds_since_heartbeat=seconds))
     for job in stalled:
         if job.id is None:  # unpersisted job — nothing to transition
             continue
@@ -225,9 +247,7 @@ async def fail_stalled_queue_jobs() -> int:
         )
     # Drop the dead workers' rows too, so the heartbeat table doesn't grow one
     # tombstone per killed worker.
-    pruned = await manager.prune_stalled_workers(
-        seconds_since_heartbeat=STALLED_WORKER_SECONDS
-    )
+    pruned = await manager.prune_stalled_workers(seconds_since_heartbeat=seconds)
     if stalled or pruned:
         log.info(
             "Stalled queue sweep complete",
@@ -395,8 +415,8 @@ async def main() -> None:
                     install_signal_handlers=True,
                     delete_jobs="successful",
                     shutdown_graceful_timeout=shutdown_timeout,
-                    # fix(#624 codex P1): MUST match STALLED_WORKER_SECONDS.
-                    # Procrastinate's own Worker.run() prunes workers silent for
+                    # fix(#624 codex P1): MUST match the sweep's own window.
+                    # Procrastinate's Worker.run() prunes workers silent for
                     # longer than this. procrastinate_jobs.worker_id is ON DELETE
                     # SET NULL, and select_stalled_jobs_by_heartbeat treats a
                     # `doing` job with a NULL worker_id as stalled OUTRIGHT — no
@@ -404,9 +424,9 @@ async def main() -> None:
                     # to compare. So at the 30s default, a live worker that merely
                     # stalls (DB blip, long GC) gets pruned by another worker's
                     # startup, its in-flight jobs go worker_id=NULL, and the sweep
-                    # below fails them as stalled despite the 300s cushion. Equal
-                    # windows mean a NULL worker_id can only mean 300s of silence.
-                    stalled_worker_timeout=STALLED_WORKER_SECONDS,
+                    # fails them as stalled despite our cushion. Equal windows mean
+                    # a NULL worker_id can only mean a genuinely dead worker.
+                    stalled_worker_timeout=stalled_worker_seconds(),
                 )
             finally:
                 # Cancel inside the connector context — a sweep mid-query when
