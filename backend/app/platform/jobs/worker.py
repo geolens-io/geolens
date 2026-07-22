@@ -14,7 +14,7 @@ from pathlib import Path
 
 import structlog
 import uvicorn
-from sqlalchemy import func, text, update
+from sqlalchemy import func, select, text, update
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
@@ -223,6 +223,57 @@ def stalled_worker_seconds() -> int:
 STALLED_QUEUE_SWEEP_INTERVAL_SECONDS = 60
 
 
+async def _ingest_jobs_still_leasing(jobs: list) -> set[str]:
+    """Of ``jobs``, the ingest_jobs ids whose row is provably still working.
+
+    fix(#624 codex P2 r5): procrastinate's worker heartbeat and the ingest task's
+    own lease are INDEPENDENT signals. ``Worker._shutdown`` cancels the worker
+    heartbeat and only then waits out ``shutdown_graceful_timeout``, while
+    ``maintain_ingest_job_heartbeat`` keeps renewing the ingest_jobs lease for
+    the whole window. So a silent worker does not imply dead work, and in a
+    split-queue fleet whose raster pool configures a shutdown longer than our
+    threshold, a timeout alone would fail a job that is still running.
+
+    Trust the work's own liveness signal over any timeout: a row that is
+    ``running`` on a fresh lease is alive, and no window arithmetic overrides
+    that. The threshold stays as the backstop for jobs with no lease to read —
+    non-ingest tasks (embeddings), and hosted deployments where ingest_jobs is
+    FORCE-RLS and this un-tenanted query returns nothing.
+    """
+    import uuid as uuid_mod
+
+    ids: set[uuid_mod.UUID] = set()
+    for job in jobs:
+        # NB: the DB column is `args`, but Job.from_row maps it to `task_kwargs`.
+        kwargs = getattr(job, "task_kwargs", None)
+        if not isinstance(kwargs, dict):
+            continue
+        raw = kwargs.get("job_id")
+        if not raw:
+            continue
+        try:
+            ids.add(uuid_mod.UUID(str(raw)))
+        except ValueError:  # not an ingest task's job_id — no lease to read
+            continue
+    if not ids:
+        return set()
+
+    from app.core.db import async_session
+    from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=JOB_TIMEOUT_SECONDS)
+    async with async_session() as session:
+        rows = await session.execute(
+            select(IngestJob.id).where(
+                IngestJob.id.in_(ids),
+                IngestJob.status == "running",
+                func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at) >= cutoff,
+            )
+        )
+        return {str(row[0]) for row in rows.all()}
+
+
 async def fail_stalled_queue_jobs() -> int:
     """Fail procrastinate rows whose worker died mid-job. Returns the count.
 
@@ -247,12 +298,23 @@ async def fail_stalled_queue_jobs() -> int:
     # stalled_worker_timeout — see that call site for why they must agree.
     seconds = stalled_worker_seconds()
     stalled = list(await manager.get_stalled_jobs(seconds_since_heartbeat=seconds))
+    alive = await _ingest_jobs_still_leasing(stalled)
+    failed = 0
     for job in stalled:
         if job.id is None:  # unpersisted job — nothing to transition
+            continue
+        kwargs = job.task_kwargs if isinstance(job.task_kwargs, dict) else {}
+        if str(kwargs.get("job_id")) in alive:
+            log.info(
+                "Skipping stalled queue job — its ingest job is still leasing",
+                procrastinate_job_id=job.id,
+                ingest_job_id=str(kwargs.get("job_id")),
+            )
             continue
         await manager.finish_job_by_id_async(
             job_id=job.id, status=Status.FAILED, delete_job=False
         )
+        failed += 1
         log.warning(
             "Failed stalled queue job — its worker stopped heartbeating",
             procrastinate_job_id=job.id,
@@ -261,13 +323,14 @@ async def fail_stalled_queue_jobs() -> int:
     # Drop the dead workers' rows too, so the heartbeat table doesn't grow one
     # tombstone per killed worker.
     pruned = await manager.prune_stalled_workers(seconds_since_heartbeat=seconds)
-    if stalled or pruned:
+    if failed or pruned:
         log.info(
             "Stalled queue sweep complete",
-            jobs_failed=len(stalled),
+            jobs_failed=failed,
+            jobs_skipped_alive=len(stalled) - failed,
             workers_pruned=len(pruned),
         )
-    return len(stalled)
+    return failed
 
 
 async def _sweep_stalled_queue_safely() -> None:

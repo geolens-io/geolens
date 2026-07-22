@@ -6,7 +6,8 @@ was verified live against a real database before this test was written: a
 ``doing`` row pinned to a worker with a 5-day-old heartbeat flipped to
 ``failed``, its dead worker row was pruned, and the concurrently-heartbeating
 live worker was left alone. What is asserted here is the sweep's decision logic
-— fail rather than requeue, keep the row, skip unpersisted jobs.
+— fail rather than requeue, keep the row, skip unpersisted jobs, and never touch
+a job whose ingest_jobs row is still renewing its own lease.
 """
 
 import asyncio
@@ -21,6 +22,20 @@ from app.platform.jobs.worker import (
     run_stalled_queue_sweeps,
     stalled_worker_seconds,
 )
+
+
+def _job(job_id, ingest_job_id: str | None = None, task_name: str = "t"):
+    """A stand-in for procrastinate's Job.
+
+    The payload attribute is ``task_kwargs``, NOT ``args`` — the DB column is
+    ``args`` but ``Job.from_row`` maps it to ``task_kwargs``, and a mock that got
+    this wrong passed every test while failing on the first real Job.
+    """
+    return SimpleNamespace(
+        id=job_id,
+        task_name=task_name,
+        task_kwargs={"job_id": ingest_job_id} if ingest_job_id else {},
+    )
 
 
 def _fake_task_app(stalled: list, pruned: list | None = None) -> SimpleNamespace:
@@ -40,9 +55,7 @@ async def test_stalled_jobs_are_failed_not_requeued():
     failing matches the verdict the ingest_jobs reaper already gave the user.
     Keeping the row (delete_job=False) preserves the post-mortem trail.
     """
-    job = SimpleNamespace(
-        id=181, task_name="app.processing.ingest.tasks.ingest_service"
-    )
+    job = _job(181, task_name="app.processing.ingest.tasks.ingest_service")
     fake = _fake_task_app([job], pruned=[7])
 
     with patch("app.processing.ingest.tasks.task_app", fake):
@@ -76,10 +89,7 @@ async def test_no_stalled_jobs_touches_nothing():
 async def test_unpersisted_job_is_skipped():
     """A Job with no id cannot be transitioned; skip it instead of crashing the
     sweep (which would strand every job behind it)."""
-    jobs = [
-        SimpleNamespace(id=None, task_name="unpersisted"),
-        SimpleNamespace(id=42, task_name="real"),
-    ]
+    jobs = [_job(None, task_name="unpersisted"), _job(42, task_name="real")]
     fake = _fake_task_app(jobs)
 
     with patch("app.processing.ingest.tasks.task_app", fake):
@@ -177,3 +187,58 @@ def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
     # A local window past the floor still pushes the threshold beyond it.
     monkeypatch.setattr(settings, "worker_shutdown_timeout", JOB_TIMEOUT_SECONDS * 2)
     assert stalled_worker_seconds() > JOB_TIMEOUT_SECONDS * 2
+
+
+@pytest.mark.anyio
+async def test_job_whose_ingest_row_is_still_leasing_is_left_alone():
+    """fix(#624 codex P2 r5): a live lease outranks any stalled-worker timeout.
+
+    Procrastinate's worker heartbeat and the ingest task's own lease are
+    independent: `Worker._shutdown` cancels the former, then waits out
+    `shutdown_graceful_timeout` while `maintain_ingest_job_heartbeat` keeps
+    renewing the latter. So a silent worker does not mean dead work — in a
+    split-queue fleet whose raster pool configures a longer shutdown than our
+    threshold, a timeout alone would fail a job that is provably still running.
+    """
+    live = "11111111-1111-1111-1111-111111111111"
+    dead = "22222222-2222-2222-2222-222222222222"
+    fake = _fake_task_app([_job(1, live), _job(2, dead)])
+
+    with (
+        patch("app.processing.ingest.tasks.task_app", fake),
+        patch(
+            "app.platform.jobs.worker._ingest_jobs_still_leasing",
+            AsyncMock(return_value={live}),
+        ),
+    ):
+        failed = await fail_stalled_queue_jobs()
+
+    # Only the job with no live lease is failed.
+    assert failed == 1
+    fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
+        job_id=2, status=Status.FAILED, delete_job=False
+    )
+
+
+@pytest.mark.anyio
+async def test_job_with_no_lease_to_read_still_gets_swept():
+    """The liveness check must not become a blanket amnesty.
+
+    Non-ingest tasks carry no `job_id` arg, and the original three-week-old demo
+    row had no live lease either — those are exactly what the sweep is for.
+    """
+    fake = _fake_task_app([_job(3, None, task_name="embed_record")])
+
+    with (
+        patch("app.processing.ingest.tasks.task_app", fake),
+        patch(
+            "app.platform.jobs.worker._ingest_jobs_still_leasing",
+            AsyncMock(return_value=set()),
+        ),
+    ):
+        failed = await fail_stalled_queue_jobs()
+
+    assert failed == 1
+    fake.job_manager.finish_job_by_id_async.assert_awaited_once_with(
+        job_id=3, status=Status.FAILED, delete_job=False
+    )
