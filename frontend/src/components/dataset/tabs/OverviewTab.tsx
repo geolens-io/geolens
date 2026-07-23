@@ -178,8 +178,10 @@ export function OverviewTab({
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
 
-  // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId disables the query
-  const { data: generationsData } = useVrtGenerations(isVrt ? dataset.id : '', { limit: 1 });
+  // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId
+  // disables the query. fix(#644): also gate on canEdit — the generations endpoint is
+  // owner/admin-scoped, so firing it for every viewer guaranteed 401s on public VRTs.
+  const { data: generationsData } = useVrtGenerations(isVrt && canEdit ? dataset.id : '', { limit: 1 });
   const lastGeneration = generationsData?.generations?.[0];
 
   // ── Sidebar content (right rail) ──

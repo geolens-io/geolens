@@ -51,7 +51,9 @@ export function DetailPanel(props: DetailPanelProps) {
 
   const showData = isVector;
   const showStructure = isVector;
-  const showSources = isVrt;
+  // fix(#644): every query inside SourcesTab hits owner/admin-scoped VRT
+  // endpoints, so for non-owners the tab could only ever render 401 noise.
+  const showSources = isVrt && canEdit;
 
   const draftValues = useMemo(() => ({
     lineage_summary: resolveDraftValue('lineage_summary'),
