@@ -40,22 +40,45 @@ groups:
             {{ $value | humanizePercentage }} of API requests returned 5xx over
             the last 5 minutes.
 
-      - alert: GeoLensApiHighLatencyP95
-        # fix(#466): use the HIGH-resolution histogram. The default
-        # http_request_duration_seconds tops out at le=1.0 (then +Inf), so
-        # histogram_quantile caps at 1.0 and `> 1` could never fire; the highr
-        # histogram has buckets out to 60s. No status label on either → group by le.
+      - alert: GeoLensApiInteractiveLatencyP95
+        # fix(#658): replaces the all-handler p95 alert (#466), which fired
+        # during plain map browsing — tile requests are the legitimate slow
+        # tail, so they get their own rule below. Excluding a handler forces
+        # the handler-labeled histogram, whose buckets top out at le=1.0, so
+        # histogram_quantile clips at 1.0 and `>= 1` is the only expressible
+        # "worse than 1s" predicate (`> 1` could never fire).
         expr: |
           histogram_quantile(0.95,
-            sum by (le) (rate(http_request_duration_highr_seconds_bucket[5m]))) > 1
+            sum by (le) (rate(http_request_duration_seconds_bucket{handler!~"/tiles/.*"}[5m]))) >= 1
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "API p95 latency above 1s"
+          summary: "API p95 latency (non-tile) at or above 1s"
           description: >-
-            95th-percentile request latency is {{ $value | humanizeDuration }}
-            (sustained over 10 minutes).
+            95th-percentile latency of non-tile API requests has been at the
+            1s histogram ceiling for 10 minutes. Tile endpoints are excluded;
+            see GeoLensApiTileLatencyMean.
+
+      - alert: GeoLensApiTileLatencyMean
+        # fix(#658): tile p95 is unreadable from the handler-labeled histogram
+        # (clips at 1s), so alert on the exact mean from _sum/_count instead.
+        # Active map browsing keeps the mean well under 1s even while p95 sits
+        # at the ceiling; a sustained mean above 2s means tiles are genuinely
+        # grinding (raster-proxy incidents run 2.2-2.6s/tile, cf. #643).
+        # With no tile traffic the ratio is 0/0 = NaN, which never compares true.
+        expr: |
+          sum(rate(http_request_duration_seconds_sum{handler=~"/tiles/.*"}[10m]))
+            / sum(rate(http_request_duration_seconds_count{handler=~"/tiles/.*"}[10m])) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mean tile latency above 2s"
+          description: >-
+            Requests under /tiles/ have averaged {{ $value | humanizeDuration }}
+            over the last 10 minutes — vector-tile queries or the raster proxy
+            are grinding.
 
   - name: geolens-jobs
     rules:
