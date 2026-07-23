@@ -336,9 +336,21 @@ export function hasCustomBasemapAppearance(
   showBasemapLabels: boolean | null | undefined,
 ): boolean {
   const labels = showBasemapLabels ?? true;
+  // codex P2 on #654: explicit default-valued optional metadata must read as
+  // clean too — dragging the basemap back to bottom writes basemap_position:
+  // 'bottom', and 'mercator' is the projection default; the null baseline
+  // omits both keys, so keeping them would flag an all-defaults map as custom.
+  const OPTIONAL_DEFAULTS: Record<string, unknown> = {
+    basemap_position: 'bottom',
+    projection: 'mercator',
+  };
   const canonical = (config: MapBasemapConfig) =>
     JSON.stringify(
-      Object.fromEntries(Object.entries(config).filter(([, v]) => v != null)),
+      Object.fromEntries(
+        Object.entries(config).filter(
+          ([k, v]) => v != null && OPTIONAL_DEFAULTS[k] !== v,
+        ),
+      ),
     );
   return canonical(normalizedConfig(basemapConfig, labels))
     !== canonical(normalizedConfig(null, labels));

@@ -281,6 +281,20 @@ describe('StackRow', () => {
     expect(onDuplicate).toHaveBeenCalledWith('dup-layer');
   });
 
+  // fix(#585): the kebab links to the dataset detail page — new tab so the
+  // unsaved-changes guard never fires mid-edit.
+  it('kebab "Open dataset detail" is a new-tab link to /datasets/{dataset_id}', () => {
+    const layer = makeLayer({ id: 'link-layer', dataset_id: 'ds-42' });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    const link = screen.getByTestId('kebab-view-dataset');
+    expect(link).toHaveAttribute('href', '/datasets/ds-42');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
   it('"Add to group…" submenu exposes "New group…" when no existing groups (#585)', () => {
     const layer = makeLayer({ id: 'group-layer' });
     render(<StackRow {...defaultProps({ layer, existingFolderGroups: [] })} />);

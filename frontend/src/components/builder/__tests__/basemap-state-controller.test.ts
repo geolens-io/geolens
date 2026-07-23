@@ -229,6 +229,23 @@ describe('hasCustomBasemapAppearance', () => {
     ).toBe(true);
   });
 
+  // codex P2 on #654: explicit default-valued optional metadata is clean —
+  // dragging the basemap back to bottom writes basemap_position: 'bottom'.
+  it('explicit default position/projection values are NOT custom', () => {
+    expect(
+      hasCustomBasemapAppearance(
+        { basemap_position: 'bottom', projection: 'mercator' } as MapBasemapConfig,
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it('a non-default basemap position IS custom', () => {
+    expect(
+      hasCustomBasemapAppearance({ basemap_position: 'top' } as MapBasemapConfig, true),
+    ).toBe(true);
+  });
+
   it('labels-hidden maps compare against the labels-hidden default (not custom)', () => {
     expect(hasCustomBasemapAppearance(null, false)).toBe(false);
     expect(

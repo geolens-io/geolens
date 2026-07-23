@@ -6,6 +6,7 @@ import {
   Copy,
   CopyPlus,
   Crosshair,
+  ExternalLink,
   Eye,
   EyeOff,
   Folder,
@@ -475,6 +476,27 @@ export const StackRow = memo(function StackRow({
                 </>
               );
             })()}
+            {/* fix(#585): navigable follow-up to the Source block — the builder
+                previously had NO path to the dataset page (notably: the
+                audienceHidden badge warns about dataset visibility, which is
+                fixed THERE). New tab on purpose: in-place navigation would trip
+                the unsaved-changes guard, matching the "View as viewer"
+                precedent. A real <a> so middle-click/cmd-click work. */}
+            {layer.dataset_id && (
+              <>
+                <DropdownMenuItem asChild data-testid="kebab-view-dataset">
+                  <a
+                    href={`/datasets/${layer.dataset_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                    {t('layerItem.openDataset', { defaultValue: 'Open dataset detail' })}
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               onSelect={() => {
                 // Let the menu close; the hook's rAF focus + select runs once
