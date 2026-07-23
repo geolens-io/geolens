@@ -7,17 +7,23 @@ tooling* out of this public repo (see "Where the tooling lives" below).
 
 ## Current set
 
-The README hero plus a four-step Find -> Inspect -> Build -> Ask AI story.
-Displayed at `width="900"`; sources are ~1200–1600 px wide. Use PNG for UI shots
-(crisp text) and JPG for photographic 3D terrain (smaller).
+The README hero plus a six-step Find -> Inspect -> Ask your data -> Build ->
+Ask AI -> Operate story. Displayed at `width="900"`; sources are ~1200–1600 px
+wide. Use PNG for UI shots (crisp text) and JPG for photographic 3D terrain
+(smaller). Files with a `-dark` sibling are light/dark pairs wired into the
+README via `<picture>` + `prefers-color-scheme` so GitHub serves the right
+variant per theme.
 
 | File | Beat | Shows | Subject (live seeded stack) |
 | --- | --- | --- | --- |
 | `geolens-manhattan-3d-hero.jpg` | Hero | Manhattan footprints extruded to roof height, colored by era, with the layer editor open | **Manhattan - A Century of Skyline** map, Buildings (3D) layer selected |
 | `geolens-search.png` | Find | Semantic search: "natural disasters" ranks earthquakes + volcanic eruptions with no keyword match | Catalog, search `natural disasters` (2 results) |
 | `geolens-dataset.png` | Inspect | Dataset map preview + typed metadata over a dense point cloud | **Meteorite Landings** dataset detail (32,186 points) |
+| `geolens-dataset-chat{,-dark}.png` | Ask your data | Dataset Q&A in natural language: question -> answer + result table -> open in builder | **Meteorite Landings** detail, Ask AI: "How many meteorites were seen falling versus found later?" |
 | `geolens-matterhorn-terrain.jpg` | Build | Matterhorn 3D terrain mesh + layer stack + legend | **The Matterhorn in 3D** map |
 | `geolens-ai-labels.png` | Ask AI | AI editing a map in natural language | **Restless Earth** map, Ask AI: "Label the volcanoes with their names" |
+| `geolens-admin-overview{,-dark}.png` | Operate | Admin overview: live health panel, dataset/storage totals, AI status | Admin -> Overview, seeded demo users |
+| `geolens-admin-users{,-dark}.png` | — (announcements) | Admin user management: roles, status, quotas, CSV export | Admin -> Users; not embedded in the README — kept here as a stable public URL for announcement posts |
 
 ## Seeding the data
 
@@ -40,8 +46,13 @@ getgeolens.com site repo, sitting next to this one, against a live seeded stack:
 ```bash
 cd ../getgeolens.com
 GEOLENS_ADMIN_PASSWORD="$GEOLENS_ADMIN_PASSWORD" npm run capture:readme
-# writes the 5 images straight into this folder (GEOLENS_REPO_DIR, default ../geolens)
+# writes the original 5 images straight into this folder (GEOLENS_REPO_DIR, default ../geolens)
 ```
+
+The 2026-07-21 additions (`geolens-dataset-chat`, `geolens-admin-overview`,
+`geolens-admin-users`, light + dark pairs at 1200×750) were captured against the
+local seeded stack with demo users seeded for the admin views; they are not yet
+part of the automated `capture:readme` target list.
 
 Then review the `git diff` here before committing — these images are public.
 
