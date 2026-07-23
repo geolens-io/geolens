@@ -109,6 +109,9 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
 
   const handleTestConnection = async () => {
     setIsProbing(true);
+    // fix(#652): drop previous rows first so a failed retry can't keep
+    // showing stale green results next to only a toast.
+    setProbe(null);
     try {
       const result = await probeAIStatus();
       setProbe(result.probe ?? null);

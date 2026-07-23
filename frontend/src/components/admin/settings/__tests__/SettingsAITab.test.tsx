@@ -160,4 +160,30 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     renderTab();
     expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
   });
+
+  // fix(#652): a failed retry must not keep showing the previous green rows.
+  it('clears prior results when a retry fails before returning a probe body', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValueOnce({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: true, ok: true },
+      },
+    });
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+    await waitFor(() => expect(screen.getAllByText('OK')).toHaveLength(2));
+
+    mockProbe.mockRejectedValueOnce(new Error('429'));
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+
+    await waitFor(() => expect(screen.queryByText('OK')).not.toBeInTheDocument());
+  });
 });

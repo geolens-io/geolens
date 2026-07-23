@@ -212,13 +212,15 @@ async function authenticatedFetch(
  */
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { expected404?: boolean } = {},
+  options: RequestInit & { expected404?: boolean; timeoutMs?: number } = {},
 ): Promise<T> {
-  const { expected404, ...fetchOptions } = options;
+  const { expected404, timeoutMs, ...fetchOptions } = options;
 
   // fix(#438): DATA-04 — bound the request. Compose with any caller signal so
-  // an explicit cancel still works; whichever fires first wins.
-  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  // an explicit cancel still works; whichever fires first wins. `timeoutMs`
+  // raises the deadline for endpoints whose legitimate worst case exceeds the
+  // default (a caller signal alone can only shorten it, never extend it).
+  const timeoutSignal = AbortSignal.timeout(timeoutMs ?? REQUEST_TIMEOUT_MS);
   fetchOptions.signal = fetchOptions.signal
     ? AbortSignal.any([fetchOptions.signal, timeoutSignal])
     : timeoutSignal;
