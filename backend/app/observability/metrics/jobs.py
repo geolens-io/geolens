@@ -37,8 +37,15 @@ jobs_failed_total = Counter(
     ["queue"],
 )
 
-# Track previous snapshot for counter delta computation
+# Track previous snapshot for counter delta computation.
+# NOTE(#655): on the first cycle after boot this is empty, so the counters seed
+# with the full historical procrastinate_jobs row counts — raw counter values
+# include pre-boot history. increase()/rate() queries are unaffected.
 _prev_counts: dict[tuple[str, str], int] = {}
+
+# Queues whose gauge children have been set at least once — zeroed (not
+# removed) when their todo/doing rows disappear from a cycle. fix(#655)
+_known_queues: set[str] = set()
 
 
 async def _refresh_job_metrics() -> None:
@@ -60,8 +67,8 @@ async def _refresh_job_metrics() -> None:
             )
             rows = result.fetchall()
 
-        # Reset gauges to zero before setting — handles queues that disappear
-        # We track which (queue, status) combos we see this cycle
+        # Queues absent from this cycle get zeroed after the loop via
+        # _known_queues, so a drained queue reads 0 instead of its last value
         seen_todo: set[str] = set()
         seen_doing: set[str] = set()
 
@@ -88,6 +95,14 @@ async def _refresh_job_metrics() -> None:
                 if delta > 0:
                     jobs_failed_total.labels(queue=q).inc(delta)
                 _prev_counts[key] = count
+
+        # fix(#655): zero gauges for previously seen queues with no todo/doing
+        # rows this cycle — they used to freeze at their last non-zero value
+        for q in _known_queues - seen_todo:
+            jobs_queue_depth.labels(queue=q).set(0)
+        for q in _known_queues - seen_doing:
+            jobs_active.labels(queue=q).set(0)
+        _known_queues.update(seen_todo, seen_doing)
 
     except Exception:  # broad: metrics refresh is non-fatal; DB/aggregation errors should not crash background loop
         logger.warning("Failed to refresh job metrics", exc_info=True)
