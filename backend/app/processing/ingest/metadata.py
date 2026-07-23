@@ -54,13 +54,21 @@ def _qtable(table_name: str, schema: str = "data") -> str:
 
 
 def _sql_quote_ident(name: str) -> str:
-    """Return a safely double-quoted SQL identifier.
+    """Return a safely double-quoted SQL identifier for use inside text().
 
     Handles embedded double-quotes by doubling them, which is the
     PostgreSQL-standard escape. Centralizes the quoting logic that
     previously lived inline at every call site (PERF-6, KISS).
+
+    fix(#640): colons are backslash-escaped because SQLAlchemy ``text()``
+    parses ``:name`` as a bind parameter even inside double-quoted
+    identifiers (Socrata exports ship columns literally named ``:id``,
+    ``:created_at``, ...). ``text()`` unescapes ``\\:`` back to ``:`` at
+    compile time, so the emitted SQL carries the literal identifier. The
+    output is therefore only valid inside ``text()`` — do not pass it to
+    ``exec_driver_sql`` or raw driver APIs.
     """
-    return '"' + name.replace('"', '""') + '"'
+    return '"' + name.replace('"', '""').replace(":", "\\:") + '"'
 
 
 def _parse_box3d_z_bounds(box3d_text: str | None) -> tuple[float | None, float | None]:
@@ -998,6 +1006,13 @@ async def rename_reserved_columns(
     ``src_<name>``. Runs BEFORE add_4326_column so that ALTER TABLE ADD COLUMN
     geom_4326 cannot collide with a source attribute.
 
+    fix(#640): also renames columns containing ``:`` (Socrata exports ship
+    system columns literally named ``:id``, ``:created_at``, ... which
+    survive OGR's laundering). A colon inside a double-quoted identifier is
+    parsed as a bind parameter by SQLAlchemy ``text()``, so such names break
+    every downstream text()-built query (sampling, column stats, tiles).
+    They are laundered to letter-leading safe names (``:id`` -> ``id``).
+
     Only renames columns that were NOT created by the ingest pipeline itself:
     - ``gid``: pipeline creates it as a serial PRIMARY KEY (column_default is
       non-null). A source-origin ``gid`` has no default and is not an identity.
@@ -1025,7 +1040,7 @@ async def rename_reserved_columns(
             "SELECT column_name "
             "FROM information_schema.columns "
             "WHERE table_schema = :schema AND table_name = :t "
-            "AND column_name = ANY(:names)"
+            "AND (column_name = ANY(:names) OR strpos(column_name, ':') > 0)"
         ).bindparams(schema=schema, t=table_name, names=list(RESERVED_COLUMN_NAMES))
     )
     if not reserved_check.first():
@@ -1055,31 +1070,49 @@ async def rename_reserved_columns(
         async with session.begin_nested():
             for row in rows:
                 col_name, data_type, udt_name, col_default, is_identity = row
-                if col_name not in RESERVED_COLUMN_NAMES:
+                if col_name not in RESERVED_COLUMN_NAMES and ":" not in col_name:
                     continue
 
-                # Determine if this column was created by the pipeline or came from the source.
-                if col_name == "gid":
-                    # Pipeline-created gid is a serial/identity with a nextval default.
-                    # Source-origin gid has no default and is not an identity column.
-                    is_pipeline_gid = (
-                        col_default is not None and "nextval" in str(col_default)
-                    ) or (is_identity == "YES")
-                    if is_pipeline_gid:
-                        continue  # This is the pipeline's own gid — leave it alone.
+                if ":" in col_name:
+                    # fix(#640): colon-bearing (Socrata-style) column —
+                    # launder to a safe name. Must start with a letter or the
+                    # column-stats/distinct-values identifier validator
+                    # rejects it (codex P2 on #646): ":id" -> "id", not "_id".
+                    base = re.sub(r"[^A-Za-z0-9_]", "_", col_name).strip("_")
+                    if not base or not base[0].isalpha():
+                        base = f"col_{base}" if base else "col"
+                    # A laundered name may hit an internal name (":geom" ->
+                    # "geom") — apply the reserved-name rule so the staging
+                    # pipeline's own geometry columns stay uncontested
+                    # (codex P2 round 2 on #646).
+                    if base in RESERVED_COLUMN_NAMES:
+                        base = f"src_{base}"
+                    base = base[:63]
+                else:
+                    # Determine if this column was created by the pipeline or came from the source.
+                    if col_name == "gid":
+                        # Pipeline-created gid is a serial/identity with a nextval default.
+                        # Source-origin gid has no default and is not an identity column.
+                        is_pipeline_gid = (
+                            col_default is not None and "nextval" in str(col_default)
+                        ) or (is_identity == "YES")
+                        if is_pipeline_gid:
+                            continue  # This is the pipeline's own gid — leave it alone.
 
-                elif col_name in ("geom", "geometry"):
-                    # Pipeline-created geometry column has data_type = 'USER-DEFINED'
-                    # and udt_name = 'geometry'. Source-origin columns have other types.
-                    if data_type == "USER-DEFINED" and udt_name == "geometry":
-                        continue  # Pipeline-created spatial column — leave it alone.
+                    elif col_name in ("geom", "geometry"):
+                        # Pipeline-created geometry column has data_type = 'USER-DEFINED'
+                        # and udt_name = 'geometry'. Source-origin columns have other types.
+                        if data_type == "USER-DEFINED" and udt_name == "geometry":
+                            continue  # Pipeline-created spatial column — leave it alone.
 
-                # All remaining reserved-name columns are source-origin. Rename to src_<name>.
-                # If src_<name> already exists, append a numeric suffix.
-                target = f"src_{col_name}"
+                    # All remaining reserved-name columns are source-origin. Rename to src_<name>.
+                    base = f"src_{col_name}"
+
+                # If the target already exists, append a numeric suffix.
+                target = base
                 suffix = 2
                 while target in all_column_names:
-                    target = f"src_{col_name}_{suffix}"
+                    target = f"{base[:60]}_{suffix}"
                     suffix += 1
 
                 # Execute the rename using double-quoted identifiers (not bindable).
@@ -1093,7 +1126,7 @@ async def rename_reserved_columns(
                 )
 
                 logger.warning(
-                    "Renamed reserved source column",
+                    "Renamed reserved or unsafe source column",
                     table=table_name,
                     original=col_name,
                     renamed=target,

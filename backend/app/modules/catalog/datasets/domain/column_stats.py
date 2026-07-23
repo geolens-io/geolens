@@ -49,8 +49,17 @@ def _qtable(table_name: str, *, schema: str | None = None) -> str:
 
 
 def _sql_quote_ident(name: str) -> str:
-    """Return a safely double-quoted SQL identifier."""
-    return '"' + name.replace('"', '""') + '"'
+    """Return a safely double-quoted SQL identifier for use inside text().
+
+    fix(#640): colons are backslash-escaped because SQLAlchemy ``text()``
+    parses ``:name`` as a bind parameter even inside double-quoted
+    identifiers. Defense in depth here — every current caller pre-validates
+    names against ``_IDENTIFIER_RE`` which already rejects colons — but this
+    keeps the helper safe by construction and consistent with the
+    ingest-side copy in ``processing/ingest/metadata.py``, whose inputs ARE
+    arbitrary source-file column names. Only valid inside ``text()``.
+    """
+    return '"' + name.replace('"', '""').replace(":", "\\:") + '"'
 
 
 async def get_distinct_values(

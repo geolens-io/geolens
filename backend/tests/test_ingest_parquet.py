@@ -386,3 +386,145 @@ class TestParquetRoundTrip:
         ).all()
         # source "gid" collides with the pipeline serial PK -> lands as gid_2
         assert [tuple(r) for r in rows] == [(1, "x", 1.5), (2, "y", 2.5)]
+
+
+class TestParquetZGeometry:
+    """fix(#641): Z-bearing WKB used to fail INSERT because the staging
+    column was declared with a 2D typmod (geometry(Geometry, srid))."""
+
+    @pytest.fixture
+    async def z_table(self, test_db_session):
+        table_name = f"t_zgeom_{uuid.uuid4().hex[:8]}"
+        yield table_name
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_z_wkb_probe_creates_3d_column(
+        self, test_db_session, z_table, tmp_path
+    ):
+        """No declared geometry_types (our exporter's shape) — the first-WKB
+        probe must detect Z and the load must succeed with Z preserved."""
+        from shapely.geometry import Point
+
+        p = tmp_path / "z.parquet"
+        geom = [Point(0, 0, 5).wkb, Point(1, 1, 6.5).wkb]
+        pq.write_table(build_geoparquet_table(geom, {"pop": [1, 2]}, ["pop"]), p)
+
+        await load_parquet_to_postgis(
+            str(p), z_table, schema="data", srid=4326, include_geometry=True
+        )
+
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_NDims(_geolens_geom), ST_Z(_geolens_geom) "
+                    f"FROM data.{z_table} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert [r[0] for r in rows] == [3, 3]
+        assert [r[1] for r in rows] == [5.0, 6.5]
+
+    @pytest.mark.anyio
+    async def test_declared_z_lifts_mixed_dimensions(
+        self, test_db_session, z_table, tmp_path
+    ):
+        """geometry_types declaring ' Z' + a mixed 2D/3D payload: ST_Force3D
+        must lift the 2D row (z=0) instead of failing the batch."""
+        from shapely.geometry import Point
+
+        p = tmp_path / "z_mixed.parquet"
+        geom = [Point(0, 0, 5).wkb, Point(1, 1).wkb]
+        table = build_geoparquet_table(geom, {"pop": [1, 2]}, ["pop"])
+        geo = json.loads(table.schema.metadata[b"geo"])
+        geo["columns"]["geometry"]["geometry_types"] = ["Point Z"]
+        table = table.replace_schema_metadata({b"geo": json.dumps(geo).encode()})
+        pq.write_table(table, p)
+
+        await load_parquet_to_postgis(
+            str(p), z_table, schema="data", srid=4326, include_geometry=True
+        )
+
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_NDims(_geolens_geom), ST_Z(_geolens_geom) "
+                    f"FROM data.{z_table} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert [r[0] for r in rows] == [3, 3]
+        assert rows[0][1] == 5.0
+        assert rows[1][1] == 0.0  # 2D row lifted by ST_Force3D
+
+    @pytest.mark.anyio
+    async def test_2d_file_unchanged(self, test_db_session, z_table, tmp_path):
+        """Regression guard: plain 2D files still land in a 2D column."""
+        p = tmp_path / "flat.parquet"
+        _write_geoparquet(p)
+
+        await load_parquet_to_postgis(
+            str(p), z_table, schema="data", srid=4326, include_geometry=True
+        )
+
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_NDims(_geolens_geom) FROM data.{z_table} "
+                    f"WHERE _geolens_geom IS NOT NULL"
+                )
+            )
+        ).all()
+        assert rows and all(r[0] == 2 for r in rows)
+
+
+def test_wkb_has_z_header_sniff():
+    """_wkb_has_z reads only the WKB header — both ISO and EWKB flavors."""
+    from shapely import to_wkb
+    from shapely.geometry import Point
+
+    from app.processing.ingest.parquet import _wkb_has_z
+
+    for flavor in ("iso", "extended"):
+        assert _wkb_has_z(to_wkb(Point(0, 0, 1), flavor=flavor)) is True
+        assert _wkb_has_z(to_wkb(Point(0, 0), flavor=flavor)) is False
+    assert _wkb_has_z(b"") is False
+
+
+class TestParquetZLateRow:
+    """codex P2 round 3 on #646: undeclared geometry_types with a 2D row
+    before the Z row — the scan must not stop at the first geometry."""
+
+    @pytest.fixture
+    async def late_z_table(self, test_db_session):
+        table_name = f"t_zlate_{uuid.uuid4().hex[:8]}"
+        yield table_name
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_undeclared_mixed_scans_past_first_2d(
+        self, test_db_session, late_z_table, tmp_path
+    ):
+        from shapely.geometry import Point
+
+        p = tmp_path / "z_late.parquet"
+        geom = [Point(0, 0).wkb, Point(1, 1, 7).wkb]
+        pq.write_table(build_geoparquet_table(geom, {"pop": [1, 2]}, ["pop"]), p)
+
+        await load_parquet_to_postgis(
+            str(p), late_z_table, schema="data", srid=4326, include_geometry=True
+        )
+
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_NDims(_geolens_geom), ST_Z(_geolens_geom) "
+                    f"FROM data.{late_z_table} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert [r[0] for r in rows] == [3, 3]
+        assert rows[0][1] == 0.0  # leading 2D row lifted by ST_Force3D
+        assert rows[1][1] == 7.0

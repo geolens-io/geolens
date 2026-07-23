@@ -179,6 +179,41 @@ def _launder(name: str) -> str:
     return (n or "col")[:63]
 
 
+def _wkb_has_z(wkb: bytes) -> bool:
+    """Header-only Z sniff: EWKB Z flag or ISO type in the Z/ZM ranges.
+
+    Reads the 5-byte WKB header instead of a full shapely parse so a
+    whole-column scan stays cheap.
+    """
+    if not wkb or len(wkb) < 5:
+        return False
+    order = "little" if wkb[0] == 1 else "big"
+    gtype = int.from_bytes(wkb[1:5], order)
+    if gtype & 0xE0000000:  # EWKB flag bits (Z / M / SRID) present
+        return bool(gtype & 0x80000000)
+    return (gtype // 1000) % 4 in (1, 3)  # ISO: 1000+base = Z, 3000+base = ZM
+
+
+def _geometry_has_z(pf: "pq.ParquetFile", geom_col: str, col_meta: dict) -> bool:
+    """True when the geometry column carries Z values (blocking).
+
+    GeoParquet metadata declares 3D variants with a " Z" suffix in
+    ``geometry_types``; files with an empty list (e.g. our own exporter)
+    are scanned row-by-row, short-circuiting on the first Z, so a
+    late-file Z row can't slip past a 2D typmod (codex P2 round 3 on
+    #646). Costs one extra pass over the geometry column for undeclared
+    all-2D files.
+    """
+    declared = [g for g in (col_meta.get("geometry_types") or []) if g]
+    if declared:
+        return any(g.endswith(" Z") for g in declared)
+    for batch in pf.iter_batches(batch_size=4096, columns=[geom_col]):
+        for wkb in batch.column(0).to_pylist():
+            if wkb is not None and _wkb_has_z(wkb):
+                return True
+    return False
+
+
 def _json_safe(v: Any) -> Any:
     # fix(#543 review): NaN/Infinity would 500 the preview response —
     # Starlette serializes JSON with allow_nan=False. Render them as null.
@@ -327,10 +362,17 @@ async def load_parquet_to_postgis(
     def _q(ident: str) -> str:
         return '"' + ident.replace('"', '""') + '"'
 
+    has_z = False
+    if geom_col is not None:
+        has_z = await asyncio.to_thread(_geometry_has_z, pf, geom_col, col_meta)
+
     ddl_cols = ["gid serial PRIMARY KEY"]
     ddl_cols += [f"{_q(pg_name)} {pg_type}" for _, pg_name, pg_type, _ in plan]
     if geom_col is not None:
-        ddl_cols.append(f"_geolens_geom geometry(Geometry, {int(srid)})")
+        # fix(#641): a 2D typmod rejects Z WKB with "Geometry has Z dimension
+        # but column does not" — declare GeometryZ when the source carries Z.
+        gtype = "GeometryZ" if has_z else "Geometry"
+        ddl_cols.append(f"_geolens_geom geometry({gtype}, {int(srid)})")
 
     insert_cols = [_q(pg_name) for _, pg_name, _, _ in plan]
     insert_vals = [f":p{i}" for i in range(len(plan))]
@@ -338,7 +380,10 @@ async def load_parquet_to_postgis(
         insert_cols.append("_geolens_geom")
         # explicit cast: ST_GeomFromWKB has bytea AND text overloads, and an
         # untyped bind (e.g. an all-NULL batch) would be ambiguous.
-        insert_vals.append(f"ST_GeomFromWKB(CAST(:geom AS bytea), {int(srid)})")
+        wkb_expr = f"ST_GeomFromWKB(CAST(:geom AS bytea), {int(srid)})"
+        # fix(#641): ST_Force3D lifts any 2D rows in a Z file (z=0) so the
+        # GeometryZ column accepts mixed-dimension sources.
+        insert_vals.append(f"ST_Force3D({wkb_expr})" if has_z else wkb_expr)
 
     tref = _qtable(table_name, schema=schema)
     ddl = f"CREATE TABLE {tref} ({', '.join(ddl_cols)})"
