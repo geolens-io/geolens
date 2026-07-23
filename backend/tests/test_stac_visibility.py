@@ -317,3 +317,39 @@ async def test_stac_item_non_owner_cannot_read_private(
     # Non-owner (other editor) cannot read it
     resp = await client.get(f"/stac/items/{priv.id}", headers=other_headers)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# fix(#401): supplied-but-stale credentials must 401, not fall to anon 404
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/stac/collections/rasters/items",
+        "/stac/items/{item_id}",
+        "/stac/search",
+    ],
+)
+async def test_stac_stale_bearer_returns_401_not_404(client: AsyncClient, path: str):
+    """fix(#401): supplied credentials that fail to resolve get 401 — not the
+    anonymous 404 — so a stale-token caller's private raster triggers the
+    client's refresh-on-401 retry instead of permanently 404ing."""
+    resp = await client.get(
+        path.format(item_id=uuid.uuid4()),
+        headers={"Authorization": "Bearer not-a-valid-token"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_stac_search_post_stale_bearer_returns_401(client: AsyncClient):
+    """fix(#401): POST /stac/search with a stale bearer 401s too."""
+    resp = await client.post(
+        "/stac/search",
+        json={"limit": 1},
+        headers={"Authorization": "Bearer not-a-valid-token"},
+    )
+    assert resp.status_code == 401

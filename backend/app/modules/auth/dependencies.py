@@ -202,6 +202,27 @@ def request_carries_credentials(request: Request) -> bool:
     )
 
 
+async def get_optional_user_or_401(
+    request: Request,
+    user: Annotated[Identity | None, Depends(get_optional_user)],
+) -> Identity | None:
+    """``get_optional_user``, but supplied-yet-unresolvable credentials get 401.
+
+    fix(#401): the OGC/STAC read handlers resolved a stale/revoked token to the
+    anonymous path, so a credentialed caller's private dataset 404'd instead of
+    401ing and the client's refresh-on-401 retry never fired. Use this on
+    anonymous-capable read endpoints; truly credentialless requests still
+    resolve to ``None`` and keep the public path.
+    """
+    if user is None and request_carries_credentials(request):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
 async def get_current_user(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme_optional)],
