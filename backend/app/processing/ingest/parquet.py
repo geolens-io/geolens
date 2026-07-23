@@ -179,24 +179,38 @@ def _launder(name: str) -> str:
     return (n or "col")[:63]
 
 
+def _wkb_has_z(wkb: bytes) -> bool:
+    """Header-only Z sniff: EWKB Z flag or ISO type in the Z/ZM ranges.
+
+    Reads the 5-byte WKB header instead of a full shapely parse so a
+    whole-column scan stays cheap.
+    """
+    if not wkb or len(wkb) < 5:
+        return False
+    order = "little" if wkb[0] == 1 else "big"
+    gtype = int.from_bytes(wkb[1:5], order)
+    if gtype & 0xE0000000:  # EWKB flag bits (Z / M / SRID) present
+        return bool(gtype & 0x80000000)
+    return (gtype // 1000) % 4 in (1, 3)  # ISO: 1000+base = Z, 3000+base = ZM
+
+
 def _geometry_has_z(pf: "pq.ParquetFile", geom_col: str, col_meta: dict) -> bool:
     """True when the geometry column carries Z values (blocking).
 
     GeoParquet metadata declares 3D variants with a " Z" suffix in
     ``geometry_types``; files with an empty list (e.g. our own exporter)
-    are probed via the first non-null WKB value.
-    ponytail: first-value probe — an undeclared mixed-dimension file whose
-    first geometry is 2D still fails on the first Z row, same as before.
+    are scanned row-by-row, short-circuiting on the first Z, so a
+    late-file Z row can't slip past a 2D typmod (codex P2 round 3 on
+    #646). Costs one extra pass over the geometry column for undeclared
+    all-2D files.
     """
     declared = [g for g in (col_meta.get("geometry_types") or []) if g]
     if declared:
         return any(g.endswith(" Z") for g in declared)
-    import shapely
-
-    for batch in pf.iter_batches(batch_size=256, columns=[geom_col]):
+    for batch in pf.iter_batches(batch_size=4096, columns=[geom_col]):
         for wkb in batch.column(0).to_pylist():
-            if wkb is not None:
-                return bool(shapely.from_wkb(wkb).has_z)
+            if wkb is not None and _wkb_has_z(wkb):
+                return True
     return False
 
 
