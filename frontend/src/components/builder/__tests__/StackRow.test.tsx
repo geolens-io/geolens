@@ -229,6 +229,27 @@ describe('StackRow', () => {
     expect(dupIdx).toBeLessThan(deleteIdx);
   });
 
+  // fix(#585): right-click / Shift+F10 open the same kebab menu.
+  it('right-clicking the row opens the kebab menu without selecting the row', () => {
+    const onSelectLayer = vi.fn();
+    const layer = makeLayer({ id: 'ctx-layer' });
+    render(<StackRow {...defaultProps({ layer, onSelectLayer })} />);
+
+    fireEvent.contextMenu(document.getElementById('stack-row-ctx-layer')!);
+
+    expect(onSelectLayer).not.toHaveBeenCalled();
+    expect(screen.getByRole('menuitem', { name: /Rename layer/i })).toBeInTheDocument();
+  });
+
+  it('Shift+F10 on the row opens the kebab menu', () => {
+    const layer = makeLayer({ id: 'kbd-ctx-layer' });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    fireEvent.keyDown(document.getElementById('stack-row-kbd-ctx-layer')!, { key: 'F10', shiftKey: true });
+
+    expect(screen.getByRole('menuitem', { name: /Rename layer/i })).toBeInTheDocument();
+  });
+
   it('clicking "Delete layer" in the kebab calls onRemove(layer.id)', () => {
     const onRemove = vi.fn();
     const layer = makeLayer({ id: 'delete-layer' });

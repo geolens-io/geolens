@@ -20,6 +20,7 @@ import {
   DragGripButton,
   STACK_ROW_GRID,
   rowStateClasses,
+  useKebabContextMenu,
   type DragHandleProps,
 } from '@/components/builder/row-chrome';
 import { useInlineRename } from '@/components/builder/useInlineRename';
@@ -121,6 +122,7 @@ export const StackRow = memo(function StackRow({
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [keyboardReorderActive, setKeyboardReorderActive] = useState(false);
+  const kebabMenu = useKebabContextMenu();
 
   const displayName = layer.display_name ?? layer.dataset_name;
 
@@ -206,7 +208,9 @@ export const StackRow = memo(function StackRow({
         isFresh && 'animate-in fade-in duration-[--motion-fast]',
       )}
       onClick={handleRowClick}
+      onContextMenu={kebabMenu.onContextMenu}
       onKeyDown={(e) => {
+        if (kebabMenu.handleContextMenuKey(e)) return;
         if (e.key === 'Enter') {
           e.preventDefault();
           onSelectLayer(layer.id);
@@ -365,7 +369,7 @@ export const StackRow = memo(function StackRow({
       {/* Cell 6: Kebab menu — stopPropagation prevents row click when opening menu */}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events */}
       <div onClick={(e) => e.stopPropagation()}>
-        <DropdownMenu>
+        <DropdownMenu open={kebabMenu.open} onOpenChange={kebabMenu.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
@@ -380,6 +384,7 @@ export const StackRow = memo(function StackRow({
                 'flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground',
                 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'hover:text-foreground hover:bg-[var(--surface-2)]',
+                'data-[state=open]:opacity-100',
                 selected && 'opacity-100',
               )}
               onClick={(e) => e.stopPropagation()}
@@ -496,7 +501,16 @@ export const StackRow = memo(function StackRow({
               }}
             >
               <ClipboardPaste className="h-3.5 w-3.5 me-2" aria-hidden="true" />
-              {t('stackRow.kebabPasteStyle', { defaultValue: 'Paste style' })}
+              {/* fix(#585): disabled items state their reason inline (tooltips
+                  don't fire on disabled elements). */}
+              <span className="flex flex-col items-start">
+                {t('stackRow.kebabPasteStyle', { defaultValue: 'Paste style' })}
+                {!canPasteStyle && (
+                  <span className="text-2xs text-muted-foreground">
+                    {t('stackRow.kebabPasteStyleHint', { defaultValue: 'Copy a style from a matching layer first' })}
+                  </span>
+                )}
+              </span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import { getParentGroupId } from '@/components/builder/folder-groups';
+import { canJoinFolderGroup } from '@/components/builder/folder-groups';
 import type { MapLayerResponse } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -89,16 +89,12 @@ export const BulkActionBar = memo(function BulkActionBar({
   const visibleCount = selectedLayers.filter((l) => l.visible !== false).length;
   const majorityVisible = visibleCount > N / 2;
 
-  // Group enabled: ALL selected are loose vector layers (not in a group, not a group row, not raster/DEM/basemap)
+  // Group enabled: ALL selected are loose layers (not in a group, not a group
+  // row). fix(#585): the extra vector_dataset requirement disagreed with
+  // StackRow's "Add to group…" and with drag-and-drop membership, both of
+  // which accept raster/DEM rows — canJoinFolderGroup is the shared predicate.
   const canGroup = useMemo(
-    () =>
-      N > 0 &&
-      selectedLayers.every(
-        (l) =>
-          !getParentGroupId(l) &&
-          !isFolderGroupLayer(l) &&
-          l.dataset_record_type === 'vector_dataset',
-      ),
+    () => N > 0 && selectedLayers.every(canJoinFolderGroup),
     [selectedLayers, N],
   );
 
@@ -339,7 +335,16 @@ export const BulkActionBar = memo(function BulkActionBar({
                   }}
                 >
                   <Paintbrush className="h-3.5 w-3.5 me-2" aria-hidden="true" />
-                  {t('bulkActions.applyStyle')}
+                  {/* fix(#585): disabled items state their reason inline
+                      (tooltips don't fire on disabled elements). */}
+                  <span className="flex flex-col items-start">
+                    {t('bulkActions.applyStyle')}
+                    {N < 2 && (
+                      <span className="text-2xs text-muted-foreground">
+                        {t('bulkActions.applyStyleHint', { defaultValue: 'Select at least 2 layers' })}
+                      </span>
+                    )}
+                  </span>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
@@ -351,7 +356,14 @@ export const BulkActionBar = memo(function BulkActionBar({
                 }}
               >
                 <FolderPlus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
-                {t('bulkActions.group')}
+                <span className="flex flex-col items-start">
+                  {t('bulkActions.group')}
+                  {!canGroup && (
+                    <span className="text-2xs text-muted-foreground">
+                      {t('bulkActions.groupHint', { defaultValue: 'Only ungrouped layers can be grouped' })}
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="bulk-action-ungroup"
@@ -362,7 +374,14 @@ export const BulkActionBar = memo(function BulkActionBar({
                 }}
               >
                 <FolderMinus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
-                {t('bulkActions.ungroup')}
+                <span className="flex flex-col items-start">
+                  {t('bulkActions.ungroup')}
+                  {!canUngroup && (
+                    <span className="text-2xs text-muted-foreground">
+                      {t('bulkActions.ungroupHint', { defaultValue: 'Select only group rows to ungroup' })}
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

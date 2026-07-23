@@ -885,7 +885,6 @@
     "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)",
     "bulkGroupNeedTwo": "Sélectionnez au moins 2 couches libres pour les regrouper",
     "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau",
-    "bulkGroupSkippedType": "Les couches non vectorielles ne peuvent pas être regroupées ; retirez-les de votre sélection et réessayez",
     "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez"
   },
   "builderMap": {
@@ -1079,9 +1078,11 @@
     "opacityAriaLabel": "Définir l'opacité de {{count}} couches sélectionnées",
     "group": "Grouper",
     "groupAriaLabel": "Grouper {{count}} couches sélectionnées",
+    "groupHint": "Seules les couches non groupées peuvent être groupées",
     "groupDisabledTooltip": "Sélectionnez uniquement des couches libres pour grouper",
     "ungroup": "Dégrouper",
     "ungroupAriaLabel": "Dégrouper {{count}} groupes sélectionnés",
+    "ungroupHint": "Sélectionnez uniquement des lignes de groupe pour dégrouper",
     "ungroupDisabledTooltip": "Sélectionnez uniquement des groupes pour dégrouper",
     "delete": "Supprimer",
     "deleteAriaLabel": "Supprimer {{count}} couches sélectionnées",
@@ -1100,7 +1101,8 @@
     "moreActions": "Plus d'actions",
     "moreActionsAriaLabel": "Plus d'actions pour {{count}} couches sélectionnées",
     "applyStyle": "Appliquer le style à la sélection",
-    "applyStyleAriaLabel": "Appliquer le style à {{count}} couches sélectionnées"
+    "applyStyleAriaLabel": "Appliquer le style à {{count}} couches sélectionnées",
+    "applyStyleHint": "Sélectionnez au moins 2 couches"
   },
   "unifiedStack": {
     "title": "Couches",
@@ -1164,6 +1166,7 @@
     "kebabZoomToLayer": "Zoomer sur la couche",
     "kebabCopyStyle": "Copier le style",
     "kebabPasteStyle": "Coller le style",
+    "kebabPasteStyleHint": "Copiez d'abord un style depuis une couche compatible",
     "disambiguation": "{{label}}",
     "audienceHidden": "Masqué pour les visiteurs de cette carte",
     "drawsNothing": "Non affiché — activez l'ombrage ou le terrain 3D"

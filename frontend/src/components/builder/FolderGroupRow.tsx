@@ -16,6 +16,7 @@ import {
   DragGripButton,
   STACK_ROW_GRID,
   rowStateClasses,
+  useKebabContextMenu,
   type DragHandleProps,
 } from '@/components/builder/row-chrome';
 import { useInlineRename } from '@/components/builder/useInlineRename';
@@ -66,6 +67,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
 }: FolderGroupRowProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const kebabMenu = useKebabContextMenu();
 
   // builder-audit #338 STACK-03: shared inline-rename state machine (was duplicated
   // verbatim with StackRow, including the BUG-03 focus-race gating). Empty input
@@ -115,7 +117,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       tabIndex={0}
       className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       onClick={handleRowClick}
+      onContextMenu={kebabMenu.onContextMenu}
       onKeyDown={(e) => {
+        if (kebabMenu.handleContextMenuKey(e)) return;
         if (e.key === 'Enter') {
           e.preventDefault();
           onSelectGroup(groupId);
@@ -241,7 +245,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         {/* Cell 6: Kebab menu */}
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events */}
         <div onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu>
+          <DropdownMenu open={kebabMenu.open} onOpenChange={kebabMenu.onOpenChange}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -256,6 +260,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
                   'flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground',
                   'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   'hover:text-foreground hover:bg-[var(--surface-2)]',
+                  'data-[state=open]:opacity-100',
                   selected && 'opacity-100',
                 )}
                 onClick={(e) => e.stopPropagation()}
