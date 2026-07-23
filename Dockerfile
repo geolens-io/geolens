@@ -202,7 +202,7 @@ CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 # app image (frontend), never this postgres-based backup tool. Every image is
 # built with an explicit `target:` (publish.yml + docker-compose*.yml), so stage
 # order only governs that unqualified-build default — keep `backup` non-final.
-FROM postgres:17@sha256:5f050f770b427fbd477edee6c3968a72e5c6be97e050a7e368b2b74a9494a285 AS backup
+FROM postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d AS backup
 
 LABEL org.opencontainers.image.title="geolens-backup"
 LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
@@ -277,7 +277,7 @@ RUN set -e; \
 
 RUN GEOLENS_FRONTEND_EDITION=${GEOLENS_FRONTEND_EDITION} npm run build:app
 
-FROM nginxinc/nginx-unprivileged:1.31.2-alpine AS frontend
+FROM nginxinc/nginx-unprivileged:1.31.3-alpine AS frontend
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"

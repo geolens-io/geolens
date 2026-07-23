@@ -29,13 +29,13 @@ dependencies = [
     "shapely>=2.0",
     "pygeofilter[backend-sqlalchemy]>=0.4.0",
     "structlog>=25.4.0",
-    "anthropic>=0.116.0",
-    "openai>=2.45.0,<3",
+    "anthropic>=0.117.0",
+    "openai>=2.46.0,<3",
     "pgvector>=0.5.0",
     "defusedxml>=0.7.1",
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
-    "boto3>=1.43.46",
+    "boto3>=1.43.51",
     # Azure Blob Storage provider (STOR-01 / Phase 1210). azure-identity is included
     # for managed-identity / account-URL auth paths (account_url + credential constructor).
     "azure-storage-blob>=12.24.0",
