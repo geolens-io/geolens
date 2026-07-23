@@ -191,10 +191,11 @@ export function useBulkLayerActions({
   const handleBulkGroup = useCallback((selectedIds: Set<string>): boolean => {
     const current = layersRef.current;
     const selectedLayers = current.filter((l) => selectedIds.has(l.id));
-    // Defense-in-depth: all selected must be loose vector layers (not already
-    // grouped, not group rows themselves, not raster/DEM/basemap).
+    // Defense-in-depth: all selected must be loose layers (not already
+    // grouped, not group rows themselves). fix(#585): the extra
+    // vector_dataset requirement disagreed with StackRow's "Add to group…"
+    // and drag-and-drop membership, both of which accept raster/DEM rows.
     const groupableLayers = selectedLayers.filter((l) =>
-      l.dataset_record_type === 'vector_dataset' &&
       !(l as GroupedLayer).parent_group_id &&
       (l as GroupedLayer).layer_type !== 'group:folder',
     );
@@ -202,22 +203,14 @@ export function useBulkLayerActions({
     // fix(#392): surface WHY the group action no-op'd instead
     // of returning silently while the caller clears the selection anyway. (audit B-004d/LM-04)
     if (groupableLayers.length !== selectedLayers.length) {
-      // fix(#392): the toast previously always said "already grouped,"
-      // which is wrong when the real disqualifier is a raster/DEM layer or a
-      // group row in the selection. Pick the message that matches the actual
-      // reason. Priority: a group row in the selection is the most distinct
-      // mistake, then an ineligible (non-vector) layer type, and only then
-      // fall back to the "already grouped" message. (audit WR-01)
+      // fix(#392): pick the message that matches the actual reason — a group
+      // row in the selection is the most distinct mistake, otherwise
+      // "already grouped". (audit WR-01)
       const hasGroupRow = selectedLayers.some(
         (l) => (l as GroupedLayer).layer_type === 'group:folder',
       );
-      const hasIneligibleType = selectedLayers.some(
-        (l) => l.dataset_record_type !== 'vector_dataset',
-      );
       if (hasGroupRow) {
         toast.info(t('toasts.bulkGroupSkippedGroupRow'));
-      } else if (hasIneligibleType) {
-        toast.info(t('toasts.bulkGroupSkippedType'));
       } else {
         toast.info(t('toasts.bulkGroupSkipped'));
       }

@@ -13,6 +13,7 @@ import {
   DragGripButton,
   STACK_ROW_GRID,
   rowStateClasses,
+  useKebabContextMenu,
   type DragHandleProps,
 } from '@/components/builder/row-chrome';
 
@@ -51,6 +52,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   isMultiSelectionActive = false,
 }: BasemapGroupRowProps) {
   const { t } = useTranslation('builder');
+  const kebabMenu = useKebabContextMenu();
 
   // Phase 1051 IN-01: single source for the display name string. Used by
   // aria-label (visibility toggle), aria-label (kebab trigger), and the visible
@@ -84,10 +86,17 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         isMultiSelectionActive && 'cursor-not-allowed',
       )}
       onClick={handleRowClick}
+      onContextMenu={(e) => {
+        // Phase 1051 CR-02: the basemap row is non-interactive during
+        // multi-selection — the context menu honors the same boundary.
+        if (isMultiSelectionActive) return;
+        kebabMenu.onContextMenu(e);
+      }}
       onKeyDown={(e) => {
         // Phase 1051 CR-02: mirror handleRowClick — keyboard activation must
         // honor the multi-selection boundary, matching the visual signal.
         if (isMultiSelectionActive) return;
+        if (kebabMenu.handleContextMenuKey(e)) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelectGroup(groupId);
@@ -184,7 +193,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       {/* Cell 6: Kebab menu — basemap variant with only 2 items */}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events */}
       <div onClick={(e) => e.stopPropagation()}>
-        <DropdownMenu>
+        <DropdownMenu open={kebabMenu.open} onOpenChange={kebabMenu.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
@@ -199,6 +208,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
                 'flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground',
                 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'hover:text-foreground hover:bg-[var(--surface-2)]',
+                'data-[state=open]:opacity-100',
                 selected && 'opacity-100',
               )}
               onClick={(e) => e.stopPropagation()}

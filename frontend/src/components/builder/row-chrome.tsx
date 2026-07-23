@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { FocusEvent, KeyboardEvent, MouseEvent } from 'react';
 import { GripVertical } from 'lucide-react';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
@@ -8,6 +9,31 @@ import { cn } from '@/lib/utils';
 // column-width change happens in a single place. SublayerRow keeps its own
 // 7-column variant (it carries an extra indicator/opacity cell).
 export const STACK_ROW_GRID = 'grid-cols-[16px_14px_22px_22px_1fr_22px]';
+
+// fix(#585): right-click (and Shift+F10 / ContextMenu key) on a stack row opens
+// its existing kebab menu, so row actions are reachable without discovering the
+// hover-revealed kebab. Shared by StackRow, FolderGroupRow, and BasemapGroupRow:
+// spread the returned `open`/`onOpenChange` onto the row's <DropdownMenu>, wire
+// `onContextMenu` on the row container, and call `handleContextMenuKey` from the
+// row's onKeyDown (returns true when it consumed the event).
+export function useKebabContextMenu() {
+  const [open, setOpen] = useState(false);
+  function onContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(true);
+  }
+  function handleContextMenuKey(e: KeyboardEvent): boolean {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(true);
+      return true;
+    }
+    return false;
+  }
+  return { open, onOpenChange: setOpen, onContextMenu, handleContextMenuKey };
+}
 
 export interface DragHandleProps {
   attributes: DraggableAttributes;

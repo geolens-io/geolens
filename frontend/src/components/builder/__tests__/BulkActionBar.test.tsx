@@ -196,13 +196,15 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
     );
 
     // canGroup=false because layerInGroup has parent_group_id. The disabled
-    // Group menuitem renders with aria-disabled="true".
+    // Group menuitem renders with aria-disabled="true" plus an inline reason
+    // hint (fix(#585)).
     fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
     const groupItem = screen.getByTestId('bulk-action-group');
     expect(groupItem.getAttribute('aria-disabled')).toBe('true');
+    expect(groupItem.textContent).toContain('Only ungrouped layers can be grouped');
   });
 
-  it('Test 6: Group menuitem is disabled when raster layer is in selection', () => {
+  it('Test 6: Group menuitem is enabled when a loose raster layer is in selection (fix(#585))', () => {
     render(
       <BulkActionBar
         {...makeProps({
@@ -212,10 +214,12 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
       />
     );
 
-    // canGroup=false: r1 is raster_dataset
+    // fix(#585): canGroup no longer requires vector_dataset — StackRow's
+    // "Add to group…" and drag-and-drop membership both accept raster rows,
+    // so the bulk predicate matches (canJoinFolderGroup).
     fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
     const groupItem = screen.getByTestId('bulk-action-group');
-    expect(groupItem.getAttribute('aria-disabled')).toBe('true');
+    expect(groupItem.getAttribute('aria-disabled')).toBeNull();
   });
 
   it('Test 7: Ungroup menuitem is disabled when mix of group + loose is selected', () => {

@@ -885,7 +885,6 @@
     "bulkStyleSkipped": "{{count}} capas omitidas (geometría incompatible)",
     "bulkGroupNeedTwo": "Selecciona al menos 2 capas sueltas para agrupar",
     "bulkGroupSkipped": "Algunas capas seleccionadas ya están agrupadas y no se pueden agrupar de nuevo",
-    "bulkGroupSkippedType": "Las capas no vectoriales no se pueden agrupar; quítalas de tu selección e inténtalo de nuevo",
     "bulkGroupSkippedGroupRow": "Los grupos no se pueden agrupar; quita las filas de grupo de tu selección e inténtalo de nuevo"
   },
   "builderMap": {
@@ -1079,9 +1078,11 @@
     "opacityAriaLabel": "Establecer opacidad para {{count}} capas seleccionadas",
     "group": "Agrupar",
     "groupAriaLabel": "Agrupar {{count}} capas seleccionadas",
+    "groupHint": "Solo se pueden agrupar capas sin agrupar",
     "groupDisabledTooltip": "Seleccione solo capas sueltas para agrupar",
     "ungroup": "Desagrupar",
     "ungroupAriaLabel": "Desagrupar {{count}} grupos seleccionados",
+    "ungroupHint": "Selecciona solo filas de grupo para desagrupar",
     "ungroupDisabledTooltip": "Seleccione solo grupos para desagrupar",
     "delete": "Eliminar",
     "deleteAriaLabel": "Eliminar {{count}} capas seleccionadas",
@@ -1100,7 +1101,8 @@
     "moreActions": "Más acciones",
     "moreActionsAriaLabel": "Más acciones para {{count}} capas seleccionadas",
     "applyStyle": "Aplicar estilo a la selección",
-    "applyStyleAriaLabel": "Aplicar estilo a {{count}} capas seleccionadas"
+    "applyStyleAriaLabel": "Aplicar estilo a {{count}} capas seleccionadas",
+    "applyStyleHint": "Selecciona al menos 2 capas"
   },
   "unifiedStack": {
     "title": "Capas",
@@ -1164,6 +1166,7 @@
     "kebabZoomToLayer": "Acercar a la capa",
     "kebabCopyStyle": "Copiar estilo",
     "kebabPasteStyle": "Pegar estilo",
+    "kebabPasteStyleHint": "Copia primero un estilo de una capa compatible",
     "disambiguation": "{{label}}",
     "audienceHidden": "Oculto para los visitantes de este mapa",
     "drawsNothing": "No se muestra — activa el sombreado o el terreno 3D"

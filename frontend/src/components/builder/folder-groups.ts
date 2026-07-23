@@ -66,6 +66,14 @@ export function getParentGroupId(layer: MapLayerResponse): string | null {
   return (layer as GroupedLayer).parent_group_id ?? null;
 }
 
+// fix(#585): the single grouping predicate. StackRow's "Add to group…" menu and
+// BulkActionBar's Group action previously disagreed (the bar also required
+// vector_dataset), but drag-and-drop membership (resolveDropGroupMembership)
+// has never checked record type — any non-group row can live in a group.
+export function canJoinFolderGroup(layer: MapLayerResponse): boolean {
+  return !isFolderGroupLayer(layer) && !getParentGroupId(layer);
+}
+
 // fix(#525 B-040): membership rule for intra-stack drops. childrenByGroup
 // renders by parent_group_id, not array position, so a drag that changes
 // position without updating membership silently snaps back on render.

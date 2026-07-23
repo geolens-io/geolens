@@ -530,26 +530,26 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  // fix(#392): mixed selection with a raster layer must toast the
-  // TYPE-specific reason, not the generic (and factually wrong, for this
-  // case) "already grouped" message. (audit WR-01)
-  it('Test 11: mixed selection including a raster layer returns false, toasts bulkGroupSkippedType, does not mutate localLayers', async () => {
-    const infoSpy = vi.spyOn(toast, 'info');
+  // fix(#585): mixed vector + raster selection groups successfully — the
+  // vector-only restriction disagreed with StackRow's "Add to group…" and
+  // drag-and-drop membership, which have always accepted raster/DEM rows.
+  it('Test 11: mixed selection including a raster layer creates a group containing both', async () => {
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
     const layerR = makeMockLayer({ id: 'r', sort_order: 1, dataset_record_type: 'raster_dataset', layer_type: 'raster_geolens' });
     const { result } = renderBuilderLayers(makeMapData([layerA, layerR]));
     await waitForInit();
-
-    const before = result.current.localLayers.length;
 
     let created: boolean | undefined;
     act(() => {
       created = result.current.handleBulkGroup(new Set(['a', 'r']));
     });
 
-    expect(created).toBe(false);
-    expect(infoSpy).toHaveBeenCalledWith("Non-vector layers can't be grouped — remove them from your selection and try again");
-    expect(result.current.localLayers.length).toBe(before);
+    expect(created).toBe(true);
+    const updated = result.current.localLayers as GroupedLayer[];
+    const groupRow = updated.find((l) => l.layer_type === 'group:folder');
+    expect(groupRow).toBeDefined();
+    expect(updated.find((l) => l.id === 'a')?.parent_group_id).toBe(groupRow!.id);
+    expect(updated.find((l) => l.id === 'r')?.parent_group_id).toBe(groupRow!.id);
   });
 
   // fix(#392): a group row in the selection must toast the
