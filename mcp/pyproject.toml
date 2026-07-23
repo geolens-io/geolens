@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geolens-mcp"
-version = "1.4.11"
+version = "1.4.12"
 description = "Apache-2.0 read-only Model Context Protocol (MCP) server for GeoLens. Lets coding agents discover datasets, inspect schemas, and ask spatial questions against any GeoLens instance."
 readme = "README.md"
 license = { text = "Apache-2.0" }

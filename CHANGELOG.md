@@ -7,6 +7,103 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.12] - 2026-07-23
+
+Launch-week hardening: cross-origin map embedding works again on every
+production deployment, multi-tab sessions stop signing themselves out, and
+the API gains memory observability plus a worker-recycling backstop.
+
+### Added
+
+- **Right-click context menus in the map builder.** Layers, groups, and
+  basemaps in the layer stack expose their actions in a context menu with a
+  unified grouping model; actions that don't apply are shown disabled with
+  the reason instead of silently hidden.
+- **"Test Connection" for AI providers.** Admin → Settings → AI can probe
+  the configured inference and embeddings endpoints live on demand, with
+  per-purpose results — a bad key or endpoint is visible to the operator
+  before a user hits it.
+- **API worker memory is observable and self-limiting.** Each API worker
+  exports an RSS gauge (`geolens_worker_rss_bytes`), logs an hourly memory
+  heartbeat, and warns at 60% of the container memory limit. Workers also
+  recycle gracefully after `UVICORN_MAX_REQUESTS` requests (production
+  compose default 10000; empty disables), so slow memory growth can no
+  longer ride a single worker into the container OOM killer.
+- **The audit log names things.** The admin audit-log viewer resolves
+  resource IDs to current names instead of showing raw UUIDs.
+- **Vite dev server behind a tunnel.** `FRONTEND_ALLOWED_HOSTS` allowlists
+  tunnelled hostnames for the dev server. (thanks @giswqs for their first
+  contribution, #619)
+
+### Changed
+
+- **The reference Prometheus alerts split interactive vs tile latency.**
+  The bundled alert rules alert separately on interactive-request p95 and
+  sustained tile latency, instead of one blended rule that reliably caught
+  neither.
+- **Updated dependencies.** anthropic 0.119, openai 2.48, boto3 1.43.55,
+  tailwindcss 4.3.3, and refreshed nginx and postgres base images.
+
+### Fixed
+
+- **Cross-origin map embedding works again.** The `/m/` embed shell was
+  served through the SPA fallback, which re-entered the root location and
+  replaced each embed token's `frame-ancestors` policy with `SAMEORIGIN` —
+  blocking token-scoped iframe embeds on every production deployment. The
+  shell is now served in place, so the per-token frame policy reaches the
+  browser.
+- **Multi-tab sessions no longer sign themselves out.** Concurrent
+  refresh-token rotation from two tabs invalidated one tab's session; a
+  short rotation grace window (`REFRESH_ROTATION_GRACE_SECONDS`, default
+  30) ends the strand. An expired session now also presents one global
+  signed-out surface and re-mints tile auth once, instead of each map
+  component failing separately.
+- **SSO users are recorded as verified.** OAuth just-in-time provisioning
+  dropped the identity provider's `email_verified` assertion, so every SSO
+  user showed as unverified. New sign-ins persist the assertion, returning
+  verified logins heal existing rows, and a migration backfills
+  GitHub-linked accounts, whose provisioning path guarantees a verified
+  email.
+- **Ingest handles Socrata exports and 3D GeoParquet.** Colon-prefixed
+  columns (`:id`, `:created_at`) in Socrata exports no longer collide with
+  SQL bind parameters, and GeoParquet files with Z geometries load instead
+  of failing against a 2D staging table. Dimension and Z metadata now also
+  appear on the dataset detail page.
+- **The map AI recovers from schema-invalid responses.** A model response
+  that parses as JSON but fails schema validation now gets a repair round
+  (with those tokens counted against the daily AI budget) instead of
+  surfacing a raw validation error to the user.
+- **Anonymous dataset pages stop spamming 401s.** The dataset detail page
+  requested owner-only VRT status for every viewer, guaranteeing 401 noise
+  on public raster datasets; the request is now gated to signed-in users.
+  Stale cached app shells also self-heal with a one-shot reload when a
+  hashed asset 404s after a deploy.
+- **Job rows whose worker died mid-run are failed, not stuck.** A worker
+  killed mid-job previously left its queue row running forever; those rows
+  are now failed so the job can be retried.
+- **Short search queries answer instantly.** Typeahead-length queries skip
+  the semantic-embedding call entirely — no embedding-provider round-trip
+  per keystroke.
+- **OGC and STAC clients get a proper 401 on stale credentials.** Expired
+  or revoked credentials on standards read paths now surface as 401 so
+  clients re-authenticate, instead of being masked by a generic error.
+- **Monitoring gauges zero out when a job queue drains.** Queue-depth
+  gauges no longer hold their last value after the queue empties, ending a
+  class of stale alerts.
+- **The two dead API-docs links point somewhere real.** The frontend
+  footer's API link targets the hosted API guide, and the OGC landing page
+  omits its interactive-docs link in production, where those docs are
+  disabled.
+
+### Upgrade notes
+
+- Database migration 0028 runs automatically on upgrade and backfills
+  `email_verified` for GitHub-linked OAuth accounts.
+- API workers now recycle after 10,000 requests by default in the
+  production compose (`UVICORN_MAX_REQUESTS`). Recycling is graceful —
+  in-flight requests complete — and setting the variable empty disables
+  it. No operator action is required.
+
 ## [1.4.11] - 2026-07-19
 
 ### Fixed
