@@ -571,3 +571,82 @@ class TestDbfTruncationCollision:
         collisions = detect_dbf_truncation_collisions(columns)
         # collisions may be 0 if GDAL already disambiguated; that is acceptable.
         assert isinstance(collisions, list)
+
+
+# ---------------------------------------------------------------------------
+# fix(#640)  Socrata-style ':'-prefixed columns survive ingest + sampling
+# ---------------------------------------------------------------------------
+
+
+class TestSocrataColonColumns:
+    """fix(#640): Socrata exports carry columns literally named ':id',
+    ':created_at', ... — OGR's PG laundering keeps the colon, and a colon
+    inside a quoted identifier is parsed as a bind param by SQLAlchemy
+    text(), which broke sampling (and failed the whole ingest)."""
+
+    async def test_sampling_survives_colon_columns_in_place(self, test_db_session):
+        """Pre-existing tables keep their colon columns; get_sample_values
+        must not raise (the _sql_quote_ident backslash-escape leg)."""
+        from app.processing.ingest.metadata import get_column_info, get_sample_values
+
+        table = _table_id("tst_socrata_raw")
+        try:
+            result = await _load_fixture(
+                test_db_session, "socrata_columns.geojson", table
+            )
+            colon_cols = [n for n in result["raw_column_names"] if ":" in n]
+            assert colon_cols, (
+                "Fixture columns lost their colon during load — laundering "
+                f"changed? Landed: {result['raw_column_names']}"
+            )
+
+            cols = await get_column_info(test_db_session, table)
+            # Previously: InvalidRequestError "A value is required for bind
+            # parameter 'id'".
+            samples = await get_sample_values(test_db_session, table, cols)
+            for name in colon_cols:
+                assert name in samples, (
+                    f"Colon column {name!r} missing from sample_values; "
+                    f"present: {list(samples.keys())}"
+                )
+        finally:
+            await _drop_table(test_db_session, table)
+
+    async def test_colon_columns_renamed_by_reserved_rename_pass(self, test_db_session):
+        """rename_reserved_columns launders colon columns to safe names so
+        fresh ingests never carry them downstream."""
+        from app.processing.ingest.metadata import (
+            get_column_info,
+            get_sample_values,
+            rename_reserved_columns,
+        )
+
+        table = _table_id("tst_socrata_ren")
+        try:
+            await _load_fixture(test_db_session, "socrata_columns.geojson", table)
+            renames = await rename_reserved_columns(test_db_session, table)
+
+            renamed_originals = {r["original"] for r in renames}
+            assert any(":" in n for n in renamed_originals), (
+                f"Expected colon columns in rename records, got: {renames}"
+            )
+
+            raw = await test_db_session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema='data' AND table_name=:t"
+                ).bindparams(t=table)
+            )
+            landed = [r[0] for r in raw.all()]
+            assert all(":" not in n for n in landed), (
+                f"Colon survived the rename pass: {landed}"
+            )
+            assert "_id" in landed  # ':id' laundered
+
+            # Untouched source column is still present and sampled.
+            cols = await get_column_info(test_db_session, table)
+            samples = await get_sample_values(test_db_session, table, cols)
+            assert "street" in samples
+            assert "_id" in samples
+        finally:
+            await _drop_table(test_db_session, table)
