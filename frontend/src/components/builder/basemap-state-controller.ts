@@ -319,7 +319,12 @@ export function resetBasemapSublayer(
 }
 
 export function resetBasemapAppearance(): BuilderBasemapPatch {
-  return { basemapConfig: null };
+  // fix(#654, codex round 2): also restore label visibility. Labels are the
+  // one sublayer whose visibility persists outside basemap_config
+  // (showBasemapLabels), so clearing the config alone reset roads/buildings/
+  // boundaries but left labels hidden — inconsistent with the sibling eye
+  // toggles and with resetBasemapSublayer('basemap:labels').
+  return { basemapConfig: null, showBasemapLabels: true };
 }
 
 // fix(#585): true when resetting appearance (basemap_config → null) would
@@ -352,8 +357,12 @@ export function hasCustomBasemapAppearance(
         ),
       ),
     );
+  // fix(#654, codex round 2): the baseline is the TRUE default (labels on),
+  // not the current labels flag — reset restores label visibility, so a
+  // labels-only-hidden map must read as custom or Reset disables itself on
+  // exactly the state it exists to undo.
   return canonical(normalizedConfig(basemapConfig, labels))
-    !== canonical(normalizedConfig(null, labels));
+    !== canonical(normalizedConfig(null, true));
 }
 
 export function setTerrainExaggeration(
