@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Info, Loader2, XCircle, AlertTriangle, Zap } from 'lucide-react';
 import { SettingsFormActions } from './SettingsFormActions';
@@ -58,6 +58,12 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   const [isDetecting, setIsDetecting] = useState(false);
   const [isProbing, setIsProbing] = useState(false);
   const [probe, setProbe] = useState<AIProbeReport | null>(null);
+
+  // fix(#652): probe results describe the PERSISTED config — drop them when
+  // the saved settings change underneath us (e.g. after a Save reload).
+  useEffect(() => {
+    setProbe(null);
+  }, [settings]);
 
   // Alias for readability in JSX
   const aiEnabled = values.ai_enabled as boolean;
@@ -513,7 +519,9 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             <p className="text-sm text-muted-foreground max-w-md">
               {hasDirty ? t('ai.testConnectionDirty') : t('ai.testConnectionDescription')}
             </p>
-            {probe && (
+            {/* fix(#652): hide (not clear) while dirty — a Discard restores
+                exactly the config these rows were probed against. */}
+            {probe && !hasDirty && (
               <div className="space-y-1.5 pt-1">
                 {probeRow(t('ai.inference'), probe.chat)}
                 {probeRow(t('ai.embeddings'), probe.embeddings)}
