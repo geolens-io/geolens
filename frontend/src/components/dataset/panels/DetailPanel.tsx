@@ -10,6 +10,7 @@ import { DataTab } from '../tabs/DataTab';
 import { StructureTab } from '../tabs/StructureTab';
 import { SourcesTab } from '../tabs/SourcesTab';
 import { AccessTab } from '../tabs/AccessTab';
+import { useAuthStore } from '@/stores/auth-store';
 
 export interface DetailPanelProps {
   dataset: DatasetResponse;
@@ -51,9 +52,13 @@ export function DetailPanel(props: DetailPanelProps) {
 
   const showData = isVector;
   const showStructure = isVector;
-  // fix(#644): every query inside SourcesTab hits owner/admin-scoped VRT
-  // endpoints, so for non-owners the tab could only ever render 401 noise.
-  const showSources = isVrt && canEdit;
+  // fix(#644): SourcesTab's queries need an authenticated user (the VRT GET
+  // routes visibility-check but reject anonymous), so showing the tab to
+  // anonymous viewers could only ever render 401 noise. Signed-in non-owners
+  // keep the read-only view (codex P2 on #649); mutation controls inside the
+  // tab stay gated by canEdit.
+  const isAuthenticated = useAuthStore((s) => !!s.token);
+  const showSources = isVrt && isAuthenticated;
 
   const draftValues = useMemo(() => ({
     lineage_summary: resolveDraftValue('lineage_summary'),
