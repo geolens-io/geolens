@@ -146,7 +146,7 @@ sdks:
 	# Post-hook ruff is pinned to the backend's version (keep in sync with
 	# backend uv.lock): left unpinned, the ruff 0.16.0 release (2026-07)
 	# rewrote generated output and broke `make sdks-check` on every PR.
-	uvx --with "ruff==0.15.21" openapi-python-client@0.28.3 generate \
+	uvx --with "ruff==0.15.22" openapi-python-client@0.28.3 generate \
 	  --path /tmp/openapi-flat.json \
 	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \
