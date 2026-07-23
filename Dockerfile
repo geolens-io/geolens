@@ -170,7 +170,7 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
 USER appuser
 
 ENTRYPOINT ["/app/scripts/api-entrypoint.sh"]
-CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5} --timeout-graceful-shutdown ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"]
+CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5} --timeout-graceful-shutdown ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30} ${UVICORN_MAX_REQUESTS:+--limit-max-requests ${UVICORN_MAX_REQUESTS}}"]
 
 FROM backend-base AS worker
 
