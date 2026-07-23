@@ -152,6 +152,15 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 </p>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-chat-dark.png" />
+    <img src=".github/assets/geolens-dataset-chat.png" alt="Panneau Ask AI de GeoLens sur le jeu Meteorite Landings répondant à 'How many meteorites were seen falling versus found later?' avec un résumé en prose, un tableau des décomptes Fell/Found et un bouton pour ouvrir le résultat dans le générateur de cartes" width="900" />
+  </picture>
+  <br />
+  <em><strong>Interroger ses données :</strong> questionnez un jeu en langage naturel. « How many meteorites were seen falling versus found later? » renvoie la réponse, les décomptes (1 096 contre 31 090) et un accès direct au générateur</em>
+</p>
+
+<p align="center">
   <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Générateur de cartes GeoLens représentant le Cervin en maillage de terrain 3D à partir du lidar swissALTI3D, avec sommets légendés, voies d’escalade, pile de couches réordonnable et légende" width="900" />
   <br />
   <em><strong>Construire :</strong> composez des cartes multicouches dans le navigateur avec une pile réordonnable et des éditeurs par couche (ici, le Cervin en maillage de terrain 3D issu du lidar swissALTI3D)</em>
@@ -161,6 +170,15 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
   <img src=".github/assets/geolens-ai-labels.png" alt="Panneau Ask AI de GeoLens ajoutant les noms des volcans à la carte Restless Earth depuis la demande en langage naturel 'Label the volcanoes with their names'" width="900" />
   <br />
   <em><strong>Interroger l’IA :</strong> modifiez les cartes en langage naturel. « Label the volcanoes with their names » ajoute des étiquettes lisibles à Restless Earth (facultatif : fournissez un point compatible OpenAI ou une clé Anthropic)</em>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png" />
+    <img src=".github/assets/geolens-admin-overview.png" alt="Vue d’ensemble d’administration GeoLens avec un panneau de santé « tous systèmes opérationnels » affichant les latences base de données, stockage, cache et cache de tuiles, les totaux de jeux et de stockage, et l’état du fournisseur d’IA" width="900" />
+  </picture>
+  <br />
+  <em><strong>Exploiter :</strong> le plan d’administration intégré couvre santé en direct, usage, utilisateurs, tâches, journal d’audit et état de l’IA — rien de plus à déployer</em>
 </p>
 
 ## Démarrage rapide

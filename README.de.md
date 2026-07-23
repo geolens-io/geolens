@@ -152,6 +152,15 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 </p>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-chat-dark.png" />
+    <img src=".github/assets/geolens-dataset-chat.png" alt="GeoLens-Ask-AI-Bereich zum Datensatz Meteorite Landings, der 'How many meteorites were seen falling versus found later?' mit einer Zusammenfassung, einer Fell/Found-Zähltabelle und einer Schaltfläche zum Öffnen des Ergebnisses im Karteneditor beantwortet" width="900" />
+  </picture>
+  <br />
+  <em><strong>Daten befragen:</strong> Datensätze in natürlicher Sprache befragen. „How many meteorites were seen falling versus found later?“ liefert die Antwort, die Zählungen (1.096 vs. 31.090) und den direkten Sprung in den Karteneditor</em>
+</p>
+
+<p align="center">
   <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens-Karteneditor mit dem Matterhorn als 3D-Geländemodell aus swissALTI3D-Lidar, beschrifteten Gipfeln, Kletterrouten, sortierbarem Ebenenstapel und Legende" width="900" />
   <br />
   <em><strong>Erstellen:</strong> mehrschichtige Karten im Browser mit sortierbarem Ebenenstapel und Ebeneneditoren zusammenstellen (hier: Matterhorn als 3D-Geländemodell aus swissALTI3D-Lidar)</em>
@@ -161,6 +170,15 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
   <img src=".github/assets/geolens-ai-labels.png" alt="GeoLens-Ask-AI-Bereich, der auf die natürlichsprachige Bitte 'Label the volcanoes with their names' Vulkannamen zur Restless-Earth-Karte hinzufügt" width="900" />
   <br />
   <em><strong>KI fragen:</strong> Karten in natürlicher Sprache bearbeiten. „Label the volcanoes with their names“ fügt der Restless-Earth-Karte lesbare Beschriftungen hinzu (optional mit OpenAI-kompatiblem Endpunkt oder Anthropic-Schlüssel)</em>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png" />
+    <img src=".github/assets/geolens-admin-overview.png" alt="GeoLens-Admin-Übersicht mit Statuspanel „alle Systeme betriebsbereit“, Latenzen für Datenbank, Speicher, Cache und Kachel-Cache, Datensatz- und Speichersummen sowie KI-Anbieterstatus" width="900" />
+  </picture>
+  <br />
+  <em><strong>Betreiben:</strong> die integrierte Verwaltungsebene deckt Live-Zustand, Nutzung, Benutzer, Jobs, Audit-Log und KI-Status ab — nichts Zusätzliches aufzusetzen</em>
 </p>
 
 ## Schnellstart

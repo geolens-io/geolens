@@ -153,6 +153,15 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 </p>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-chat-dark.png" />
+    <img src=".github/assets/geolens-dataset-chat.png" alt="Panel Ask AI de GeoLens sobre el conjunto Meteorite Landings respondiendo 'How many meteorites were seen falling versus found later?' con un resumen en prosa, una tabla de recuentos Fell/Found y un botón para abrir el resultado en el constructor de mapas" width="900" />
+  </picture>
+  <br />
+  <em><strong>Pregunta a tus datos:</strong> consulta un conjunto en lenguaje natural. "How many meteorites were seen falling versus found later?" devuelve la respuesta, los recuentos (1.096 frente a 31.090) y un salto directo al constructor</em>
+</p>
+
+<p align="center">
   <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Constructor de mapas de GeoLens que representa el Matterhorn como una malla de terreno 3D a partir de lidar swissALTI3D, con cumbres etiquetadas, rutas de escalada, la pila de capas reordenable y una leyenda" width="900" />
   <br />
   <em><strong>Construye:</strong> compón mapas multicapa en el navegador con una pila de capas reordenable y editores por capa (aquí, el Matterhorn como malla de terreno 3D a partir de lidar swissALTI3D)</em>
@@ -162,6 +171,15 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
   <img src=".github/assets/geolens-ai-labels.png" alt="Panel Ask AI de GeoLens añadiendo etiquetas con nombres de volcanes al mapa Restless Earth desde la petición en lenguaje natural 'Label the volcanoes with their names'" width="900" />
   <br />
   <em><strong>Pregunta a la IA:</strong> edita mapas con lenguaje natural. "Label the volcanoes with their names" añade etiquetas legibles al mapa Restless Earth (opcional: aporta un endpoint compatible con OpenAI o una clave de Anthropic)</em>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png" />
+    <img src=".github/assets/geolens-admin-overview.png" alt="Vista general de administración de GeoLens con un panel de salud 'todos los sistemas operativos' que muestra latencias de base de datos, almacenamiento, caché y caché de teselas, totales de conjuntos y almacenamiento, y estado del proveedor de IA" width="900" />
+  </picture>
+  <br />
+  <em><strong>Opera:</strong> el plano de administración integrado cubre salud en vivo, uso, usuarios, trabajos, registro de auditoría y estado de la IA — nada extra que desplegar</em>
 </p>
 
 ## Inicio rápido

@@ -154,6 +154,15 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 </p>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-chat-dark.png" />
+    <img src=".github/assets/geolens-dataset-chat.png" alt="GeoLens Ask AI panel on the Meteorite Landings dataset answering 'How many meteorites were seen falling versus found later?' with a prose summary, a Fell/Found count table, and a button to open the result in the map builder" width="900" />
+  </picture>
+  <br />
+  <em><strong>Ask your data:</strong> question a dataset in natural language. "How many meteorites were seen falling versus found later?" comes back with the answer, the counts (1,096 vs 31,090), and a one-click jump into the builder</em>
+</p>
+
+<p align="center">
   <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens map builder rendering the Matterhorn as a 3D terrain mesh from swissALTI3D lidar, with labeled peaks, climbing routes, the drag-orderable layer stack, and a legend" width="900" />
   <br />
   <em><strong>Build:</strong> compose multi-layer maps in the browser with a drag-orderable layer stack and per-layer editors (here: the Matterhorn as a 3D terrain mesh from swissALTI3D lidar)</em>
@@ -163,6 +172,15 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
   <img src=".github/assets/geolens-ai-labels.png" alt="GeoLens Ask AI panel adding volcano-name labels to the Restless Earth map from the natural-language request 'Label the volcanoes with their names'" width="900" />
   <br />
   <em><strong>Ask AI:</strong> edit maps in natural language. "Label the volcanoes with their names" adds readable labels to the Restless Earth map (optional: bring an OpenAI-compatible endpoint or Anthropic key)</em>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png" />
+    <img src=".github/assets/geolens-admin-overview.png" alt="GeoLens admin overview with an all-systems-operational health panel showing database, storage, cache, and tile-cache latencies, dataset and storage totals, and AI provider status" width="900" />
+  </picture>
+  <br />
+  <em><strong>Operate:</strong> the built-in admin plane covers live health, usage, users, jobs, audit log, and AI status — nothing extra to stand up</em>
 </p>
 
 ## Quick start
