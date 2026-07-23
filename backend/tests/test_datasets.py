@@ -141,6 +141,31 @@ class TestGetDataset:
         assert data["feature_count"] == 10
         assert data["visibility"] == "public"
 
+    async def test_get_dataset_maps_3d_metadata(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#647): is_3d/n_dims/z_min/z_max surface from the Dataset row."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="3D Meta DS"
+        )
+        ds.is_3d = True
+        ds.n_dims = 3
+        ds.z_min = 0.0
+        ds.z_max = 12.5
+        await test_db_session.commit()
+
+        resp = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_3d"] is True
+        assert data["n_dims"] == 3
+        assert data["z_min"] == 0.0
+        assert data["z_max"] == 12.5
+
 
 # ---------------------------------------------------------------------------
 # Update metadata tests

@@ -7,6 +7,7 @@ import uuid
 
 import structlog
 from geoalchemy2.shape import to_shape
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -393,6 +394,57 @@ async def _retry_parse_map_spec(
     return _parse_map_spec(retry_text)
 
 
+async def _repair_map_spec(
+    spec_dict: dict,
+    validation_error: ValidationError,
+    provider: str,
+    model: str,
+    runtime_config: dict[str, object],
+) -> LLMMapSpec:
+    """One repair round for schema-invalid specs (fix #642).
+
+    Parse failures already get _retry_parse_map_spec; this is the sibling
+    for valid-JSON-wrong-shape output. Feed the pydantic errors back to the
+    model, bounded to a single attempt, then fail with a user-friendly
+    message instead of a raw ValidationError.
+    """
+    missing = [".".join(str(p) for p in e["loc"]) for e in validation_error.errors()]
+    logger.warning(
+        "Map spec failed validation, attempting one repair round",
+        fields=missing,
+    )
+    repair_prompt = (
+        "The following JSON map specification failed schema validation. "
+        "Fix ONLY the listed problems, keeping everything else unchanged, "
+        "and output the corrected JSON inside <map_spec>...</map_spec> "
+        "tags. Do not call any tools.\n\n"
+        f"Validation errors:\n{validation_error}\n\n"
+        f"Specification:\n{json.dumps(spec_dict)}"
+    )
+    provider_ext = get_ai_provider(provider)
+
+    async def _noop_executor(name: str, args: dict) -> dict:
+        # max_rounds=1 exits before any tool call; executor never runs.
+        return {}
+
+    result = await provider_ext.complete(
+        model=model,
+        system_prompt="",
+        user_message=repair_prompt,
+        tools=[],
+        tool_executor=_noop_executor,
+        max_rounds=1,
+        max_tokens=1024,
+        base_url=runtime_config.get("base_url"),
+    )
+    try:
+        return LLMMapSpec(**_parse_map_spec(result.text))
+    except (ValueError, ValidationError) as e:
+        raise ValueError(
+            "The AI couldn't produce a valid map for this prompt — try rephrasing it."
+        ) from e
+
+
 async def _validate_and_persist_map(
     session: AsyncSession,
     user: Identity,
@@ -692,8 +744,11 @@ async def generate_map_from_prompt(
     if "error" in spec_dict:
         raise ValueError(spec_dict["error"])
 
-    # Validate with pydantic
-    spec = LLMMapSpec(**spec_dict)
+    # Validate with pydantic, with one LLM repair round (fix #642)
+    try:
+        spec = LLMMapSpec(**spec_dict)
+    except ValidationError as ve:
+        spec = await _repair_map_spec(spec_dict, ve, provider, model, runtime_config)
 
     if not spec.layers:
         raise ValueError("LLM produced a map with no layers")
@@ -806,7 +861,13 @@ async def stream_generate_map(
             yield {"type": "error", "message": spec_dict["error"]}
             return
 
-        spec = LLMMapSpec(**spec_dict)
+        # fix(#642): one LLM repair round before surfacing a failure
+        try:
+            spec = LLMMapSpec(**spec_dict)
+        except ValidationError as ve:
+            spec = await _repair_map_spec(
+                spec_dict, ve, provider, model, runtime_config
+            )
         if not spec.layers:
             yield {"type": "error", "message": "LLM produced a map with no layers"}
             return
