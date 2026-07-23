@@ -5,6 +5,7 @@ sibling path for valid-JSON-wrong-shape output (the failure mode observed
 live on the demo: 'Field required' for name/layers).
 """
 
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,8 @@ pytestmark = pytest.mark.anyio
 
 GOOD_SPEC = '<map_spec>{"name": "Fixed", "layers": [{"dataset_id": "d1"}]}</map_spec>'
 STILL_BAD_SPEC = '<map_spec>{"title": "still wrong"}</map_spec>'
+
+USER_ID = uuid.uuid4()
 
 
 def _validation_error() -> ValidationError:
@@ -34,16 +37,37 @@ class _FakeProvider:
 
     async def complete(self, **kwargs):
         self.prompts.append(kwargs["user_message"])
-        return SimpleNamespace(text=self.text, input_tokens=1, output_tokens=1)
+        return SimpleNamespace(text=self.text, input_tokens=7, output_tokens=11)
 
 
-async def test_repair_round_fixes_invalid_spec(monkeypatch):
-    fake = _FakeProvider(GOOD_SPEC)
+@pytest.fixture
+def usage_records(monkeypatch):
+    records: list[dict] = []
+
+    async def _record(_db, **kwargs):
+        records.append(kwargs)
+
+    monkeypatch.setattr(ai_service, "record_token_usage", _record)
+    return records
+
+
+async def _run_repair(fake, monkeypatch):
     monkeypatch.setattr(ai_service, "get_ai_provider", lambda name: fake)
-
-    spec = await ai_service._repair_map_spec(
-        {"title": "wrong-key"}, _validation_error(), "anthropic", "m", {}
+    return await ai_service._repair_map_spec(
+        {"title": "wrong-key"},
+        _validation_error(),
+        "anthropic",
+        "m",
+        {},
+        session=None,
+        user_id=USER_ID,
     )
+
+
+async def test_repair_round_fixes_invalid_spec(monkeypatch, usage_records):
+    fake = _FakeProvider(GOOD_SPEC)
+
+    spec = await _run_repair(fake, monkeypatch)
 
     assert spec.name == "Fixed"
     assert spec.layers[0].dataset_id == "d1"
@@ -52,21 +76,46 @@ async def test_repair_round_fixes_invalid_spec(monkeypatch):
     assert "wrong-key" in fake.prompts[0]
 
 
-async def test_second_failure_raises_friendly_error(monkeypatch):
+async def test_repair_round_records_token_usage(monkeypatch, usage_records):
+    """codex P2 on #648: repair tokens must count toward the daily AI budget."""
+    await _run_repair(_FakeProvider(GOOD_SPEC), monkeypatch)
+
+    assert usage_records == [
+        {
+            "user_id": USER_ID,
+            "subsystem": "map_generation",
+            "model": "m",
+            "input_tokens": 7,
+            "output_tokens": 11,
+        }
+    ]
+
+
+async def test_second_failure_raises_friendly_error(monkeypatch, usage_records):
     fake = _FakeProvider(STILL_BAD_SPEC)
-    monkeypatch.setattr(ai_service, "get_ai_provider", lambda name: fake)
 
     with pytest.raises(ValueError, match="try rephrasing"):
-        await ai_service._repair_map_spec(
-            {"title": "wrong-key"}, _validation_error(), "anthropic", "m", {}
-        )
+        await _run_repair(fake, monkeypatch)
+    # Tokens were spent even though the repair failed — still recorded.
+    assert len(usage_records) == 1
 
 
-async def test_unparseable_repair_output_raises_friendly_error(monkeypatch):
-    fake = _FakeProvider("no map_spec block here")
+async def test_unparseable_repair_output_raises_friendly_error(
+    monkeypatch, usage_records
+):
+    with pytest.raises(ValueError, match="try rephrasing"):
+        await _run_repair(_FakeProvider("no map_spec block here"), monkeypatch)
+
+
+async def test_parse_retry_records_token_usage(monkeypatch, usage_records):
+    """The pre-existing parse retry had the same accounting gap — closed too."""
+    fake = _FakeProvider(GOOD_SPEC)
     monkeypatch.setattr(ai_service, "get_ai_provider", lambda name: fake)
 
-    with pytest.raises(ValueError, match="try rephrasing"):
-        await ai_service._repair_map_spec(
-            {"title": "wrong-key"}, _validation_error(), "anthropic", "m", {}
-        )
+    spec_dict = await ai_service._retry_parse_map_spec(
+        "garbled", "anthropic", "m", {}, session=None, user_id=USER_ID
+    )
+
+    assert spec_dict["name"] == "Fixed"
+    assert len(usage_records) == 1
+    assert usage_records[0]["input_tokens"] == 7

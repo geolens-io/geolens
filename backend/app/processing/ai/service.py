@@ -361,7 +361,13 @@ def _parse_map_spec(text: str) -> dict:
 
 
 async def _retry_parse_map_spec(
-    raw_text: str, provider: str, model: str, runtime_config: dict[str, object]
+    raw_text: str,
+    provider: str,
+    model: str,
+    runtime_config: dict[str, object],
+    *,
+    session: AsyncSession,
+    user_id: uuid.UUID | None,
 ) -> dict:
     """Lightweight retry: ask the LLM to fix its JSON output without re-running tools."""
     extraction_prompt = (
@@ -389,6 +395,16 @@ async def _retry_parse_map_spec(
         max_tokens=1024,
         base_url=runtime_config.get("base_url"),
     )
+    # codex P2 on #646/#648: retry/repair rounds spend real provider tokens —
+    # record them or they bypass the daily AI budget.
+    await record_token_usage(
+        session,
+        user_id=user_id,
+        subsystem="map_generation",
+        model=model,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
     retry_text = result.text
 
     return _parse_map_spec(retry_text)
@@ -400,6 +416,9 @@ async def _repair_map_spec(
     provider: str,
     model: str,
     runtime_config: dict[str, object],
+    *,
+    session: AsyncSession,
+    user_id: uuid.UUID | None,
 ) -> LLMMapSpec:
     """One repair round for schema-invalid specs (fix #642).
 
@@ -436,6 +455,15 @@ async def _repair_map_spec(
         max_rounds=1,
         max_tokens=1024,
         base_url=runtime_config.get("base_url"),
+    )
+    # codex P2 on #648: repair-round tokens must count toward the daily cap.
+    await record_token_usage(
+        session,
+        user_id=user_id,
+        subsystem="map_generation",
+        model=model,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
     )
     try:
         return LLMMapSpec(**_parse_map_spec(result.text))
@@ -737,7 +765,12 @@ async def generate_map_from_prompt(
     except ValueError:
         logger.warning("Map spec parse failed, retrying extraction only")
         spec_dict = await _retry_parse_map_spec(
-            result.text, provider, model, runtime_config
+            result.text,
+            provider,
+            model,
+            runtime_config,
+            session=session,
+            user_id=user.id,
         )
 
     # Check for error response
@@ -748,7 +781,15 @@ async def generate_map_from_prompt(
     try:
         spec = LLMMapSpec(**spec_dict)
     except ValidationError as ve:
-        spec = await _repair_map_spec(spec_dict, ve, provider, model, runtime_config)
+        spec = await _repair_map_spec(
+            spec_dict,
+            ve,
+            provider,
+            model,
+            runtime_config,
+            session=session,
+            user_id=user.id,
+        )
 
     if not spec.layers:
         raise ValueError("LLM produced a map with no layers")
@@ -854,7 +895,12 @@ async def stream_generate_map(
         except ValueError:
             logger.warning("Map spec parse failed, retrying extraction only")
             spec_dict = await _retry_parse_map_spec(
-                result.text, provider, model, runtime_config
+                result.text,
+                provider,
+                model,
+                runtime_config,
+                session=session,
+                user_id=user.id,
             )
 
         if "error" in spec_dict:
@@ -866,7 +912,13 @@ async def stream_generate_map(
             spec = LLMMapSpec(**spec_dict)
         except ValidationError as ve:
             spec = await _repair_map_spec(
-                spec_dict, ve, provider, model, runtime_config
+                spec_dict,
+                ve,
+                provider,
+                model,
+                runtime_config,
+                session=session,
+                user_id=user.id,
             )
         if not spec.layers:
             yield {"type": "error", "message": "LLM produced a map with no layers"}
