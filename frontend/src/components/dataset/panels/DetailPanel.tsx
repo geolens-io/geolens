@@ -60,6 +60,18 @@ export function DetailPanel(props: DetailPanelProps) {
   const isAuthenticated = useAuthStore((s) => !!s.token);
   const showSources = isVrt && isAuthenticated;
 
+  // fix(#649 codex r2): a deep link or sign-out can leave activeTab pointing
+  // at a tab whose trigger/content are hidden (anonymous + #sources, ?tab=data
+  // on a raster, …); Radix controlled tabs then render nothing below the tab
+  // list. Clamp to Overview whenever the selected tab isn't visible.
+  const hiddenTabs = {
+    data: !showData,
+    structure: !showStructure,
+    sources: !showSources,
+  } as const;
+  const effectiveTab =
+    hiddenTabs[activeTab as keyof typeof hiddenTabs] ? 'overview' : activeTab;
+
   const draftValues = useMemo(() => ({
     lineage_summary: resolveDraftValue('lineage_summary'),
     source_url: resolveDraftValue('source_url'),
@@ -72,7 +84,7 @@ export function DetailPanel(props: DetailPanelProps) {
   }), [resolveDraftValue]);
 
   return (
-    <Tabs value={activeTab} onValueChange={onTabChange}>
+    <Tabs value={effectiveTab} onValueChange={onTabChange}>
       <TabsList className="w-full sticky top-0 z-20 bg-background border-b">
         <TabsTrigger value="overview">{t('tabs.overview')}</TabsTrigger>
         <TabsTrigger value="metadata">{t('tabs.metadata')}</TabsTrigger>
