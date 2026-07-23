@@ -781,6 +781,10 @@ export type AuditLogResponse = {
      */
     resource_id: string | null;
     /**
+     * Resource Name
+     */
+    resource_name?: string | null;
+    /**
      * Resource Type
      */
     resource_type: string;

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuditLogs } from '@/hooks/use-admin';
 import { formatDateTimeSmart } from '@/lib/format';
@@ -18,6 +19,13 @@ import { ErrorState } from '@/components/layout/ErrorState';
 
 const PAGE_SIZE = 25;
 const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+// fix(#620): resource types with a frontend detail route the name can link to.
+const RESOURCE_ROUTES: Record<string, string> = {
+  dataset: '/datasets',
+  map: '/maps',
+  collection: '/collections',
+};
 
 // Canonical action strings currently emitted by audited application paths. Keep
 // the exact stored values visible so operators can correlate filters with API
@@ -343,6 +351,7 @@ export function AuditLogViewer() {
                 <TableHead>{t('audit.table.user')}</TableHead>
                 <TableHead>{t('audit.table.action')}</TableHead>
                 <TableHead>{t('audit.table.resource')}</TableHead>
+                <TableHead>{t('audit.table.resourceName')}</TableHead>
                 <TableHead>{t('audit.table.resourceId')}</TableHead>
                 <TableHead>{t('audit.table.ipAddress')}</TableHead>
               </TableRow>
@@ -354,6 +363,7 @@ export function AuditLogViewer() {
                 { width: 'w-20' },
                 { width: 'w-24', rounded: true },
                 { width: 'w-16' },
+                { width: 'w-24' },
                 { width: 'w-20' },
                 { width: 'w-24' },
               ]} />
@@ -382,6 +392,7 @@ export function AuditLogViewer() {
                     <TableHead>{t('audit.table.user')}</TableHead>
                     <TableHead>{t('audit.table.action')}</TableHead>
                     <TableHead>{t('audit.table.resource')}</TableHead>
+                    <TableHead>{t('audit.table.resourceName')}</TableHead>
                     <TableHead>{t('audit.table.resourceId')}</TableHead>
                     <TableHead>{t('audit.table.ipAddress')}</TableHead>
                   </TableRow>
@@ -442,7 +453,26 @@ export function AuditLogViewer() {
                         <TableCell>
                           {log.resource_type ?? '-'}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">
+                        <TableCell className="max-w-48 truncate">
+                          {log.resource_name && log.resource_type && log.resource_id
+                            && RESOURCE_ROUTES[log.resource_type] ? (
+                              <Link
+                                to={`${RESOURCE_ROUTES[log.resource_type]}/${log.resource_id}`}
+                                className="text-primary hover:underline"
+                                title={log.resource_name}
+                              >
+                                {log.resource_name}
+                              </Link>
+                            ) : (
+                              <span title={log.resource_name ?? undefined}>
+                                {log.resource_name ?? '-'}
+                              </span>
+                            )}
+                        </TableCell>
+                        <TableCell
+                          className="font-mono text-xs"
+                          title={log.resource_id ?? undefined}
+                        >
                           {log.resource_id
                             ? log.resource_id.slice(0, 8) + '...'
                             : '-'}
@@ -451,7 +481,7 @@ export function AuditLogViewer() {
                       </TableRow>
                       {expandedId === log.id && (
                         <TableRow>
-                          <TableCell colSpan={7}>
+                          <TableCell colSpan={8}>
                             <div className="rounded-md bg-muted/50 p-3">
                               <p className="mb-1 text-xs font-medium text-muted-foreground">
                                 {t('audit.detailsDescription', { defaultValue: 'Expanded log details' })}

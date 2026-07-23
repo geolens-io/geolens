@@ -45,6 +45,7 @@ from app.modules.audit.service import (
     audit_emit_durable,
     query_audit_logs,
     query_column_ddl_history,
+    resolve_resource_names,
     stream_audit_logs,
 )
 from app.core.identity import Identity
@@ -72,6 +73,9 @@ FORMAT_HANDLERS: dict[str, str] = {
     "json": "application/json",
 }
 _EXPORT_OUTCOME_TIMEOUT_SECONDS = 5
+# fix(#620): rows buffered per resource-name lookup batch. Bounds export
+# memory while amortizing name resolution to a few IN queries per chunk.
+_EXPORT_NAME_CHUNK_ROWS = 500
 
 
 def _safe_csv_cell(value: str) -> str:
@@ -148,6 +152,35 @@ class _AuditExportStream:
                 ):
                     yield log
 
+    async def _named_logs(self):
+        """Yield ``(log, resource_name)`` with names batch-resolved per chunk.
+
+        fix(#620): name lookups run on their own session — the log stream
+        holds a server-side cursor on its session, which cannot execute
+        other statements mid-iteration. Buffering _EXPORT_NAME_CHUNK_ROWS
+        rows keeps memory bounded and preserves the streaming design.
+        """
+        from app.core.db import async_session
+
+        with tenant_job_context(self.tenant_id):
+            async with async_session() as names_db:
+                chunk: list = []
+                async with aclosing(self._logs()) as logs:
+                    async for log in logs:
+                        chunk.append(log)
+                        if len(chunk) >= _EXPORT_NAME_CHUNK_ROWS:
+                            names = await resolve_resource_names(names_db, chunk)
+                            for row in chunk:
+                                yield (
+                                    row,
+                                    names.get((row.resource_type, row.resource_id)),
+                                )
+                            chunk = []
+                if chunk:
+                    names = await resolve_resource_names(names_db, chunk)
+                    for row in chunk:
+                        yield row, names.get((row.resource_type, row.resource_id))
+
     async def csv_generator(self) -> AsyncGenerator[str, None]:
         """Yield hardened CSV chunks and record the actual emitted row count."""
         row_count = 0
@@ -163,14 +196,17 @@ class _AuditExportStream:
                     "resource_id",
                     "ip_address",
                     "details",
+                    # fix(#620): appended last so positional CSV consumers
+                    # of the previous layout keep working.
+                    "resource_name",
                 ]
             )
             yield buf.getvalue()
             buf.seek(0)
             buf.truncate(0)
 
-            async with aclosing(self._logs()) as logs:
-                async for log in logs:
+            async with aclosing(self._named_logs()) as logs:
+                async for log, resource_name in logs:
                     if row_count >= self.max_rows:
                         break
                     writer.writerow(
@@ -188,6 +224,7 @@ class _AuditExportStream:
                             _safe_csv_cell(
                                 json.dumps(log.details) if log.details else ""
                             ),
+                            _safe_csv_cell(resource_name or ""),
                         ]
                     )
                     yield buf.getvalue()
@@ -206,8 +243,8 @@ class _AuditExportStream:
         try:
             yield "["
             first = True
-            async with aclosing(self._logs()) as logs:
-                async for log in logs:
+            async with aclosing(self._named_logs()) as logs:
+                async for log, resource_name in logs:
                     if row_count >= self.max_rows:
                         break
                     row = {
@@ -220,6 +257,7 @@ class _AuditExportStream:
                         "resource_id": (
                             str(log.resource_id) if log.resource_id else None
                         ),
+                        "resource_name": resource_name,
                         "ip_address": log.ip_address,
                         "details": log.details,
                     }
@@ -271,6 +309,7 @@ async def list_audit_logs(
         skip=skip,
         limit=limit,
     )
+    resource_names = await resolve_resource_names(db, logs)
     return AuditLogListResponse(
         logs=[
             AuditLogResponse(
@@ -280,6 +319,7 @@ async def list_audit_logs(
                 action=log.action,
                 resource_type=log.resource_type,
                 resource_id=log.resource_id,
+                resource_name=resource_names.get((log.resource_type, log.resource_id)),
                 details=log.details,
                 ip_address=log.ip_address,
                 created_at=log.created_at,
