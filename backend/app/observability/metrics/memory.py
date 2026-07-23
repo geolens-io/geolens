@@ -9,6 +9,15 @@ worker crosses the memory watermark, so runaway growth is diagnosable from
 
 Reads /proc directly (Linux containers; no psutil dependency). On platforms
 without /proc (macOS dev) the loop idles silently.
+
+Multi-worker caveat (codex P2 on #650): each uvicorn worker owns its own
+prometheus_client registry and /metrics is served by whichever worker takes
+the scrape, so one scrape sees one worker — a repo-wide property of the
+metrics stack (pool/jobs/HTTP metrics behave the same; multiprocess mode is
+tracked separately, see #651). The gauge is labeled by pid so successive
+scrapes accumulate as distinct per-worker series in the TSDB instead of
+silently flip-flopping one series; the structured-log heartbeat/watermark
+remains the authoritative per-worker signal.
 """
 
 import asyncio
@@ -22,7 +31,8 @@ logger = structlog.stdlib.get_logger(__name__)
 
 worker_rss_bytes = Gauge(
     "geolens_worker_rss_bytes",
-    "Resident set size of this API worker process",
+    "Resident set size of an API worker process",
+    ["pid"],
 )
 
 _INTERVAL_SECONDS = 60
@@ -87,7 +97,7 @@ class MemoryWatch:
         rss = read_rss_bytes()
         if rss is None:
             return None
-        worker_rss_bytes.set(rss)
+        worker_rss_bytes.labels(pid=str(os.getpid())).set(rss)
         self._samples += 1
         watermark = self._watermark()
         now = time.monotonic() if now is None else now

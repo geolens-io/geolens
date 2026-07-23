@@ -14,10 +14,13 @@ def fixed_env(monkeypatch):
     return state
 
 
-def test_sample_sets_gauge(fixed_env):
+def test_sample_sets_gauge_labeled_by_pid(fixed_env):
+    import os
+
     watch = mem.MemoryWatch()
     assert watch.sample(now=0.0) == fixed_env["rss"]
-    assert mem.worker_rss_bytes._value.get() == fixed_env["rss"]
+    child = mem.worker_rss_bytes.labels(pid=str(os.getpid()))
+    assert child._value.get() == fixed_env["rss"]
 
 
 def test_watermark_is_fraction_of_cgroup_limit(fixed_env):
