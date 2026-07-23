@@ -13,6 +13,8 @@ import { probeAIStatus } from '@/api/admin';
 const hoisted = vi.hoisted(() => ({
   backfill: { mutate: vi.fn(), isPending: false, variables: undefined as unknown },
   canManageUsers: true,
+  canManageTenants: false,
+  isMultiTenant: false,
   useEmbeddingStats: vi.fn((_options?: { enabled?: boolean }) => ({
     data: { total_records: 100, embedded_records: 50, missing_records: 50, coverage_percent: 50 },
   })),
@@ -20,7 +22,19 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({
-    can: (capability: string) => capability === 'manage_users' && hoisted.canManageUsers,
+    can: (capability: string) =>
+      (capability === 'manage_users' && hoisted.canManageUsers) ||
+      (capability === 'manage_tenants' && hoisted.canManageTenants),
+  }),
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: hoisted.isMultiTenant,
+    isLoading: false,
   }),
 }));
 
@@ -107,6 +121,8 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
 
   beforeEach(() => {
     hoisted.canManageUsers = true;
+    hoisted.canManageTenants = false;
+    hoisted.isMultiTenant = false;
     hoisted.backfill = { mutate: vi.fn(), isPending: false, variables: undefined };
     mockProbe.mockReset();
   });
@@ -159,6 +175,24 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     hoisted.canManageUsers = false;
     renderTab();
     expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
+  });
+
+  // fix(#652): require_ai_status_reader switches to manage_tenants in
+  // multi-tenant mode — the button gate must switch with it.
+  it('multi-tenant: manage_users alone does NOT show the button', () => {
+    hoisted.isMultiTenant = true;
+    hoisted.canManageUsers = true;
+    hoisted.canManageTenants = false;
+    renderTab();
+    expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
+  });
+
+  it('multi-tenant: manage_tenants without manage_users DOES show the button', () => {
+    hoisted.isMultiTenant = true;
+    hoisted.canManageUsers = false;
+    hoisted.canManageTenants = true;
+    renderTab();
+    expect(screen.getByRole('button', { name: /Test Connection/ })).toBeInTheDocument();
   });
 
   // fix(#652): the probe tests PERSISTED settings — a dirty form must not

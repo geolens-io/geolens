@@ -16,6 +16,7 @@ import { useSettingsForm } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
 import { useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useEdition } from '@/hooks/use-edition';
 import { detectEmbeddingDims } from '@/api/settings';
 import type { SettingItem } from '@/api/settings';
 import { probeAIStatus } from '@/api/admin';
@@ -46,6 +47,10 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
   const canManageUsers = can('manage_users');
+  const { isMultiTenant } = useEdition();
+  // fix(#652): mirror the backend's require_ai_status_reader, which switches
+  // from manage_users to manage_tenants in multi-tenant deployments.
+  const canProbe = isMultiTenant ? can('manage_tenants') : canManageUsers;
   const { data: keyStatus } = useApiKeyStatus();
   // Coverage/backfill are manage_users operations. A settings-only operator
   // can configure embeddings without issuing forbidden operational probes.
@@ -497,9 +502,9 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
           </div>
         )}
 
-        {/* feat(#635): live probe — reader permission is manage_users, so a
-            settings-only operator would 403; hide rather than dangle a dead button. */}
-        {canManageUsers && (
+        {/* feat(#635): live probe — a settings-only operator would 403 on the
+            probe endpoint; hide rather than dangle a dead button. */}
+        {canProbe && (
           <div className="mt-4 space-y-2">
             {/* fix(#652): the probe resolves PERSISTED settings — block it while
                 the form is dirty so green results can't vouch for unsaved edits. */}
