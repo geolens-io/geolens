@@ -1,6 +1,8 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { SettingsAITab } from '../SettingsAITab';
 import type { SettingItem } from '@/api/settings';
+import { probeAIStatus } from '@/api/admin';
 
 // #347 (ADM-05) regression: the Embedding Coverage box has two buttons ("Generate
 // Missing" + "Regenerate All") backed by one backfill mutation. Each spinner
@@ -11,6 +13,8 @@ import type { SettingItem } from '@/api/settings';
 const hoisted = vi.hoisted(() => ({
   backfill: { mutate: vi.fn(), isPending: false, variables: undefined as unknown },
   canManageUsers: true,
+  canManageTenants: false,
+  isMultiTenant: false,
   useEmbeddingStats: vi.fn((_options?: { enabled?: boolean }) => ({
     data: { total_records: 100, embedded_records: 50, missing_records: 50, coverage_percent: 50 },
   })),
@@ -18,7 +22,19 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({
-    can: (capability: string) => capability === 'manage_users' && hoisted.canManageUsers,
+    can: (capability: string) =>
+      (capability === 'manage_users' && hoisted.canManageUsers) ||
+      (capability === 'manage_tenants' && hoisted.canManageTenants),
+  }),
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: hoisted.isMultiTenant,
+    isLoading: false,
   }),
 }));
 
@@ -38,6 +54,11 @@ vi.mock('@/hooks/use-settings', async (importOriginal) => {
     ...actual,
     useApiKeyStatus: () => ({ data: { configured: true } }),
   };
+});
+
+vi.mock('@/api/admin', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/admin')>();
+  return { ...actual, probeAIStatus: vi.fn() };
 });
 
 function renderTab(settings: SettingItem[] = []) {
@@ -91,5 +112,154 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
     expect(screen.getByRole('switch', { name: 'Semantic Search' })).toBeChecked();
     expect(screen.queryByText('Embedding Coverage')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Generate Missing' })).not.toBeInTheDocument();
+  });
+});
+
+// feat(#635): Test Connection button drives the live ?probe=true endpoint.
+describe('SettingsAITab — Test Connection probe (#635)', () => {
+  const mockProbe = vi.mocked(probeAIStatus);
+
+  beforeEach(() => {
+    hoisted.canManageUsers = true;
+    hoisted.canManageTenants = false;
+    hoisted.isMultiTenant = false;
+    hoisted.backfill = { mutate: vi.fn(), isPending: false, variables: undefined };
+    mockProbe.mockReset();
+  });
+
+  it('renders per-purpose results after a probe: chat ok, embeddings failed', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValue({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: true, ok: false, status: 401, error: 'authentication failed' },
+      },
+    });
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+
+    await waitFor(() => expect(screen.getByText('OK')).toBeInTheDocument());
+    expect(screen.getByText('authentication failed')).toBeInTheDocument();
+    expect(mockProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows "not set" for an unconfigured purpose (no live call was made)', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValue({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: false, ok: null },
+      },
+    });
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+
+    await waitFor(() => expect(screen.getByText('not set')).toBeInTheDocument());
+  });
+
+  it('hides the button for a settings-only operator (probe needs manage_users)', () => {
+    hoisted.canManageUsers = false;
+    renderTab();
+    expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
+  });
+
+  // fix(#652): require_ai_status_reader switches to manage_tenants in
+  // multi-tenant mode — the button gate must switch with it.
+  it('multi-tenant: manage_users alone does NOT show the button', () => {
+    hoisted.isMultiTenant = true;
+    hoisted.canManageUsers = true;
+    hoisted.canManageTenants = false;
+    renderTab();
+    expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
+  });
+
+  it('multi-tenant: manage_tenants without manage_users DOES show the button', () => {
+    hoisted.isMultiTenant = true;
+    hoisted.canManageUsers = false;
+    hoisted.canManageTenants = true;
+    renderTab();
+    expect(screen.getByRole('button', { name: /Test Connection/ })).toBeInTheDocument();
+  });
+
+  // fix(#652): the probe tests PERSISTED settings — a dirty form must not
+  // let green results vouch for unsaved edits.
+  it('disables the button and explains while the form has unsaved changes', async () => {
+    const user = userEvent.setup();
+    // dirty-tracking only covers fields present in the server settings list
+    renderTab([{ key: 'llm_model', value: 'claude-3', source: 'default', label: 'Model' }]);
+
+    await user.type(screen.getByRole('textbox', { name: 'Model' }), 'claude-x');
+
+    expect(screen.getByRole('button', { name: /Test Connection/ })).toBeDisabled();
+    expect(
+      screen.getByText('Save your changes first — the test runs against the saved configuration.'),
+    ).toBeInTheDocument();
+    expect(mockProbe).not.toHaveBeenCalled();
+  });
+
+  // fix(#652): prior results describe the persisted config — they must not
+  // stay visible next to unsaved edits they never probed.
+  it('hides prior results while the form is dirty', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValueOnce({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: true, ok: true },
+      },
+    });
+    renderTab([{ key: 'llm_model', value: 'claude-3', source: 'default', label: 'Model' }]);
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+    await waitFor(() => expect(screen.getAllByText('OK')).toHaveLength(2));
+
+    await user.type(screen.getByRole('textbox', { name: 'Model' }), '-edited');
+
+    expect(screen.queryByText('OK')).not.toBeInTheDocument();
+  });
+
+  // fix(#652): a failed retry must not keep showing the previous green rows.
+  it('clears prior results when a retry fails before returning a probe body', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValueOnce({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: true, ok: true },
+      },
+    });
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+    await waitFor(() => expect(screen.getAllByText('OK')).toHaveLength(2));
+
+    mockProbe.mockRejectedValueOnce(new Error('429'));
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+
+    await waitFor(() => expect(screen.queryByText('OK')).not.toBeInTheDocument());
   });
 });

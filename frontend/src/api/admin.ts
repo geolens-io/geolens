@@ -174,6 +174,15 @@ export async function getAIStatus(): Promise<AIStatusResponse> {
   return apiFetch<AIStatusResponse>('/admin/ai-status/');
 }
 
+// feat(#635): live provider probe — spends real provider tokens, so only
+// invoked from an explicit admin action, never on page load.
+// fix(#652): chat + embeddings probe sequentially at up to 15s each, so the
+// backend's sanitized timeout rows can arrive after the default 30s client
+// deadline — outlive the backend worst case instead of toasting a generic error.
+export async function probeAIStatus(): Promise<AIStatusResponse> {
+  return apiFetch<AIStatusResponse>('/admin/ai-status/?probe=true', { timeoutMs: 45_000 });
+}
+
 // Infrastructure
 export async function getInfrastructure(): Promise<InfrastructureResponse> {
   return apiFetch<InfrastructureResponse>('/admin/infrastructure/');
