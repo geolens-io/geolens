@@ -277,7 +277,7 @@ RUN set -e; \
 
 RUN GEOLENS_FRONTEND_EDITION=${GEOLENS_FRONTEND_EDITION} npm run build:app
 
-FROM nginxinc/nginx-unprivileged:1.31.2-alpine AS frontend
+FROM nginxinc/nginx-unprivileged:1.31.3-alpine AS frontend
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"
