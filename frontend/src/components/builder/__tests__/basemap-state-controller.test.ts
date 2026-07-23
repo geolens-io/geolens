@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MapBasemapConfig, MapTerrainConfig } from '@/types/api';
 import {
   createBuilderBasemapState,
+  hasCustomBasemapAppearance,
   removeBasemap,
   resetBasemapAppearance,
   resetBasemapSublayer,
@@ -185,5 +186,53 @@ describe('basemap-state-controller', () => {
       source_dataset_id: null,
       exaggeration: 0,
     });
+  });
+});
+
+// fix(#585): "Reset appearance" enable signal — semantic comparison against
+// the default appearance, not a null check (stored configs are often
+// materialized all-defaults objects).
+describe('hasCustomBasemapAppearance', () => {
+  it('null / undefined config is NOT custom', () => {
+    expect(hasCustomBasemapAppearance(null, true)).toBe(false);
+    expect(hasCustomBasemapAppearance(undefined, true)).toBe(false);
+  });
+
+  it('a materialized all-defaults config is NOT custom', () => {
+    const stored = {
+      label_mode: 'full',
+      road_visibility: 'full',
+      boundary_visibility: 'full',
+      building_visibility: true,
+      land_water_tone: 'default',
+      relief_contrast: null,
+      opacity: 1,
+      background_color: null,
+      sublayer_overrides: null,
+      // The wire sends explicit nulls for these even though the TS type only
+      // allows undefined — keep them to exercise the real API shape.
+      basemap_position: null,
+      projection: null,
+    } as unknown as MapBasemapConfig;
+    expect(hasCustomBasemapAppearance(stored, true)).toBe(false);
+  });
+
+  it('a changed visibility field IS custom', () => {
+    expect(
+      hasCustomBasemapAppearance({ road_visibility: 'hidden' } as MapBasemapConfig, true),
+    ).toBe(true);
+  });
+
+  it('a non-default projection IS custom (reset would drop it)', () => {
+    expect(
+      hasCustomBasemapAppearance({ projection: 'globe' } as MapBasemapConfig, true),
+    ).toBe(true);
+  });
+
+  it('labels-hidden maps compare against the labels-hidden default (not custom)', () => {
+    expect(hasCustomBasemapAppearance(null, false)).toBe(false);
+    expect(
+      hasCustomBasemapAppearance({ label_mode: 'hidden' } as MapBasemapConfig, false),
+    ).toBe(false);
   });
 });

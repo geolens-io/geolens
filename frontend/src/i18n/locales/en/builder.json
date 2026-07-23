@@ -832,6 +832,7 @@
     "mapInfo": "Map info",
     "downloadPng": "Download PNG",
     "duplicateMap": "Duplicate map",
+    "duplicatingMap": "Duplicating…",
     "viewAsViewer": "View as viewer",
     "save": "Save ({{shortcut}})",
     "collapseSidebar": "Collapse sidebar",
@@ -1184,6 +1185,7 @@
     "railLabel": "Basemap group",
     "removeBasemap": "Remove basemap",
     "resetAppearance": "Reset appearance",
+    "resetAppearanceHint": "Appearance is already at defaults",
     "rowName": "Basemap · {{name}}",
     "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
     "sublayersSectionLabel": "SUBLAYERS",
@@ -1241,7 +1243,7 @@
     "deleteConfirmMessage": "Delete this group and all its layers?",
     "deleteConfirmAction": "Delete all",
     "deleteConfirmCancel": "Keep group",
-    "newGroupItem": "＋ New group…"
+    "newGroupItem": "New group…"
   },
   "layerEditor": {
     "close": "Close layer editor",

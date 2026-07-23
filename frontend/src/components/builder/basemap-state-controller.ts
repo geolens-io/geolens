@@ -322,6 +322,28 @@ export function resetBasemapAppearance(): BuilderBasemapPatch {
   return { basemapConfig: null };
 }
 
+// fix(#585): true when resetting appearance (basemap_config → null) would
+// actually change the normalized config — the "Reset appearance" enable
+// signal. Stored configs are often materialized all-defaults objects, so a
+// non-null check alone reads every map as customized. Null-valued keys are
+// stripped before comparing because the normalizer includes optional keys
+// (e.g. sublayer_overrides: null) only when present on the input, and null
+// means "default" for every appearance field.
+// ponytail: an empty-but-present sublayer_overrides ({}) still reads as
+// custom — fails safe (Reset stays enabled), refine if it ever matters.
+export function hasCustomBasemapAppearance(
+  basemapConfig: MapBasemapConfig | null | undefined,
+  showBasemapLabels: boolean | null | undefined,
+): boolean {
+  const labels = showBasemapLabels ?? true;
+  const canonical = (config: MapBasemapConfig) =>
+    JSON.stringify(
+      Object.fromEntries(Object.entries(config).filter(([, v]) => v != null)),
+    );
+  return canonical(normalizedConfig(basemapConfig, labels))
+    !== canonical(normalizedConfig(null, labels));
+}
+
 export function setTerrainExaggeration(
   terrainConfig: MapTerrainConfig | null | undefined,
   value: number,

@@ -832,6 +832,7 @@
     "mapInfo": "Info carte",
     "downloadPng": "Télécharger PNG",
     "duplicateMap": "Dupliquer la carte",
+    "duplicatingMap": "Duplication…",
     "viewAsViewer": "Afficher en tant que visiteur",
     "save": "Enregistrer ({{shortcut}})",
     "collapseSidebar": "Réduire le panneau latéral",
@@ -1180,6 +1181,7 @@
     "railLabel": "Groupe de fond de carte",
     "removeBasemap": "Supprimer le fond de carte",
     "resetAppearance": "Réinitialiser l'apparence",
+    "resetAppearanceHint": "L'apparence est déjà aux valeurs par défaut",
     "rowName": "Fond de carte · {{name}}",
     "sublayersSectionHint": "Cliquez sur une sous-couche dans la barre latérale pour la styliser individuellement.",
     "sublayersSectionLabel": "SOUS-COUCHES",
@@ -1236,7 +1238,7 @@
     "deleteConfirmMessage": "Supprimer ce groupe et toutes ses couches ?",
     "deleteConfirmAction": "Tout supprimer",
     "deleteConfirmCancel": "Conserver le groupe",
-    "newGroupItem": "＋ Nouveau groupe…",
+    "newGroupItem": "Nouveau groupe…",
     "toggleExpand": "Basculer le groupe de dossiers"
   },
   "layerEditor": {

@@ -112,6 +112,7 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         onToggleVisibility={onToggleVisibility}
         onSwapBasemap={onSwapBasemap}
         onResetAppearance={onResetAppearance}
+        hasCustomAppearance={group.hasCustomAppearance}
         isMultiSelectionActive={isMultiSelectionActive}
       />
     </div>

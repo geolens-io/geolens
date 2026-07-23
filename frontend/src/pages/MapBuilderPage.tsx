@@ -85,6 +85,7 @@ import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import {
   createBuilderBasemapState,
+  hasCustomBasemapAppearance,
   removeBasemap as removeBasemapFromState,
   resetBasemapAppearance,
   resetBasemapSublayer,
@@ -560,6 +561,10 @@ export function MapBuilderPage() {
         visible: basemapVisible,
         opacity: basemapState.config.opacity ?? 1,
         sublayers: [],
+        // fix(#585): semantic comparison against the default appearance — the
+        // stored config is often a materialized all-defaults object, so a
+        // non-null check would read every map as customized.
+        hasCustomAppearance: hasCustomBasemapAppearance(layers.basemapConfig, layers.showBasemapLabels),
       };
     }
     // Derive preset name from the basemap id (label portion after last dash, capitalized)
@@ -577,8 +582,10 @@ export function MapBuilderPage() {
       visible: basemapVisible,
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
+      // fix(#585): see the no-basemap branch above.
+      hasCustomAppearance: hasCustomBasemapAppearance(layers.basemapConfig, layers.showBasemapLabels),
     };
-  }, [basemapState, basemapVisible, t]);
+  }, [basemapState, basemapVisible, layers.basemapConfig, layers.showBasemapLabels, t]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 

@@ -216,9 +216,18 @@ export function MapTitleBar({
                 <Info className="h-3.5 w-3.5 me-2" />
                 {t('tooltips.mapInfo', { defaultValue: 'Map info' })}
               </DropdownMenuItem>
+              {/* fix(#585): in-flight feedback — spinner + "Duplicating…" while
+                  the fork mutation is pending (was disabled-only, invisible
+                  until the settle toast). */}
               <DropdownMenuItem onClick={overflow.onFork} disabled={overflow.isForkPending}>
-                <Copy className="h-3.5 w-3.5 me-2" />
-                {t('tooltips.duplicateMap', { defaultValue: 'Duplicate map' })}
+                {overflow.isForkPending ? (
+                  <Loader2 className="h-3.5 w-3.5 me-2 animate-spin" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 me-2" />
+                )}
+                {overflow.isForkPending
+                  ? t('tooltips.duplicatingMap', { defaultValue: 'Duplicating…' })
+                  : t('tooltips.duplicateMap', { defaultValue: 'Duplicate map' })}
               </DropdownMenuItem>
               {overflow.onViewAsViewer && (
                 <DropdownMenuItem onClick={overflow.onViewAsViewer}>

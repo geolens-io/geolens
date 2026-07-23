@@ -832,6 +832,7 @@
     "mapInfo": "Info del mapa",
     "downloadPng": "Descargar PNG",
     "duplicateMap": "Duplicar mapa",
+    "duplicatingMap": "Duplicando…",
     "viewAsViewer": "Ver como visitante",
     "save": "Guardar ({{shortcut}})",
     "collapseSidebar": "Contraer barra lateral",
@@ -1180,6 +1181,7 @@
     "railLabel": "Grupo de mapa base",
     "removeBasemap": "Eliminar mapa base",
     "resetAppearance": "Restablecer apariencia",
+    "resetAppearanceHint": "La apariencia ya tiene los valores predeterminados",
     "rowName": "Mapa base · {{name}}",
     "sublayersSectionHint": "Haga clic en cualquier subcapa de la barra lateral para darle estilo individualmente.",
     "sublayersSectionLabel": "SUBCAPAS",
@@ -1236,7 +1238,7 @@
     "deleteConfirmMessage": "¿Eliminar este grupo y todas sus capas?",
     "deleteConfirmAction": "Eliminar todo",
     "deleteConfirmCancel": "Conservar grupo",
-    "newGroupItem": "＋ Nuevo grupo…",
+    "newGroupItem": "Nuevo grupo…",
     "toggleExpand": "Alternar grupo de carpetas"
   },
   "layerEditor": {
