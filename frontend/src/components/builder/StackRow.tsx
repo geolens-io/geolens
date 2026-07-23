@@ -1,8 +1,23 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 import { memo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, MoreVertical, Type } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  ClipboardPaste,
+  Copy,
+  CopyPlus,
+  Crosshair,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Folder,
+  FolderMinus,
+  FolderPlus,
+  MoreVertical,
+  Pencil,
+  Plus,
+  Trash2,
+  Type,
+} from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
@@ -10,6 +25,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { LayerTypeIcon } from '@/components/map/layer-icons';
@@ -18,6 +36,7 @@ import { cn } from '@/lib/utils';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
   DragGripButton,
+  InlineDeleteConfirm,
   STACK_ROW_GRID,
   rowStateClasses,
   useKebabContextMenu,
@@ -457,6 +476,27 @@ export const StackRow = memo(function StackRow({
                 </>
               );
             })()}
+            {/* fix(#585): navigable follow-up to the Source block — the builder
+                previously had NO path to the dataset page (notably: the
+                audienceHidden badge warns about dataset visibility, which is
+                fixed THERE). New tab on purpose: in-place navigation would trip
+                the unsaved-changes guard, matching the "View as viewer"
+                precedent. A real <a> so middle-click/cmd-click work. */}
+            {layer.dataset_id && (
+              <>
+                <DropdownMenuItem asChild data-testid="kebab-view-dataset">
+                  <a
+                    href={`/datasets/${layer.dataset_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                    {t('layerItem.openDataset', { defaultValue: 'Open dataset detail' })}
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               onSelect={() => {
                 // Let the menu close; the hook's rAF focus + select runs once
@@ -466,6 +506,10 @@ export const StackRow = memo(function StackRow({
                 startRename();
               }}
             >
+              {/* fix(#585): every kebab item carries an icon — Zoom/Copy/Paste
+                  had them while Rename/Duplicate/Delete and the group flow
+                  didn't, which read as ragged. */}
+              <Pencil className="h-3.5 w-3.5 me-2" aria-hidden="true" />
               {t('stackRow.kebabRenameLayer', { defaultValue: 'Rename layer' })}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -473,6 +517,7 @@ export const StackRow = memo(function StackRow({
                 onDuplicate(layer.id);
               }}
             >
+              <CopyPlus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
               {t('stackRow.kebabDuplicate', { defaultValue: 'Duplicate' })}
             </DropdownMenuItem>
             {/* Phase 1201-01 ENH-01/ENH-02: zoom-to-extent + copy/paste style.
@@ -519,74 +564,64 @@ export const StackRow = memo(function StackRow({
                 setConfirmingDelete(true);
               }}
             >
+              <Trash2 className="h-3.5 w-3.5 me-2" aria-hidden="true" />
               {t('stackRow.kebabDeleteLayer', { defaultValue: 'Delete layer' })}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {parentGroupId ? (
               // Layer is already inside a group: show "Move out of group"
               <DropdownMenuItem onSelect={() => onMoveLayerOutOfGroup?.(layer.id)}>
+                <FolderMinus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabMoveOutOfGroup', { defaultValue: 'Move out of group' })}
               </DropdownMenuItem>
             ) : (
-              <>
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground px-2 py-1">
+              // fix(#585): submenu instead of a flat inline list — the group
+              // list grows unbounded with many groups and previously pushed
+              // Delete off-screen.
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="kebab-add-to-group">
+                  <FolderPlus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                   {t('stackRow.kebabAddToGroup', { defaultValue: 'Add to group…' })}
-                </DropdownMenuLabel>
-                {(existingFolderGroups).map((g) => (
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {(existingFolderGroups).map((g) => (
+                    <DropdownMenuItem
+                      key={g.id}
+                      onSelect={() => onAddToGroup?.(layer.id, g.id)}
+                    >
+                      <Folder className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                      {g.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {existingFolderGroups.length > 0 && <DropdownMenuSeparator />}
                   <DropdownMenuItem
-                    key={g.id}
-                    onSelect={() => onAddToGroup?.(layer.id, g.id)}
+                    className="text-primary"
+                    onSelect={() => onCreateGroupWithLayer?.(layer.id)}
                   >
-                    ▸ {g.name}
+                    <Plus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                    {t('folderGroup.newGroupItem', { defaultValue: 'New group…' })}
                   </DropdownMenuItem>
-                ))}
-                <DropdownMenuItem
-                  className="text-primary"
-                  onSelect={() => onCreateGroupWithLayer?.(layer.id)}
-                >
-                  {t('folderGroup.newGroupItem', { defaultValue: '＋ New group…' })}
-                </DropdownMenuItem>
-              </>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
     </div>
 
-    {/* Inline alertdialog confirm — appears below the row when kebab Delete is clicked */}
+    {/* fix(#585): shared inline confirm — appears below the row when kebab Delete is clicked */}
     {confirmingDelete && (
-      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
-      <div
-        role="alertdialog"
-        aria-label={t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
-        className="mx-2 mb-2 flex flex-col gap-2 p-3 bg-destructive/10 rounded-md"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="text-sm text-destructive">
-          {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => {
-              onRemove(layer.id);
-              setConfirmingDelete(false);
-            }}
-          >
-            {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setConfirmingDelete(false)}
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- moves focus to safe action so Enter dismisses, not destroys (AUD-09)
-            autoFocus
-          >
-            {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
-          </Button>
-        </div>
-      </div>
+      <InlineDeleteConfirm
+        confirmId={`confirm-delete-${layer.id}`}
+        message={t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+        confirmLabel={t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
+        cancelLabel={t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
+        onConfirm={() => {
+          onRemove(layer.id);
+          setConfirmingDelete(false);
+        }}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     )}
     </>
   );

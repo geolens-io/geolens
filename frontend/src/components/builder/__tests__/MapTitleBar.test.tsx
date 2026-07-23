@@ -192,7 +192,10 @@ describe('MapTitleBar', () => {
 
     const downloadItem = await screen.findByRole('menuitem', { name: /Download PNG/i });
     const infoItem = screen.getByRole('menuitem', { name: /Map info/i });
-    const forkItem = screen.getByRole('menuitem', { name: /Duplicate map/i });
+    // fix(#585): while the fork is pending the item shows in-flight feedback —
+    // "Duplicating…" + spinner — instead of the idle "Duplicate map" label.
+    const forkItem = screen.getByRole('menuitem', { name: /Duplicating/i });
+    expect(forkItem.querySelector('.animate-spin')).not.toBeNull();
 
     expect(downloadItem).toBeInTheDocument();
     expect(infoItem).toBeInTheDocument();

@@ -319,7 +319,50 @@ export function resetBasemapSublayer(
 }
 
 export function resetBasemapAppearance(): BuilderBasemapPatch {
-  return { basemapConfig: null };
+  // fix(#654, codex round 2): also restore label visibility. Labels are the
+  // one sublayer whose visibility persists outside basemap_config
+  // (showBasemapLabels), so clearing the config alone reset roads/buildings/
+  // boundaries but left labels hidden — inconsistent with the sibling eye
+  // toggles and with resetBasemapSublayer('basemap:labels').
+  return { basemapConfig: null, showBasemapLabels: true };
+}
+
+// fix(#585): true when resetting appearance (basemap_config → null) would
+// actually change the normalized config — the "Reset appearance" enable
+// signal. Stored configs are often materialized all-defaults objects, so a
+// non-null check alone reads every map as customized. Null-valued keys are
+// stripped before comparing because the normalizer includes optional keys
+// (e.g. sublayer_overrides: null) only when present on the input, and null
+// means "default" for every appearance field.
+// ponytail: an empty-but-present sublayer_overrides ({}) still reads as
+// custom — fails safe (Reset stays enabled), refine if it ever matters.
+export function hasCustomBasemapAppearance(
+  basemapConfig: MapBasemapConfig | null | undefined,
+  showBasemapLabels: boolean | null | undefined,
+): boolean {
+  const labels = showBasemapLabels ?? true;
+  // codex P2 on #654: explicit default-valued optional metadata must read as
+  // clean too — dragging the basemap back to bottom writes basemap_position:
+  // 'bottom', and 'mercator' is the projection default; the null baseline
+  // omits both keys, so keeping them would flag an all-defaults map as custom.
+  const OPTIONAL_DEFAULTS: Record<string, unknown> = {
+    basemap_position: 'bottom',
+    projection: 'mercator',
+  };
+  const canonical = (config: MapBasemapConfig) =>
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(config).filter(
+          ([k, v]) => v != null && OPTIONAL_DEFAULTS[k] !== v,
+        ),
+      ),
+    );
+  // fix(#654, codex round 2): the baseline is the TRUE default (labels on),
+  // not the current labels flag — reset restores label visibility, so a
+  // labels-only-hidden map must read as custom or Reset disables itself on
+  // exactly the state it exists to undo.
+  return canonical(normalizedConfig(basemapConfig, labels))
+    !== canonical(normalizedConfig(null, true));
 }
 
 export function setTerrainExaggeration(

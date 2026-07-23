@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Eye, EyeOff, MoreVertical } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, MoreVertical, Repeat, RotateCcw } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +31,10 @@ interface BasemapGroupRowProps {
   onToggleVisibility: (id: string) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
+  /** fix(#585): true when basemap_config holds appearance customizations —
+   *  false disables "Reset appearance" (nothing to reset). Defaults to true so
+   *  an unwired call site never blocks the action. */
+  hasCustomAppearance?: boolean;
   // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active (POL-11)
   isMultiSelectionActive?: boolean;
 }
@@ -49,6 +53,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   onToggleVisibility,
   onSwapBasemap,
   onResetAppearance,
+  hasCustomAppearance = true,
   isMultiSelectionActive = false,
 }: BasemapGroupRowProps) {
   const { t } = useTranslation('builder');
@@ -216,12 +221,30 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
               <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuContent align="end" className="w-52">
+            {/* fix(#585): kebab items carry icons, matching StackRow. */}
             <DropdownMenuItem onSelect={() => onSwapBasemap()}>
+              <Repeat className="h-3.5 w-3.5 me-2" aria-hidden="true" />
               {t('basemapGroup.swapBasemap', { defaultValue: 'Swap basemap' })}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onResetAppearance()}>
-              {t('basemapGroup.resetAppearance', { defaultValue: 'Reset appearance' })}
+            {/* fix(#585): disabled when there is nothing to reset; the reason
+                is inline muted text (tooltips don't fire on disabled items). */}
+            <DropdownMenuItem
+              data-testid="basemap-reset-appearance"
+              disabled={!hasCustomAppearance}
+              onSelect={() => {
+                if (hasCustomAppearance) onResetAppearance();
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              <span className="flex flex-col items-start">
+                {t('basemapGroup.resetAppearance', { defaultValue: 'Reset appearance' })}
+                {!hasCustomAppearance && (
+                  <span className="text-2xs text-muted-foreground">
+                    {t('basemapGroup.resetAppearanceHint', { defaultValue: 'Appearance is already at defaults' })}
+                  </span>
+                )}
+              </span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

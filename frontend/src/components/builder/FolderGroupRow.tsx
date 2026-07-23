@@ -1,9 +1,8 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Eye, EyeOff, MoreVertical } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, FolderMinus, MoreVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   DragGripButton,
+  InlineDeleteConfirm,
   STACK_ROW_GRID,
   rowStateClasses,
   useKebabContextMenu,
@@ -283,19 +283,24 @@ export const FolderGroupRow = memo(function FolderGroupRow({
                   startRename();
                 }}
               >
+                {/* fix(#585): kebab items carry icons, matching StackRow. */}
+                <Pencil className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabRenameGroup', { defaultValue: 'Rename group' })}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onAddLayer(groupId)}>
+                <Plus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabAddLayer', { defaultValue: 'Add layer' })}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onUngroup(groupId)}>
+                <FolderMinus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabUngroup', { defaultValue: 'Ungroup' })}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onSelect={() => setConfirmingDelete(true)}
               >
+                <Trash2 className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabDeleteGroup', { defaultValue: 'Delete group' })}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -303,42 +308,19 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         </div>
       </div>
 
-      {/* Inline alertdialog for delete confirmation — sibling of grid row, NOT inside DropdownMenuContent */}
+      {/* fix(#585): shared inline confirm — sibling of grid row, NOT inside DropdownMenuContent */}
       {confirmingDelete && (
-        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
-        <div
-          role="alertdialog"
-          aria-labelledby={`confirm-delete-${groupId}`}
-          className="mx-2 mb-2 p-3 rounded-md border bg-popover space-y-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p id={`confirm-delete-${groupId}`} className="text-sm text-destructive text-center">
-            {t('folderGroup.deleteConfirmMessage', { defaultValue: 'Delete this group and all its layers?' })}
-          </p>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="destructive"
-              className="flex-1"
-              onClick={() => {
-                onDeleteGroup(groupId);
-                setConfirmingDelete(false);
-              }}
-            >
-              {t('folderGroup.deleteConfirmAction', { defaultValue: 'Delete all' })}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="flex-1"
-              onClick={() => setConfirmingDelete(false)}
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on safe choice per UI-SPEC accessibility
-              autoFocus
-            >
-              {t('folderGroup.deleteConfirmCancel', { defaultValue: 'Keep group' })}
-            </Button>
-          </div>
-        </div>
+        <InlineDeleteConfirm
+          confirmId={`confirm-delete-${groupId}`}
+          message={t('folderGroup.deleteConfirmMessage', { defaultValue: 'Delete this group and all its layers?' })}
+          confirmLabel={t('folderGroup.deleteConfirmAction', { defaultValue: 'Delete all' })}
+          cancelLabel={t('folderGroup.deleteConfirmCancel', { defaultValue: 'Keep group' })}
+          onConfirm={() => {
+            onDeleteGroup(groupId);
+            setConfirmingDelete(false);
+          }}
+          onCancel={() => setConfirmingDelete(false)}
+        />
       )}
     </div>
   );

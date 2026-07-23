@@ -218,8 +218,8 @@ describe('StackRow', () => {
     expect(menuTexts).toContain('Rename layer');
     expect(menuTexts).toContain('Duplicate');
     expect(menuTexts).toContain('Delete layer');
-    // "＋ New group…" always appears (no existing groups in this test)
-    expect(menuTexts).toContain('＋ New group…');
+    // fix(#585): the group flow lives behind an "Add to group…" submenu trigger
+    expect(screen.getByTestId('kebab-add-to-group')).toBeInTheDocument();
 
     // Verify core order
     const renameIdx = menuTexts.indexOf('Rename layer');
@@ -281,15 +281,29 @@ describe('StackRow', () => {
     expect(onDuplicate).toHaveBeenCalledWith('dup-layer');
   });
 
-  it('"Add to group…" label and "＋ New group…" item appear when no existing groups', () => {
+  // fix(#585): the kebab links to the dataset detail page — new tab so the
+  // unsaved-changes guard never fires mid-edit.
+  it('kebab "Open dataset detail" is a new-tab link to /datasets/{dataset_id}', () => {
+    const layer = makeLayer({ id: 'link-layer', dataset_id: 'ds-42' });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    const link = screen.getByTestId('kebab-view-dataset');
+    expect(link).toHaveAttribute('href', '/datasets/ds-42');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('"Add to group…" submenu exposes "New group…" when no existing groups (#585)', () => {
     const layer = makeLayer({ id: 'group-layer' });
     render(<StackRow {...defaultProps({ layer, existingFolderGroups: [] })} />);
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
 
-    // The label "Add to group…" appears (DropdownMenuLabel)
-    expect(screen.getByText('Add to group…')).toBeInTheDocument();
-    // "＋ New group…" item appears as the only group option
+    // fix(#585): "Add to group…" is a submenu trigger; its content mounts on open
+    const subTrigger = screen.getByTestId('kebab-add-to-group');
+    fireEvent.click(subTrigger);
     expect(screen.getByRole('menuitem', { name: /New group/i })).toBeInTheDocument();
   });
 
@@ -492,8 +506,8 @@ describe('Add to group sub-flow', () => {
     };
   }
 
-  // Test 1: empty existing groups shows only "＋ New group…"
-  it('Test 1: shows only "＋ New group…" when existingFolderGroups is empty and parentGroupId is null', () => {
+  // Test 1: empty existing groups shows only "New group…"
+  it('Test 1: shows only "New group…" when existingFolderGroups is empty and parentGroupId is null', () => {
     const layer = makeLayer({ id: 'test-layer' });
     render(
       <StackRow
@@ -506,13 +520,13 @@ describe('Add to group sub-flow', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
 
-    // Label visible
-    expect(screen.getByText('Add to group…')).toBeInTheDocument();
-    // Only "＋ New group…" — no other group items
+    // fix(#585): open the "Add to group…" submenu first
+    fireEvent.click(screen.getByTestId('kebab-add-to-group'));
+    // Only "New group…" — no other group items
     const menuItems = screen.getAllByRole('menuitem').filter((i) => i.textContent?.includes('New group'));
     expect(menuItems).toHaveLength(1);
     // No group names present
-    expect(screen.queryByText('▸ Hydrology')).not.toBeInTheDocument();
+    expect(screen.queryByText('Hydrology')).not.toBeInTheDocument();
   });
 
   // Test 2: existing groups appear in sub-list
@@ -532,10 +546,12 @@ describe('Add to group sub-flow', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
 
+    // fix(#585): open the "Add to group…" submenu first
+    fireEvent.click(screen.getByTestId('kebab-add-to-group'));
     // Both groups appear
-    expect(screen.getByText('▸ Hydrology')).toBeInTheDocument();
-    expect(screen.getByText('▸ Transit')).toBeInTheDocument();
-    // "＋ New group…" also appears
+    expect(screen.getByText('Hydrology')).toBeInTheDocument();
+    expect(screen.getByText('Transit')).toBeInTheDocument();
+    // "New group…" also appears
     expect(screen.getByRole('menuitem', { name: /New group/i })).toBeInTheDocument();
   });
 
@@ -553,14 +569,16 @@ describe('Add to group sub-flow', () => {
     );
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
-    fireEvent.click(screen.getByText('▸ Hydrology'));
+    // fix(#585): open the "Add to group…" submenu first
+    fireEvent.click(screen.getByTestId('kebab-add-to-group'));
+    fireEvent.click(screen.getByText('Hydrology'));
 
     expect(onAddToGroup).toHaveBeenCalledOnce();
     expect(onAddToGroup).toHaveBeenCalledWith('test-layer', 'g1');
   });
 
-  // Test 4: clicking "＋ New group…" calls onCreateGroupWithLayer
-  it('Test 4: clicking "＋ New group…" calls onCreateGroupWithLayer(layerId)', () => {
+  // Test 4: clicking "New group…" calls onCreateGroupWithLayer
+  it('Test 4: clicking "New group…" calls onCreateGroupWithLayer(layerId)', () => {
     const layer = makeLayer({ id: 'new-group-layer' });
     const onCreateGroupWithLayer = vi.fn();
     render(
@@ -573,6 +591,8 @@ describe('Add to group sub-flow', () => {
     );
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    // fix(#585): open the "Add to group…" submenu first
+    fireEvent.click(screen.getByTestId('kebab-add-to-group'));
     fireEvent.click(screen.getByRole('menuitem', { name: /New group/i }));
 
     expect(onCreateGroupWithLayer).toHaveBeenCalledOnce();

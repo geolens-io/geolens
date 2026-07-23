@@ -193,6 +193,23 @@ describe('BasemapGroupRow', () => {
     expect(onResetAppearance).toHaveBeenCalledOnce();
   });
 
+  // fix(#585): "Reset appearance" disables (with an inline reason) when the
+  // basemap has no appearance customizations to reset.
+  it('Test 7b: "Reset appearance" is disabled with a reason when hasCustomAppearance=false', () => {
+    const onResetAppearance = vi.fn();
+    render(
+      <BasemapGroupRow {...defaultProps({ onResetAppearance, hasCustomAppearance: false })} />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /options/i }), { button: 0, ctrlKey: false });
+    const resetItem = screen.getByTestId('basemap-reset-appearance');
+    expect(resetItem).toHaveAttribute('data-disabled');
+    expect(screen.getByText('Appearance is already at defaults')).toBeInTheDocument();
+
+    fireEvent.click(resetItem);
+    expect(onResetAppearance).not.toHaveBeenCalled();
+  });
+
   it('Test 8: row name renders "Basemap · {presetName}" with provider label at muted weight', () => {
     render(<BasemapGroupRow {...defaultProps({ presetName: 'Positron', providerLabel: 'OpenFreeMap' })} />);
 

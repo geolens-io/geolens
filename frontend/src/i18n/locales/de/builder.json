@@ -832,6 +832,7 @@
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
     "duplicateMap": "Karte duplizieren",
+    "duplicatingMap": "Wird dupliziert…",
     "viewAsViewer": "Als Betrachter anzeigen",
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
@@ -1180,6 +1181,7 @@
     "railLabel": "Basiskarten-Gruppe",
     "removeBasemap": "Basiskarte entfernen",
     "resetAppearance": "Darstellung zurücksetzen",
+    "resetAppearanceHint": "Das Erscheinungsbild entspricht bereits den Standardwerten",
     "rowName": "Basiskarte · {{name}}",
     "sublayersSectionHint": "Auf einen Sublayer in der Seitenleiste klicken, um ihn einzeln zu gestalten.",
     "sublayersSectionLabel": "SUBLAYER",
@@ -1236,7 +1238,7 @@
     "deleteConfirmMessage": "Diese Gruppe und alle ihre Layer löschen?",
     "deleteConfirmAction": "Alle löschen",
     "deleteConfirmCancel": "Gruppe behalten",
-    "newGroupItem": "＋ Neue Gruppe…",
+    "newGroupItem": "Neue Gruppe…",
     "toggleExpand": "Ordnergruppe umschalten"
   },
   "layerEditor": {

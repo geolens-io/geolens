@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { FocusEvent, KeyboardEvent, MouseEvent } from 'react';
 import { GripVertical } from 'lucide-react';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 // builder-audit #338 STACK-04: shared 6-cell grid template for every stack row
@@ -113,5 +114,58 @@ export function DragGripButton({
     >
       <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
     </button>
+  );
+}
+
+// fix(#585): ONE inline delete-confirmation pattern for stack rows. StackRow
+// and FolderGroupRow previously rendered two visually different confirm boxes
+// for the same interaction; this is the single shared shape (destructive-tint
+// box, small buttons, cancel autofocused per AUD-09 so Enter dismisses rather
+// than destroys). BulkActionBar keeps its horizontal single-line variant — its
+// confirm lives INSIDE the fixed-height toolbar, not below a row.
+interface InlineDeleteConfirmProps {
+  /** ids the aria-labelledby / message paragraph; must be unique per row. */
+  confirmId: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export function InlineDeleteConfirm({
+  confirmId,
+  message,
+  confirmLabel,
+  cancelLabel,
+  onConfirm,
+  onCancel,
+}: InlineDeleteConfirmProps) {
+  return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+    <div
+      role="alertdialog"
+      aria-labelledby={confirmId}
+      className="mx-2 mb-2 flex flex-col gap-2 p-3 bg-destructive/10 rounded-md"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <p id={confirmId} className="text-sm text-destructive">
+        {message}
+      </p>
+      <div className="flex gap-2">
+        <Button size="sm" variant="destructive" onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onCancel}
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on the safe action so Enter dismisses, not destroys (AUD-09)
+          autoFocus
+        >
+          {cancelLabel}
+        </Button>
+      </div>
+    </div>
   );
 }
