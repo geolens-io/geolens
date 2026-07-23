@@ -1011,7 +1011,7 @@ async def rename_reserved_columns(
     survive OGR's laundering). A colon inside a double-quoted identifier is
     parsed as a bind parameter by SQLAlchemy ``text()``, so such names break
     every downstream text()-built query (sampling, column stats, tiles).
-    They are laundered to underscore-safe names (``:id`` -> ``_id``).
+    They are laundered to letter-leading safe names (``:id`` -> ``id``).
 
     Only renames columns that were NOT created by the ingest pipeline itself:
     - ``gid``: pipeline creates it as a serial PRIMARY KEY (column_default is
@@ -1075,8 +1075,13 @@ async def rename_reserved_columns(
 
                 if ":" in col_name:
                     # fix(#640): colon-bearing (Socrata-style) column —
-                    # launder to an underscore-safe name.
-                    base = re.sub(r"[^A-Za-z0-9_]", "_", col_name)[:63] or "col"
+                    # launder to a safe name. Must start with a letter or the
+                    # column-stats/distinct-values identifier validator
+                    # rejects it (codex P2 on #646): ":id" -> "id", not "_id".
+                    base = re.sub(r"[^A-Za-z0-9_]", "_", col_name).strip("_")
+                    if not base or not base[0].isalpha():
+                        base = f"col_{base}" if base else "col"
+                    base = base[:63]
                 else:
                     # Determine if this column was created by the pipeline or came from the source.
                     if col_name == "gid":

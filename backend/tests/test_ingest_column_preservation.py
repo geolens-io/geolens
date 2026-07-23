@@ -641,12 +641,21 @@ class TestSocrataColonColumns:
             assert all(":" not in n for n in landed), (
                 f"Colon survived the rename pass: {landed}"
             )
-            assert "_id" in landed  # ':id' laundered
+            assert "id" in landed  # ':id' laundered, letter-leading
 
             # Untouched source column is still present and sampled.
             cols = await get_column_info(test_db_session, table)
             samples = await get_sample_values(test_db_session, table, cols)
             assert "street" in samples
-            assert "_id" in samples
+            assert "id" in samples
+
+            # codex P2 on #646: renamed columns must pass the column-stats
+            # identifier validator, or /columns/{c}/stats + /values 400.
+            from app.modules.catalog.datasets.domain.column_stats import (
+                get_column_stats,
+            )
+
+            stats = await get_column_stats(test_db_session, table, "id")
+            assert stats["count"] == 2
         finally:
             await _drop_table(test_db_session, table)
