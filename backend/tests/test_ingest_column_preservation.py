@@ -642,6 +642,10 @@ class TestSocrataColonColumns:
                 f"Colon survived the rename pass: {landed}"
             )
             assert "id" in landed  # ':id' laundered, letter-leading
+            # ':geom' must NOT land as the internal name 'geom' — the
+            # staging pipeline renames _geolens_geom to geom later.
+            assert "src_geom" in landed
+            assert "geom" not in landed
 
             # Untouched source column is still present and sampled.
             cols = await get_column_info(test_db_session, table)

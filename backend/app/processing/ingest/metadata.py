@@ -1081,6 +1081,12 @@ async def rename_reserved_columns(
                     base = re.sub(r"[^A-Za-z0-9_]", "_", col_name).strip("_")
                     if not base or not base[0].isalpha():
                         base = f"col_{base}" if base else "col"
+                    # A laundered name may hit an internal name (":geom" ->
+                    # "geom") — apply the reserved-name rule so the staging
+                    # pipeline's own geometry columns stay uncontested
+                    # (codex P2 round 2 on #646).
+                    if base in RESERVED_COLUMN_NAMES:
+                        base = f"src_{base}"
                     base = base[:63]
                 else:
                     # Determine if this column was created by the pipeline or came from the source.
