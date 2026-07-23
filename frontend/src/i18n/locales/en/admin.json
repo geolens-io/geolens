@@ -309,6 +309,12 @@
     "openaiKeyRequired": "OPENAI_API_KEY is not set. Embedding generation requires an OpenAI-compatible API key, even when using Anthropic for inference.",
     "keyConfigured": "configured",
     "keyNotSet": "not set",
+    "testConnection": "Test Connection",
+    "testing": "Testing…",
+    "testConnectionDescription": "Runs a live call against each configured provider to verify keys and connectivity. Uses a small number of provider tokens.",
+    "testConnectionFailed": "Connection test failed",
+    "probeOk": "OK",
+    "probeFailed": "failed",
     "regenerateAll": "Regenerate All",
     "labels": {
       "aiEnabled": "AI Chat Enabled",

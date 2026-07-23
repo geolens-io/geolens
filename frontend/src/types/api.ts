@@ -1313,6 +1313,18 @@ export interface MapAccessResponse {
 }
 
 // AI Status
+export interface AIProbeCheck {
+  configured: boolean;
+  ok: boolean | null;
+  status?: number | null;
+  error?: string | null;
+}
+
+export interface AIProbeReport {
+  chat: AIProbeCheck;
+  embeddings: AIProbeCheck;
+}
+
 export interface AIStatusResponse {
   provider: string | null;
   model: string | null;
@@ -1320,6 +1332,8 @@ export interface AIStatusResponse {
   configured: boolean;
   semantic_search_enabled: boolean;
   has_embeddings: boolean;
+  // Present only when the request opted in via ?probe=true (#635).
+  probe?: AIProbeReport;
 }
 
 export interface EmbeddingStatsResponse {

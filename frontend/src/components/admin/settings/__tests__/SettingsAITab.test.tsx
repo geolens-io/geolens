@@ -1,6 +1,8 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { SettingsAITab } from '../SettingsAITab';
 import type { SettingItem } from '@/api/settings';
+import { probeAIStatus } from '@/api/admin';
 
 // #347 (ADM-05) regression: the Embedding Coverage box has two buttons ("Generate
 // Missing" + "Regenerate All") backed by one backfill mutation. Each spinner
@@ -38,6 +40,11 @@ vi.mock('@/hooks/use-settings', async (importOriginal) => {
     ...actual,
     useApiKeyStatus: () => ({ data: { configured: true } }),
   };
+});
+
+vi.mock('@/api/admin', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/admin')>();
+  return { ...actual, probeAIStatus: vi.fn() };
 });
 
 function renderTab(settings: SettingItem[] = []) {
@@ -91,5 +98,66 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
     expect(screen.getByRole('switch', { name: 'Semantic Search' })).toBeChecked();
     expect(screen.queryByText('Embedding Coverage')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Generate Missing' })).not.toBeInTheDocument();
+  });
+});
+
+// feat(#635): Test Connection button drives the live ?probe=true endpoint.
+describe('SettingsAITab — Test Connection probe (#635)', () => {
+  const mockProbe = vi.mocked(probeAIStatus);
+
+  beforeEach(() => {
+    hoisted.canManageUsers = true;
+    hoisted.backfill = { mutate: vi.fn(), isPending: false, variables: undefined };
+    mockProbe.mockReset();
+  });
+
+  it('renders per-purpose results after a probe: chat ok, embeddings failed', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValue({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: true, ok: false, status: 401, error: 'authentication failed' },
+      },
+    });
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+
+    await waitFor(() => expect(screen.getByText('OK')).toBeInTheDocument());
+    expect(screen.getByText('authentication failed')).toBeInTheDocument();
+    expect(mockProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows "not set" for an unconfigured purpose (no live call was made)', async () => {
+    const user = userEvent.setup();
+    mockProbe.mockResolvedValue({
+      provider: 'anthropic',
+      model: 'claude',
+      enabled: true,
+      configured: true,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+      probe: {
+        chat: { configured: true, ok: true },
+        embeddings: { configured: false, ok: null },
+      },
+    });
+    renderTab();
+
+    await user.click(screen.getByRole('button', { name: /Test Connection/ }));
+
+    await waitFor(() => expect(screen.getByText('not set')).toBeInTheDocument());
+  });
+
+  it('hides the button for a settings-only operator (probe needs manage_users)', () => {
+    hoisted.canManageUsers = false;
+    renderTab();
+    expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
   });
 });

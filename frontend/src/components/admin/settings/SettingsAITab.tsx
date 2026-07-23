@@ -18,6 +18,8 @@ import { useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } fro
 import { usePermissions } from '@/hooks/use-permissions';
 import { detectEmbeddingDims } from '@/api/settings';
 import type { SettingItem } from '@/api/settings';
+import { probeAIStatus } from '@/api/admin';
+import type { AIProbeCheck, AIProbeReport } from '@/types/api';
 
 interface TabProps {
   settings: SettingItem[];
@@ -54,6 +56,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
 
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS);
   const [isDetecting, setIsDetecting] = useState(false);
+  const [isProbing, setIsProbing] = useState(false);
+  const [probe, setProbe] = useState<AIProbeReport | null>(null);
 
   // Alias for readability in JSX
   const aiEnabled = values.ai_enabled as boolean;
@@ -102,6 +106,38 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
       setIsDetecting(false);
     }
   };
+
+  const handleTestConnection = async () => {
+    setIsProbing(true);
+    try {
+      const result = await probeAIStatus();
+      setProbe(result.probe ?? null);
+    } catch {
+      toast.error(t('ai.testConnectionFailed'));
+    } finally {
+      setIsProbing(false);
+    }
+  };
+
+  const probeRow = (label: string, check: AIProbeCheck) => (
+    <div className="flex items-center gap-2 text-sm">
+      {!check.configured ? (
+        <XCircle className="h-4 w-4 text-muted-foreground" />
+      ) : check.ok ? (
+        <CheckCircle2 className="h-4 w-4 text-success" />
+      ) : (
+        <XCircle className="h-4 w-4 text-destructive" />
+      )}
+      <span>{label}</span>
+      <span className="text-muted-foreground">
+        {!check.configured
+          ? t('ai.keyNotSet')
+          : check.ok
+            ? t('ai.probeOk')
+            : (check.error ?? t('ai.probeFailed'))}
+      </span>
+    </div>
+  );
 
   const openaiKeyMissing = keyStatus && !keyStatus.openai_configured;
 
@@ -449,6 +485,35 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
                 <Badge variant="secondary" className="text-xs">{openaiUsages.join(' + ')}</Badge>
               )}
             </div>
+          </div>
+        )}
+
+        {/* feat(#635): live probe — reader permission is manage_users, so a
+            settings-only operator would 403; hide rather than dangle a dead button. */}
+        {canManageUsers && (
+          <div className="mt-4 space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestConnection}
+              disabled={isProbing}
+            >
+              {isProbing ? (
+                <Loader2 className="me-1.5 h-3 w-3 animate-spin" />
+              ) : (
+                <Zap className="me-1.5 h-3 w-3" />
+              )}
+              {isProbing ? t('ai.testing') : t('ai.testConnection')}
+            </Button>
+            <p className="text-sm text-muted-foreground max-w-md">
+              {t('ai.testConnectionDescription')}
+            </p>
+            {probe && (
+              <div className="space-y-1.5 pt-1">
+                {probeRow(t('ai.inference'), probe.chat)}
+                {probeRow(t('ai.embeddings'), probe.embeddings)}
+              </div>
+            )}
           </div>
         )}
       </div>

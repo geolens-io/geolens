@@ -174,6 +174,12 @@ export async function getAIStatus(): Promise<AIStatusResponse> {
   return apiFetch<AIStatusResponse>('/admin/ai-status/');
 }
 
+// feat(#635): live provider probe — spends real provider tokens, so only
+// invoked from an explicit admin action, never on page load.
+export async function probeAIStatus(): Promise<AIStatusResponse> {
+  return apiFetch<AIStatusResponse>('/admin/ai-status/?probe=true');
+}
+
 // Infrastructure
 export async function getInfrastructure(): Promise<InfrastructureResponse> {
   return apiFetch<InfrastructureResponse>('/admin/infrastructure/');
