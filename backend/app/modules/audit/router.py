@@ -45,6 +45,7 @@ from app.modules.audit.service import (
     audit_emit_durable,
     query_audit_logs,
     query_column_ddl_history,
+    resolve_resource_names,
     stream_audit_logs,
 )
 from app.core.identity import Identity
@@ -271,6 +272,7 @@ async def list_audit_logs(
         skip=skip,
         limit=limit,
     )
+    resource_names = await resolve_resource_names(db, logs)
     return AuditLogListResponse(
         logs=[
             AuditLogResponse(
@@ -280,6 +282,7 @@ async def list_audit_logs(
                 action=log.action,
                 resource_type=log.resource_type,
                 resource_id=log.resource_id,
+                resource_name=resource_names.get((log.resource_type, log.resource_id)),
                 details=log.details,
                 ip_address=log.ip_address,
                 created_at=log.created_at,

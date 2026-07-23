@@ -93,6 +93,51 @@ async def test_dataset_view_creates_audit_log(
     assert any(e["action"] == "dataset.view" for e in entries)
 
 
+@pytest.mark.anyio
+async def test_audit_log_resolves_dataset_resource_name(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#620): list endpoint returns the dataset title as resource_name."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session, created_by=admin_id, name="Audit Name Target"
+    )
+
+    view_resp = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+    assert view_resp.status_code == 200
+
+    log_resp = await client.get(
+        "/admin/audit-logs/",
+        params={"resource_id": str(ds.id)},
+        headers=admin_auth_header,
+    )
+    assert log_resp.status_code == 200
+    entries = log_resp.json()["logs"]
+    assert len(entries) >= 1
+    assert all(e["resource_name"] == "Audit Name Target" for e in entries)
+
+    # A row pointing at a deleted/unknown resource resolves to None, not an error.
+    from app.modules.audit.service import log_action
+
+    ghost_id = uuid.uuid4()
+    await log_action(
+        test_db_session, admin_id, "dataset.view", "dataset", resource_id=ghost_id
+    )
+    await test_db_session.commit()
+
+    log_resp = await client.get(
+        "/admin/audit-logs/",
+        params={"resource_id": str(ghost_id)},
+        headers=admin_auth_header,
+    )
+    assert log_resp.status_code == 200
+    entries = log_resp.json()["logs"]
+    assert len(entries) == 1
+    assert entries[0]["resource_name"] is None
+
+
 # ---------------------------------------------------------------------------
 # Audit log filtering tests
 # ---------------------------------------------------------------------------

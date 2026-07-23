@@ -5540,6 +5540,8 @@ export interface components {
             ip_address: string | null;
             /** Resource Id */
             resource_id: string | null;
+            /** Resource Name */
+            resource_name?: string | null;
             /** Resource Type */
             resource_type: string;
             /** User Id */

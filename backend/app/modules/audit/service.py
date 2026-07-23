@@ -21,6 +21,7 @@ __all__ = [
     "log_action",
     "query_audit_logs",
     "query_column_ddl_history",
+    "resolve_resource_names",
     "stream_audit_logs",
 ]
 
@@ -218,6 +219,53 @@ async def query_audit_logs(
     logs = [row[0] for row in rows]
     total = int(rows[0][1])
     return logs, total
+
+
+async def resolve_resource_names(
+    session: AsyncSession, logs: list[AuditLog]
+) -> dict[tuple[str, uuid.UUID], str]:
+    """Batch-resolve display names for one page of audit rows (#620).
+
+    Returns ``{(resource_type, resource_id): name}`` for the resource types
+    with a canonical display name (dataset, map, collection, user). Deleted
+    resources and other types are simply absent — callers fall back to None.
+
+    Function-scope cross-module imports mirror the existing ``User`` pattern
+    above (test_layering allowlist: SQL InstrumentedAttribute use only).
+    """
+    from app.modules.auth.models import User
+    from app.modules.catalog.collections.models import Collection
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.modules.catalog.maps.sharing import get_map_names
+
+    ids_by_type: dict[str, set[uuid.UUID]] = {}
+    for log in logs:
+        if log.resource_id is not None:
+            ids_by_type.setdefault(log.resource_type, set()).add(log.resource_id)
+
+    lookups = {
+        "dataset": select(Dataset.id, Record.title).join(
+            Record, Dataset.record_id == Record.id
+        ),
+        "collection": select(Collection.id, Collection.name),
+        "user": select(User.id, User.username),
+    }
+    names: dict[tuple[str, uuid.UUID], str] = {}
+    for resource_type, query in lookups.items():
+        type_ids = ids_by_type.get(resource_type)
+        if not type_ids:
+            continue
+        id_col = query.selected_columns[0]
+        rows = await session.execute(query.where(id_col.in_(type_ids)))
+        names.update({(resource_type, rid): name for rid, name in rows})
+
+    map_ids = ids_by_type.get("map")
+    if map_ids:
+        # Stable sharing API — audit must not import catalog map ORM internals
+        # (test_layering.py::test_open_core_decomposition_boundaries_stay_clean).
+        map_names = await get_map_names(session, map_ids)
+        names.update({("map", mid): name for mid, name in map_names.items()})
+    return names
 
 
 # SEC-FU-08: Column DDL action strings emitted by the column-DDL endpoints

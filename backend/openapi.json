@@ -1293,6 +1293,17 @@
             ],
             "title": "Resource Id"
           },
+          "resource_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Name"
+          },
           "resource_type": {
             "title": "Resource Type",
             "type": "string"

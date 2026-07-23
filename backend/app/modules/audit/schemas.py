@@ -22,6 +22,10 @@ class AuditLogResponse(BaseModel):
     action: str
     resource_type: str
     resource_id: uuid.UUID | None
+    # fix(#620): display name of the target resource (dataset/map/collection
+    # title, user username), resolved at query time. None when the resource
+    # was deleted or its type has no canonical name.
+    resource_name: str | None = None
     details: dict | None
     ip_address: str | None
     created_at: datetime

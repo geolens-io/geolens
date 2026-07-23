@@ -32,6 +32,7 @@ class AuditLogResponse:
         resource_id (None | UUID):
         resource_type (str):
         user_id (None | UUID):
+        resource_name (None | str | Unset):
         username (None | str | Unset):
     """
 
@@ -43,6 +44,7 @@ class AuditLogResponse:
     resource_id: None | UUID
     resource_type: str
     user_id: None | UUID
+    resource_name: None | str | Unset = UNSET
     username: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -80,6 +82,12 @@ class AuditLogResponse:
         else:
             user_id = self.user_id
 
+        resource_name: None | str | Unset
+        if isinstance(self.resource_name, Unset):
+            resource_name = UNSET
+        else:
+            resource_name = self.resource_name
+
         username: None | str | Unset
         if isinstance(self.username, Unset):
             username = UNSET
@@ -100,6 +108,8 @@ class AuditLogResponse:
                 "user_id": user_id,
             }
         )
+        if resource_name is not UNSET:
+            field_dict["resource_name"] = resource_name
         if username is not UNSET:
             field_dict["username"] = username
 
@@ -172,6 +182,15 @@ class AuditLogResponse:
 
         user_id = _parse_user_id(d.pop("user_id"))
 
+        def _parse_resource_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        resource_name = _parse_resource_name(d.pop("resource_name", UNSET))
+
         def _parse_username(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -190,6 +209,7 @@ class AuditLogResponse:
             resource_id=resource_id,
             resource_type=resource_type,
             user_id=user_id,
+            resource_name=resource_name,
             username=username,
         )
 

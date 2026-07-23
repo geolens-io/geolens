@@ -530,6 +530,7 @@ export interface AuditLogResponse {
   action: string;
   resource_type: string | null;
   resource_id: string | null;
+  resource_name: string | null;
   details: Record<string, unknown> | null;
   ip_address: string | null;
   created_at: string;

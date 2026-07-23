@@ -223,6 +223,7 @@
       "user": "Utilisateur",
       "action": "Action",
       "resource": "Ressource",
+      "resourceName": "Nom",
       "resourceId": "ID de ressource",
       "ipAddress": "Adresse IP",
       "details": "Détails",
