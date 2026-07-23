@@ -282,6 +282,7 @@
     "testConnection": "Probar conexión",
     "testing": "Probando…",
     "testConnectionDescription": "Realiza una llamada real a cada proveedor configurado para verificar las claves y la conectividad. Consume una pequeña cantidad de tokens del proveedor.",
+    "testConnectionDirty": "Guarda tus cambios primero — la prueba se ejecuta con la configuración guardada.",
     "testConnectionFailed": "La prueba de conexión falló",
     "probeOk": "OK",
     "probeFailed": "falló",

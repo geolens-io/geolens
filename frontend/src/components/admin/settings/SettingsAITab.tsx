@@ -495,11 +495,13 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             settings-only operator would 403; hide rather than dangle a dead button. */}
         {canManageUsers && (
           <div className="mt-4 space-y-2">
+            {/* fix(#652): the probe resolves PERSISTED settings — block it while
+                the form is dirty so green results can't vouch for unsaved edits. */}
             <Button
               variant="outline"
               size="sm"
               onClick={handleTestConnection}
-              disabled={isProbing}
+              disabled={isProbing || hasDirty}
             >
               {isProbing ? (
                 <Loader2 className="me-1.5 h-3 w-3 animate-spin" />
@@ -509,7 +511,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
               {isProbing ? t('ai.testing') : t('ai.testConnection')}
             </Button>
             <p className="text-sm text-muted-foreground max-w-md">
-              {t('ai.testConnectionDescription')}
+              {hasDirty ? t('ai.testConnectionDirty') : t('ai.testConnectionDescription')}
             </p>
             {probe && (
               <div className="space-y-1.5 pt-1">

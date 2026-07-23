@@ -282,6 +282,7 @@
     "testConnection": "Tester la connexion",
     "testing": "Test en cours…",
     "testConnectionDescription": "Effectue un appel réel vers chaque fournisseur configuré pour vérifier les clés et la connectivité. Consomme une petite quantité de jetons du fournisseur.",
+    "testConnectionDirty": "Enregistrez d'abord vos modifications — le test s'exécute avec la configuration enregistrée.",
     "testConnectionFailed": "Échec du test de connexion",
     "probeOk": "OK",
     "probeFailed": "échec",

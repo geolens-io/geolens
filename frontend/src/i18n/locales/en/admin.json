@@ -312,6 +312,7 @@
     "testConnection": "Test Connection",
     "testing": "Testing…",
     "testConnectionDescription": "Runs a live call against each configured provider to verify keys and connectivity. Uses a small number of provider tokens.",
+    "testConnectionDirty": "Save your changes first — the test runs against the saved configuration.",
     "testConnectionFailed": "Connection test failed",
     "probeOk": "OK",
     "probeFailed": "failed",

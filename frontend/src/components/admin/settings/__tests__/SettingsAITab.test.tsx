@@ -161,6 +161,22 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
   });
 
+  // fix(#652): the probe tests PERSISTED settings — a dirty form must not
+  // let green results vouch for unsaved edits.
+  it('disables the button and explains while the form has unsaved changes', async () => {
+    const user = userEvent.setup();
+    // dirty-tracking only covers fields present in the server settings list
+    renderTab([{ key: 'llm_model', value: 'claude-3', source: 'default', label: 'Model' }]);
+
+    await user.type(screen.getByRole('textbox', { name: 'Model' }), 'claude-x');
+
+    expect(screen.getByRole('button', { name: /Test Connection/ })).toBeDisabled();
+    expect(
+      screen.getByText('Save your changes first — the test runs against the saved configuration.'),
+    ).toBeInTheDocument();
+    expect(mockProbe).not.toHaveBeenCalled();
+  });
+
   // fix(#652): a failed retry must not keep showing the previous green rows.
   it('clears prior results when a retry fails before returning a probe body', async () => {
     const user = userEvent.setup();

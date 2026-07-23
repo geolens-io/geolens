@@ -282,6 +282,7 @@
     "testConnection": "Verbindung testen",
     "testing": "Wird getestet…",
     "testConnectionDescription": "Führt einen Live-Aufruf an jeden konfigurierten Anbieter aus, um Schlüssel und Konnektivität zu prüfen. Verbraucht eine kleine Menge Anbieter-Tokens.",
+    "testConnectionDirty": "Speichern Sie zuerst Ihre Änderungen — der Test wird mit der gespeicherten Konfiguration ausgeführt.",
     "testConnectionFailed": "Verbindungstest fehlgeschlagen",
     "probeOk": "OK",
     "probeFailed": "fehlgeschlagen",
