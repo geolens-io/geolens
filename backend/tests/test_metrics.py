@@ -70,6 +70,33 @@ async def test_refresh_job_metrics_handles_db_error():
         await _refresh_job_metrics()
 
 
+def _mock_engine_returning(rows):
+    result = MagicMock()
+    result.fetchall.return_value = rows
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock(return_value=result)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_engine = MagicMock()
+    mock_engine.connect = MagicMock(return_value=mock_conn)
+    return mock_engine
+
+
+@pytest.mark.asyncio
+async def test_refresh_job_metrics_zeroes_drained_queues():
+    """fix(#655): a queue whose todo/doing rows vanish reads 0, not its last value."""
+    rows = [("todo", "q655", 7), ("doing", "q655", 2)]
+    with patch("app.core.db.engine", _mock_engine_returning(rows)):
+        await _refresh_job_metrics()
+    assert jobs_queue_depth.labels(queue="q655")._value.get() == 7.0
+    assert jobs_active.labels(queue="q655")._value.get() == 2.0
+
+    with patch("app.core.db.engine", _mock_engine_returning([])):
+        await _refresh_job_metrics()
+    assert jobs_queue_depth.labels(queue="q655")._value.get() == 0.0
+    assert jobs_active.labels(queue="q655")._value.get() == 0.0
+
+
 @pytest.mark.asyncio
 async def test_refresh_pool_metrics_skips_non_queuepool():
     """Pool metrics collector skips when pool is not QueuePool."""
