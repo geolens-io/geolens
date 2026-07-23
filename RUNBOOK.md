@@ -312,7 +312,8 @@ targets just need network reach to `api:8000` and `worker:8001`.
 |---|---|---|
 | `GeoLensTargetDown` | API or worker unscrapeable for >2m | critical |
 | `GeoLensApiHigh5xxRate` | 5xx share of requests >5% over 5m | critical |
-| `GeoLensApiHighLatencyP95` | p95 request latency >1s, sustained 10m | warning |
+| `GeoLensApiInteractiveLatencyP95` | non-tile p95 at the 1s histogram ceiling for 10m | warning |
+| `GeoLensApiTileLatencyMean` | mean `/tiles/*` latency >2s for 10m | warning |
 | `GeoLensJobQueueBacklog` | any queue >100 jobs for 15m | warning |
 | `GeoLensJobFailures` | >5 job failures in 15m | warning |
 | `GeoLensDbPoolSaturated` | connection-pool overflow in use for >10m | warning |
