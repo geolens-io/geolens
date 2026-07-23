@@ -10,6 +10,7 @@ import { DataTab } from '../tabs/DataTab';
 import { StructureTab } from '../tabs/StructureTab';
 import { SourcesTab } from '../tabs/SourcesTab';
 import { AccessTab } from '../tabs/AccessTab';
+import { useAuthStore } from '@/stores/auth-store';
 
 export interface DetailPanelProps {
   dataset: DatasetResponse;
@@ -51,7 +52,25 @@ export function DetailPanel(props: DetailPanelProps) {
 
   const showData = isVector;
   const showStructure = isVector;
-  const showSources = isVrt;
+  // fix(#644): SourcesTab's queries need an authenticated user (the VRT GET
+  // routes visibility-check but reject anonymous), so showing the tab to
+  // anonymous viewers could only ever render 401 noise. Signed-in non-owners
+  // keep the read-only view (codex P2 on #649); mutation controls inside the
+  // tab stay gated by canEdit.
+  const isAuthenticated = useAuthStore((s) => !!s.token);
+  const showSources = isVrt && isAuthenticated;
+
+  // fix(#649 codex r2): a deep link or sign-out can leave activeTab pointing
+  // at a tab whose trigger/content are hidden (anonymous + #sources, ?tab=data
+  // on a raster, …); Radix controlled tabs then render nothing below the tab
+  // list. Clamp to Overview whenever the selected tab isn't visible.
+  const hiddenTabs = {
+    data: !showData,
+    structure: !showStructure,
+    sources: !showSources,
+  } as const;
+  const effectiveTab =
+    hiddenTabs[activeTab as keyof typeof hiddenTabs] ? 'overview' : activeTab;
 
   const draftValues = useMemo(() => ({
     lineage_summary: resolveDraftValue('lineage_summary'),
@@ -65,7 +84,7 @@ export function DetailPanel(props: DetailPanelProps) {
   }), [resolveDraftValue]);
 
   return (
-    <Tabs value={activeTab} onValueChange={onTabChange}>
+    <Tabs value={effectiveTab} onValueChange={onTabChange}>
       <TabsList className="w-full sticky top-0 z-20 bg-background border-b">
         <TabsTrigger value="overview">{t('tabs.overview')}</TabsTrigger>
         <TabsTrigger value="metadata">{t('tabs.metadata')}</TabsTrigger>

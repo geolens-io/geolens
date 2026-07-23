@@ -11,6 +11,11 @@
          the page carries a strict script-src 'self' CSP with no inline script.
          Render-blocking, so it still runs before first paint. -->
     <script src="/theme-init.js"></script>
+    <!-- fix(#645): one-shot reload when a stale shell's hashed assets 404 after a
+         deploy. External (not inline) for the SEC-020 script-src 'self' CSP; must
+         be in <head> before the hashed asset tags so the capture-phase listener
+         sees their error events. -->
+    <script src="/asset-guard.js"></script>
     <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />

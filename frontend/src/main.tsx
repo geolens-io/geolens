@@ -15,6 +15,7 @@ import { initializeI18n } from '@/i18n';
 import { AppErrorBoundary } from '@/components/error';
 import { ApiError } from '@/api/client';
 import { initReportCapture, pushReportEntry, redact, reportNetworkError } from '@/lib/report';
+import { installStaleAssetReload } from '@/lib/stale-asset-reload';
 import { wireAuthCacheReset } from '@/lib/auth-cache-reset';
 import { ReportProblemHost } from '@/components/report/ReportProblemHost';
 import { appRoutes } from './App';
@@ -23,6 +24,9 @@ import './index.css';
 // Start capturing console/network/error signal at app load so the in-app
 // problem reporter has history ready the moment a user opens it.
 initReportCapture();
+
+// fix(#645): self-heal tabs whose lazy route chunks vanished behind a deploy.
+installStaleAssetReload();
 
 function reportQueryKey(key: unknown): string | undefined {
   // Surface only the query's namespace (the first string segment, e.g.

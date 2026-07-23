@@ -24,6 +24,7 @@ import { useSummaryDraft } from '@/hooks/use-ai-metadata';
 import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
 import { useKeywords } from '@/components/dataset/hooks/use-records';
 import { useVrtGenerations } from '@/components/import/hooks/use-vrt';
+import { useAuthStore } from '@/stores/auth-store';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
@@ -178,8 +179,14 @@ export function OverviewTab({
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
 
-  // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId disables the query
-  const { data: generationsData } = useVrtGenerations(isVrt ? dataset.id : '', { limit: 1 });
+  // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId
+  // disables the query. fix(#644): also gate on authentication — the endpoint needs
+  // an authenticated user (visibility-checked server-side, not owner-only), so
+  // firing it for anonymous viewers guaranteed 401s on public VRTs (codex P2
+  // on #649: canEdit was too strict — it hid valid read-only data from
+  // signed-in non-owners).
+  const isAuthenticated = useAuthStore((s) => !!s.token);
+  const { data: generationsData } = useVrtGenerations(isVrt && isAuthenticated ? dataset.id : '', { limit: 1 });
   const lastGeneration = generationsData?.generations?.[0];
 
   // ── Sidebar content (right rail) ──
