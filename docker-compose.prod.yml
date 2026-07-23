@@ -230,12 +230,17 @@ services:
     # X-Forwarded-For with $remote_addr at the internet-facing edge (see
     # frontend/nginx.conf). The header is injected at that public edge, so a
     # client could otherwise forge the leftmost value uvicorn trusts.
+    # fix(#643): bounded worker recycling — a worker gracefully exits after
+    # UVICORN_MAX_REQUESTS requests and the uvicorn supervisor respawns it, so
+    # slow memory growth can't ride one worker into the cgroup OOM killer.
+    # Unset/empty disables; the value must be a positive integer.
     command: >
       sh -c "uv run --no-dev uvicorn app.api.main:app
       --host 0.0.0.0 --port 8000
       --workers $${UVICORN_WORKERS:-2}
       --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
       --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
+      $${UVICORN_MAX_REQUESTS:+--limit-max-requests $${UVICORN_MAX_REQUESTS}}
       --proxy-headers --forwarded-allow-ips='*'"
     user: "0:0"
     init: true
@@ -262,6 +267,8 @@ services:
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
+      # fix(#643): recycle each worker after this many requests (empty disables).
+      UVICORN_MAX_REQUESTS: "${UVICORN_MAX_REQUESTS:-10000}"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
