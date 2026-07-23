@@ -314,9 +314,13 @@ async def lifespan(app: FastAPI):
     await init_tile_pool()
     await task_app.open_async()
 
+    from app.observability.metrics.memory import update_memory_metrics
     from app.observability.metrics.pool import update_pool_metrics
 
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
+    # fix(#643): per-worker RSS gauge + log watermark so an OOM-bound worker
+    # is visible in normal logs before the kernel kills it.
+    memory_metrics_task = asyncio.create_task(update_memory_metrics())
 
     async def _stale_jobs_sweeper() -> None:
         """Periodically fail jobs whose worker crashed mid-run.
@@ -394,6 +398,7 @@ async def lifespan(app: FastAPI):
     yield
 
     pool_metrics_task.cancel()
+    memory_metrics_task.cancel()
     stale_jobs_task.cancel()
     rate_limit_warmer_task.cancel()
     await task_app.close_async()
