@@ -1756,6 +1756,54 @@ export interface paths {
         patch: operations["update_dataset_metadata_datasets__dataset_id__patch"];
         trace?: never;
     };
+    "/datasets/{dataset_id}/analysis/materialize/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analysis Materialize Endpoint
+         * @description Materialize an analysis result as a new private dataset (async job).
+         *
+         *     Requires read visibility on the source dataset; the new dataset is owned
+         *     by the caller and counted against their dataset quota (the atomic slot
+         *     reservation runs at registration inside the worker). Poll
+         *     ``GET /jobs/{job_id}`` for progress.
+         */
+        post: operations["analysis_materialize_endpoint_datasets__dataset_id__analysis_materialize__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/analysis/preview/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analysis Preview Endpoint
+         * @description Run a parameterized PostGIS operation and return a GeoJSON preview.
+         *
+         *     Synchronous, read-only, and capped: results are for on-map preview, not
+         *     persistence — use the materialize endpoint to save output as a dataset.
+         */
+        post: operations["analysis_preview_endpoint_datasets__dataset_id__analysis_preview__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/attributes/": {
         parameters: {
             query?: never;
@@ -5338,6 +5386,91 @@ export interface components {
              * @description New column type: text/integer/real/boolean/date/timestamp.
              */
             new_type: string;
+        };
+        /**
+         * AnalysisMaterializeRequest
+         * @description Parameters for materializing an analysis result as a new dataset.
+         */
+        AnalysisMaterializeRequest: {
+            /**
+             * By Field
+             * @description Optional group-by column for dissolve
+             */
+            by_field?: string | null;
+            /**
+             * Distance Meters
+             * @description Buffer distance in meters (buffer only)
+             */
+            distance_meters?: number | null;
+            /**
+             * Mask
+             * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+             */
+            mask?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "buffer" | "centroid" | "clip" | "dissolve";
+            /** Title */
+            title: string;
+        };
+        /**
+         * AnalysisMaterializeResponse
+         * @description Async materialize job handle; poll GET /jobs/{job_id} for progress.
+         */
+        AnalysisMaterializeResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Status */
+            status: string;
+        };
+        /**
+         * AnalysisPreviewRequest
+         * @description Parameters for a synchronous analysis preview.
+         *
+         *     Deliberately flat (no discriminated union) so SDK generators keep the
+         *     endpoint; per-operation requiredness is enforced by the validator.
+         */
+        AnalysisPreviewRequest: {
+            /**
+             * Distance Meters
+             * @description Buffer distance in meters (buffer only)
+             */
+            distance_meters?: number | null;
+            /**
+             * Mask
+             * @description GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+             */
+            mask?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "buffer" | "centroid" | "clip";
+        };
+        /**
+         * AnalysisPreviewResponse
+         * @description GeoJSON FeatureCollection preview of an analysis operation.
+         */
+        AnalysisPreviewResponse: {
+            /** Bbox */
+            bbox?: number[] | null;
+            /** Feature Count */
+            feature_count: number;
+            /** Geojson */
+            geojson: {
+                [key: string]: unknown;
+            };
+            /** Truncated */
+            truncated: boolean;
         };
         /** ApiKeyCreateRequest */
         ApiKeyCreateRequest: {
@@ -21248,6 +21381,224 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    analysis_materialize_endpoint_datasets__dataset_id__analysis_materialize__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisMaterializeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisMaterializeResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    analysis_preview_endpoint_datasets__dataset_id__analysis_preview__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisPreviewResponse"];
                 };
             };
             /** @description Bad request — invalid payload */
