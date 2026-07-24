@@ -481,6 +481,15 @@ services:
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+      # GAP-001: TiTiler RSS ratchets well past GDAL_CACHEMAX under concurrent
+      # tile reads — anonymous heap the allocator never returns (0.3 -> 1.8 GB
+      # over 20h on the demo). Capping glibc arenas slows that: an A/B on the
+      # demo VM (2880 identical tile requests, 4 cores) grew +172 MB at the
+      # 8x-cores default vs +125 MB at 2. It does NOT stop the ratchet — size
+      # TITILER_MEM_LIMIT for the catalog as well, and if RSS still reaches the
+      # limit the next lever is recycling the worker, not a bigger cap.
+      # Overridable: fewer arenas trades malloc contention on many-core hosts.
+      MALLOC_ARENA_MAX: "${MALLOC_ARENA_MAX:-2}"
       # GDAL raster I/O tuning — these control how Titiler reads COG/VRT files
       GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"         # Skip directory listing on S3/HTTP — avoids slow LIST calls per tile
