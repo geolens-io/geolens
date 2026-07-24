@@ -14455,6 +14455,8 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
     query?: {
         /**
          * Limit
+         *
+         * Page size. The ceiling is 10,000 (not the 200 used by offset-paged list endpoints) because this route serves bulk GeoJSON export for OGC clients and pages via the constant-time `after_gid` keyset cursor, so large pages cost response size, not query time.
          */
         limit?: number;
         /**
