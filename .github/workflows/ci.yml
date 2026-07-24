@@ -1601,15 +1601,17 @@ jobs:
         # stac-api-validator fires hundreds of requests back-to-back; the
         # 60 req/s default turns the tail of the run into 429 noise.
         #
-        # The job talks to the api container's own host port (API_PORT=8001
-        # from .env.example, no /api prefix) rather than the Vite dev proxy on
-        # 8080: the maiden run failed on an opaque error through the Vite hop,
-        # and this gate validates the STAC implementation, not the dev proxy.
-        # No -f/-s silent flags — on a bad response the body must land in the
-        # job log.
+        # Everything goes through the Vite proxy on 8080 — NOT the api host
+        # port — because docker-compose.yml defaults PUBLIC_API_URL to
+        # http://localhost:8080/api, so every link the STAC API emits points
+        # there; pystac traversal follows links, and a direct-port root-url
+        # produces a split-brain URL surface. (The maiden-run failure blamed
+        # on the proxy was actually the empty admin username — see the export
+        # step above.) No -f/-s silent flags — on a bad response the body must
+        # land in the job log.
         run: |
           for i in 1 2 3; do
-            resp=$(curl -X POST http://localhost:8001/auth/login \
+            resp=$(curl -X POST http://localhost:8080/api/auth/login \
               -H 'Content-Type: application/x-www-form-urlencoded' \
               --data 'username=admin&password=geolens-ci-admin-password') && \
               token=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["access_token"])' "$resp") && break
@@ -1617,14 +1619,14 @@ jobs:
             sleep 5
           done
           [ -n "${token:-}" ] || { echo "could not obtain an admin token"; exit 1; }
-          curl --fail-with-body -X PUT http://localhost:8001/settings/ \
+          curl --fail-with-body -X PUT http://localhost:8080/api/settings/ \
             -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
             -d '{"settings":{"global_rate_limit":500}}' -o /dev/null
 
       - name: Run stac-api-validator
         run: |
           pipx run stac-api-validator==0.6.8 \
-            --root-url http://localhost:8001/stac/ \
+            --root-url http://localhost:8080/api/stac/ \
             --conformance core \
             --conformance collections \
             --conformance item-search \
