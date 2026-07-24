@@ -7,6 +7,47 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.13] - 2026-07-24
+
+STAC conformance hardening: the STAC API now passes stac-api-validator for
+the core, collections, and item-search conformance classes, and a CI gate
+keeps it that way. Fresh installs with incomplete configuration now fail
+loudly at boot instead of seeding a broken admin account.
+
+### Added
+
+- **STAC API conformance is verified in CI.** Every merge to main and a
+  nightly run boot the full stack, seed a fixture catalog, and run
+  stac-api-validator (v1.0.0 core, collections, and item-search classes)
+  against it, so STAC regressions are caught before they ship.
+- **Published images link back to the repository.** All published Docker
+  images now carry the `org.opencontainers.image.source` label, so GHCR
+  package pages link to the GeoLens repository.
+
+### Changed
+
+- **STAC collection licenses reflect their members.** A collection's
+  `license` field aggregates from its member records (`various` when they
+  mix) instead of hardcoding `proprietary`.
+- **Empty STAC collections are hidden.** Collections with no visible STAC
+  items no longer appear in the catalog with a fabricated global extent;
+  they are omitted from listings and return 404 until they gain an item
+  the requester can see.
+
+### Fixed
+
+- **STAC item-search conformance.** A `limit` above the maximum now clamps
+  to 200 instead of returning an error; `bbox` and `intersects` together
+  are rejected; inverted bounding boxes are rejected; open-ended datetime
+  intervals and lowercase RFC 3339 forms are accepted while malformed
+  datetimes are rejected; optional link fields are omitted instead of
+  serialized as `null`; and the service description is served with its
+  OpenAPI media type.
+- **Empty admin credentials fail at boot.** The API refuses to start when
+  `GEOLENS_ADMIN_USERNAME` or `GEOLENS_ADMIN_PASSWORD` is empty, instead of
+  silently seeding an unusable admin account on a verbatim-template
+  install. The error says exactly which variable to set.
+
 ## [1.4.12] - 2026-07-23
 
 Launch-week hardening: cross-origin map embedding works again on every
@@ -974,7 +1015,9 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.11...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.13...HEAD
+[1.4.13]: https://github.com/geolens-io/geolens/compare/v1.4.12...v1.4.13
+[1.4.12]: https://github.com/geolens-io/geolens/compare/v1.4.11...v1.4.12
 [1.4.11]: https://github.com/geolens-io/geolens/compare/v1.4.10...v1.4.11
 [1.4.10]: https://github.com/geolens-io/geolens/compare/v1.4.9...v1.4.10
 [1.4.9]: https://github.com/geolens-io/geolens/compare/v1.4.8...v1.4.9
