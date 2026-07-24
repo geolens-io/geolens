@@ -1850,3 +1850,21 @@ export interface MapLayerBulkDeleteResponse {
   deleted: string[];
   failed: MapLayerBulkDeleteFailure[];
 }
+
+/** M4 analysis tools: parameterized PostGIS operations. */
+export type AnalysisOperation = 'buffer' | 'centroid' | 'clip';
+
+export interface AnalysisPreviewRequest {
+  operation: AnalysisOperation;
+  /** Buffer distance in meters (buffer only). */
+  distance_meters?: number;
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip only). */
+  mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+}
+
+export interface AnalysisPreviewResponse {
+  geojson: GeoJSON.FeatureCollection;
+  feature_count: number;
+  truncated: boolean;
+  bbox: number[] | null;
+}
