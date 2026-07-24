@@ -17,6 +17,23 @@ const ALLOWLIST = [
       '7.x backport ships or the router is upgraded to >=8.3.0.',
     expires: '2026-09-01',
   },
+  {
+    id: 'GHSA-mh99-v99m-4gvg', // brace-expansion DoS via unbounded expansion (high)
+    reason:
+      'Reached only through the eslint toolchain — eslint / ' +
+      '@typescript-eslint/typescript-estree, and eslint-plugin-jsx-a11y via ' +
+      'minimatch@3. It is a devDependency in every path, so the vulnerable ' +
+      'code is never in the shipped bundle; exploiting it needs an ' +
+      'attacker-controlled glob handed to eslint, and our globs come from ' +
+      'repo-authored config. No in-range fix exists: 1.1.16 is the last of the ' +
+      '1.x line (unpatched), and overriding to the patched 5.0.8 breaks ' +
+      'linting outright — minimatch@3 throws in `new Minimatch` against the ' +
+      '5.x API (verified locally). npm’s only suggested fix is the eslint 10 ' +
+      'major. Drop this entry when eslint 10 lands (Dependabot #595) or a ' +
+      'patched 1.x ships. Shares the react-router expiry so both allowlist ' +
+      'entries get one review date.',
+    expires: '2026-09-01',
+  },
 ];
 
 let raw;
