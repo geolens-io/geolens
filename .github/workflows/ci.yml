@@ -1573,6 +1573,16 @@ jobs:
           sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
           echo "DATABASE_SSL_MODE=disable" >> .env
 
+      # MUST run before Start services, exactly as in the e2e/a11y jobs:
+      # .env.example ships GEOLENS_ADMIN_USERNAME= EMPTY, OS env beats .env in
+      # compose interpolation, and Settings accepts "" — without this export a
+      # fresh stack seeds an admin whose username is the empty string and every
+      # admin login 401s (the failure mode of this job's first two runs).
+      - name: Export admin credentials
+        run: |
+          echo "GEOLENS_ADMIN_USERNAME=admin" >> $GITHUB_ENV
+          echo "GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password" >> $GITHUB_ENV
+
       - name: Start services
         run: docker compose up -d --wait --wait-timeout 120
 
