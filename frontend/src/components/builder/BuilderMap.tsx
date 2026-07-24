@@ -1242,6 +1242,8 @@ export const BuilderMap = memo(function BuilderMap({
   }, [layers.length, mapReady]);
 
   // Cleanup on unmount
+  const onMapRefLatest = useRef(onMapRef);
+  onMapRefLatest.current = onMapRef;
   useEffect(() => {
     return () => {
       if (mapRef.current && errorHandlerRef.current) {
@@ -1266,9 +1268,14 @@ export const BuilderMap = memo(function BuilderMap({
       }
       // Phase 1051 WR-04: keep state mirror in sync on teardown.
       setMapInstance(null);
-      onMapRef?.(null);
+      onMapRefLatest.current?.(null);
     };
-  }, [onMapRef]);
+    // Unmount-only on purpose: depending on `onMapRef` ran this cleanup on
+    // every identity change of the parent callback, nulling the parent's map
+    // ref mid-session (breaking ephemeral overlays / analysis draw) and
+    // detaching the error/styleimagemissing/dataloading/idle handlers with no
+    // re-attach path. The latest callback is read through a ref instead.
+  }, []);
 
   const defaultView = useMemo(() => ({
     longitude: initialViewState?.center_lng ?? mapDefaults?.center_lng ?? 0,
