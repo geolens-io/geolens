@@ -160,7 +160,14 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
       if (!(minX < -180 || minY < -90 || maxX > 180 || maxY > 90 || minX > maxX || minY > maxY)) {
-        handleQueryResult(geojson as GeoJSON.FeatureCollection, [minX, minY, maxX, maxY]);
+        // fix(#674 audit): forward the truncation pair so the badge discloses
+        // "N of TOTAL" rather than presenting a capped overlay as complete.
+        const total = typeof action.row_count === 'number' ? action.row_count : undefined;
+        handleQueryResult(
+          geojson as GeoJSON.FeatureCollection,
+          [minX, minY, maxX, maxY],
+          action.truncated === true && total != null ? { truncated: true, totalCount: total } : undefined,
+        );
       }
     }
     const rows = Array.isArray(action.rows) ? action.rows : null;
@@ -256,6 +263,8 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         <EphemeralBadge
           featureCount={ephemeralResult.geojson.features.length}
           onDismiss={handleDismissEphemeral}
+          truncated={ephemeralResult.truncated}
+          totalCount={ephemeralResult.totalCount}
           className="bottom-32 start-3"
         />
       )}

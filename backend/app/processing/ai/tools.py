@@ -337,8 +337,9 @@ CHAT_TOOLS_ANTHROPIC = [
             "requests that TRANSFORM geometry -- 'buffer the schools by 500 "
             "metres', 'show the centre point of each parcel'. Use query_data "
             "instead for questions ANSWERED from the data (counts, sums, "
-            "which/where/how many). The preview is not saved; tell the user "
-            "they can save it as a dataset from the Analysis panel."
+            "which/where/how many). The preview is temporary and is not "
+            "saved. Do NOT tell the user where to save it -- the tool result "
+            "says what they need to know, and the surfaces differ."
         ),
         "input_schema": {
             "type": "object",

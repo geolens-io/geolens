@@ -16,6 +16,11 @@ export function useEphemeralLayers(
   const [ephemeralResult, setEphemeralResult] = useState<{
     geojson: GeoJSON.FeatureCollection;
     bbox: [number, number, number, number];
+    /** fix(#674 audit): set when the server capped the result, so the badge
+     *  can disclose "N of TOTAL" instead of passing a capped preview off as
+     *  the whole answer. */
+    truncated?: boolean;
+    totalCount?: number;
   } | null>(null);
 
   const clearEphemeralLayer = useCallback(() => {
@@ -128,8 +133,12 @@ export function useEphemeralLayers(
     };
   }, [ephemeralResult, mapInstanceRef]);
 
-  const handleQueryResult = useCallback((geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => {
-    setEphemeralResult({ geojson, bbox });
+  const handleQueryResult = useCallback((
+    geojson: GeoJSON.FeatureCollection,
+    bbox: [number, number, number, number],
+    meta?: { truncated?: boolean; totalCount?: number },
+  ) => {
+    setEphemeralResult({ geojson, bbox, ...meta });
   }, []);
 
   return {

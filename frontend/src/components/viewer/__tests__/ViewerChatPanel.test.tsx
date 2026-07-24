@@ -60,8 +60,10 @@ describe('ViewerChatPanel', () => {
 
     renderPanel();
 
-    expect(screen.getByText(/Query result/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Dismiss query result' }));
+    // fix(#674 audit): the badge labels analysis previews as well as query
+    // results, so its copy is operation-neutral ("Result", not "Query result").
+    expect(screen.getByText(/Result/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss result' }));
     expect(handleDismissEphemeral).toHaveBeenCalled();
   });
 
@@ -119,6 +121,7 @@ describe('ViewerChatPanel', () => {
     expect(handleQueryResult).toHaveBeenCalledWith(
       { type: 'FeatureCollection', features: [] },
       [-1, -1, 1, 1],
+      undefined,
     );
     expect(screen.getByText('Alpha')).toBeInTheDocument();
     expect(screen.getByText('1 row')).toBeInTheDocument();

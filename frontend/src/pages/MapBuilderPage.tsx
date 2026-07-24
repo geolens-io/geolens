@@ -1747,6 +1747,8 @@ export function MapBuilderPage() {
             <EphemeralBadge
               featureCount={layers.ephemeralResult.geojson.features.length}
               onDismiss={layers.handleDismissEphemeral}
+              truncated={layers.ephemeralResult.truncated}
+              totalCount={layers.ephemeralResult.totalCount}
             />
           )}
 

@@ -171,6 +171,59 @@ class TestRunAnalysisActionCollection:
         # Must survive ChatAction validation on the wire.
         assert ChatAction(**action).geojson is not None
 
+    def test_truncated_result_carries_the_disclosure_pair(self) -> None:
+        """fix(#674 audit): a capped preview must not be presented as the whole
+        result — EphemeralBadge renders "N of TOTAL" when both ride along."""
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "feature_count": 500,
+                "truncated": True,
+                "source_feature_count": 10651,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert action["truncated"] is True
+        assert action["row_count"] == 10651
+        # Still no table payload — the badge reads these, the card does not.
+        assert "rows" not in action
+
+    def test_untruncated_result_omits_the_disclosure_pair(self) -> None:
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "feature_count": 12,
+                "truncated": False,
+                "source_feature_count": 12,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert "truncated" not in action
+        assert "row_count" not in action
+
+    def test_truncated_with_unknown_total_omits_the_pair(self) -> None:
+        """A dataset with no feature_count must not yield "500 of None"."""
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "feature_count": 500,
+                "truncated": True,
+                "source_feature_count": None,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert "truncated" not in action
+        assert "row_count" not in action
+
     def test_error_result_emits_no_action(self) -> None:
         action = _collect_chat_action(
             "run_analysis", {"layer_id": "l1"}, {"error": "nope"}

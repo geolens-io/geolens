@@ -137,10 +137,16 @@ async def _run_analysis(
         return out
     out["geojson"] = result.geojson
     out["bbox"] = result.bbox
-    out["note"] = (
-        "Preview only — it is not saved. The user can save it as a dataset "
-        "from the Analysis panel."
-    )
+    if result.truncated:
+        # Surface the source total so the map badge can say "500 of N" rather
+        # than presenting a capped preview as the whole result. buffer and
+        # centroid are 1:1 per feature, so the source count IS the output total.
+        out["source_feature_count"] = getattr(dataset, "feature_count", None)
+    # Deliberately surface-neutral: view-only callers get this tool too (it is
+    # read-only), and they land on the public viewer, which has no Analysis
+    # rail — BuilderRail is rendered by MapBuilderPage alone. Naming the panel
+    # here told half the audience to use something they cannot reach.
+    out["note"] = "This preview is temporary and is not saved."
     return out
 
 
@@ -148,14 +154,23 @@ def collect_run_analysis_action(result: dict) -> dict | None:
     """Build the map action for a run_analysis result, or None when there is none.
 
     run_analysis reuses ``show_query_result`` purely as the ephemeral-overlay
-    carrier: geojson + bbox only, no columns/rows. Every chat surface already
-    renders that pair (fly-to + overlay) and skips the inline data table when
-    ``rows`` is absent — a gid-only table would be noise.
+    carrier: geojson + bbox (+ the truncation pair), never columns/rows. Every
+    chat surface already renders geojson+bbox (fly-to + overlay) and skips the
+    inline data table when ``rows`` is absent — a gid-only table would be noise.
+
+    ``truncated``/``row_count`` ride along only when the 500-feature cap
+    actually bit, so EphemeralBadge can say "500 of 10,651 features" instead of
+    presenting a capped preview as the complete result.
     """
-    if result.get("bbox") and "geojson" in result:
-        return {
-            "type": "show_query_result",
-            "geojson": result["geojson"],
-            "bbox": result["bbox"],
-        }
-    return None
+    if not (result.get("bbox") and "geojson" in result):
+        return None
+    action = {
+        "type": "show_query_result",
+        "geojson": result["geojson"],
+        "bbox": result["bbox"],
+    }
+    total = result.get("source_feature_count")
+    if result.get("truncated") and total:
+        action["truncated"] = True
+        action["row_count"] = total
+    return action

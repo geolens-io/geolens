@@ -131,7 +131,35 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'find features');
 
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox);
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+    });
+  });
+
+  it('forwards the truncation pair so the badge can disclose "N of TOTAL" (#674 audit)', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'show_query_result', geojson, bbox, truncated: true, row_count: 10651 },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Buffered' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'buffer the earthquakes by 10km');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        truncated: true,
+        totalCount: 10651,
+      });
     });
   });
 
@@ -1460,7 +1488,7 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     const props = renderPanel();
     await typeAndSend(user, 'find spatial features');
     await waitFor(() => {
-      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox);
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
     });
     // Negative control — no inline card when rows is absent
     expect(screen.queryByRole('region', { name: /query result table/i })).not.toBeInTheDocument();

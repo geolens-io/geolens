@@ -14,12 +14,15 @@ interface EphemeralBadgeProps {
 }
 
 export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, className }: EphemeralBadgeProps) {
-  const { t } = useTranslation('builder');
+  const { t, i18n } = useTranslation('builder');
 
   const countLabel = truncated && totalCount != null
     ? t('ephemeralBadge.featureCountTruncated', {
         count: featureCount,
-        total: totalCount,
+        // fix(#674 audit): group the total per locale, matching how the rest of
+        // the app renders feature counts (OverviewTab). `count` drives plural
+        // selection so it stays numeric — it is capped anyway, never grouped.
+        total: totalCount.toLocaleString(i18n.language),
         defaultValue: '{{count}} of {{total}} features',
       })
     : t('ephemeralBadge.featureCount', { count: featureCount });

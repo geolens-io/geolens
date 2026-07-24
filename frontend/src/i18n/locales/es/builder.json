@@ -968,10 +968,10 @@
     "skip": "Saltar"
   },
   "ephemeralBadge": {
-    "queryResult": "Resultado de consulta",
+    "queryResult": "Resultado",
     "featureCount_one": "{{count}} entidad",
     "featureCount_other": "{{count}} entidades",
-    "dismiss": "Descartar resultado de consulta",
+    "dismiss": "Descartar resultado",
     "featureCountTruncated": "{{count}} de {{total}} elementos"
   },
   "plugins": {

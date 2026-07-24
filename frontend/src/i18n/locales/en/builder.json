@@ -968,11 +968,11 @@
     "skip": "Skip"
   },
   "ephemeralBadge": {
-    "queryResult": "Query result",
+    "queryResult": "Result",
     "featureCount_one": "{{count}} feature",
     "featureCount_other": "{{count}} features",
     "featureCountTruncated": "{{count}} of {{total}} features",
-    "dismiss": "Dismiss query result"
+    "dismiss": "Dismiss result"
   },
   "plugins": {
     "measurement": {

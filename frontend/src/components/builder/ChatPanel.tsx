@@ -321,7 +321,11 @@ interface ChatPanelProps {
   mapId: string;
   layers: MapLayerResponse[];
   layerActions: LayerActions;
-  onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
+  onQueryResult?: (
+    geojson: GeoJSON.FeatureCollection,
+    bbox: [number, number, number, number],
+    meta?: { truncated?: boolean; totalCount?: number },
+  ) => void;
   /** Use side-by-side layout: messages left, compose right. */
   horizontal?: boolean;
   /** Phase 1135 AI-05: optional viewport context — zoom, bounds, selected layer name.
@@ -474,9 +478,16 @@ export function ChatPanel({
       if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
       // fix(#527 B-054/C-06): inverted bounds also throw in fitBounds.
       if (minX > maxX || minY > maxY) return;
+      // fix(#674 audit): forward the truncation pair so EphemeralBadge can say
+      // "500 of 10,651 features". Both query_data and run_analysis emit them
+      // only when the server-side cap actually bit.
+      const total = typeof action.row_count === 'number' ? action.row_count : undefined;
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
         [minX, minY, maxX, maxY],
+        action.truncated === true && total != null
+          ? { truncated: true, totalCount: total }
+          : undefined,
       );
     }
   }
