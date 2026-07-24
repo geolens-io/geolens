@@ -163,6 +163,7 @@ FROM backend-base AS api
 LABEL org.opencontainers.image.title="geolens-api"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog API"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
@@ -177,6 +178,7 @@ FROM backend-base AS worker
 LABEL org.opencontainers.image.title="geolens-worker"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog worker"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')"
@@ -207,6 +209,7 @@ FROM postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf
 LABEL org.opencontainers.image.title="geolens-backup"
 LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
 # awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path; procps for the
 # compose healthcheck (`pgrep -f backup-entrypoint || pgrep -f sleep`) — pgrep is
@@ -282,6 +285,7 @@ FROM nginxinc/nginx-unprivileged:1.31.3-alpine AS frontend
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
 USER root
 RUN apk upgrade --no-cache

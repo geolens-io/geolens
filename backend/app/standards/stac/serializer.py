@@ -232,6 +232,7 @@ def ogc_collection_to_stac_collection(
     stac_api_url: str,
     keywords: list[str] | None = None,
     summaries: dict | None = None,
+    license: str | None = None,
 ) -> dict:
     """Build a STAC Collection dict from GeoLens collection metadata.
 
@@ -244,11 +245,17 @@ def ogc_collection_to_stac_collection(
     description:
         Collection description (falls back to empty string).
     spatial_extent:
-        ``[west, south, east, north]`` bounding box. Defaults to global.
+        ``[west, south, east, north]`` bounding box. Defaults to global —
+        a schema-validity backstop only (STAC requires a bbox); the router
+        hides collections with no visible items, so in practice this is
+        reached only when every member record has a NULL spatial extent.
     temporal_extent:
         ``[start, end]`` ISO-8601 strings (either can be ``None``).
     stac_api_url:
         Base URL for the STAC API.
+    license:
+        SPDX identifier, ``"various"``, or ``None`` (emitted as STAC 1.0's
+        ``"proprietary"`` placeholder — record licenses are unknown).
     """
     result: dict = {
         "type": "Collection",
@@ -256,7 +263,7 @@ def ogc_collection_to_stac_collection(
         "id": collection_id,
         "title": name,
         "description": description or "",
-        "license": "proprietary",
+        "license": license or "proprietary",
         "extent": {
             "spatial": {
                 "bbox": [spatial_extent or [-180, -90, 180, 90]],

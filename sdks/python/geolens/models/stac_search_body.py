@@ -29,7 +29,7 @@ class StacSearchBody:
         datetime_ (None | str | Unset):
         ids (list[str] | None | Unset):
         intersects (None | StacSearchBodyIntersectsType0 | Unset):
-        limit (int | Unset): Maximum number of items returned (1-200). Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to 200. Default: 10.
         offset (int | Unset): Number of items to skip for pagination. Default: 0.
     """
 

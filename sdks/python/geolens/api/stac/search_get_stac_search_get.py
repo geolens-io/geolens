@@ -148,7 +148,8 @@ def sync_detailed(
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
             (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
             fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
 
@@ -200,7 +201,8 @@ def sync(
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
             (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
             fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
 
@@ -247,7 +249,8 @@ async def asyncio_detailed(
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
             (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
             fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
 
@@ -297,7 +300,8 @@ async def asyncio(
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
             (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
             fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
 

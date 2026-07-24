@@ -1475,6 +1475,7 @@ jobs:
   #                                                  workflow_run on "Prod Compose Smoke"
   # pull_request                                  → NO browser jobs; per-PR Actions budget = 0
   # push(main) + nightly + dispatch               → accessibility (axe + keyboard-nav, below)
+  # push(main) + nightly + dispatch               → stac-validate (stac-api-validator, below)
   accessibility:
     name: Accessibility (axe + keyboard-nav)
     # always() so this still evaluates when the needed jobs are SKIPPED on
@@ -1539,6 +1540,74 @@ jobs:
           name: accessibility-playwright-report
           path: playwright-report/
           retention-days: 14
+
+      - name: Docker Compose logs
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+  stac-validate:
+    name: STAC API conformance (stac-api-validator)
+    # Same trigger/guard shape as the accessibility job above: force-run on
+    # push(main), evaluate on schedule/dispatch despite skipped needs, and stay
+    # off PRs (per-PR Actions budget = 0).
+    if: >-
+      always()
+      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Create .env file
+        run: |
+          cp .env.example .env
+          sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
+          sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=e2e-test-secret-key-padding-32chars-min|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
+          echo "DATABASE_SSL_MODE=disable" >> .env
+
+      - name: Start services
+        run: docker compose up -d --wait --wait-timeout 120
+
+      - name: Seed STAC fixture
+        id: seed
+        # -u 1001 + a tmpfs uv cache: the hardened api container is read-only
+        # and `docker compose exec` defaults to root, whose cache dir is not
+        # writable.
+        run: |
+          out=$(docker compose exec -T -u 1001:1001 -e UV_CACHE_DIR=/tmp/uv-cache api \
+            uv run --no-dev python /app/backend/scripts/seed_stac_ci.py)
+          echo "$out"
+          echo "collection_id=$(echo "$out" | sed -n 's/^collection_id=//p')" >> "$GITHUB_OUTPUT"
+
+      - name: Raise the global rate limit for the validator burst
+        # stac-api-validator fires hundreds of requests back-to-back; the
+        # 60 req/s default turns the tail of the run into 429 noise.
+        run: |
+          token=$(curl -sf -X POST http://localhost:8080/api/auth/login \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'username=admin&password=geolens-ci-admin-password' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          curl -sf -X PUT http://localhost:8080/api/settings/ \
+            -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -d '{"settings":{"global_rate_limit":500}}' -o /dev/null
+
+      - name: Run stac-api-validator
+        run: |
+          pipx run stac-api-validator==0.6.8 \
+            --root-url http://localhost:8080/api/stac/ \
+            --conformance core \
+            --conformance collections \
+            --conformance item-search \
+            --collection "${{ steps.seed.outputs.collection_id }}" \
+            --geometry '{"type": "Polygon", "coordinates": [[[-105, 39], [-104, 39], [-104, 40], [-105, 40], [-105, 39]]]}'
 
       - name: Docker Compose logs
         if: failure()
