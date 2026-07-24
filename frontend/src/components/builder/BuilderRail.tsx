@@ -1,10 +1,11 @@
 import { useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff } from 'lucide-react';
+import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical } from 'lucide-react';
 import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
@@ -14,6 +15,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { Textarea } from '@/components/ui/textarea';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
+const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').then(m => ({ default: m.AnalysisPanel })));
 
 /**
  * Structured disabled-state for the AI rail panel.
@@ -77,7 +79,7 @@ function AIDisabledState() {
   );
 }
 
-export type RailPanel = 'notes' | 'history' | 'ai' | null;
+export type RailPanel = 'notes' | 'history' | 'analysis' | 'ai' | null;
 
 interface BuilderRailProps {
   activePanel: RailPanel;
@@ -92,6 +94,10 @@ interface BuilderRailProps {
   layers?: MapLayerResponse[];
   layerActions?: LayerActions;
   onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
+  // Analysis tools
+  mapInstanceRef?: React.RefObject<MaplibreMap | null>;
+  onClearPreview?: () => void;
+  hasPreview?: boolean;
   /** Phase 1135 AI-05: optional viewport context passed through to ChatPanel for
    *  viewport-aware suggestion chips. Purely additive — omitting this prop has no effect. */
   viewport?: ViewportContext;
@@ -109,6 +115,9 @@ export function BuilderRail({
   layers,
   layerActions,
   onQueryResult,
+  mapInstanceRef,
+  onClearPreview,
+  hasPreview,
   viewport,
   onMarkDirty,
   showRail = true,
@@ -131,6 +140,13 @@ export function BuilderRail({
       id: 'history' as const,
       icon: History,
       label: t('dock.history', { defaultValue: 'History' }),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'analysis' as const,
+      icon: FlaskConical,
+      label: t('analysisTools.title', { defaultValue: 'Analysis' }),
       disabled: false,
       unavailable: false,
     },
@@ -207,6 +223,7 @@ export function BuilderRail({
               <span className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
                 {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
+                {activePanel === 'analysis' && t('analysisTools.title', { defaultValue: 'Analysis' })}
                 {activePanel === 'ai' && (aiAvailable
                   ? t('dock.askAi', { defaultValue: 'Ask AI' })
                   : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' }))}
@@ -240,6 +257,24 @@ export function BuilderRail({
 
             {activePanel === 'history' && (
               <HistoryPanel mapId={mapId} />
+            )}
+
+            {activePanel === 'analysis' && layers && (
+              <LazyLoadErrorBoundary>
+                <Suspense fallback={
+                  <div className="flex-1 flex items-center justify-center p-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                }>
+                  <AnalysisPanel
+                    layers={layers}
+                    mapInstanceRef={mapInstanceRef}
+                    onPreviewResult={onQueryResult}
+                    onClearPreview={onClearPreview}
+                    hasPreview={hasPreview}
+                  />
+                </Suspense>
+              </LazyLoadErrorBoundary>
             )}
 
             {activePanel === 'ai' && !aiAvailable && <AIDisabledState />}

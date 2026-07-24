@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, Info } from 'lucide-react';
+import { FileText, History, Sparkles, Info, FlaskConical } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -783,9 +783,12 @@ export function MapBuilderPage() {
     layers: layers.localLayers,
     layerActions: layers.chatLayerActions,
     onQueryResult: layers.handleQueryResult,
+    mapInstanceRef,
+    onClearPreview: layers.handleDismissEphemeral,
+    hasPreview: !!layers.ephemeralResult,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, handleMarkDirty, viewport]);
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, mapInstanceRef, handleMarkDirty, viewport]);
 
   const mobileRailButtons = useMemo(() => [
     {
@@ -803,6 +806,13 @@ export function MapBuilderPage() {
       unavailable: false,
     },
     {
+      id: 'analysis' as const,
+      icon: FlaskConical,
+      label: t('analysisTools.title', { defaultValue: 'Analysis' }),
+      disabled: false,
+      unavailable: false,
+    },
+    {
       id: 'ai' as const,
       icon: Sparkles,
       label: aiAvailable
@@ -815,6 +825,8 @@ export function MapBuilderPage() {
 
   const railSheetTitle = railPanel === 'history'
     ? t('dock.history', { defaultValue: 'History' })
+    : railPanel === 'analysis'
+    ? t('analysisTools.title', { defaultValue: 'Analysis' })
     : railPanel === 'ai'
       ? aiAvailable
         ? t('dock.askAi', { defaultValue: 'Ask AI' })
@@ -822,6 +834,8 @@ export function MapBuilderPage() {
       : t('dock.notes', { defaultValue: 'Notes' });
   const railSheetDescription = railPanel === 'history'
     ? t('history.timelineLabel', { defaultValue: 'Map edit history' })
+    : railPanel === 'analysis'
+    ? t('analysisTools.description', { defaultValue: 'Run buffer, centroid, and clip operations on a layer' })
     : railPanel === 'ai'
       ? aiAvailable
         ? t('dock.askAi', { defaultValue: 'Ask AI' })
