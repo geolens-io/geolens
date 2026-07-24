@@ -209,6 +209,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_tenant_session_guc",
     # (2) cluster-global geolens_reader role GRANT/REVOKE mutators — must not run
     #     concurrently with each other or the group above (pg_shdepend contention).
+    "test_analysis_materialize",  # register_existing_table → grant_reader_access
     "test_embed_tokens",
     "test_features_crud",
     "test_features_geojson_z",
