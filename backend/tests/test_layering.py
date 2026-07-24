@@ -681,7 +681,8 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
     # _safe_table_ref through the service.py façade re-export, not directly.
     pattern = (
         r"from app\.modules\.catalog\.datasets\.domain\."
-        r"(service_(create|query|lifecycle|metadata|relationships)|_sql_safety)"
+        r"(service_(analysis|create|query|lifecycle|metadata|relationships)"
+        r"|_sql_safety)"
     )
 
     result = _git_grep(pattern, "backend/app/")
@@ -692,6 +693,7 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
     # the test file references the path strings in this docstring.
     allowlist_prefixes = {
         "backend/app/modules/catalog/datasets/domain/service.py",
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py",
         "backend/app/modules/catalog/datasets/domain/service_create.py",
         "backend/app/modules/catalog/datasets/domain/service_query.py",
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py",
