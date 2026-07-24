@@ -230,6 +230,17 @@ class ProcessingPort(Protocol):
         self, session: AsyncSession, user: Identity
     ) -> set[str]: ...
 
+    async def run_analysis_preview(
+        self,
+        session: AsyncSession,
+        dataset: Any,
+        operation: str,
+        *,
+        user_id: uuid.UUID,
+        distance_meters: float | None = None,
+        mask: dict[str, Any] | None = None,
+    ) -> Any: ...  # -> AnalysisPreviewResponse
+
     async def get_column_stats(
         self,
         session: AsyncSession,

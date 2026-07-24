@@ -720,6 +720,9 @@ async def dataset_chat_stream_endpoint(
                 # this the sandbox allowlist is user-wide and generated SQL
                 # could reach any table the user can see.
                 restrict_tables=frozenset({layer.dataset_table_name}),
+                # Dataset chat has no map — withhold the overlay-only
+                # run_analysis tool (M4 Phase 5).
+                has_map=False,
             ):
                 if await request.is_disconnected():
                     break

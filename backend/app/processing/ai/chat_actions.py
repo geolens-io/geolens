@@ -21,6 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.platform.sandbox import SandboxError
+from app.processing.ai.chat_analysis import (
+    collect_run_analysis_action,
+    handle_run_analysis,
+)
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
 from app.processing.ai.chat_geojson import (
     _extract_geojson,
@@ -348,6 +352,11 @@ async def _execute_chat_tool(
             )
             return {"error": "Could not generate or execute query"}
 
+    if tool_name == "run_analysis":
+        # handle_run_analysis owns its own error mapping (including the broad
+        # catch-all) so every failure returns a tool result, never an exception.
+        return await handle_run_analysis(tool_input, session, user, layers, port=port)
+
     if tool_name == "set_data_driven_style":
         return await _build_data_driven_style(tool_input, session, layers, port=port)
 
@@ -464,6 +473,8 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
                 action["geojson"] = result["geojson"]
                 action["bbox"] = result["bbox"]
             return action
+        if tool_name == "run_analysis":
+            return collect_run_analysis_action(result)
         return None
 
     if tool_name == "set_data_driven_style":

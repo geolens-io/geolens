@@ -105,10 +105,13 @@ interface ViewerChatPanelProps {
  *
  * The builder's full ChatPanel is reachable only to `can_edit` users; signed-in
  * viewers land on PublicMapViewerPage with no AI affordance. PR #339 made the
- * backend chat path serve view-only callers a read-only toolbox (`query_data`
- * only), so this surfaces that path: a question goes to `/ai/chat/stream/`, the
- * streamed answer renders inline, and a `show_query_result` flies the map to the
- * matched features (shared `useEphemeralLayers` overlay) + shows a compact table.
+ * backend chat path serve view-only callers a read-only toolbox (`query_data`,
+ * plus `run_analysis` since M4 — both SELECT-only), so this surfaces that path:
+ * a question goes to `/ai/chat/stream/`, the streamed answer renders inline, and
+ * a `show_query_result` flies the map to the matched features (shared
+ * `useEphemeralLayers` overlay) + shows a compact table. A `run_analysis`
+ * preview arrives as the same action carrying only geojson+bbox, so it draws the
+ * overlay and skips the table.
  *
  * Self-gates on `useAIAvailability` (token + `use_ai_chat` + AI configured), so
  * anonymous or unpermitted viewers render nothing. No edit actions are applied —

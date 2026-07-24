@@ -95,6 +95,11 @@ class FakeProcessingPort:
     async def get_user_roles(self, session, user):
         return {"viewer"}
 
+    async def run_analysis_preview(
+        self, session, dataset, operation, *, user_id, distance_meters=None, mask=None
+    ):
+        return None
+
     async def get_dataset(self, session, dataset_id):
         if str(dataset_id) == self._dataset_id:
             return self._dataset

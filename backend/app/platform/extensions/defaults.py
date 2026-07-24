@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.core.db.tenant_session import defer_async_with_tenant
+from app.platform.ai_tool_payloads import model_safe_tool_result
 
 
 class DefaultBrandingExtension:
@@ -392,6 +393,24 @@ class DefaultProcessingPort:
         from app.modules.catalog.authorization import get_user_roles
 
         return await get_user_roles(session, user)
+
+    async def run_analysis_preview(  # type: ignore[no-untyped-def]
+        self, session, dataset, operation, *, user_id, distance_meters=None, mask=None
+    ):
+        """Run a parameterized analysis preview (M4) for the AI chat surface.
+
+        Params are re-validated by ``AnalysisPreviewRequest`` here, so the
+        LLM-supplied values pass through exactly the same bounds/requiredness
+        checks as the HTTP endpoint (a ValueError surfaces as a tool error the
+        model can retry from). Callers own the dataset visibility check.
+        """
+        from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
+        from app.modules.catalog.datasets.domain.service import run_analysis_preview
+
+        request = AnalysisPreviewRequest(
+            operation=operation, distance_meters=distance_meters, mask=mask
+        )
+        return await run_analysis_preview(session, dataset, request, user_id)
 
     async def get_column_stats(
         self, session, table_name, column_name, *, class_count=5, allowed_tables=None
@@ -1230,7 +1249,9 @@ class DefaultAnthropicProvider:
                                 "tool_use_id": block.id,
                                 # default=str: query_data rows can carry Decimal /
                                 # datetime values straight from PostGIS.
-                                "content": json.dumps(result, default=str),
+                                "content": json.dumps(
+                                    model_safe_tool_result(result), default=str
+                                ),
                             }
                         )
 
@@ -1531,7 +1552,9 @@ class DefaultOpenAICompatibleProvider:
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             # default=str: see the Anthropic tool_result path above.
-                            "content": json.dumps(result, default=str),
+                            "content": json.dumps(
+                                model_safe_tool_result(result), default=str
+                            ),
                         }
                     )
                 continue

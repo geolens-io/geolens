@@ -908,7 +908,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # degrade (clean note instead of a generic failure) at both the
         # model-written and append-retry failure points when a legacy geom-only
         # table lacks geom_4326. Cap 470 → 530 (~16 headroom).
-        "backend/app/processing/ai/chat_actions.py": 530,
+        # M4 Phase 5 (run_analysis chat tool): +~11 lines — the dispatch branch,
+        # the collector branch, and the chat_analysis import. The handler itself
+        # was split into the new chat_analysis.py sibling (auto-discovered by the
+        # chat_*.py glob below, ~142 lines under the 350 default) rather than
+        # grown here. Cap 530 → 550 (~14 headroom).
+        "backend/app/processing/ai/chat_actions.py": 550,
     }
 
     files_to_check = list(facade_line_budgets)

@@ -329,23 +329,82 @@ CHAT_TOOLS_ANTHROPIC = [
             "required": ["question"],
         },
     },
+    {
+        "name": "run_analysis",
+        "description": (
+            "Run a parameterized PostGIS geometry operation on a layer and "
+            "show the result on the map as a temporary preview. Use this for "
+            "requests that TRANSFORM geometry -- 'buffer the schools by 500 "
+            "metres', 'show the centre point of each parcel'. Use query_data "
+            "instead for questions ANSWERED from the data (counts, sums, "
+            "which/where/how many). The preview is not saved; tell the user "
+            "they can save it as a dataset from the Analysis panel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "layer_id": {
+                    "type": "string",
+                    "description": "Layer ID (UUID) to run the operation on",
+                },
+                "operation": {
+                    "type": "string",
+                    # Deliberately narrower than the preview endpoint's enum:
+                    # `clip` needs a drawn mask polygon that only the Analysis
+                    # rail panel can supply, and `dissolve` is materialize-only
+                    # (an aggregate with no preview shape).
+                    "enum": ["buffer", "centroid"],
+                    "description": (
+                        "buffer = grow each feature by a distance; "
+                        "centroid = replace each feature with its centre point"
+                    ),
+                },
+                "distance_meters": {
+                    "type": "number",
+                    "description": (
+                        "Buffer distance in metres, 0 < d <= 100000 "
+                        "(required for buffer, ignored otherwise)"
+                    ),
+                },
+            },
+            "required": ["layer_id", "operation"],
+        },
+    },
 ]
 
 
 # Read-only chat tools: a user who can VIEW a map but not edit it (non-owner /
 # non-admin) may ask the AI questions about the map's data but must not be able
 # to change it. We enforce this by withholding every mutating tool from the
-# model — with only ``query_data`` available it can answer questions (sandboxed,
-# RBAC-scoped SELECTs) but has no tool to emit a style / filter / label /
-# visibility / opacity / add- or remove-layer edit. Edit *persistence* is
-# separately owner-gated at Save, so this is defense-in-depth, not the only gate.
-CHAT_TOOLS_READONLY = [t for t in CHAT_TOOLS_ANTHROPIC if t["name"] == "query_data"]
+# model — the read-only set can answer questions (sandboxed, RBAC-scoped
+# SELECTs) and draw a temporary analysis preview, but has no tool to emit a
+# style / filter / label / visibility / opacity / add- or remove-layer edit.
+# ``run_analysis`` qualifies: it only SELECTs through the same sandbox rails and
+# its result is an ephemeral overlay, never a persisted map change. Edit
+# *persistence* is separately owner-gated at Save, so this is defense-in-depth,
+# not the only gate.
+_READONLY_TOOL_NAMES = {"query_data", "run_analysis"}
+CHAT_TOOLS_READONLY = [
+    t for t in CHAT_TOOLS_ANTHROPIC if t["name"] in _READONLY_TOOL_NAMES
+]
+
+# Tools whose entire output is a map overlay — withheld from map-less surfaces
+# (dataset-scoped chat) by select_chat_tools(has_map=False).
+_MAP_ONLY_TOOL_NAMES = {"run_analysis"}
 
 
-def select_chat_tools(can_edit: bool) -> list:
+def select_chat_tools(can_edit: bool, has_map: bool = True) -> list:
     """Return the chat tool set for a caller.
 
     Full tool set when the caller may edit the map; read-only (``query_data``
-    only) when they may only view it.
+    + ``run_analysis``) when they may only view it.
+
+    has_map=False drops the map-only tools for surfaces with no map to draw on
+    (dataset-scoped chat): ``run_analysis``'s whole output is an ephemeral map
+    overlay, so offering it there would let the model promise a preview the
+    surface cannot render.
     """
-    return CHAT_TOOLS_ANTHROPIC if can_edit else CHAT_TOOLS_READONLY
+    tools = CHAT_TOOLS_ANTHROPIC if can_edit else CHAT_TOOLS_READONLY
+    if not has_map:
+        tools = [t for t in tools if t["name"] not in _MAP_ONLY_TOOL_NAMES]
+    return tools

@@ -23,6 +23,7 @@ TOOL_LABELS = {
     "add_layer": "Adding layer...",
     "set_opacity": "Adjusting opacity...",
     "query_data": "Querying data...",
+    "run_analysis": "Running analysis...",
     "get_dataset_details": "Fetching dataset details...",
 }
 

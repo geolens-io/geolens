@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
+from app.platform.ai_tool_payloads import model_safe_tool_result
 
 from app.processing.ai.chat_service import (
     _build_chat_actions,
@@ -351,7 +352,9 @@ async def _stream_anthropic_chat(
                             # default=str: query_data rows can carry Decimal /
                             # datetime values straight from PostGIS.
                             "content": json.dumps(
-                                raw_results[0] if raw_results else {},
+                                model_safe_tool_result(
+                                    raw_results[0] if raw_results else {}
+                                ),
                                 default=str,
                             ),
                         }
@@ -660,7 +663,9 @@ async def _stream_openai_chat(
                         "role": "tool",
                         "tool_call_id": call_id,
                         # default=str: see the Anthropic tool_result path above.
-                        "content": json.dumps(result, default=str),
+                        "content": json.dumps(
+                            model_safe_tool_result(result), default=str
+                        ),
                     }
                 )
             continue
@@ -742,6 +747,7 @@ async def stream_chat_edit(
     can_edit: bool = True,
     system_prompt_override: str | None = None,
     restrict_tables: frozenset[str] | None = None,
+    has_map: bool = True,
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts.
 
@@ -758,6 +764,9 @@ async def stream_chat_edit(
     restrict_tables narrows query_data's sandbox allowlist to the calling
     surface's table scope (dataset chat passes its single table — PR #531
     review); None preserves the user-wide RBAC allowlist.
+
+    has_map=False withholds map-only tools (run_analysis) from surfaces with no
+    map to render an overlay on — see select_chat_tools.
     """
     try:
         provider, model, runtime_config = await resolve_provider(db)
@@ -779,7 +788,7 @@ async def stream_chat_edit(
             history=history_dicts,
             port=port,
             map_id=map_id,
-            tools=select_chat_tools(can_edit),
+            tools=select_chat_tools(can_edit, has_map),
             restrict_tables=restrict_tables,
         ):
             yield event
