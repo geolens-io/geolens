@@ -891,11 +891,11 @@ jobs:
         # --cov-fail-under still gates on the full total; --dist loadgroup
         # (pyproject addopts) co-locates the global-state tenancy tests.
         #
-        # -n 6 oversubscribes the 4-vCPU runner deliberately: the suite is
-        # Postgres-wait-bound, so extra workers fill the DB-wait gaps
-        # (benchmarked against -n 4 in the PR that removed the duplicate job).
+        # -n 4 matches the runner's 4 vCPUs. -n 6 was benchmarked in #673 and
+        # measured slightly SLOWER (605s vs 585s pytest step): the suite keeps
+        # the cores saturated, so oversubscribing past core count buys nothing.
         # --durations=25 keeps the slowest-test tail visible in every run.
-        run: uv run pytest -n 6 -v --tb=short --durations=25 -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=80
+        run: uv run pytest -n 4 -v --tb=short --durations=25 -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=80
 
       - name: Verify SAML fixtures unchanged after pytest
         run: |
