@@ -66,9 +66,12 @@ jobs:
       - name: Install
         working-directory: ${{ matrix.directory }}
         run: npm ci
-      - name: npm audit (block high+)
+      # Gate script instead of bare `npm audit --audit-level=high`: npm audit
+      # has no ignore mechanism, and the script carries the scoped, justified,
+      # expiring allowlist (same posture as .trivyignore.yaml).
+      - name: npm audit (block high+, scoped allowlist)
         working-directory: ${{ matrix.directory }}
-        run: npm audit --audit-level=high
+        run: node "$GITHUB_WORKSPACE/scripts/js-audit-gate.mjs"
       - name: License report (advisory — tune allowlist before enforcing)
         working-directory: ${{ matrix.directory }}
         continue-on-error: true
