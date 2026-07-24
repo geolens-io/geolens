@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -32,6 +33,7 @@ async def handle_run_analysis(
     tool_input: dict,
     session: AsyncSession,
     user: Identity,
+    user_roles: set[str],
     layers: list[ChatMapLayer],
     *,
     port: "ProcessingPort",
@@ -42,7 +44,9 @@ async def handle_run_analysis(
     degrades to a message the model can react to instead of breaking the turn.
     """
     try:
-        return await _run_analysis(tool_input, session, user, layers, port=port)
+        return await _run_analysis(
+            tool_input, session, user, user_roles, layers, port=port
+        )
     except Exception as e:  # broad: analysis/sandbox layer can throw varied DB errors; map to user-facing fallback
         logger.warning("run_analysis.failed", error=str(e), error_type=type(e).__name__)
         return {"error": "Could not run that analysis."}
@@ -52,6 +56,7 @@ async def _run_analysis(
     tool_input: dict,
     session: AsyncSession,
     user: Identity,
+    user_roles: set[str],
     layers: list[ChatMapLayer],
     *,
     port: "ProcessingPort",
@@ -70,30 +75,44 @@ async def _run_analysis(
         }
 
     try:
-        dataset = await port.get_dataset(session, UUID(str(layer.dataset_id)))
-    except (ValueError, AttributeError, TypeError):
-        dataset = None
+        dataset_id = UUID(str(layer.dataset_id))
+    except ValueError:
+        # Malformed client-supplied id — same user-facing outcome as a miss.
+        return {"error": "That layer's dataset is no longer available."}
+    dataset = await port.get_dataset(session, dataset_id)
     if dataset is None:
         return {"error": "That layer's dataset is no longer available."}
 
     try:
-        await port.check_dataset_access(session, dataset, dataset.id, user)
-    except Exception:  # broad: access denial arrives as HTTPException(404) — must not break the chat turn
+        await port.check_dataset_access(
+            session, dataset, dataset.id, user, user_roles=user_roles
+        )
+    except HTTPException:
+        # check_dataset_access signals denial with a 404 — anything else is a
+        # real failure and belongs in the generic handler, not reported to the
+        # user as an access problem.
         logger.info("run_analysis.access_denied", dataset_id=str(dataset.id))
         return {"error": "You don't have access to that layer's dataset."}
 
-    if not getattr(dataset, "geometry_type", None) or not getattr(
-        dataset, "table_name", None
-    ):
+    if not dataset.geometry_type or not dataset.table_name:
         return {"error": "That layer has no geometry to analyze."}
+
+    # fix(#674 review P2): only buffer consumes distance_meters. The tool schema
+    # calls it "ignored otherwise", so a model may well send a placeholder 0 on a
+    # centroid call — forwarding that would trip AnalysisPreviewRequest's gt=0
+    # bound and fail a perfectly valid preview. Drop it for every other op.
+    operation = tool_input.get("operation")
+    distance_meters = (
+        tool_input.get("distance_meters") if operation == "buffer" else None
+    )
 
     try:
         result = await port.run_analysis_preview(
             session,
             dataset,
-            tool_input.get("operation"),
+            operation,
             user_id=user.id,
-            distance_meters=tool_input.get("distance_meters"),
+            distance_meters=distance_meters,
         )
     except ValueError as exc:
         # Pydantic/param validation (bad enum, missing or out-of-range
@@ -108,7 +127,7 @@ async def _run_analysis(
         }
 
     out: dict = {
-        "operation": tool_input.get("operation"),
+        "operation": operation,
         "layer_id": layer.id,
         "feature_count": result.feature_count,
         "truncated": result.truncated,

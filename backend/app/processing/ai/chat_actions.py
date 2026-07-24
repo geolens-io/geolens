@@ -355,7 +355,9 @@ async def _execute_chat_tool(
     if tool_name == "run_analysis":
         # handle_run_analysis owns its own error mapping (including the broad
         # catch-all) so every failure returns a tool result, never an exception.
-        return await handle_run_analysis(tool_input, session, user, layers, port=port)
+        return await handle_run_analysis(
+            tool_input, session, user, user_roles, layers, port=port
+        )
 
     if tool_name == "set_data_driven_style":
         return await _build_data_driven_style(tool_input, session, layers, port=port)

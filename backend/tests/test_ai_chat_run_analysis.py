@@ -200,6 +200,7 @@ class TestRunAnalysisHandler:
             {"layer_id": "layer-1", "operation": "buffer", "distance_meters": 1000},
             test_db_session,
             admin,
+            await _default_port.get_user_roles(test_db_session, admin),
             [_layer_for(ds)],
             port=_default_port,
         )
@@ -218,6 +219,7 @@ class TestRunAnalysisHandler:
             {"layer_id": "layer-1", "operation": "centroid"},
             test_db_session,
             admin,
+            await _default_port.get_user_roles(test_db_session, admin),
             [_layer_for(ds)],
             port=_default_port,
         )
@@ -230,6 +232,7 @@ class TestRunAnalysisHandler:
             {"layer_id": "not-on-this-map", "operation": "centroid"},
             test_db_session,
             admin,
+            await _default_port.get_user_roles(test_db_session, admin),
             [],
             port=_default_port,
         )
@@ -250,11 +253,37 @@ class TestRunAnalysisHandler:
             {"layer_id": "layer-1", "operation": "centroid"},
             test_db_session,
             other,
+            await _default_port.get_user_roles(test_db_session, other),
             [_layer_for(ds)],
             port=_default_port,
         )
         assert "error" in result
         assert "geojson" not in result
+
+    @pytest.mark.parametrize("distance", [0, -5, 1_000_000, 500])
+    async def test_centroid_ignores_any_distance_meters(
+        self, test_db_session: AsyncSession, distance
+    ):
+        """fix(#674 review P2): the tool schema calls distance_meters "ignored
+        otherwise", so a model may send a placeholder on a centroid call. Those
+        values must not reach AnalysisPreviewRequest's gt=0 / le=100000 bounds
+        and fail an otherwise valid preview."""
+        admin = await _get_admin(test_db_session)
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "centroid",
+                "distance_meters": distance,
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            [_layer_for(ds)],
+            port=_default_port,
+        )
+        assert "error" not in result, result
+        assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
 
     @pytest.mark.parametrize(
         "params",
@@ -278,6 +307,7 @@ class TestRunAnalysisHandler:
             {"layer_id": "layer-1", **params},
             test_db_session,
             admin,
+            await _default_port.get_user_roles(test_db_session, admin),
             [_layer_for(ds)],
             port=_default_port,
         )
