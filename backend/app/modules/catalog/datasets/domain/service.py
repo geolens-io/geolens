@@ -3,6 +3,7 @@
 The 1407-LOC orchestration god-module that previously lived here was split
 into 5 cohesive sub-modules along responsibility lines:
 
+- service_analysis.py      -- parameterized PostGIS analysis (preview SQL)
 - service_create.py        -- dataset creation paths (empty, materialized)
 - service_query.py         -- read-side queries (lookup, list, detail, rows)
 - service_lifecycle.py     -- delete, version history, DependentVrtError
@@ -29,6 +30,10 @@ façade preserves a single public import path for callers.
 
 from app.modules.catalog.datasets.domain._sql_safety import (
     _safe_table_ref,  # noqa: F401 -- re-exported for tests/test_sql_safety.py
+)
+from app.modules.catalog.datasets.domain.service_analysis import (
+    build_preview_sql,
+    run_analysis_preview,
 )
 from app.modules.catalog.datasets.domain.service_create import (
     create_dataset,
@@ -69,6 +74,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
 __all__ = [
     "DependentVrtError",
     "auto_detect_relationships",
+    "build_preview_sql",
     "compute_schema_diff",
     "create_dataset",
     "create_empty_dataset",
@@ -89,6 +95,7 @@ __all__ = [
     "list_relationships",
     "list_relationships_with_total",
     "reset_attribute",
+    "run_analysis_preview",
     "update_attribute",
     "update_auto_metadata",
     "update_user_metadata",
