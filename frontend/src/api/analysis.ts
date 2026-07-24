@@ -1,5 +1,10 @@
 import { apiFetch } from './client';
-import type { AnalysisPreviewRequest, AnalysisPreviewResponse } from '@/types/api';
+import type {
+  AnalysisMaterializeRequest,
+  AnalysisMaterializeResponse,
+  AnalysisPreviewRequest,
+  AnalysisPreviewResponse,
+} from '@/types/api';
 
 export async function previewAnalysis(
   datasetId: string,
@@ -9,4 +14,17 @@ export async function previewAnalysis(
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+export async function materializeAnalysis(
+  datasetId: string,
+  body: AnalysisMaterializeRequest,
+): Promise<AnalysisMaterializeResponse> {
+  return apiFetch<AnalysisMaterializeResponse>(
+    `/datasets/${datasetId}/analysis/materialize/`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
 }
