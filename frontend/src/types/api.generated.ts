@@ -11710,7 +11710,7 @@ export interface components {
             } | null;
             /**
              * Limit
-             * @description Maximum number of items returned (1-200).
+             * @description Maximum number of items returned. Values above 200 are clamped to 200.
              * @default 10
              */
             limit: number;
@@ -37135,6 +37135,7 @@ export interface operations {
                 ids?: string | null;
                 /** @description GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier — fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates. */
                 intersects?: string | null;
+                /** @description Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation. */
                 limit?: number;
                 /** @description Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000 to bound deep-paging cost. */
                 offset?: number;

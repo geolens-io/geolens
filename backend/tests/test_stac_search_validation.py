@@ -144,22 +144,15 @@ class TestSecFu05StacIntersectsMaxLength:
 class TestStacSearchBodyBounds:
     """KNOWN-12: POST /stac/search body.limit/offset carry Pydantic ge/le."""
 
-    async def test_post_search_limit_above_le_rejected(self, client: AsyncClient):
-        """limit=201 returns an OGC 400 Problem Detail (le=200).
+    async def test_post_search_limit_above_max_clamped(self, client: AsyncClient):
+        """limit above the 200 ceiling is clamped, not rejected.
 
-        WR-01: POST /stac/search schema now matches GET ceiling (le=200).
+        The STAC Item Search spec (enforced by stac-api-validator) requires
+        over-limit values to fall back to the server maximum.
         """
-        resp = await client.post("/stac/search", json={"limit": 201})
-        assert resp.status_code == 400, resp.text
-        assert resp.headers["content-type"].startswith("application/problem+json")
-        body = resp.json()
-        # GeoLens uses RFC 7807 problem-details shape — `detail` is a string
-        # (e.g. "body.limit: Input should be less than or equal to 200"),
-        # not FastAPI's default list-of-errors structure.
-        detail = str(body.get("detail", "")).lower()
-        assert "limit" in detail and (
-            "less than or equal" in detail or "le " in detail or "<=" in detail
-        ), f"400 detail did not name limit/le bound: {body}"
+        resp = await client.post("/stac/search", json={"limit": 100000})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["context"]["limit"] == 200
 
     async def test_post_search_negative_offset_rejected(self, client: AsyncClient):
         """offset=-1 must be rejected with 400 (not silently clamped)."""

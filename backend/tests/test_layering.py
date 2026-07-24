@@ -991,7 +991,12 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
-    "backend/app/standards/stac/router.py": 1626,
+    # STAC hardening (roadmap trust batch): collection license aggregated from
+    # member records, item-less collections hidden from the STAC surface
+    # instead of advertising a fabricated global extent, and stac-api-validator
+    # conformance (strict RFC 3339 datetime gate, bbox/intersects exclusivity,
+    # south<=north bbox check, limit clamping). Ratchet stays exact.
+    "backend/app/standards/stac/router.py": 1795,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     "backend/app/processing/tiles/router.py": 2043,
 }

@@ -10,9 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from urllib.parse import urlencode
 
@@ -144,7 +145,9 @@ def _item_collection_response(result: StacItemCollection) -> Response:
     headers = _stac_content_language_headers(result.features)
     if link_value := link_header_value(result.links):
         headers["Link"] = link_value
-    payload = result.model_dump(mode="json")
+    # exclude_none: optional StacLink fields (method, title) must be omitted,
+    # not null — the STAC link schema requires `method` to match ^[A-Z]+$.
+    payload = result.model_dump(mode="json", exclude_none=True)
     # Validation must not add optional fields that the item serializer omitted.
     payload["features"] = [
         feature.model_dump(mode="json", exclude_unset=True)
@@ -169,8 +172,8 @@ def _stac_page_url(
 
 def _parse_extent_row(
     ext_row: tuple | None,
-) -> tuple[list[float] | None, list[str | None] | None]:
-    """Parse a spatial/temporal extent DB row into STAC-ready values."""
+) -> tuple[list[float] | None, list[str | None] | None, str | None]:
+    """Parse a spatial/temporal extent + license DB row into STAC-ready values."""
     spatial_extent = None
     temporal_extent = None
     if ext_row and ext_row[0] is not None:
@@ -184,7 +187,16 @@ def _parse_extent_row(
         t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
         t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
         temporal_extent = [t_start, t_end]
-    return spatial_extent, temporal_extent
+    license = _collapse_licenses(ext_row[6]) if ext_row else None
+    return spatial_extent, temporal_extent, license
+
+
+def _collapse_licenses(values: list[str | None] | None) -> str | None:
+    """Collapse member-record licenses into one STAC Collection license."""
+    licenses = {v for v in (values or []) if v}
+    if not licenses:
+        return None
+    return licenses.pop() if len(licenses) == 1 else "various"
 
 
 async def _fetch_dataset_asset_rows(
@@ -313,6 +325,71 @@ def _require_finite_bbox(values: list[float]) -> None:
     for i, v in enumerate(values):
         if not math.isfinite(v):
             raise ValueError(f"bbox coordinate at index {i} is non-finite ({v!r})")
+    # South > north is always invalid; longitude order is NOT checked because
+    # west > east legitimately means an antimeridian-crossing box.
+    south, north = (
+        (values[1], values[3]) if len(values) == 4 else (values[1], values[4])
+    )
+    if south > north:
+        raise ValueError("bbox south latitude is greater than north latitude")
+
+
+# RFC 3339 date-time as required by the STAC API spec: full date + time with a
+# Z or numeric UTC offset. The shared parse_ogc_datetime is deliberately more
+# lenient (day-granular, bare dates), so STAC validates syntax first.
+_RFC3339_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$"
+)
+
+
+def _validate_stac_datetime(datetime_str: str) -> str:
+    """Enforce STAC's strict RFC 3339 datetime syntax, returning a normalized
+    value (empty open-interval ends become ``..``) for the shared parser."""
+
+    def _parse_side(part: str) -> datetime | None:
+        if part in ("", ".."):
+            return None
+        if not _RFC3339_DATETIME_RE.match(part):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid RFC 3339 datetime: {part!r}",
+            )
+        try:
+            # RFC 3339 allows lowercase t/z; fromisoformat does not.
+            return datetime.fromisoformat(part.upper())
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid RFC 3339 datetime: {e}",
+            )
+
+    if "/" in datetime_str:
+        parts = datetime_str.split("/")
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid datetime interval: expected exactly one '/'",
+            )
+        start, end = (_parse_side(p) for p in parts)
+        if start is None and end is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid datetime interval: both ends are open",
+            )
+        if start is not None and end is not None and start > end:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid datetime interval: start is after end",
+            )
+        return f"{parts[0] or '..'}/{parts[1] or '..'}"
+
+    _parse_side(datetime_str)
+    if datetime_str == "..":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid datetime: '..' is only valid inside an interval",
+        )
+    return datetime_str
 
 
 def _base_published_raster_query(
@@ -349,19 +426,38 @@ async def _resolve_roles(db: AsyncSession, user: Identity | None) -> set[str]:
     return await get_user_roles(db, user)
 
 
+async def _has_visible_items(
+    db: AsyncSession,
+    user: Identity | None,
+    user_roles: set[str],
+    scope_filter,
+) -> bool:
+    """Return whether the caller can see at least one STAC Item in scope."""
+    stmt = (
+        _base_published_raster_query(user, user_roles)
+        .where(scope_filter)
+        .with_only_columns(Dataset.id)
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none() is not None
+
+
 async def _has_unassigned_items(
     db: AsyncSession,
     user: Identity | None,
     user_roles: set[str],
 ) -> bool:
     """Return whether the caller can see at least one unassigned STAC Item."""
-    stmt = (
-        _base_published_raster_query(user, user_roles)
-        .where(_unassigned_dataset_filter())
-        .with_only_columns(Dataset.id)
-        .limit(1)
+    return await _has_visible_items(db, user, user_roles, _unassigned_dataset_filter())
+
+
+def _collection_membership_filter(collection_uuid: uuid.UUID):
+    """Match datasets belonging to a stored Collection."""
+    return Dataset.id.in_(
+        select(CollectionDataset.dataset_id).where(
+            CollectionDataset.collection_id == collection_uuid
+        )
     )
-    return (await db.execute(stmt)).scalar_one_or_none() is not None
 
 
 async def _collection_scope_filter(
@@ -393,11 +489,16 @@ async def _collection_scope_filter(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Collection not found",
         )
-    return Dataset.id.in_(
-        select(CollectionDataset.dataset_id).where(
-            CollectionDataset.collection_id == collection_uuid
+    membership = _collection_membership_filter(collection_uuid)
+    # Collections with no visible STAC Items are hidden from the STAC surface
+    # (they would otherwise advertise a fabricated global extent), matching the
+    # gating the virtual unassigned collection already gets above.
+    if not await _has_visible_items(db, user, user_roles, membership):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
         )
-    )
+    return membership
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +506,10 @@ async def _collection_scope_filter(
 # ---------------------------------------------------------------------------
 
 
-@stac_router.get("/", response_model=StacCatalog)
+# response_model_exclude_none (here and on the collection routes): optional
+# StacLink fields must be omitted rather than serialized as null — the STAC
+# link schema types `method` as a ^[A-Z]+$ string.
+@stac_router.get("/", response_model=StacCatalog, response_model_exclude_none=True)
 async def landing_page(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -433,22 +537,35 @@ async def landing_page(
         ),
         StacLink(
             rel="service-desc",
-            href=f"{stac_api_url.rsplit('/stac', 1)[0]}/openapi.json",
+            href=f"{stac_api_url}/api",
             type="application/vnd.oai.openapi+json;version=3.1",
         ),
     ]
 
-    # Add rel=child for each collection
-    coll_result = await db.execute(select(Collection))
-    for coll in coll_result.scalars().all():
+    # Add rel=child for each collection with at least one visible STAC Item —
+    # empty collections are hidden from the STAC surface (see
+    # _collection_scope_filter).
+    user_roles = await _resolve_roles(db, user)
+    child_stmt = (
+        select(CollectionDataset.collection_id)
+        .distinct()
+        .select_from(Record)
+        .join(Dataset, Dataset.record_id == Record.id)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .where(*_published_raster_filters())
+        .order_by(CollectionDataset.collection_id)
+    )
+    child_stmt = apply_visibility_filter(
+        child_stmt, user, user_roles, Record, DatasetGrant
+    )
+    for coll_id in (await db.execute(child_stmt)).scalars().all():
         links.append(
             StacLink(
                 rel="child",
-                href=f"{stac_api_url}/collections/{coll.id}",
+                href=f"{stac_api_url}/collections/{coll_id}",
                 type="application/json",
             )
         )
-    user_roles = await _resolve_roles(db, user)
     if await _has_unassigned_items(db, user, user_roles):
         links.append(
             StacLink(
@@ -467,13 +584,28 @@ async def landing_page(
     )
 
 
+@stac_router.get("/api", include_in_schema=False)
+async def service_desc(request: Request) -> Response:
+    """The OpenAPI document, served with the media type the landing page's
+    service-desc link advertises (the shared /openapi.json route always
+    answers ``application/json``, which fails the STAC round-trip check)."""
+    return JSONResponse(
+        request.app.openapi(),
+        media_type="application/vnd.oai.openapi+json;version=3.1",
+    )
+
+
 @stac_router.get("/conformance", response_model=StacConformance)
 async def conformance() -> StacConformance:
     """STAC API conformance classes."""
     return StacConformance(conformsTo=STAC_CONFORMANCE)
 
 
-@stac_router.get("/collections", response_model=StacCollectionListResponse)
+@stac_router.get(
+    "/collections",
+    response_model=StacCollectionListResponse,
+    response_model_exclude_none=True,
+)
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -505,6 +637,7 @@ async def get_collections(
                 func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
                 func.min(Record.temporal_start),
                 func.max(Record.temporal_end),
+                func.array_agg(func.distinct(Record.license)),
             )
             .select_from(Record)
             .join(Dataset, Dataset.record_id == Record.id)
@@ -600,8 +733,13 @@ async def get_collections(
     stac_collections = []
     for coll in collections:
         coll_key = str(coll.id)
-        ext_row = extent_map.get(coll_key)
-        spatial_extent, temporal_extent = _parse_extent_row(ext_row)
+        if coll_key not in extent_map:
+            # No visible STAC Items — hidden from the STAC surface rather than
+            # advertised with a fabricated global extent.
+            continue
+        spatial_extent, temporal_extent, license = _parse_extent_row(
+            extent_map[coll_key]
+        )
 
         summaries = {}
         if coll_key in projection_map:
@@ -616,12 +754,13 @@ async def get_collections(
             stac_api_url=stac_api_url,
             keywords=keywords_map.get(coll_key),
             summaries=summaries or None,
+            license=license,
         )
         stac_collections.append(stac_coll)
 
     if has_unassigned:
         fallback_key = STAC_UNASSIGNED_COLLECTION_ID
-        spatial_extent, temporal_extent = _parse_extent_row(
+        spatial_extent, temporal_extent, license = _parse_extent_row(
             extent_map.get(fallback_key)
         )
         fallback_summaries = None
@@ -637,6 +776,7 @@ async def get_collections(
                 stac_api_url=stac_api_url,
                 keywords=keywords_map.get(fallback_key),
                 summaries=fallback_summaries,
+                license=license,
             )
         )
 
@@ -654,6 +794,7 @@ async def get_collections(
 @stac_router.get(
     "/collections/{collection_id}",
     response_model=StacCollection,
+    response_model_exclude_none=True,
     responses={404: NOT_FOUND_RESPONSE},
 )
 async def get_collection(
@@ -695,6 +836,15 @@ async def get_collection(
             )
         collection_name = coll.name
         collection_description = coll.description
+        # Hidden from the STAC surface when it has no visible Items — see
+        # _collection_scope_filter.
+        if not await _has_visible_items(
+            db, user, user_roles, _collection_membership_filter(collection_uuid)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found",
+            )
 
     # Three independent metadata queries -- run concurrently with separate sessions.
 
@@ -707,6 +857,7 @@ async def get_collection(
                 func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
                 func.min(Record.temporal_start),
                 func.max(Record.temporal_end),
+                func.array_agg(func.distinct(Record.license)),
             )
             .select_from(Record)
             .join(Dataset, Dataset.record_id == Record.id)
@@ -773,7 +924,7 @@ async def get_collection(
     ext_row, coll_keywords, summaries = await asyncio.gather(
         _fetch_extent(), _fetch_kw(), _fetch_projection()
     )
-    spatial_extent, temporal_extent = _parse_extent_row(ext_row)
+    spatial_extent, temporal_extent, license = _parse_extent_row(ext_row)
 
     return ogc_collection_to_stac_collection(
         collection_id,
@@ -784,6 +935,7 @@ async def get_collection(
         stac_api_url=stac_api_url,
         keywords=coll_keywords,
         summaries=summaries,
+        license=license,
     )
 
 
@@ -1146,6 +1298,13 @@ def _build_search_filters(
             # broaden a scoped search to the entire catalog.
             filters.append(Dataset.id.in_([]))
 
+    # bbox and intersects are mutually exclusive per the STAC Item Search spec.
+    if intersects and bbox:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only one of bbox and intersects may be specified",
+        )
+
     # Filter by intersects (GeoJSON geometry) — accept string or dict
     if intersects:
         if isinstance(intersects, dict):
@@ -1439,7 +1598,15 @@ async def search_get(
             "polygons at 2-decimal-place lat/lon coordinates."
         ),
     ),
-    limit: int = Query(10, ge=1, le=200),
+    limit: int = Query(
+        10,
+        ge=1,
+        description=(
+            "Maximum number of items returned. Values above 200 are clamped "
+            "to 200, per the STAC Item Search spec's clamp-don't-reject "
+            "recommendation."
+        ),
+    ),
     offset: int = Query(
         0,
         ge=0,
@@ -1465,7 +1632,9 @@ async def search_get(
         collections=collections,
         ids=ids,
         intersects=intersects,
-        limit=limit,
+        # STAC Item Search: limits above the server maximum are clamped, not
+        # rejected (stac-api-validator enforces this).
+        limit=min(limit, 200),
         offset=offset,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
@@ -1495,13 +1664,13 @@ class StacSearchBody(BaseModel):
     limit: int = Field(
         default=10,
         ge=1,
-        le=200,
-        # WR-01 (Phase 1071 review): le=200 matches the GET /stac/search handler
-        # ceiling (router.py:544). The previous le=1000 created a schema
-        # asymmetry where POST appeared to accept up to 1000 items while the
-        # effective ceiling was 200. Conservative: align schemas so the public
-        # API contract is honest.
-        description="Maximum number of items returned (1-200).",
+        # WR-01 (Phase 1071 review) aligned GET/POST ceilings at le=200; the
+        # STAC hardening pass replaces the hard bound with clamping on both
+        # handlers — the Item Search spec (and stac-api-validator) requires
+        # over-limit values to be clamped to the server maximum, not rejected.
+        description=(
+            "Maximum number of items returned. Values above 200 are clamped to 200."
+        ),
     )
     offset: int = Field(
         default=0,
@@ -1555,9 +1724,8 @@ async def search_post(
         collections=body.collections,
         ids=body.ids,
         intersects=body.intersects,
-        # H-24: clamp body limit to 200 (was 1000) for parity with GET search.
-        # KNOWN-12 (Phase 1071): StacSearchBody.limit now carries ge=1, le=1000;
-        # the min(body.limit, 200) keeps the operational 200-item ceiling.
+        # Over-limit values clamp to the 200-item operational ceiling (H-24),
+        # required by the Item Search spec instead of a le=200 rejection.
         limit=max(1, min(body.limit, 200)),
         offset=max(0, body.offset),
         public_app_url=public_app_url,
@@ -1580,7 +1748,8 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     """
     from app.modules.catalog.search.service import parse_ogc_datetime
 
-    start, end = parse_ogc_datetime(datetime_str.strip())
+    datetime_str = _validate_stac_datetime(datetime_str.strip())
+    start, end = parse_ogc_datetime(datetime_str)
 
     # fix(#430 BA-13): admit null-temporal records — dataset_to_ogc_record advertises
     # datetime=created_at for them, so filter them by that SAME fallback instant.
