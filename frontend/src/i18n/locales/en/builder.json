@@ -948,7 +948,17 @@
     "noResults": "The operation returned no features",
     "truncatedNotice": "Preview capped at {{count}} features",
     "previewFailed": "Analysis failed",
-    "noLayers": "Add a dataset layer to use analysis tools"
+    "noLayers": "Add a dataset layer to use analysis tools",
+    "opDissolve": "Dissolve",
+    "dissolveHint": "Dissolve merges all features into one geometry; run it with Create dataset",
+    "outputTitleLabel": "New dataset name",
+    "outputTitlePlaceholder": "e.g. Parcels buffered 500 m",
+    "saveButton": "Create dataset",
+    "saving": "Creating…",
+    "jobRunning": "Creating dataset…",
+    "jobComplete": "Dataset created",
+    "jobFailed": "Analysis job failed",
+    "addToMap": "Add to map"
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

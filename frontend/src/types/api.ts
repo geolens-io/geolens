@@ -1852,10 +1852,10 @@ export interface MapLayerBulkDeleteResponse {
 }
 
 /** M4 analysis tools: parameterized PostGIS operations. */
-export type AnalysisOperation = 'buffer' | 'centroid' | 'clip';
+export type AnalysisOperation = 'buffer' | 'centroid' | 'clip' | 'dissolve';
 
 export interface AnalysisPreviewRequest {
-  operation: AnalysisOperation;
+  operation: Exclude<AnalysisOperation, 'dissolve'>;
   /** Buffer distance in meters (buffer only). */
   distance_meters?: number;
   /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip only). */
@@ -1867,4 +1867,17 @@ export interface AnalysisPreviewResponse {
   feature_count: number;
   truncated: boolean;
   bbox: number[] | null;
+}
+
+export interface AnalysisMaterializeRequest {
+  operation: AnalysisOperation;
+  title: string;
+  distance_meters?: number;
+  mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  by_field?: string;
+}
+
+export interface AnalysisMaterializeResponse {
+  job_id: string;
+  status: string;
 }

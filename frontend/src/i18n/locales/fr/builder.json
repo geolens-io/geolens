@@ -948,7 +948,17 @@
     "noResults": "L'opération n'a renvoyé aucune entité",
     "truncatedNotice": "Aperçu limité à {{count}} entités",
     "previewFailed": "Échec de l'analyse",
-    "noLayers": "Ajoutez une couche de données pour utiliser les outils d'analyse"
+    "noLayers": "Ajoutez une couche de données pour utiliser les outils d'analyse",
+    "opDissolve": "Dissoudre",
+    "dissolveHint": "Dissoudre fusionne toutes les entités en une seule géométrie ; exécutez-le avec Créer un jeu de données",
+    "outputTitleLabel": "Nom du nouveau jeu de données",
+    "outputTitlePlaceholder": "p. ex. Parcelles tampon 500 m",
+    "saveButton": "Créer un jeu de données",
+    "saving": "Création…",
+    "jobRunning": "Création du jeu de données…",
+    "jobComplete": "Jeu de données créé",
+    "jobFailed": "La tâche d'analyse a échoué",
+    "addToMap": "Ajouter à la carte"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

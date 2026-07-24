@@ -238,6 +238,7 @@ task_app = App(
         "app.processing.ingest.tasks_vrt",
         "app.processing.ingest.tasks_reupload",
         "app.processing.embeddings.tasks",
+        "app.processing.analysis.tasks",
     ],
 )
 

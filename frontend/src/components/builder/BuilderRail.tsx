@@ -272,6 +272,7 @@ export function BuilderRail({
                     onPreviewResult={onQueryResult}
                     onClearPreview={onClearPreview}
                     hasPreview={hasPreview}
+                    layerActions={layerActions}
                   />
                 </Suspense>
               </LazyLoadErrorBoundary>

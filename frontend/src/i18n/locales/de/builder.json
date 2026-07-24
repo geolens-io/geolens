@@ -948,7 +948,17 @@
     "noResults": "Die Operation ergab keine Features",
     "truncatedNotice": "Vorschau auf {{count}} Features begrenzt",
     "previewFailed": "Analyse fehlgeschlagen",
-    "noLayers": "Fügen Sie eine Datenebene hinzu, um Analysewerkzeuge zu nutzen"
+    "noLayers": "Fügen Sie eine Datenebene hinzu, um Analysewerkzeuge zu nutzen",
+    "opDissolve": "Auflösen",
+    "dissolveHint": "Auflösen führt alle Features zu einer Geometrie zusammen; über Datensatz erstellen ausführen",
+    "outputTitleLabel": "Name des neuen Datensatzes",
+    "outputTitlePlaceholder": "z. B. Flurstücke 500 m Puffer",
+    "saveButton": "Datensatz erstellen",
+    "saving": "Wird erstellt…",
+    "jobRunning": "Datensatz wird erstellt…",
+    "jobComplete": "Datensatz erstellt",
+    "jobFailed": "Analyseauftrag fehlgeschlagen",
+    "addToMap": "Zur Karte hinzufügen"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

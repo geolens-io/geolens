@@ -16,7 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { previewAnalysis } from '@/api/analysis';
+import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
+import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
 
 const MAX_BUFFER_METERS = 100_000;
@@ -30,6 +32,7 @@ interface AnalysisPanelProps {
   ) => void;
   onClearPreview?: () => void;
   hasPreview?: boolean;
+  layerActions?: LayerActions;
 }
 
 /**
@@ -43,6 +46,7 @@ export function AnalysisPanel({
   onPreviewResult,
   onClearPreview,
   hasPreview,
+  layerActions,
 }: AnalysisPanelProps) {
   const { t } = useTranslation('builder');
   const firstEligibleId =
@@ -52,7 +56,10 @@ export function AnalysisPanel({
   const [distance, setDistance] = useState('500');
   const [mask, setMask] = useState<GeoJSON.Polygon | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [outputTitle, setOutputTitle] = useState('');
+  const [jobId, setJobId] = useState<string | null>(null);
   const drawRef = useRef<TerraDraw | null>(null);
+  const job = useJobStatus(jobId).data;
 
   const datasetLayers = layers.filter((l) => !!l.dataset_id && !l.is_dem);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
@@ -109,7 +116,8 @@ export function AnalysisPanel({
       const datasetId = selectedLayer?.dataset_id;
       if (!datasetId) throw new Error('No layer selected');
       return previewAnalysis(datasetId, {
-        operation,
+        // canRun blocks dissolve from the preview path.
+        operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
         ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
         ...(operation === 'clip' && mask ? { mask } : {}),
       });
@@ -144,11 +152,39 @@ export function AnalysisPanel({
     },
   });
 
+  const materializeMutation = useMutation({
+    mutationFn: async () => {
+      const datasetId = selectedLayer?.dataset_id;
+      if (!datasetId) throw new Error('No layer selected');
+      return materializeAnalysis(datasetId, {
+        operation,
+        title: outputTitle.trim(),
+        ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
+        ...(operation === 'clip' && mask ? { mask } : {}),
+      });
+    },
+    onSuccess: (result) => setJobId(result.job_id),
+    onError: (error: Error) => {
+      toast.error(
+        error.message ||
+          t('analysisTools.previewFailed', { defaultValue: 'Analysis failed' }),
+      );
+    },
+  });
+
+  const paramsValid =
+    (operation !== 'buffer' || distanceValid) &&
+    (operation !== 'clip' || !!mask);
   const canRun =
     !!selectedLayer?.dataset_id &&
     !previewMutation.isPending &&
-    (operation !== 'buffer' || distanceValid) &&
-    (operation !== 'clip' || !!mask);
+    operation !== 'dissolve' &&
+    paramsValid;
+  const canSave =
+    !!selectedLayer?.dataset_id &&
+    !materializeMutation.isPending &&
+    paramsValid &&
+    outputTitle.trim().length > 0;
 
   if (datasetLayers.length === 0) {
     return (
@@ -208,8 +244,19 @@ export function AnalysisPanel({
             <SelectItem value="clip">
               {t('analysisTools.opClip', { defaultValue: 'Clip' })}
             </SelectItem>
+            <SelectItem value="dissolve">
+              {t('analysisTools.opDissolve', { defaultValue: 'Dissolve' })}
+            </SelectItem>
           </SelectContent>
         </Select>
+        {operation === 'dissolve' && (
+          <p className="text-xs text-muted-foreground">
+            {t('analysisTools.dissolveHint', {
+              defaultValue:
+                'Dissolve merges all features into one geometry; run it with Create dataset',
+            })}
+          </p>
+        )}
       </div>
 
       {operation === 'buffer' && (
@@ -271,16 +318,66 @@ export function AnalysisPanel({
       )}
 
       <div className="mt-auto flex flex-col gap-2 pt-1">
-        <Button onClick={() => previewMutation.mutate()} disabled={!canRun}>
-          {previewMutation.isPending
-            ? t('analysisTools.running', { defaultValue: 'Running…' })
-            : t('analysisTools.run', { defaultValue: 'Preview' })}
-        </Button>
+        {operation !== 'dissolve' && (
+          <Button onClick={() => previewMutation.mutate()} disabled={!canRun}>
+            {previewMutation.isPending
+              ? t('analysisTools.running', { defaultValue: 'Running…' })
+              : t('analysisTools.run', { defaultValue: 'Preview' })}
+          </Button>
+        )}
         {hasPreview && (
           <Button variant="outline" onClick={onClearPreview}>
             {t('analysisTools.clearPreview', { defaultValue: 'Clear preview' })}
           </Button>
         )}
+
+        <div className="space-y-1.5 border-t pt-3">
+          <Label className="text-xs" htmlFor="analysis-output-title">
+            {t('analysisTools.outputTitleLabel', {
+              defaultValue: 'New dataset name',
+            })}
+          </Label>
+          <Input
+            id="analysis-output-title"
+            value={outputTitle}
+            onChange={(e) => setOutputTitle(e.target.value)}
+            placeholder={t('analysisTools.outputTitlePlaceholder', {
+              defaultValue: 'e.g. Parcels buffered 500 m',
+            })}
+          />
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              setJobId(null);
+              materializeMutation.mutate();
+            }}
+            disabled={!canSave}
+          >
+            {materializeMutation.isPending
+              ? t('analysisTools.saving', { defaultValue: 'Creating…' })
+              : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
+          </Button>
+          {job && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {job.status === 'failed'
+                ? `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${job.error_message ? `: ${job.error_message}` : ''}`
+                : job.status === 'complete'
+                  ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
+                  : t('analysisTools.jobRunning', { defaultValue: 'Creating dataset…' })}
+            </p>
+          )}
+          {job?.status === 'complete' && !!job.dataset_id && layerActions && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => job.dataset_id && layerActions.onAddDataset(job.dataset_id)}
+            >
+              {t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
