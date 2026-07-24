@@ -20,6 +20,17 @@ from .ai_probe_report import AIProbeReport
 from .ai_status_response import AIStatusResponse
 from .ai_status_update import AIStatusUpdate
 from .alter_column_type_request import AlterColumnTypeRequest
+from .analysis_materialize_request import AnalysisMaterializeRequest
+from .analysis_materialize_request_mask_type_0 import (
+    AnalysisMaterializeRequestMaskType0,
+)
+from .analysis_materialize_request_operation import AnalysisMaterializeRequestOperation
+from .analysis_materialize_response import AnalysisMaterializeResponse
+from .analysis_preview_request import AnalysisPreviewRequest
+from .analysis_preview_request_mask_type_0 import AnalysisPreviewRequestMaskType0
+from .analysis_preview_request_operation import AnalysisPreviewRequestOperation
+from .analysis_preview_response import AnalysisPreviewResponse
+from .analysis_preview_response_geojson import AnalysisPreviewResponseGeojson
 from .api_key_create_request import ApiKeyCreateRequest
 from .api_key_create_response import ApiKeyCreateResponse
 from .api_key_list_item import ApiKeyListItem
@@ -722,6 +733,15 @@ __all__ = (
     "AIStatusResponse",
     "AIStatusUpdate",
     "AlterColumnTypeRequest",
+    "AnalysisMaterializeRequest",
+    "AnalysisMaterializeRequestMaskType0",
+    "AnalysisMaterializeRequestOperation",
+    "AnalysisMaterializeResponse",
+    "AnalysisPreviewRequest",
+    "AnalysisPreviewRequestMaskType0",
+    "AnalysisPreviewRequestOperation",
+    "AnalysisPreviewResponse",
+    "AnalysisPreviewResponseGeojson",
     "ApiKeyCreateRequest",
     "ApiKeyCreateResponse",
     "ApiKeyListItem",

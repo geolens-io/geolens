@@ -1850,3 +1850,34 @@ export interface MapLayerBulkDeleteResponse {
   deleted: string[];
   failed: MapLayerBulkDeleteFailure[];
 }
+
+/** M4 analysis tools: parameterized PostGIS operations. */
+export type AnalysisOperation = 'buffer' | 'centroid' | 'clip' | 'dissolve';
+
+export interface AnalysisPreviewRequest {
+  operation: Exclude<AnalysisOperation, 'dissolve'>;
+  /** Buffer distance in meters (buffer only). */
+  distance_meters?: number;
+  /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip only). */
+  mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+}
+
+export interface AnalysisPreviewResponse {
+  geojson: GeoJSON.FeatureCollection;
+  feature_count: number;
+  truncated: boolean;
+  bbox: number[] | null;
+}
+
+export interface AnalysisMaterializeRequest {
+  operation: AnalysisOperation;
+  title: string;
+  distance_meters?: number;
+  mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  by_field?: string;
+}
+
+export interface AnalysisMaterializeResponse {
+  job_id: string;
+  status: string;
+}

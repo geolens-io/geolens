@@ -10,6 +10,9 @@ from app.modules.auth.router import router as auth_router
 from app.modules.catalog.collections.router import router as collections_crud_router
 from app.platform.config_ops.router import router as config_ops_router
 from app.modules.catalog.datasets.api.router import router as datasets_router
+from app.modules.catalog.datasets.api.router_analysis import (
+    router as datasets_analysis_router,
+)
 from app.modules.catalog.datasets.api.router_data import router as datasets_data_router
 from app.modules.catalog.datasets.api.router_export import (
     router as datasets_export_router,
@@ -58,6 +61,7 @@ api_router.include_router(manifest_router)
 # Export must stay before dataset CRUD because /dcat conflicts with /{dataset_id}.
 api_router.include_router(datasets_export_router)
 api_router.include_router(datasets_router)
+api_router.include_router(datasets_analysis_router)
 api_router.include_router(datasets_vrt_router)
 api_router.include_router(datasets_data_router)
 api_router.include_router(datasets_metadata_router)

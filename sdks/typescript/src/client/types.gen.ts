@@ -497,6 +497,113 @@ export type AlterColumnTypeRequest = {
 };
 
 /**
+ * AnalysisMaterializeRequest
+ *
+ * Parameters for materializing an analysis result as a new dataset.
+ */
+export type AnalysisMaterializeRequest = {
+    /**
+     * By Field
+     *
+     * Optional group-by column for dissolve
+     */
+    by_field?: string | null;
+    /**
+     * Distance Meters
+     *
+     * Buffer distance in meters (buffer only)
+     */
+    distance_meters?: number | null;
+    /**
+     * Mask
+     *
+     * GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+     */
+    mask?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Operation
+     */
+    operation: 'buffer' | 'centroid' | 'clip' | 'dissolve';
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * AnalysisMaterializeResponse
+ *
+ * Async materialize job handle; poll GET /jobs/{job_id} for progress.
+ */
+export type AnalysisMaterializeResponse = {
+    /**
+     * Job Id
+     */
+    job_id: string;
+    /**
+     * Status
+     */
+    status: string;
+};
+
+/**
+ * AnalysisPreviewRequest
+ *
+ * Parameters for a synchronous analysis preview.
+ *
+ * Deliberately flat (no discriminated union) so SDK generators keep the
+ * endpoint; per-operation requiredness is enforced by the validator.
+ */
+export type AnalysisPreviewRequest = {
+    /**
+     * Distance Meters
+     *
+     * Buffer distance in meters (buffer only)
+     */
+    distance_meters?: number | null;
+    /**
+     * Mask
+     *
+     * GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+     */
+    mask?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Operation
+     */
+    operation: 'buffer' | 'centroid' | 'clip';
+};
+
+/**
+ * AnalysisPreviewResponse
+ *
+ * GeoJSON FeatureCollection preview of an analysis operation.
+ */
+export type AnalysisPreviewResponse = {
+    /**
+     * Bbox
+     */
+    bbox?: Array<number> | null;
+    /**
+     * Feature Count
+     */
+    feature_count: number;
+    /**
+     * Geojson
+     */
+    geojson: {
+        [key: string]: unknown;
+    };
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+};
+
+/**
  * ApiKeyCreateRequest
  */
 export type ApiKeyCreateRequest = {
@@ -15691,6 +15798,130 @@ export type UpdateDatasetMetadataDatasetsDatasetIdPatchResponses = {
 };
 
 export type UpdateDatasetMetadataDatasetsDatasetIdPatchResponse = UpdateDatasetMetadataDatasetsDatasetIdPatchResponses[keyof UpdateDatasetMetadataDatasetsDatasetIdPatchResponses];
+
+export type AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostData = {
+    body: AnalysisMaterializeRequest;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/analysis/materialize/';
+};
+
+export type AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostError = AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostErrors[keyof AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostErrors];
+
+export type AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AnalysisMaterializeResponse;
+};
+
+export type AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostResponse = AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostResponses[keyof AnalysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePostResponses];
+
+export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostData = {
+    body: AnalysisPreviewRequest;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/analysis/preview/';
+};
+
+export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostError = AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostErrors[keyof AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostErrors];
+
+export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AnalysisPreviewResponse;
+};
+
+export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponse = AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponses[keyof AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponses];
 
 export type ListAttributesEndpointDatasetsDatasetIdAttributesGetData = {
     body?: never;

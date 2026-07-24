@@ -3,7 +3,14 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
@@ -842,3 +849,86 @@ class IngestionResult(BaseModel):
     z_max: float | None = None
 
     model_config = ConfigDict(frozen=True, extra="ignore")
+
+
+# ---------------------------------------------------------------------------
+# Analysis (M4) — parameterized PostGIS operations
+# ---------------------------------------------------------------------------
+
+
+class AnalysisPreviewRequest(BaseModel):
+    """Parameters for a synchronous analysis preview.
+
+    Deliberately flat (no discriminated union) so SDK generators keep the
+    endpoint; per-operation requiredness is enforced by the validator.
+    """
+
+    operation: Literal["buffer", "centroid", "clip"]
+    distance_meters: float | None = Field(
+        default=None,
+        gt=0,
+        le=100_000,
+        description="Buffer distance in meters (buffer only)",
+    )
+    mask: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _require_operation_params(self) -> "AnalysisPreviewRequest":
+        if self.operation == "buffer" and self.distance_meters is None:
+            raise ValueError("buffer requires distance_meters")
+        if self.operation == "clip" and self.mask is None:
+            raise ValueError("clip requires mask")
+        return self
+
+
+class AnalysisPreviewResponse(BaseModel):
+    """GeoJSON FeatureCollection preview of an analysis operation."""
+
+    geojson: dict[str, Any]
+    feature_count: int
+    truncated: bool
+    bbox: list[float] | None = None
+
+
+class AnalysisMaterializeRequest(BaseModel):
+    """Parameters for materializing an analysis result as a new dataset."""
+
+    operation: Literal["buffer", "centroid", "clip", "dissolve"]
+    title: str = Field(min_length=1, max_length=500)
+    distance_meters: float | None = Field(
+        default=None,
+        gt=0,
+        le=100_000,
+        description="Buffer distance in meters (buffer only)",
+    )
+    mask: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)"
+        ),
+    )
+    by_field: str | None = Field(
+        default=None,
+        max_length=63,
+        description="Optional group-by column for dissolve",
+    )
+
+    @model_validator(mode="after")
+    def _require_operation_params(self) -> "AnalysisMaterializeRequest":
+        if self.operation == "buffer" and self.distance_meters is None:
+            raise ValueError("buffer requires distance_meters")
+        if self.operation == "clip" and self.mask is None:
+            raise ValueError("clip requires mask")
+        return self
+
+
+class AnalysisMaterializeResponse(BaseModel):
+    """Async materialize job handle; poll GET /jobs/{job_id} for progress."""
+
+    job_id: uuid.UUID
+    status: str
