@@ -527,6 +527,26 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_admin_credentials_nonempty(self) -> "Settings":
+        # fix(#668): .env.example ships these keys empty and compose passes
+        # "" straight through, so without this guard a verbatim-template
+        # install silently seeds the initial admin with an empty username
+        # and empty password. .env.example documents that empty values
+        # refuse to boot; enforce that here.
+        if not self.geolens_admin_username.strip():
+            raise ValueError(
+                "GEOLENS_ADMIN_USERNAME must not be empty. The initial "
+                "admin user is seeded from it on first startup; set a "
+                "username (e.g. admin) in your .env."
+            )
+        if not self.geolens_admin_password.get_secret_value().strip():
+            raise ValueError(
+                "GEOLENS_ADMIN_PASSWORD must not be empty. Generate one "
+                "with `openssl rand -base64 16` and set it in your .env."
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_known_bad_credentials(self) -> "Settings":
         jwt_value = self.jwt_secret_key.get_secret_value()
         admin_value = self.geolens_admin_password.get_secret_value()

@@ -580,6 +580,22 @@ class TestKnownBadCredentialsGuard:
         assert "POSTGRES_PASSWORD" in str(exc_info.value)
 
 
+class TestEmptyAdminCredentialsGuard:
+    """Refuse to boot with empty admin credentials (verbatim .env.example)."""
+
+    @pytest.mark.parametrize("username", ["", "   "])
+    def test_empty_admin_username_rejected(self, username):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(geolens_admin_username=username)
+        assert "GEOLENS_ADMIN_USERNAME" in str(exc_info.value)
+
+    @pytest.mark.parametrize("password", ["", "   "])
+    def test_empty_admin_password_rejected(self, password):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(geolens_admin_password=password)
+        assert "GEOLENS_ADMIN_PASSWORD" in str(exc_info.value)
+
+
 class TestLogLevelValidator:
     """LOG_LEVEL must be a valid stdlib logging level."""
 
