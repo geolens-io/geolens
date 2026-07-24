@@ -751,7 +751,9 @@ jobs:
   backend-test:
     name: Backend Tests
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    # Alembic-only changes must run the suite too — this condition absorbed the
+    # deleted pytest-parallel-isolation job's trigger when that job folded in.
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -880,13 +882,20 @@ jobs:
         # regression with a ~5.5 pt buffer (the old 58.5 caught nothing). Ratchet
         # upward per the pyproject note; never lower without a CHANGELOG rationale.
         #
-        # -n 4 parallelizes the run (matches the Pytest Parallel Isolation job's
-        # benchmarked worker count). pytest-cov auto-combines each worker's data,
-        # so --cov-fail-under still gates on the full total. The suite is already
-        # -n4-safe (PPI runs it green), and --dist loadgroup (pyproject addopts)
-        # co-locates the global-state tenancy tests. Roughly halves this job
-        # (~1480s serial -> ~700s), the CI wall-clock's long pole.
-        run: uv run pytest -n 4 -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=80
+        # This is the ONLY full-suite run. The former pytest-parallel-isolation
+        # job became a duplicate the day this job went xdist (#561): both ran the
+        # same suite `-n 4 --dist loadgroup`, differing only by coverage flags
+        # and the 4 `lifecycle` tests — folded in here via `-m 'not perf'`. Any
+        # fixture-isolation regression that job guarded against fails this run
+        # identically. pytest-cov auto-combines each worker's data, so
+        # --cov-fail-under still gates on the full total; --dist loadgroup
+        # (pyproject addopts) co-locates the global-state tenancy tests.
+        #
+        # -n 6 oversubscribes the 4-vCPU runner deliberately: the suite is
+        # Postgres-wait-bound, so extra workers fill the DB-wait gaps
+        # (benchmarked against -n 4 in the PR that removed the duplicate job).
+        # --durations=25 keeps the slowest-test tail visible in every run.
+        run: uv run pytest -n 6 -v --tb=short --durations=25 -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=80
 
       - name: Verify SAML fixtures unchanged after pytest
         run: |
@@ -949,107 +958,6 @@ jobs:
           # is better than relying on bash defaults.
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
-
-  # ---------- pytest parallel-isolation gate ----------
-  # Defends the fixture-isolation fixes against regression.
-  # Runs `pytest -n 4` against the backend test suite (the known residual
-  # failures are a tracked flake-class, not regressions from this gate).
-  # The `-n 4` value was chosen from local xdist performance benchmarking.
-  # Sister-shape to alembic-clean-db (line 462).
-  pytest-parallel-isolation:
-    name: Pytest Parallel Isolation
-    needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: backend
-    env:
-      POSTGRES_USER: geolens
-      POSTGRES_PASSWORD: geolens_test
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: postgres
-      # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
-      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
-      GEOLENS_ADMIN_USERNAME: admin
-      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
-      PYTHONPATH: .
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - name: Start PostgreSQL with PostGIS + pgvector
-        working-directory: .
-        run: |
-          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
-          FROM postgis/postgis:17-3.5
-          RUN apt-get update \
-              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
-              && rm -rf /var/lib/apt/lists/*
-          DOCKERFILE
-          docker run -d --name test-postgres \
-            -e POSTGRES_DB=postgres \
-            -e POSTGRES_USER=geolens \
-            -e POSTGRES_PASSWORD=geolens_test \
-            -p 5432:5432 \
-            geolens-test-db
-          for i in $(seq 1 30); do
-            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
-              echo "PostgreSQL is ready"
-              break
-            fi
-            echo "Waiting for PostgreSQL... ($i/30)"
-            sleep 2
-          done
-
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
-        with:
-          version: "0.10.2"
-          enable-cache: true
-          cache-dependency-glob: "backend/uv.lock"
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: "3.13"
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
-
-      - name: Install Python dependencies
-        run: uv sync --locked --dev
-
-      - name: Set up database extensions, roles, and schemas
-        run: |
-          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
-            CREATE EXTENSION IF NOT EXISTS postgis;
-            CREATE EXTENSION IF NOT EXISTS pg_trgm;
-            CREATE EXTENSION IF NOT EXISTS vector;
-            CREATE EXTENSION IF NOT EXISTS unaccent;
-            CREATE SCHEMA IF NOT EXISTS catalog;
-            CREATE SCHEMA IF NOT EXISTS data;
-            ALTER DATABASE postgres SET search_path TO catalog, data, public;
-            DO \$\$ BEGIN
-              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
-                CREATE ROLE geolens_reader NOLOGIN;
-              END IF;
-            END \$\$;
-            GRANT USAGE ON SCHEMA data TO geolens_reader;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
-          "
-
-      - name: Run migrations
-        # `heads` (plural) applies every Alembic branch head and is also safe
-        # when the migration graph currently has a single head.
-        run: uv run alembic upgrade heads
-
-      - name: Run tests with -n 4
-        # Regression gate for the fixture-isolation work.
-        # The `-n 4` value was chosen from local xdist performance benchmarking.
-        # No coverage flags here — backend-test job already covers coverage; this job is a regression gate only.
-        # Uses the default public test environment; optional runtime-specific
-        # fixture races are tracked separately if they surface.
-        run: uv run pytest -n 4 -v --tb=short -m 'not perf'
 
   # ---------- frontend ----------
   frontend-lint:
@@ -1293,7 +1201,7 @@ jobs:
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
+    needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     # A clean run includes fixture ingestion, 150+ checks, retries, and cleanup.
     # Keep enough headroom for the whole suite to finish on a shared runner.
     timeout-minutes: 30
@@ -1489,7 +1397,7 @@ jobs:
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
+    needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -1560,7 +1468,7 @@ jobs:
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
+    needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
