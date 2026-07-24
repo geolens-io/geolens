@@ -444,7 +444,17 @@ async def get_dataset_collection(
 async def get_collection_items(
     request: Request,
     dataset_id: uuid.UUID,
-    limit: int = Query(10, ge=1, le=200),
+    limit: int = Query(
+        10,
+        ge=1,
+        le=10_000,
+        description=(
+            "Page size. The ceiling is 10,000 (not the 200 used by offset-paged "
+            "list endpoints) because this route serves bulk GeoJSON export for "
+            "OGC clients and pages via the constant-time `after_gid` keyset "
+            "cursor, so large pages cost response size, not query time."
+        ),
+    ),
     offset: int = Query(
         0,
         ge=0,
