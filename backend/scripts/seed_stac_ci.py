@@ -16,17 +16,15 @@ from datetime import date
 
 
 async def main() -> None:
-    from sqlalchemy import select
-
+    import app.modules.auth.models  # noqa: F401 -- register catalog.users so the records FK resolves (same pattern as alembic/env.py); the User symbol itself stays unimported per the IDENT-02 layering guard
     from app.core.db import async_session
-    from app.modules.auth.models import User
     from app.modules.catalog.collections.models import Collection, CollectionDataset
     from app.modules.catalog.datasets.domain.models import Dataset, Record
 
     async with async_session() as session:
-        admin_id = (
-            await session.execute(select(User.id).order_by(User.created_at).limit(1))
-        ).scalar_one()
+        # created_by stays NULL: the record is public+published, so the
+        # anonymous visibility filter never consults ownership, and importing
+        # the concrete User ORM here would violate the IDENT-02 layering guard.
         record = Record(
             title="STAC CI raster",
             summary="Fixture record for the stac-api-validator CI gate.",
@@ -34,7 +32,6 @@ async def main() -> None:
             record_status="published",
             record_type="raster_dataset",
             license="CC-BY-4.0",
-            created_by=admin_id,
             spatial_extent=(
                 "SRID=4326;POLYGON((-105 39,-104 39,-104 40,-105 40,-105 39))"
             ),
