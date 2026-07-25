@@ -824,15 +824,45 @@ async def test_cors_preflight_returns_200(client: AsyncClient, admin_auth_header
 
 
 @pytest.mark.anyio
-async def test_cors_wildcard_rejected_with_credentials(
+async def test_cors_wildcard_rejected_at_settings_write(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """Wildcard '*' is rejected — credentials=true requires explicit origins."""
-    await client.put(
+    """A wildcard is refused on save, naming the setting, so the admin sees why.
+
+    Without this the middleware silently denies every origin (including valid
+    ones listed alongside the '*') up to _ORIGINS_CACHE_TTL later.
+    """
+    resp = await client.put(
         "/settings/",
-        json={"settings": {"cors_allowed_origins": "*"}},
+        json={
+            "settings": {
+                "cors_allowed_origins": "https://example.com, *",
+            }
+        },
         headers=admin_auth_header,
     )
+    assert resp.status_code == 422
+    assert "cors_allowed_origins" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_cors_wildcard_rejected_with_credentials(
+    client: AsyncClient, test_db_session
+):
+    """Middleware still denies a wildcard reaching it via env, not the settings API.
+
+    validate_cors_allowed_origins guards the settings write path only; the env
+    var flows straight into PersistentConfig, so this guard stays load-bearing.
+    PersistentConfig.set bypasses SETTING_VALIDATORS (those run in the settings
+    router), which is exactly the env-supplied path this covers.
+    """
+    from app.api.middleware import cors as cors_middleware
+    from app.core.persistent_config import CORS_ALLOWED_ORIGINS
+
+    await CORS_ALLOWED_ORIGINS.set(test_db_session, "*")
+    # The allowlist cache is a module global with a 30s TTL and no write-through
+    # invalidation, so a stale entry from an earlier test would mask the result.
+    cors_middleware._origins_cache = (0.0, set())
 
     resp = await client.get("/health", headers={"Origin": "http://anything.com"})
     assert resp.status_code == 200

@@ -554,8 +554,30 @@ def validate_allowed_email_domains(v: Any) -> list[str]:
     return normalized
 
 
+def validate_cors_allowed_origins(v: Any) -> str:
+    """Reject a wildcard origin, which the CORS middleware cannot honour.
+
+    Responses carry `Access-Control-Allow-Credentials: true`, so the spec
+    forbids `*` as the allow-origin value. DynamicCORSMiddleware therefore
+    treats a list containing `*` as "deny everything" — including any explicit
+    origins listed alongside it. Catching it here turns a silent, 30s-delayed
+    outage (the middleware caches the empty set) into an immediate 422.
+    """
+    if not isinstance(v, str):
+        raise ValueError("cors_allowed_origins must be a string")
+    origins = [o.strip() for o in v.split(",") if o.strip()]
+    if "*" in origins:
+        raise ValueError(
+            "Wildcard '*' is not accepted because credentialed CORS requires "
+            "explicit origins. List each origin in full, e.g. "
+            "https://example.com, https://app.example.com"
+        )
+    return ", ".join(origins)
+
+
 SETTING_VALIDATORS: dict[str, Any] = {
     "log_level": validate_log_level,
+    "cors_allowed_origins": validate_cors_allowed_origins,
     "login_rate_limit": validate_login_rate_limit,
     "global_rate_limit": validate_global_rate_limit,
     "ogc_items_max_page_size": validate_ogc_items_max_page_size,
