@@ -21,6 +21,17 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// fix(#700 review): the save half is gated on can('upload'); default to a
+// role that has it so the existing save-path tests keep their controls.
+let mockCanUpload = true;
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    can: () => mockCanUpload,
+    permissions: { upload: mockCanUpload },
+    isLoading: false,
+  }),
+}));
+
 vi.mock('@/api/analysis', () => ({
   previewAnalysis: vi.fn().mockResolvedValue({
     geojson: {
@@ -92,8 +103,23 @@ function renderPanel(
   );
 }
 
+beforeEach(() => {
+  mockCanUpload = true;
+});
+
 describe('AnalysisPanel', () => {
   beforeEach(() => useAnalysisJobStore.setState({ job: null }));
+
+  it('hides the dataset-creation half without the upload permission (#700)', () => {
+    mockCanUpload = false;
+    renderPanel([datasetLayer]);
+    expect(
+      screen.queryByRole('button', { name: 'Create dataset' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('New dataset name')).not.toBeInTheDocument();
+    // The read-only preview stays available.
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+  });
 
   it('shows a hint when no dataset layers are available', () => {
     renderPanel([groupLayer]);

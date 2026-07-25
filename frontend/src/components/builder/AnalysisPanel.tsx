@@ -19,6 +19,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
@@ -279,6 +280,12 @@ export function AnalysisPanel({
       );
     },
   });
+
+  // fix(#700 review): materialize requires the upload permission server-side
+  // (it creates a dataset); hide the creation half for viewer roles instead
+  // of letting them fill the form into a guaranteed 403. Preview stays.
+  const { can } = usePermissions();
+  const canCreateDataset = can('upload');
 
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
@@ -547,64 +554,68 @@ export function AnalysisPanel({
           </Button>
         )}
 
-        <div className="space-y-1.5 border-t pt-3">
-          <Label className="text-xs" htmlFor="analysis-output-title">
-            {t('analysisTools.outputTitleLabel', {
-              defaultValue: 'New dataset name',
-            })}
-          </Label>
-          <Input
-            id="analysis-output-title"
-            value={outputTitle}
-            onChange={(e) => setOutputTitle(e.target.value)}
-            placeholder={t('analysisTools.outputTitlePlaceholder', {
-              defaultValue: 'e.g. Parcels buffered 500 m',
-            })}
-          />
-          <Button
-            variant="secondary"
-            className="w-full"
-            onClick={() => {
-              // fix(#682 review): reset only this panel's local status line.
-              // Clearing the GLOBAL tracking here would orphan a job that is
-              // still running (the server then 429s the replacement), losing
-              // the original job's completion notification for good — the
-              // mutation replaces the tracked job on success instead.
-              setJobId(null);
-              materializeMutation.mutate();
-            }}
-            disabled={!canSave}
-          >
-            {materializeMutation.isPending
-              ? t('analysisTools.saving', { defaultValue: 'Creating…' })
-              : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
-          </Button>
-          {job && (
-            <p className="text-xs text-muted-foreground" role="status">
-              {job.status === 'failed'
-                ? `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${job.error_message ? `: ${job.error_message}` : ''}`
-                : job.status === 'complete'
-                  ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                  : job.current_step === 'registering'
-                    ? t('analysisTools.jobSaving', {
-                        defaultValue: 'Saving the dataset…',
-                      })
-                    : t('analysisTools.jobRunning', {
-                        defaultValue: 'Creating dataset…',
-                      })}
-            </p>
-          )}
-          {job?.status === 'complete' && !!job.dataset_id && layerActions && (
+        {/* fix(#700 review): hidden without the upload permission — the
+            gating mirrors DatasetSearchPanel's import CTA. */}
+        {canCreateDataset && (
+          <div className="space-y-1.5 border-t pt-3">
+            <Label className="text-xs" htmlFor="analysis-output-title">
+              {t('analysisTools.outputTitleLabel', {
+                defaultValue: 'New dataset name',
+              })}
+            </Label>
+            <Input
+              id="analysis-output-title"
+              value={outputTitle}
+              onChange={(e) => setOutputTitle(e.target.value)}
+              placeholder={t('analysisTools.outputTitlePlaceholder', {
+                defaultValue: 'e.g. Parcels buffered 500 m',
+              })}
+            />
             <Button
-              variant="outline"
-              size="sm"
+              variant="secondary"
               className="w-full"
-              onClick={() => job.dataset_id && layerActions.onAddDataset(job.dataset_id)}
+              onClick={() => {
+                // fix(#682 review): reset only this panel's local status line.
+                // Clearing the GLOBAL tracking here would orphan a job that is
+                // still running (the server then 429s the replacement), losing
+                // the original job's completion notification for good — the
+                // mutation replaces the tracked job on success instead.
+                setJobId(null);
+                materializeMutation.mutate();
+              }}
+              disabled={!canSave}
             >
-              {t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
+              {materializeMutation.isPending
+                ? t('analysisTools.saving', { defaultValue: 'Creating…' })
+                : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
             </Button>
-          )}
-        </div>
+            {job && (
+              <p className="text-xs text-muted-foreground" role="status">
+                {job.status === 'failed'
+                  ? `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${job.error_message ? `: ${job.error_message}` : ''}`
+                  : job.status === 'complete'
+                    ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
+                    : job.current_step === 'registering'
+                      ? t('analysisTools.jobSaving', {
+                          defaultValue: 'Saving the dataset…',
+                        })
+                      : t('analysisTools.jobRunning', {
+                          defaultValue: 'Creating dataset…',
+                        })}
+              </p>
+            )}
+            {job?.status === 'complete' && !!job.dataset_id && layerActions && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => job.dataset_id && layerActions.onAddDataset(job.dataset_id)}
+              >
+                {t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
