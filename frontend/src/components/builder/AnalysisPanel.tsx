@@ -281,7 +281,16 @@ export function AnalysisPanel({
         <Label className="text-xs" htmlFor="analysis-layer">
           {t('analysisTools.layerLabel', { defaultValue: 'Layer' })}
         </Label>
-        <Select value={layerId} onValueChange={setLayerId}>
+        <Select
+          value={layerId}
+          onValueChange={(id) => {
+            setLayerId(id);
+            // fix(#680): a group-by column chosen for one dataset must not
+            // carry to another — it may not exist there (422 from the API) or
+            // silently group by a same-named field.
+            setByField(BY_FIELD_NONE);
+          }}
+        >
           <SelectTrigger id="analysis-layer" className="w-full">
             <SelectValue
               placeholder={t('analysisTools.layerPlaceholder', {
@@ -305,7 +314,17 @@ export function AnalysisPanel({
         </Label>
         <Select
           value={operation}
-          onValueChange={(v) => setOperation(v as AnalysisOperation)}
+          onValueChange={(v) => {
+            const next = v as AnalysisOperation;
+            if (next !== 'clip') {
+              // fix(#680): leaving clip mode must drop the retained mask —
+              // the static-mode TerraDraw layers otherwise stay visible on
+              // the map under operations that ignore them.
+              setMask(null);
+              stopDrawing();
+            }
+            setOperation(next);
+          }}
         >
           <SelectTrigger id="analysis-operation" className="w-full">
             <SelectValue />

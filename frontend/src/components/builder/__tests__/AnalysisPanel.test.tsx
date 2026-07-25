@@ -209,6 +209,33 @@ describe('AnalysisPanel', () => {
       }),
     );
   });
+
+  it('resets the dissolve group field when the source layer changes (fix(#680))', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+
+    // Combobox order: layer, operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Dissolve' }));
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    // Switching datasets must not carry the field along.
+    await user.click(screen.getAllByRole('combobox')[0]);
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Dissolved roads' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    await waitFor(() =>
+      expect(materializeAnalysis).toHaveBeenCalledWith('ds2', {
+        operation: 'dissolve',
+        title: 'Dissolved roads',
+      }),
+    );
+  });
 });
 
 describe('AnalysisPanel — chat handoff prefill (#675)', () => {
