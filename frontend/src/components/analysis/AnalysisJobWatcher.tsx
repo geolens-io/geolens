@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
+import { ApiError } from '@/api/client';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 
@@ -22,14 +23,21 @@ export function AnalysisJobWatcher() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   // Shares its query key with the Analysis panel, so both watching costs one poll.
-  const { data, isError } = useJobStatus(job?.jobId ?? null);
+  const { data, error } = useJobStatus(job?.jobId ?? null);
   const status = data?.status;
+  // fix(#682 review): only a definitive answer stops tracking. A transient 5xx
+  // or dropped connection must NOT discard the job — refetchInterval keeps
+  // polling through errors, so tracking recovers on the next good response,
+  // and the reload/navigation cases this exists for are exactly when a blip is
+  // most likely.
+  const gone =
+    error instanceof ApiError && [401, 403, 404].includes(error.status);
 
   useEffect(() => {
     if (!job) return;
-    if (isError) {
-      // Unreadable job (pruned by the retention sweep, or signed out) —
-      // nothing to report, and keeping it would poll forever.
+    if (gone) {
+      // Pruned by the retention sweep, or no longer ours to read — nothing to
+      // report, and keeping it would poll forever.
       setJob(null);
       return;
     }
@@ -87,7 +95,7 @@ export function AnalysisJobWatcher() {
       );
     }
     setJob(null);
-  }, [job, status, isError, data, queryClient, navigate, setJob, t]);
+  }, [job, status, gone, data, queryClient, navigate, setJob, t]);
 
   return null;
 }

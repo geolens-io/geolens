@@ -196,7 +196,12 @@ async def analysis_materialize_endpoint(
         .select_from(IngestJob)
         .where(
             IngestJob.created_by == user.id,
-            IngestJob.source_filename.like("analysis-%"),
+            # fix(#682 review): the analysis marker in user_metadata, NOT
+            # source_filename — uploads copy the user's own filename into that
+            # column, so an upload named "analysis-data.geojson" would lock the
+            # uploader out of analysis. The metadata below is written in the
+            # same transaction as the job row, so this never misses one.
+            IngestJob.user_metadata.has_key("analysis"),
             IngestJob.status.in_(("pending", "running")),
             IngestJob.created_at >= datetime.now(timezone.utc) - _ACTIVE_JOB_WINDOW,
         )

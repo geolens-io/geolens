@@ -127,6 +127,36 @@ class TestMaterializeEndpoint:
             third_job.status = "failed"
             await test_db_session.commit()
 
+    async def test_upload_named_like_an_analysis_job_does_not_block(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#682 review): the active-job check keys on the analysis marker
+        in user_metadata, not source_filename — that column holds the user's
+        own upload filename, so uploading "analysis-data.geojson" must not
+        lock them out of analysis."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        upload = await _create_job(test_db_session, admin_id)
+        upload.source_filename = "analysis-data.geojson"
+        upload.status = "running"
+        upload.user_metadata = None
+        await test_db_session.commit()
+
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Not blocked"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        upload.status = "failed"
+        await test_db_session.commit()
+
     async def test_zombie_job_stops_blocking_after_the_window(
         self,
         client: AsyncClient,
@@ -143,6 +173,7 @@ class TestMaterializeEndpoint:
         zombie = await _create_job(test_db_session, admin_id)
         zombie.status = "running"
         zombie.source_filename = "analysis-buffer"
+        zombie.user_metadata = {"analysis": {"operation": "buffer"}}
         zombie.created_at = (
             datetime.now(timezone.utc)
             - router_analysis._ACTIVE_JOB_WINDOW

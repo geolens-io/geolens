@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
 import { AnalysisPanel } from '../AnalysisPanel';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
+import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import type { MapLayerResponse } from '@/types/api';
 
 // Radix Select needs pointer-capture APIs jsdom lacks (DataDrivenStyleEditor
@@ -92,6 +93,8 @@ function renderPanel(
 }
 
 describe('AnalysisPanel', () => {
+  beforeEach(() => useAnalysisJobStore.setState({ job: null }));
+
   it('shows a hint when no dataset layers are available', () => {
     renderPanel([groupLayer]);
     expect(
@@ -195,6 +198,20 @@ describe('AnalysisPanel', () => {
     await waitFor(() =>
       expect(onAnalysisJobChange).toHaveBeenCalledWith('job1', 'Buffered parcels'),
     );
+  });
+
+  it('blocks a second Create while an earlier job is still running', () => {
+    // fix(#682 review): the API allows one active analysis job per user.
+    // Clicking through would 429 AND orphan the running job's notification.
+    useAnalysisJobStore.setState({
+      job: { jobId: 'j-earlier', title: 'Earlier', mapId: 'm1' },
+    });
+    renderPanel([datasetLayer]);
+
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Second run' },
+    });
+    expect(screen.getByRole('button', { name: 'Create dataset' })).toBeDisabled();
   });
 
   it('sends mask_dataset_id when clipping to a layer', async () => {

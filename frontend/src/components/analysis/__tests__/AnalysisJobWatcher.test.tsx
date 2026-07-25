@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
 import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import { ApiError } from '@/api/client';
 
 const navigate = vi.fn();
 vi.mock('react-router', () => ({ useNavigate: () => navigate }));
@@ -25,10 +26,10 @@ function renderWatcher() {
   );
 }
 
-function mockJob(data: unknown, isError = false) {
+function mockJob(data: unknown, error: unknown = null) {
   vi.mocked(useJobStatus).mockReturnValue({
     data,
-    isError,
+    error,
   } as unknown as ReturnType<typeof useJobStatus>);
 }
 
@@ -107,13 +108,24 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisJobStore.getState().job).toBeNull();
   });
 
-  it('stops tracking an unreadable job instead of polling forever', async () => {
+  it('stops tracking a job that is gone instead of polling forever', async () => {
     useAnalysisJobStore.setState({ job: { jobId: 'gone', title: 'x', mapId: null } });
-    mockJob(undefined, true);
+    mockJob(undefined, new ApiError('Not Found', 404));
     renderWatcher();
 
     await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
     expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps tracking through a transient failure (fix(#682) review)', () => {
+    // A 5xx or dropped connection after a reload must not discard the job:
+    // polling continues, so tracking recovers on the next good response.
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'x', mapId: null } });
+    mockJob(undefined, new ApiError('Service Unavailable', 503));
+    renderWatcher();
+
+    expect(useAnalysisJobStore.getState().job).not.toBeNull();
     expect(toast.error).not.toHaveBeenCalled();
   });
 });

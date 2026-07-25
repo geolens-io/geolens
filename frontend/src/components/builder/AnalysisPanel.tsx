@@ -19,6 +19,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
@@ -104,6 +105,9 @@ export function AnalysisPanel({
   // Shares its TanStack query with the page-level tracker (same key), so
   // there is exactly one 2s poll loop however many components watch the job.
   const job = useJobStatus(jobId).data;
+  // AnalysisJobWatcher clears this on any terminal status, so a tracked job
+  // is by definition still in flight.
+  const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
 
   const datasetLayers = layers.filter((l) => !!l.dataset_id && !l.is_dem);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
@@ -287,6 +291,9 @@ export function AnalysisPanel({
   const canSave =
     !!selectedLayer?.dataset_id &&
     !materializeMutation.isPending &&
+    // The API allows one active analysis job per user; reflect that instead of
+    // letting the click earn a 429.
+    !analysisJobRunning &&
     paramsValid &&
     outputTitle.trim().length > 0;
 
@@ -558,8 +565,12 @@ export function AnalysisPanel({
             variant="secondary"
             className="w-full"
             onClick={() => {
+              // fix(#682 review): reset only this panel's local status line.
+              // Clearing the GLOBAL tracking here would orphan a job that is
+              // still running (the server then 429s the replacement), losing
+              // the original job's completion notification for good — the
+              // mutation replaces the tracked job on success instead.
               setJobId(null);
-              onAnalysisJobChange?.(null);
               materializeMutation.mutate();
             }}
             disabled={!canSave}
