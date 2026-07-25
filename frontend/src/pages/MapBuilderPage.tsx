@@ -788,6 +788,14 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, [ephemeralAnalysis]);
 
+  // fix(#679 review P2): the prefill lives only for the handoff opening it
+  // triggered. Clearing it on any navigation away from the panel (rail close,
+  // panel switch, mobile sheet dismiss) keeps a later ordinary opening from
+  // remounting the form with stale handoff params.
+  useEffect(() => {
+    if (railPanel !== 'analysis' && analysisPrefill) setAnalysisPrefill(null);
+  }, [railPanel, analysisPrefill]);
+
   const railProps = useMemo(() => ({
     activePanel: railPanel,
     onPanelChange: setRailPanel,
