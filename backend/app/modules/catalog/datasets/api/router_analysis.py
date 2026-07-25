@@ -44,6 +44,14 @@ router = APIRouter(
 
 _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# fix(#695): Procrastinate ranks by per-job priority (DESC, default 0), not
+# by queue name — so a 300-second analysis CTAS enqueued first would
+# head-of-line block every upload on the shared single worker. Below-default
+# priority lets interactive ingest win the fetch whenever both are queued.
+# ponytail: a steady upload stream can starve queued analysis indefinitely —
+# acceptable for background work; a per-op budget knob is #696's scope.
+ANALYSIS_JOB_PRIORITY = -10
+
 # Sandbox error categories → HTTP status. Everything else is a sanitized 500.
 # query_data_error (SQLSTATE class 22 / GEOS internal errors) is a 422: all
 # SQL on this path is server-built from validated params, so those failures
@@ -294,7 +302,9 @@ async def analysis_materialize_endpoint(
             else {}
         )
         await defer_async_with_tenant(
-            get_catalog_port().materialize_analysis_task(),
+            get_catalog_port()
+            .materialize_analysis_task()
+            .configure(priority=ANALYSIS_JOB_PRIORITY),
             job_id=str(job.id),
             dataset_id=str(dataset.id),
             user_id=str(user.id),

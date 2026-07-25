@@ -79,6 +79,13 @@ class TestMaterializeEndpoint:
         kwargs = mock_defer.await_args.kwargs
         assert kwargs["operation"] == "buffer"
         assert kwargs["dataset_id"] == str(ds.id)
+        # fix(#695): queue names don't rank in Procrastinate — the analysis
+        # defer must carry a below-default per-job priority (still on the
+        # shared "ingest" queue) so queued uploads always fetch first.
+        deferrer = mock_defer.await_args.args[0]
+        assert deferrer.job.priority == router_analysis.ANALYSIS_JOB_PRIORITY
+        assert deferrer.job.priority < 0
+        assert deferrer.job.queue == "ingest"
         job = await test_db_session.get(IngestJob, uuid.UUID(data["job_id"]))
         assert job is not None
         assert job.status == "pending"
