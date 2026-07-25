@@ -13,6 +13,7 @@ import { getLayerType, filterPaintForLayerType, clampPaintBounds } from '@/compo
 import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-action-staging';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
+import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions, type ViewportContext } from './chat-suggestions';
 
@@ -324,7 +325,7 @@ interface ChatPanelProps {
   onQueryResult?: (
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
-    meta?: { truncated?: boolean; totalCount?: number },
+    meta?: { truncated?: boolean; totalCount?: number; analysis?: EphemeralAnalysisHandoff },
   ) => void;
   /** fix(#676): clears the single-slot ephemeral overlay when a turn's winning
    *  result carries no geometry — otherwise a stale overlay from an earlier
@@ -494,12 +495,25 @@ export function ChatPanel({
       // "500 of 10,651 features". Both query_data and run_analysis emit them
       // only when the server-side cap actually bit.
       const total = typeof action.row_count === 'number' ? action.row_count : undefined;
+      const truncation = action.truncated === true && total != null
+        ? { truncated: true, totalCount: total }
+        : undefined;
+      // feat(#675): a run_analysis action carries its reconstruction params so
+      // the badge can offer "Save as dataset" (prefilled Analysis panel).
+      const analysis: EphemeralAnalysisHandoff | undefined =
+        (action.operation === 'buffer' || action.operation === 'centroid') && action.layer_id
+          ? {
+              operation: action.operation,
+              layerId: action.layer_id,
+              ...(typeof action.distance_meters === 'number'
+                ? { distanceMeters: action.distance_meters }
+                : {}),
+            }
+          : undefined;
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
         [minX, minY, maxX, maxY],
-        action.truncated === true && total != null
-          ? { truncated: true, totalCount: total }
-          : undefined,
+        truncation || analysis ? { ...truncation, ...(analysis ? { analysis } : {}) } : undefined,
       );
     }
   }

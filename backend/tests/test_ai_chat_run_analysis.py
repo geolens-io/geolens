@@ -230,6 +230,62 @@ class TestRunAnalysisActionCollection:
         )
         assert action is None
 
+    def test_action_carries_the_analysis_handoff_params(self) -> None:
+        """feat(#675): operation/layer_id/distance ride the action so the
+        builder can prefill the Analysis panel ("Save as dataset") from the
+        chat preview instead of making the user re-enter everything."""
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "operation": "buffer",
+                "layer_id": "l1",
+                "distance_meters": 500.0,
+                "feature_count": 3,
+                "truncated": False,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert action["operation"] == "buffer"
+        assert action["layer_id"] == "l1"
+        assert action["distance_meters"] == 500.0
+
+    def test_centroid_handoff_omits_distance(self) -> None:
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "operation": "centroid",
+                "layer_id": "l1",
+                "feature_count": 3,
+                "truncated": False,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert action["operation"] == "centroid"
+        assert "distance_meters" not in action
+
+    def test_chat_action_round_trip_preserves_the_handoff_params(self) -> None:
+        """Regression guard (the builder-audit #338 B-001 trap): fields the
+        collector emits but the ChatAction model lacks are silently dropped by
+        ``ChatAction(**a).model_dump(exclude_none=True)`` on the wire."""
+        action = {
+            "type": "show_query_result",
+            "operation": "buffer",
+            "layer_id": "l1",
+            "distance_meters": 500.0,
+            "geojson": {"type": "FeatureCollection", "features": []},
+            "bbox": [0, 0, 1, 1],
+        }
+        dumped = ChatAction(**action).model_dump(exclude_none=True)
+        assert dumped["operation"] == "buffer"
+        assert dumped["layer_id"] == "l1"
+        assert dumped["distance_meters"] == 500.0
+
     def test_empty_result_emits_a_geometry_less_marker(self) -> None:
         """fix(#676): no features still emits a geometry-less action — the
         frontend uses it to clear a stale overlay from an earlier turn.
@@ -269,6 +325,9 @@ class TestRunAnalysisHandler:
             "MultiPolygon",
         )
         assert len(result["bbox"]) == 4
+        # feat(#675): the sanitized buffer distance rides along for the
+        # Analysis-panel handoff.
+        assert result["distance_meters"] == 1000
 
     async def test_centroid_preview(self, test_db_session: AsyncSession):
         admin = await _get_admin(test_db_session)
@@ -283,6 +342,8 @@ class TestRunAnalysisHandler:
         )
         assert "error" not in result, result
         assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
+        # feat(#675): only buffer consumes a distance, so none rides along here.
+        assert "distance_meters" not in result
 
     async def test_unknown_layer_is_rejected(self, test_db_session: AsyncSession):
         admin = await _get_admin(test_db_session)

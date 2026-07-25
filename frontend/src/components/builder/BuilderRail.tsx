@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
+import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
@@ -98,6 +99,9 @@ interface BuilderRailProps {
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
   onClearPreview?: () => void;
   hasPreview?: boolean;
+  /** feat(#675): chat-preview handoff — keys a remount of AnalysisPanel so the
+   *  form initializes from it. The nonce distinguishes successive handoffs. */
+  analysisPrefill?: (EphemeralAnalysisHandoff & { nonce: number }) | null;
   /** Phase 1135 AI-05: optional viewport context passed through to ChatPanel for
    *  viewport-aware suggestion chips. Purely additive — omitting this prop has no effect. */
   viewport?: ViewportContext;
@@ -118,6 +122,7 @@ export function BuilderRail({
   mapInstanceRef,
   onClearPreview,
   hasPreview,
+  analysisPrefill,
   viewport,
   onMarkDirty,
   showRail = true,
@@ -267,12 +272,14 @@ export function BuilderRail({
                   </div>
                 }>
                   <AnalysisPanel
+                    key={analysisPrefill?.nonce ?? 'analysis'}
                     layers={layers}
                     mapInstanceRef={mapInstanceRef}
                     onPreviewResult={onQueryResult}
                     onClearPreview={onClearPreview}
                     hasPreview={hasPreview}
                     layerActions={layerActions}
+                    prefill={analysisPrefill ?? undefined}
                   />
                 </Suspense>
               </LazyLoadErrorBoundary>

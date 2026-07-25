@@ -2357,6 +2357,17 @@
             ],
             "title": "Dataset Name"
           },
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Meters"
+          },
           "expression": {
             "anyOf": [
               {
@@ -2414,6 +2425,17 @@
               }
             ],
             "title": "Opacity"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation"
           },
           "paint": {
             "anyOf": [

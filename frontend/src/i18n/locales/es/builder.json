@@ -972,7 +972,8 @@
     "featureCount_one": "{{count}} entidad",
     "featureCount_other": "{{count}} entidades",
     "dismiss": "Descartar resultado",
-    "featureCountTruncated": "{{count}} de {{total}} elementos"
+    "featureCountTruncated": "{{count}} de {{total}} elementos",
+    "saveAsDataset": "Guardar como conjunto de datos…"
   },
   "plugins": {
     "measurement": {

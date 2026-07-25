@@ -19,6 +19,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import type { LayerActions } from '@/components/builder/ChatPanel';
+import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
 
 const MAX_BUFFER_METERS = 100_000;
@@ -33,6 +34,10 @@ interface AnalysisPanelProps {
   onClearPreview?: () => void;
   hasPreview?: boolean;
   layerActions?: LayerActions;
+  /** feat(#675): initial form values handed off from a chat run_analysis
+   *  preview ("Save as dataset"). Applied on mount only — BuilderRail keys the
+   *  panel on the handoff so a new one remounts it. */
+  prefill?: EphemeralAnalysisHandoff;
 }
 
 /**
@@ -47,13 +52,22 @@ export function AnalysisPanel({
   onClearPreview,
   hasPreview,
   layerActions,
+  prefill,
 }: AnalysisPanelProps) {
   const { t } = useTranslation('builder');
   const firstEligibleId =
     layers.find((l) => !!l.dataset_id && !l.is_dem)?.id ?? '';
-  const [layerId, setLayerId] = useState(firstEligibleId);
-  const [operation, setOperation] = useState<AnalysisOperation>('buffer');
-  const [distance, setDistance] = useState('500');
+  // feat(#675): a handoff layer that has since left the map (or lost its
+  // dataset) falls back to the default selection instead of an empty select.
+  const prefillLayerId =
+    prefill && layers.some((l) => l.id === prefill.layerId && !!l.dataset_id && !l.is_dem)
+      ? prefill.layerId
+      : undefined;
+  const [layerId, setLayerId] = useState(prefillLayerId ?? firstEligibleId);
+  const [operation, setOperation] = useState<AnalysisOperation>(prefill?.operation ?? 'buffer');
+  const [distance, setDistance] = useState(
+    prefill?.distanceMeters != null ? String(prefill.distanceMeters) : '500',
+  );
   const [mask, setMask] = useState<GeoJSON.Polygon | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [outputTitle, setOutputTitle] = useState('');

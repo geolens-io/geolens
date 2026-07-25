@@ -972,7 +972,8 @@
     "featureCount_one": "{{count}} entité",
     "featureCount_other": "{{count}} entités",
     "dismiss": "Fermer le résultat",
-    "featureCountTruncated": "{{count}} sur {{total}} éléments"
+    "featureCountTruncated": "{{count}} sur {{total}} éléments",
+    "saveAsDataset": "Enregistrer comme jeu de données…"
   },
   "plugins": {
     "measurement": {

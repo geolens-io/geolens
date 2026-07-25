@@ -9,11 +9,15 @@ interface EphemeralBadgeProps {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
+  /** feat(#675): opens the Analysis panel prefilled with the operation behind
+   *  this preview. Builder-only — the viewer has no Analysis rail, so it
+   *  never passes this. */
+  onSaveAsDataset?: () => void;
   /** Position override — the viewer's bottom-left corner is occupied by its basemap toggle. */
   className?: string;
 }
 
-export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, className }: EphemeralBadgeProps) {
+export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, onSaveAsDataset, className }: EphemeralBadgeProps) {
   const { t, i18n } = useTranslation('builder');
 
   const countLabel = truncated && totalCount != null
@@ -33,6 +37,15 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount,
       <span className="text-muted-foreground">
         {t('ephemeralBadge.queryResult')} &middot; {countLabel}
       </span>
+      {onSaveAsDataset && (
+        <button
+          type="button"
+          onClick={onSaveAsDataset}
+          className="cursor-pointer font-medium text-primary hover:underline"
+        >
+          {t('ephemeralBadge.saveAsDataset', { defaultValue: 'Save as dataset…' })}
+        </button>
+      )}
       <button
         type="button"
         onClick={onDismiss}

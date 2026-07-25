@@ -1460,6 +1460,10 @@ export type ChatAction = {
      */
     dataset_name?: string | null;
     /**
+     * Distance Meters
+     */
+    distance_meters?: number | null;
+    /**
      * Expression
      */
     expression?: Array<unknown> | null;
@@ -1478,6 +1482,10 @@ export type ChatAction = {
      * Opacity
      */
     opacity?: number | null;
+    /**
+     * Operation
+     */
+    operation?: string | null;
     /**
      * Paint
      */

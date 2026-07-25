@@ -32,11 +32,13 @@ class ChatAction:
         columns (list[str] | None | Unset):
         dataset_id (None | str | Unset):
         dataset_name (None | str | Unset):
+        distance_meters (float | None | Unset):
         expression (list[Any] | None | Unset):
         geojson (GeoJSONFeatureCollection | None | Unset):
         label_config (ChatActionLabelConfigType0 | None | Unset):
         layer_id (None | str | Unset):
         opacity (float | None | Unset):
+        operation (None | str | Unset):
         paint (ChatActionPaintType0 | None | Unset):
         replace_paint (bool | None | Unset):
         row_count (int | None | Unset):
@@ -52,11 +54,13 @@ class ChatAction:
     columns: list[str] | None | Unset = UNSET
     dataset_id: None | str | Unset = UNSET
     dataset_name: None | str | Unset = UNSET
+    distance_meters: float | None | Unset = UNSET
     expression: list[Any] | None | Unset = UNSET
     geojson: GeoJSONFeatureCollection | None | Unset = UNSET
     label_config: ChatActionLabelConfigType0 | None | Unset = UNSET
     layer_id: None | str | Unset = UNSET
     opacity: float | None | Unset = UNSET
+    operation: None | str | Unset = UNSET
     paint: ChatActionPaintType0 | None | Unset = UNSET
     replace_paint: bool | None | Unset = UNSET
     row_count: int | None | Unset = UNSET
@@ -113,6 +117,12 @@ class ChatAction:
         else:
             dataset_name = self.dataset_name
 
+        distance_meters: float | None | Unset
+        if isinstance(self.distance_meters, Unset):
+            distance_meters = UNSET
+        else:
+            distance_meters = self.distance_meters
+
         expression: list[Any] | None | Unset
         if isinstance(self.expression, Unset):
             expression = UNSET
@@ -149,6 +159,12 @@ class ChatAction:
             opacity = UNSET
         else:
             opacity = self.opacity
+
+        operation: None | str | Unset
+        if isinstance(self.operation, Unset):
+            operation = UNSET
+        else:
+            operation = self.operation
 
         paint: dict[str, Any] | None | Unset
         if isinstance(self.paint, Unset):
@@ -220,6 +236,8 @@ class ChatAction:
             field_dict["dataset_id"] = dataset_id
         if dataset_name is not UNSET:
             field_dict["dataset_name"] = dataset_name
+        if distance_meters is not UNSET:
+            field_dict["distance_meters"] = distance_meters
         if expression is not UNSET:
             field_dict["expression"] = expression
         if geojson is not UNSET:
@@ -230,6 +248,8 @@ class ChatAction:
             field_dict["layer_id"] = layer_id
         if opacity is not UNSET:
             field_dict["opacity"] = opacity
+        if operation is not UNSET:
+            field_dict["operation"] = operation
         if paint is not UNSET:
             field_dict["paint"] = paint
         if replace_paint is not UNSET:
@@ -326,6 +346,15 @@ class ChatAction:
 
         dataset_name = _parse_dataset_name(d.pop("dataset_name", UNSET))
 
+        def _parse_distance_meters(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        distance_meters = _parse_distance_meters(d.pop("distance_meters", UNSET))
+
         def _parse_expression(data: object) -> list[Any] | None | Unset:
             if data is None:
                 return data
@@ -396,6 +425,15 @@ class ChatAction:
             return cast(float | None | Unset, data)
 
         opacity = _parse_opacity(d.pop("opacity", UNSET))
+
+        def _parse_operation(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        operation = _parse_operation(d.pop("operation", UNSET))
 
         def _parse_paint(data: object) -> ChatActionPaintType0 | None | Unset:
             if data is None:
@@ -498,11 +536,13 @@ class ChatAction:
             columns=columns,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
+            distance_meters=distance_meters,
             expression=expression,
             geojson=geojson,
             label_config=label_config,
             layer_id=layer_id,
             opacity=opacity,
+            operation=operation,
             paint=paint,
             replace_paint=replace_paint,
             row_count=row_count,

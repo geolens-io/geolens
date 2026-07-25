@@ -1434,6 +1434,11 @@ export interface ChatAction {
   row_count?: number;
   /** True when `rows` was capped below the full `row_count`. */
   truncated?: boolean;
+  /** feat(#675): analysis operation behind a run_analysis preview, carried so
+   *  the builder can prefill the Analysis panel ("Save as dataset"). */
+  operation?: string;
+  /** feat(#675): sanitized buffer distance for the Analysis-panel handoff. */
+  distance_meters?: number;
 }
 
 export interface ChatResponse {

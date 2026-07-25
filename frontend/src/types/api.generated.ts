@@ -6093,6 +6093,8 @@ export interface components {
             dataset_id?: string | null;
             /** Dataset Name */
             dataset_name?: string | null;
+            /** Distance Meters */
+            distance_meters?: number | null;
             /** Expression */
             expression?: unknown[] | null;
             geojson?: components["schemas"]["GeoJSONFeatureCollection"] | null;
@@ -6104,6 +6106,8 @@ export interface components {
             layer_id?: string | null;
             /** Opacity */
             opacity?: number | null;
+            /** Operation */
+            operation?: string | null;
             /** Paint */
             paint?: {
                 [key: string]: unknown;

@@ -10,6 +10,14 @@ const EPHEMERAL_LAYERS = [
 ] as const;
 const EPHEMERAL_SOURCE = 'ephemeral-result';
 
+/** feat(#675): the params needed to reconstruct a chat run_analysis preview in
+ *  the Analysis panel, so "Save as dataset" can prefill it. */
+export interface EphemeralAnalysisHandoff {
+  operation: 'buffer' | 'centroid';
+  layerId: string;
+  distanceMeters?: number;
+}
+
 export function useEphemeralLayers(
   mapInstanceRef: React.RefObject<MaplibreMap | null>,
 ) {
@@ -21,6 +29,9 @@ export function useEphemeralLayers(
      *  the whole answer. */
     truncated?: boolean;
     totalCount?: number;
+    /** feat(#675): present when the overlay came from a chat run_analysis
+     *  preview the builder can hand off to the Analysis panel. */
+    analysis?: EphemeralAnalysisHandoff;
   } | null>(null);
 
   const clearEphemeralLayer = useCallback(() => {
@@ -136,7 +147,7 @@ export function useEphemeralLayers(
   const handleQueryResult = useCallback((
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
-    meta?: { truncated?: boolean; totalCount?: number },
+    meta?: { truncated?: boolean; totalCount?: number; analysis?: EphemeralAnalysisHandoff },
   ) => {
     setEphemeralResult({ geojson, bbox, ...meta });
   }, []);

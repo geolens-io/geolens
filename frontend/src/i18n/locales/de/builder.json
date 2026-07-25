@@ -972,7 +972,8 @@
     "featureCount_one": "{{count}} Feature",
     "featureCount_other": "{{count}} Features",
     "dismiss": "Ergebnis verwerfen",
-    "featureCountTruncated": "{{count}} von {{total}} Elementen"
+    "featureCountTruncated": "{{count}} von {{total}} Elementen",
+    "saveAsDataset": "Als Datensatz speichern…"
   },
   "plugins": {
     "measurement": {

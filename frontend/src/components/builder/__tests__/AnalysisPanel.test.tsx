@@ -46,6 +46,14 @@ const groupLayer = {
   is_dem: false,
 } as unknown as MapLayerResponse;
 
+const datasetLayer2 = {
+  id: 'l3',
+  dataset_id: 'ds2',
+  dataset_name: 'Roads',
+  display_name: null,
+  is_dem: false,
+} as unknown as MapLayerResponse;
+
 function renderPanel(
   layers: MapLayerResponse[],
   props: Partial<React.ComponentProps<typeof AnalysisPanel>> = {},
@@ -104,5 +112,51 @@ describe('AnalysisPanel', () => {
     const clearButton = screen.getByRole('button', { name: 'Clear preview' });
     fireEvent.click(clearButton);
     expect(onClearPreview).toHaveBeenCalled();
+  });
+});
+
+describe('AnalysisPanel — chat handoff prefill (#675)', () => {
+  it('initializes layer, operation, and distance from the prefill', async () => {
+    renderPanel([datasetLayer, datasetLayer2], {
+      prefill: { layerId: 'l3', operation: 'buffer', distanceMeters: 750 },
+    });
+    expect(screen.getByLabelText('Distance (meters)')).toHaveValue(750);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => {
+      expect(previewAnalysis).toHaveBeenCalledWith('ds2', {
+        operation: 'buffer',
+        distance_meters: 750,
+      });
+    });
+  });
+
+  it('prefills a centroid preview without a distance field', async () => {
+    renderPanel([datasetLayer], {
+      prefill: { layerId: 'l1', operation: 'centroid' },
+    });
+    expect(screen.queryByLabelText('Distance (meters)')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => {
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'centroid',
+      });
+    });
+  });
+
+  it('falls back to the first eligible layer when the prefill layer left the map', async () => {
+    renderPanel([datasetLayer], {
+      prefill: { layerId: 'gone', operation: 'buffer', distanceMeters: 250 },
+    });
+    expect(screen.getByLabelText('Distance (meters)')).toHaveValue(250);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => {
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'buffer',
+        distance_meters: 250,
+      });
+    });
   });
 });

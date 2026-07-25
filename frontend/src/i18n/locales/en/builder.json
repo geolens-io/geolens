@@ -972,7 +972,8 @@
     "featureCount_one": "{{count}} feature",
     "featureCount_other": "{{count}} features",
     "featureCountTruncated": "{{count}} of {{total}} features",
-    "dismiss": "Dismiss result"
+    "dismiss": "Dismiss result",
+    "saveAsDataset": "Save as dataset…"
   },
   "plugins": {
     "measurement": {

@@ -191,6 +191,40 @@ describe('ChatPanel', () => {
     expect(props.onQueryResult).not.toHaveBeenCalled();
   });
 
+  it('threads the analysis handoff params through onQueryResult meta (#675)', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              geojson,
+              bbox,
+              operation: 'buffer',
+              layer_id: 'layer-1',
+              distance_meters: 500,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Buffered' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'buffer the schools by 500m');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        analysis: { operation: 'buffer', layerId: 'layer-1', distanceMeters: 500 },
+      });
+    });
+  });
+
   it('clears the stale overlay when the winning result has no geometry (#676)', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

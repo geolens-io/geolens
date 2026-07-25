@@ -103,6 +103,7 @@ import {
 import { PluginHost, PluginSidebar, getDefaultPluginIds, resolveAvailablePluginIds, usePartitionedPlugins } from '@/components/map-plugins';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
+import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { readStorage, removeStorage, storageKeys } from '@/lib/storage';
 import { takeChatResult } from '@/lib/chat-result-handoff';
 
@@ -138,6 +139,11 @@ export function MapBuilderPage() {
   // pluginCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
+  // feat(#675): chat run_analysis preview → Analysis panel handoff. The nonce
+  // keys a panel remount so successive handoffs re-apply the prefill.
+  const [analysisPrefill, setAnalysisPrefill] = useState<
+    (EphemeralAnalysisHandoff & { nonce: number }) | null
+  >(null);
   const [dockNotes, setDockNotes] = useState('');
   // Projection (Mercator/Globe). Persisted on basemap_config.projection; seeded from
   // the saved map on load and applied to the live map once it's ready (effects below).
@@ -773,6 +779,15 @@ export function MapBuilderPage() {
       .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
   }, [layers.localLayers]);
 
+  // feat(#675): "Save as dataset" on the ephemeral badge — open the Analysis
+  // panel prefilled with the operation behind the chat preview.
+  const ephemeralAnalysis = layers.ephemeralResult?.analysis;
+  const handleSaveAnalysisPreview = useCallback(() => {
+    if (!ephemeralAnalysis) return;
+    setAnalysisPrefill({ ...ephemeralAnalysis, nonce: Date.now() });
+    setRailPanel('analysis');
+  }, [ephemeralAnalysis]);
+
   const railProps = useMemo(() => ({
     activePanel: railPanel,
     onPanelChange: setRailPanel,
@@ -786,9 +801,10 @@ export function MapBuilderPage() {
     mapInstanceRef,
     onClearPreview: layers.handleDismissEphemeral,
     hasPreview: !!layers.ephemeralResult,
+    analysisPrefill,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, mapInstanceRef, handleMarkDirty, viewport]);
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport]);
 
   const mobileRailButtons = useMemo(() => [
     {
@@ -1749,6 +1765,7 @@ export function MapBuilderPage() {
               onDismiss={layers.handleDismissEphemeral}
               truncated={layers.ephemeralResult.truncated}
               totalCount={layers.ephemeralResult.totalCount}
+              onSaveAsDataset={ephemeralAnalysis ? handleSaveAnalysisPreview : undefined}
             />
           )}
 

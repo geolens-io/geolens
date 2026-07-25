@@ -132,6 +132,10 @@ async def _run_analysis(
         "feature_count": result.feature_count,
         "truncated": result.truncated,
     }
+    if distance_meters is not None:
+        # feat(#675): ride the sanitized buffer distance along so the action
+        # collector can hand the preview off to the Analysis panel prefilled.
+        out["distance_meters"] = distance_meters
     if result.feature_count == 0:
         out["note"] = "The operation produced no geometry for this layer."
         return out
@@ -175,6 +179,14 @@ def collect_run_analysis_action(result: dict) -> dict | None:
         "geojson": result["geojson"],
         "bbox": result["bbox"],
     }
+    # feat(#675): carry the params needed to reconstruct the request so the
+    # builder can offer a one-click "Save as dataset" handoff into the
+    # Analysis panel. The viewer surface ignores them (no Analysis rail).
+    if result.get("operation") and result.get("layer_id"):
+        action["operation"] = result["operation"]
+        action["layer_id"] = result["layer_id"]
+        if result.get("distance_meters") is not None:
+            action["distance_meters"] = result["distance_meters"]
     total = result.get("source_feature_count")
     if result.get("truncated") and total:
         action["truncated"] = True

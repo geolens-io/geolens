@@ -427,6 +427,10 @@ class ChatAction(BaseModel):
     columns: list[str] | None = None  # for show_query_result (inline data table)
     row_count: int | None = None  # for show_query_result (total matched rows)
     truncated: bool | None = None  # for show_query_result (rows capped for payload)
+    # feat(#675): run_analysis handoff — lets the builder prefill the Analysis
+    # panel ("Save as dataset") from a chat preview. layer_id above is reused.
+    operation: str | None = None  # for show_query_result (analysis operation)
+    distance_meters: float | None = None  # for show_query_result (buffer distance)
 
 
 class SSETokenEvent(BaseModel):
