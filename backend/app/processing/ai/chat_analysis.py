@@ -162,8 +162,14 @@ def collect_run_analysis_action(result: dict) -> dict | None:
     actually bit, so EphemeralBadge can say "500 of 10,651 features" instead of
     presenting a capped preview as the complete result.
     """
-    if not (result.get("bbox") and "geojson" in result):
+    if "error" in result:
         return None
+    if not (result.get("bbox") and "geojson" in result):
+        # fix(#676): an empty preview still emits a geometry-less marker so the
+        # frontend clears a stale overlay from an earlier turn — with no action
+        # at all, the previous overlay (and its badge) keeps describing a
+        # result the chat text has moved past.
+        return {"type": "show_query_result", "row_count": 0}
     action = {
         "type": "show_query_result",
         "geojson": result["geojson"],

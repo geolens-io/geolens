@@ -326,6 +326,10 @@ interface ChatPanelProps {
     bbox: [number, number, number, number],
     meta?: { truncated?: boolean; totalCount?: number },
   ) => void;
+  /** fix(#676): clears the single-slot ephemeral overlay when a turn's winning
+   *  result carries no geometry — otherwise a stale overlay from an earlier
+   *  turn keeps describing a result the chat has moved past. */
+  onClearPreview?: () => void;
   /** Use side-by-side layout: messages left, compose right. */
   horizontal?: boolean;
   /** Phase 1135 AI-05: optional viewport context — zoom, bounds, selected layer name.
@@ -339,6 +343,7 @@ export function ChatPanel({
   layers,
   layerActions,
   onQueryResult,
+  onClearPreview,
   horizontal,
   viewport,
 }: ChatPanelProps) {
@@ -462,6 +467,13 @@ export function ChatPanel({
 
   function dispatchQueryResult(action: ChatAction) {
     const geojson = action.geojson;
+    if (!geojson) {
+      // fix(#676): the turn's winning result has no geometry (empty analysis,
+      // attribute-only query) — clear the single-slot overlay instead of
+      // leaving the previous turn's features and badge on the map.
+      onClearPreview?.();
+      return;
+    }
     if (
       geojson &&
       typeof geojson === 'object' &&

@@ -230,14 +230,19 @@ class TestRunAnalysisActionCollection:
         )
         assert action is None
 
-    def test_empty_result_emits_no_action(self) -> None:
-        """No features => no bbox => nothing to fly the map to."""
+    def test_empty_result_emits_a_geometry_less_marker(self) -> None:
+        """fix(#676): no features still emits a geometry-less action — the
+        frontend uses it to clear a stale overlay from an earlier turn.
+        Previously None was returned and the previous overlay (plus its
+        feature-count badge) stayed on the map beside a "nothing found" reply."""
         action = _collect_chat_action(
             "run_analysis",
             {"layer_id": "l1"},
             {"feature_count": 0, "truncated": False, "note": "no geometry"},
         )
-        assert action is None
+        assert action == {"type": "show_query_result", "row_count": 0}
+        # Must survive ChatAction validation on the wire.
+        ChatAction(**action)
 
 
 # ---------------------------------------------------------------------------

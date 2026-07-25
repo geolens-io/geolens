@@ -292,6 +292,7 @@ export function BuilderRail({
                     layers={layers}
                     layerActions={layerActions}
                     onQueryResult={onQueryResult}
+                    onClearPreview={onClearPreview}
                     viewport={viewport}
                   />
                 </Suspense>

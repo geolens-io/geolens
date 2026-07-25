@@ -160,6 +160,33 @@ describe('ViewerChatPanel', () => {
     expect(screen.getByText('496')).toBeInTheDocument();
   });
 
+  it('clears the stale overlay when the winning result has no geometry (#676)', async () => {
+    setAvailable(true);
+    const handleDismissEphemeral = vi.fn();
+    mockEphemeral.mockReturnValue({
+      ephemeralResult: null,
+      handleQueryResult,
+      handleDismissEphemeral,
+    });
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        // The geometry-less marker an empty run_analysis emits.
+        data: { actions: [{ type: 'show_query_result', row_count: 0 }] },
+      };
+      yield { event: 'done', data: { explanation: 'Nothing found.' } };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this map...'), 'buffer the empty layer');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Nothing found.');
+    expect(handleDismissEphemeral).toHaveBeenCalled();
+    expect(handleQueryResult).not.toHaveBeenCalled();
+  });
+
   it('shows a retry-able error bubble when the stream fails', async () => {
     setAvailable(true);
     // eslint-disable-next-line require-yield

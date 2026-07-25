@@ -147,6 +147,12 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
   /** Flyover + highlight (WGS84-bounded bbox guard) and extract the table payload. */
   const applyQueryResult = useCallback((action: ChatAction): QueryResult | undefined => {
     const geojson = action.geojson;
+    if (!geojson) {
+      // fix(#676): the winning result has no geometry (empty analysis,
+      // attribute-only query) — clear the single-slot overlay instead of
+      // leaving the previous turn's features and badge on the map.
+      handleDismissEphemeral();
+    }
     if (
       geojson &&
       typeof geojson === 'object' &&
@@ -178,7 +184,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       rowCount: typeof action.row_count === 'number' ? action.row_count : rows.length,
       truncated: action.truncated === true,
     };
-  }, [handleQueryResult]);
+  }, [handleQueryResult, handleDismissEphemeral]);
 
   const handleSend = useCallback(async () => {
     const userMsg = input.trim();

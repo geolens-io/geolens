@@ -69,6 +69,7 @@ function renderPanel(
     layers: [makeLayer()],
     layerActions,
     onQueryResult: vi.fn(),
+    onClearPreview: vi.fn(),
     ...rest,
   };
   render(<ChatPanel {...props} />);
@@ -188,6 +189,49 @@ describe('ChatPanel', () => {
 
     await screen.findByText('Counted on retry');
     expect(props.onQueryResult).not.toHaveBeenCalled();
+  });
+
+  it('clears the stale overlay when the winning result has no geometry (#676)', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        // The geometry-less marker an empty run_analysis / attribute-only
+        // query_data emits.
+        data: { actions: [{ type: 'show_query_result', row_count: 0 }] },
+      };
+      yield { event: 'done', data: { explanation: 'Nothing found' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'buffer the empty layer');
+
+    await waitFor(() => {
+      expect(props.onClearPreview).toHaveBeenCalled();
+    });
+    expect(props.onQueryResult).not.toHaveBeenCalled();
+  });
+
+  it('does not clear the overlay when the winning result is spatial (#676)', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'show_query_result', geojson, bbox }] },
+      };
+      yield { event: 'done', data: { explanation: 'Results' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'find features');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalled();
+    });
+    expect(props.onClearPreview).not.toHaveBeenCalled();
   });
 
   // fix(#527 B-054/C-06): NaN and inverted bboxes pass the range comparisons
