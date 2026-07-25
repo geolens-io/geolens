@@ -163,7 +163,11 @@ def sync_detailed(
 
     Args:
         dataset_id (UUID):
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Page size for bulk GeoJSON export. The maximum is an admin-
+            configurable ceiling (default 1000; Network settings tab, `ogc_items_max_page_size`)
+            rather than the 200 used by offset-paged list endpoints, because this route pages via the
+            constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
@@ -230,7 +234,11 @@ def sync(
 
     Args:
         dataset_id (UUID):
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Page size for bulk GeoJSON export. The maximum is an admin-
+            configurable ceiling (default 1000; Network settings tab, `ogc_items_max_page_size`)
+            rather than the 200 used by offset-paged list endpoints, because this route pages via the
+            constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
@@ -291,7 +299,11 @@ async def asyncio_detailed(
 
     Args:
         dataset_id (UUID):
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Page size for bulk GeoJSON export. The maximum is an admin-
+            configurable ceiling (default 1000; Network settings tab, `ogc_items_max_page_size`)
+            rather than the 200 used by offset-paged list endpoints, because this route pages via the
+            constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
@@ -356,7 +368,11 @@ async def asyncio(
 
     Args:
         dataset_id (UUID):
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Page size for bulk GeoJSON export. The maximum is an admin-
+            configurable ceiling (default 1000; Network settings tab, `ogc_items_max_page_size`)
+            rather than the 200 used by offset-paged list endpoints, because this route pages via the
+            constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.

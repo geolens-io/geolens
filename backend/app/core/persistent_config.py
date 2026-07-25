@@ -70,6 +70,11 @@ _DEFAULT_LOGIN_RATE_LIMIT = 5
 _DEFAULT_GLOBAL_RATE_LIMIT = 60
 _DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 30
 _DEFAULT_BASEMAP_PROXY_RATE_LIMIT = 120
+# Ceiling for the OGC API Features items page size (`limit`). Conservative by
+# default (#665 review): the offset path is O(N) and the response is built fully
+# in memory on an anonymous endpoint, so a low default protects resource-limited
+# deployments while operators who need bulk export raise it from the dashboard.
+_DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -723,6 +728,14 @@ CORS_ALLOWED_ORIGINS = PersistentConfig[str](
     env_default_factory=lambda: settings.cors_allowed_origins,
     tab="network",
     label="CORS Allowed Origins",
+)
+
+OGC_ITEMS_MAX_PAGE_SIZE = PersistentConfig[int](
+    key="ogc_items_max_page_size",
+    type_=int,
+    env_default=_DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE,
+    tab="network",
+    label="OGC Features Max Page Size (items limit ceiling)",
 )
 
 # -- Storage tab --

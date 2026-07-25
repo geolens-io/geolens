@@ -13,6 +13,7 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
+from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_optional_user_or_401
@@ -444,7 +445,19 @@ async def get_dataset_collection(
 async def get_collection_items(
     request: Request,
     dataset_id: uuid.UUID,
-    limit: int = Query(10, ge=1, le=200),
+    limit: int = Query(
+        10,
+        ge=1,
+        description=(
+            "Page size for bulk GeoJSON export. The maximum is an "
+            "admin-configurable ceiling (default 1000; Network settings tab, "
+            "`ogc_items_max_page_size`) rather than the 200 used by offset-paged "
+            "list endpoints, because this route pages via the constant-time "
+            "`after_gid` keyset cursor. Per OGC API Features Core "
+            "/req/core/fc-limit-response-1(C) a value above the ceiling is "
+            "clamped to it, not rejected."
+        ),
+    ),
     offset: int = Query(
         0,
         ge=0,
@@ -486,6 +499,16 @@ async def get_collection_items(
     """
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
+
+    # #665 review / #666: the items page-size ceiling is an admin-configurable
+    # PersistentConfig knob (Network tab), not a static Query(le=...). Per OGC
+    # API Features Core /req/core/fc-limit-response-1(C) a limit above the
+    # maximum SHALL NOT error — clamp to the ceiling instead (mirrors the STAC
+    # side, #664). max(1, ...) guards a ceiling mis-set to 0; the clamped value
+    # flows into the feature query and the echoed self/next links.
+    max_page_size = await OGC_ITEMS_MAX_PAGE_SIZE.get(db)
+    limit = min(limit, max(1, max_page_size))
+
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature

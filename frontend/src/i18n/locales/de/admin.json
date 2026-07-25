@@ -523,7 +523,9 @@
       "globalRateLimitDescription": "Maximale API-Anfragen pro Sekunde pro IP-Adresse. Kachelanfragen sind von diesem Limit ausgenommen.",
       "corsAllowedOrigins": "Erlaubte CORS-Ursprünge",
       "corsAllowedOriginsDescription": "Kommagetrennte Ursprünge. Verwenden Sie * für beliebige Ursprünge.",
-      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
+      "ogcItemsMaxPageSize": "OGC Features maximale Seitengröße (Items-Limit-Obergrenze)",
+      "ogcItemsMaxPageSizeDescription": "Maximale Anzahl an Features pro Seite am OGC-API-Features-Items-Endpunkt. Anfragen darüber werden begrenzt, nicht abgelehnt. Erhöhen Sie den Wert für den Massen-GeoJSON-Export; verringern Sie ihn bei speicherbeschränkten Deployments."
     },
     "security": {
       "title": "Sicherheit",

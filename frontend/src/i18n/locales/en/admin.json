@@ -573,7 +573,9 @@
       "globalRateLimitDescription": "Maximum API requests per second per IP address. Tile requests are excluded from this limit.",
       "corsAllowedOrigins": "CORS Allowed Origins",
       "corsAllowedOriginsDescription": "Comma-separated origins. Use * for any origin.",
-      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
+      "ogcItemsMaxPageSize": "OGC Features Max Page Size (items limit ceiling)",
+      "ogcItemsMaxPageSizeDescription": "Maximum number of features returned per page by the OGC API Features items endpoint. Requests above this are clamped, not rejected. Raise it for bulk GeoJSON export; lower it on memory-constrained deployments."
     },
     "notifications": {
       "title": "Outbound Notifications",

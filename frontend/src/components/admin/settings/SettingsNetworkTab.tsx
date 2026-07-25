@@ -24,6 +24,7 @@ interface TabProps {
 const FIELDS = [
   { key: 'cors_allowed_origins', defaultValue: '' },
   { key: 'global_rate_limit', defaultValue: 60 },
+  { key: 'ogc_items_max_page_size', defaultValue: 1000 },
 ] as const;
 
 function NotificationChannelBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -105,6 +106,24 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
           max={1000}
           value={values.global_rate_limit as number}
           onChange={(e) => setters.global_rate_limit(Number(e.target.value))}
+          disabled={envOnly}
+          className="w-32"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="ogc-items-max-page-size">{findSetting(settings, 'ogc_items_max_page_size')?.label ?? t('settings.network.ogcItemsMaxPageSize')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'ogc_items_max_page_size')?.source ?? 'default'} settingKey="ogc_items_max_page_size" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.network.ogcItemsMaxPageSizeDescription')}</p>
+        <Input
+          id="ogc-items-max-page-size"
+          type="number"
+          min={1}
+          max={100000}
+          value={values.ogc_items_max_page_size as number}
+          onChange={(e) => setters.ogc_items_max_page_size(Number(e.target.value))}
           disabled={envOnly}
           className="w-32"
         />

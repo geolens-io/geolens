@@ -19600,6 +19600,7 @@ export interface operations {
     get_collection_items_collections__dataset_id__items_get: {
         parameters: {
             query?: {
+                /** @description Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 1000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. */
                 limit?: number;
                 /** @description Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values. */
                 offset?: number;

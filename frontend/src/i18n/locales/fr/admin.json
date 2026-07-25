@@ -523,7 +523,9 @@
       "globalRateLimitDescription": "Nombre maximal de requetes API par seconde par adresse IP. Les requetes de tuiles sont exclues de cette limite.",
       "corsAllowedOrigins": "Origines CORS autorisées",
       "corsAllowedOriginsDescription": "Origines séparées par des virgules. Utilisez * pour autoriser n'importe quelle origine.",
-      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
+      "ogcItemsMaxPageSize": "Taille de page maximale OGC Features (plafond du paramètre items)",
+      "ogcItemsMaxPageSizeDescription": "Nombre maximal d'entités renvoyées par page par le point de terminaison items d'OGC API Features. Les requêtes au-delà sont plafonnées, pas rejetées. Augmentez-le pour l'export GeoJSON en masse ; réduisez-le sur les déploiements à mémoire limitée."
     },
     "security": {
       "title": "Sécurité",

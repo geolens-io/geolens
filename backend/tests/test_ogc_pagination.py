@@ -325,3 +325,102 @@ async def test_pagination_prev_offset_does_not_go_negative(
     offset_val = int(qs["offset"][0])
     assert offset_val == 0, f"Prev offset should be 0, got {offset_val}"
     assert offset_val >= 0, "Prev offset must not be negative"
+
+
+# ---------------------------------------------------------------------------
+# Items page-size ceiling: admin-configurable, clamped not rejected (#665/#666)
+# ---------------------------------------------------------------------------
+#
+# These target the per-dataset feature route (`/collections/{id}/items`), whose
+# `limit` ceiling is the `ogc_items_max_page_size` PersistentConfig knob. Per
+# OGC API Features Core /req/core/fc-limit-response-1(C) an over-ceiling limit
+# is clamped to the maximum, never rejected. The feature-table helpers live in
+# test_ogc_features.py; reuse them rather than duplicate the PostGIS DDL.
+import app.standards.ogc.router as _ogc_router  # noqa: E402
+from app.core.persistent_config import _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE  # noqa: E402
+from tests.test_ogc_features import (  # noqa: E402
+    _cleanup_table,
+    _create_test_table_and_dataset,
+)
+
+
+def _self_limit(data: dict) -> int:
+    """Extract the echoed `limit` query param from the response's self link."""
+    self_link = _find_link(data["links"], "self")
+    assert self_link is not None, "Expected a self link"
+    return int(parse_qs(urlparse(self_link["href"]).query)["limit"][0])
+
+
+@pytest.mark.anyio
+async def test_items_limit_at_default_ceiling_accepted(
+    client: AsyncClient, test_db_session
+):
+    """A limit exactly at the default ceiling is accepted (no 4xx)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, visibility="public", with_features=3
+    )
+    try:
+        resp = await client.get(
+            f"/collections/{dataset.id}/items",
+            params={"limit": _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["numberReturned"] == 3
+        assert _self_limit(data) == _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.anyio
+async def test_items_limit_above_ceiling_clamped_not_rejected(
+    client: AsyncClient, test_db_session
+):
+    """A limit above the ceiling is clamped to it, not rejected with 400/422."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, visibility="public", with_features=5
+    )
+    try:
+        over = _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE * 5
+        resp = await client.get(
+            f"/collections/{dataset.id}/items", params={"limit": over}
+        )
+        # OGC /req/core/fc-limit-response-1(C): clamp, do not error.
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["numberReturned"] == 5
+        # The echoed self link carries the clamped ceiling, not the request value.
+        assert _self_limit(data) == _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.anyio
+async def test_items_limit_clamped_to_configured_ceiling(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    """A non-default configured ceiling is honored: the page is clamped to it."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, visibility="public", with_features=5
+    )
+
+    async def _fake_ceiling(_db):
+        return 3
+
+    monkeypatch.setattr(_ogc_router.OGC_ITEMS_MAX_PAGE_SIZE, "get", _fake_ceiling)
+    try:
+        resp = await client.get(
+            f"/collections/{dataset.id}/items", params={"limit": 100}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # 5 features available, ceiling 3 -> clamped page of 3, more remain.
+        assert data["numberReturned"] == 3
+        assert data["numberMatched"] == 5
+        assert _self_limit(data) == 3
+        assert _find_link(data["links"], "next") is not None
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)

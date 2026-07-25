@@ -331,6 +331,15 @@ def validate_global_rate_limit(v: Any) -> int:
     return v
 
 
+def validate_ogc_items_max_page_size(v: Any) -> int:
+    # Upper bound guards against a mis-set value that would let an anonymous
+    # request build an unbounded FeatureCollection in memory (#665 review).
+    v = int(v)
+    if v < 1 or v > 100_000:
+        raise ValueError("ogc_items_max_page_size must be between 1 and 100000")
+    return v
+
+
 def validate_semantic_search_rate_limit(v: Any) -> int:
     v = int(v)
     if v < 1 or v > 1000:
@@ -549,6 +558,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "log_level": validate_log_level,
     "login_rate_limit": validate_login_rate_limit,
     "global_rate_limit": validate_global_rate_limit,
+    "ogc_items_max_page_size": validate_ogc_items_max_page_size,
     "semantic_search_rate_limit": validate_semantic_search_rate_limit,
     "basemap_proxy_rate_limit": validate_basemap_proxy_rate_limit,
     "upload_max_size_mb": validate_upload_max_size,
