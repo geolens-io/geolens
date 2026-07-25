@@ -29,7 +29,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewRequest,
     AnalysisPreviewResponse,
 )
-from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
+from app.platform.analysis_sql import render_clip_layer_preview, render_geometry_expr
 from app.platform.sandbox.executor import execute_safe
 
 PREVIEW_FEATURE_CAP = 500
@@ -74,13 +74,21 @@ def build_preview_sql(
     come from ``_safe_table_ref`` (logical ``data`` schema; the sandbox
     executor rewrites it to the tenant schema in multi-tenant).
     """
-    expr, where = render_geometry_expr(
-        request.operation,
-        distance_meters=request.distance_meters,
-        mask=request.mask,
-        layer_mask=mask_table_ref is not None,
-    )
-    cte = f"{render_mask_cte(mask_table_ref)} " if mask_table_ref else ""
+    if mask_table_ref is not None:
+        # fix(#693): layer-sourced clip previews subdivide the mask once and
+        # join it per row instead of unioning the whole layer per request;
+        # the union CTE remains the materialize shape (see
+        # render_clip_layer_preview for the measured rationale).
+        cte, lateral, where = render_clip_layer_preview(mask_table_ref, src="_src")
+        cte = f"{cte} "
+    else:
+        cte = ""
+        expr, where = render_geometry_expr(
+            request.operation,
+            distance_meters=request.distance_meters,
+            mask=request.mask,
+        )
+        lateral = f"(SELECT {expr} AS geom_out OFFSET 0)"
     # fix(#680 review): drop NULL/EMPTY results in SQL, not in Python — the
     # sandbox applies its row cap to raw rows, so boundary-grazing clips
     # (which pass ST_Intersects but extract to EMPTY) could consume the whole
@@ -97,8 +105,8 @@ def build_preview_sql(
     filters = f"{where} AND {not_empty}" if where else f" WHERE {not_empty}"
     return (
         f"{cte}SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
-        f" FROM {table_ref}"
-        f" CROSS JOIN LATERAL (SELECT {expr} AS geom_out OFFSET 0) AS _op"
+        f" FROM {table_ref} AS _src"
+        f" CROSS JOIN LATERAL {lateral} AS _op"
         f"{filters}"
         f" ORDER BY gid"
     )
