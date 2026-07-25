@@ -953,6 +953,18 @@
             "title": "Geojson",
             "type": "object"
           },
+          "source_feature_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)",
+            "title": "Source Feature Count"
+          },
           "truncated": {
             "title": "Truncated",
             "type": "boolean"

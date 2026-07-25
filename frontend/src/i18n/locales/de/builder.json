@@ -950,7 +950,7 @@
     "previewFailed": "Analyse fehlgeschlagen",
     "noLayers": "Fügen Sie eine Datenebene hinzu, um Analysewerkzeuge zu nutzen",
     "opDissolve": "Auflösen",
-    "dissolveHint": "Auflösen führt alle Features zu einer Geometrie zusammen; über Datensatz erstellen ausführen",
+    "dissolveHint": "Auflösen führt Features zu einer Geometrie pro Gruppe zusammen; mit „Datensatz erstellen“ ausführen",
     "outputTitleLabel": "Name des neuen Datensatzes",
     "outputTitlePlaceholder": "z. B. Flurstücke 500 m Puffer",
     "saveButton": "Datensatz erstellen",
@@ -958,7 +958,10 @@
     "jobRunning": "Datensatz wird erstellt…",
     "jobComplete": "Datensatz erstellt",
     "jobFailed": "Analyseauftrag fehlgeschlagen",
-    "addToMap": "Zur Karte hinzufügen"
+    "addToMap": "Zur Karte hinzufügen",
+    "byFieldLabel": "Nach Feld gruppieren (optional)",
+    "byFieldNone": "Keine Gruppierung — alles zusammenführen",
+    "truncatedNoticeTotal": "Die ersten {{count}} von {{total}} Features werden angezeigt"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

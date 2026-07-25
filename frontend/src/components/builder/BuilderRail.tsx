@@ -94,7 +94,11 @@ interface BuilderRailProps {
   mapId?: string;
   layers?: MapLayerResponse[];
   layerActions?: LayerActions;
-  onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
+  onQueryResult?: (
+    geojson: GeoJSON.FeatureCollection,
+    bbox: [number, number, number, number],
+    meta?: { truncated?: boolean; totalCount?: number },
+  ) => void;
   // Analysis tools
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
   onClearPreview?: () => void;

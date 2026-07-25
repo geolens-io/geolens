@@ -950,7 +950,7 @@
     "previewFailed": "Échec de l'analyse",
     "noLayers": "Ajoutez une couche de données pour utiliser les outils d'analyse",
     "opDissolve": "Dissoudre",
-    "dissolveHint": "Dissoudre fusionne toutes les entités en une seule géométrie ; exécutez-le avec Créer un jeu de données",
+    "dissolveHint": "Dissoudre fusionne les entités en une géométrie par groupe ; exécutez-le avec Créer un jeu de données",
     "outputTitleLabel": "Nom du nouveau jeu de données",
     "outputTitlePlaceholder": "p. ex. Parcelles tampon 500 m",
     "saveButton": "Créer un jeu de données",
@@ -958,7 +958,10 @@
     "jobRunning": "Création du jeu de données…",
     "jobComplete": "Jeu de données créé",
     "jobFailed": "La tâche d'analyse a échoué",
-    "addToMap": "Ajouter à la carte"
+    "addToMap": "Ajouter à la carte",
+    "byFieldLabel": "Regrouper par champ (optionnel)",
+    "byFieldNone": "Sans regroupement — tout fusionner",
+    "truncatedNoticeTotal": "Affichage des {{count}} premières entités sur {{total}}"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

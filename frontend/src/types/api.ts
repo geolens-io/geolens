@@ -1872,6 +1872,8 @@ export interface AnalysisPreviewResponse {
   feature_count: number;
   truncated: boolean;
   bbox: number[] | null;
+  /** Source dataset total (1:1 ops only; null when the op filters rows, e.g. clip). */
+  source_feature_count?: number | null;
 }
 
 export interface AnalysisMaterializeRequest {

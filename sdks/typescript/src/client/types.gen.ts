@@ -598,6 +598,12 @@ export type AnalysisPreviewResponse = {
         [key: string]: unknown;
     };
     /**
+     * Source Feature Count
+     *
+     * Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)
+     */
+    source_feature_count?: number | null;
+    /**
      * Truncated
      */
     truncated: boolean;

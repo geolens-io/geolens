@@ -315,6 +315,169 @@ class TestAnalysisPreviewEndpoint:
         data = resp.json()
         assert data["feature_count"] == 500
         assert data["truncated"] is True
+        # 1:1 op — the source total rides along so clients can say "500 of N".
+        assert data["source_feature_count"] == 501
+
+    async def test_nan_mask_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """NaN parses as JSON and as shapely coords — must 422, not 500."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            content=(
+                '{"operation": "clip", "mask": {"type": "Polygon", "coordinates":'
+                " [[[0, 0], [10, 0], [NaN, 10], [0, 10], [0, 0]]]}}"
+            ),
+            headers={**admin_auth_header, "Content-Type": "application/json"},
+        )
+        assert resp.status_code == 422, resp.text
+
+    async def test_empty_mask_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """An empty ring used to be a silent no-op reading as 'matched nothing'."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask": {"type": "Polygon", "coordinates": []}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+
+    async def test_self_intersecting_mask_repaired(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A bowtie mask goes through shapely.make_valid rather than erroring."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        bowtie = {
+            "type": "Polygon",
+            "coordinates": [[[-1, -1], [2, 2], [2, -1], [-1, 2], [-1, -1]]],
+        }
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask": bowtie},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["feature_count"] >= 1
+
+    async def test_grazing_clip_yields_no_features(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A mask sharing only an edge intersects at a lower dimension — the
+        output must be empty, not a LineString smuggled into a polygon result."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        grazing = {
+            "type": "Polygon",
+            "coordinates": [[[1, 0], [2, 0], [2, 1], [1, 1], [1, 0]]],
+        }
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask": grazing},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["feature_count"] == 0
+        assert data["geojson"]["features"] == []
+
+    async def test_centroid_ignores_stray_distance(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """distance_meters is documented as buffer-only; out-of-range values on
+        other operations must not 422 (SDK/CLI callers send placeholders)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        for stray in (0, -5, 999_999):
+            resp = await client.post(
+                _preview_url(ds.id),
+                json={"operation": "centroid", "distance_meters": stray},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, (stray, resp.text)
+
+    async def test_invalid_source_geometry_repaired(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """One self-intersecting source row used to abort every clip as a 500."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        bowtie = "POLYGON((0 0, 1 1, 1 0, 0 1, 0 0))"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  geom geometry(Polygon, 4326),"
+                f"  geom_4326 geometry(Polygon, 4326)"
+                f")"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "
+                f"(ST_GeomFromText('{bowtie}', 4326),"
+                f" ST_GeomFromText('{bowtie}', 4326))"
+            )
+        )
+        await test_db_session.commit()
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="POLYGON",
+            feature_count=1,
+        )
+        covering = {
+            "type": "Polygon",
+            "coordinates": [[[-1, -1], [2, -1], [2, 2], [-1, 2], [-1, -1]]],
+        }
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask": covering},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["feature_count"] == 1
+
+    async def test_source_feature_count_none_for_clip(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """clip filters rows, so the source total would be a lie — omit it."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask": CLIP_MASK},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_feature_count"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -326,24 +489,37 @@ class TestBuildPreviewSql:
     def test_buffer_sql(self):
         req = AnalysisPreviewRequest(operation="buffer", distance_meters=500)
         sql = build_preview_sql('"data"."t1"', req)
-        assert "ST_Buffer(geom_4326::geography, 500.0)::geometry" in sql
+        assert "ST_Buffer(ST_MakeValid(geom_4326)::geography, 500.0)::geometry" in sql
         assert 'FROM "data"."t1"' in sql
         assert "ORDER BY gid" in sql
 
     def test_centroid_sql(self):
         req = AnalysisPreviewRequest(operation="centroid")
         sql = build_preview_sql('"data"."t1"', req)
-        assert "ST_Centroid(geom_4326)" in sql
+        assert "ST_Centroid(ST_MakeValid(geom_4326))" in sql
+
+    def test_buffer_distance_revalidated_at_sql_layer(self):
+        """The renderer enforces MAX_BUFFER_METERS itself — worker payloads
+        must not depend solely on the API schema's bounds."""
+        from app.platform.analysis_sql import render_geometry_expr
+
+        for bad in (0, -1, 200_000, float("nan"), float("inf")):
+            with pytest.raises(ValueError):
+                render_geometry_expr("buffer", distance_meters=bad)
+        # The documented cap itself is inclusive.
+        expr, _ = render_geometry_expr("buffer", distance_meters=100_000)
+        assert "100000" in expr
 
     def test_clip_mask_is_reserialized(self):
         req = AnalysisPreviewRequest(operation="clip", mask=CLIP_MASK)
         sql = build_preview_sql('"data"."t1"', req)
         assert "ST_GeomFromGeoJSON" in sql
         assert "ST_Intersects" in sql
-        # The mask appears twice (expression + WHERE); each embed contributes
-        # exactly its two wrapping quotes — shapely re-serialization guarantees
-        # no quote characters inside the JSON itself.
-        assert sql.count("'") == 4
+        # The mask appears three times (expression + bbox && term + WHERE
+        # ST_Intersects); each embed contributes exactly its two wrapping
+        # quotes — shapely re-serialization guarantees no quote characters
+        # inside the JSON itself.
+        assert sql.count("'") == 6
 
     def test_clip_mask_injection_rejected(self):
         req = AnalysisPreviewRequest(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TerraDraw, TerraDrawPolygonMode } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -16,13 +16,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { queryKeys } from '@/lib/query-keys';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
+import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
 
 const MAX_BUFFER_METERS = 100_000;
+// shadcn Select items can't carry an empty value — sentinel for "no grouping".
+const BY_FIELD_NONE = '__none__';
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
@@ -30,6 +34,7 @@ interface AnalysisPanelProps {
   onPreviewResult?: (
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
+    meta?: { truncated?: boolean; totalCount?: number },
   ) => void;
   onClearPreview?: () => void;
   hasPreview?: boolean;
@@ -54,7 +59,7 @@ export function AnalysisPanel({
   layerActions,
   prefill,
 }: AnalysisPanelProps) {
-  const { t } = useTranslation('builder');
+  const { t, i18n } = useTranslation('builder');
   const firstEligibleId =
     layers.find((l) => !!l.dataset_id && !l.is_dem)?.id ?? '';
   // feat(#675): a handoff layer that has since left the map (or lost its
@@ -70,13 +75,44 @@ export function AnalysisPanel({
   );
   const [mask, setMask] = useState<GeoJSON.Polygon | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [outputTitle, setOutputTitle] = useState('');
+  const [byField, setByField] = useState(BY_FIELD_NONE);
+  // A chat handoff lands on the save form — suggest a title so its primary
+  // button isn't silently disabled for want of one.
+  const [outputTitle, setOutputTitle] = useState(() => {
+    if (!prefill) return '';
+    const layer = layers.find((l) => l.id === prefill.layerId);
+    const base = layer?.display_name ?? layer?.dataset_name ?? '';
+    const opLabel =
+      prefill.operation === 'buffer'
+        ? t('analysisTools.opBuffer', { defaultValue: 'Buffer' })
+        : t('analysisTools.opCentroid', { defaultValue: 'Centroids' });
+    return [base, opLabel].filter(Boolean).join(' — ');
+  });
   const [jobId, setJobId] = useState<string | null>(null);
   const drawRef = useRef<TerraDraw | null>(null);
   const job = useJobStatus(jobId).data;
+  const queryClient = useQueryClient();
 
   const datasetLayers = layers.filter((l) => !!l.dataset_id && !l.is_dem);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
+  // Only fetched while dissolve is selected (enabled gates on a non-empty id).
+  const datasetDetail = useDataset(
+    operation === 'dissolve' ? (selectedLayer?.dataset_id ?? '') : '',
+  );
+  const byFieldColumns = (datasetDetail.data?.column_info ?? [])
+    .map((c) => c.name)
+    // The dissolve output already emits a generated source_count column.
+    .filter((name) => name !== 'source_count');
+
+  // fix(#438)-style gap: the materialized dataset was missing from Add-data
+  // search until the stale queries refetched on their own.
+  const jobStatus = job?.status;
+  useEffect(() => {
+    if (jobStatus === 'complete') {
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+    }
+  }, [jobStatus, queryClient]);
 
   const stopDrawing = useCallback(() => {
     drawRef.current?.stop();
@@ -111,9 +147,16 @@ export function AnalysisPanel({
       const feature = td.getSnapshotFeature(id);
       if (feature && feature.geometry.type === 'Polygon') {
         setMask(feature.geometry as GeoJSON.Polygon);
+        // Keep the drawn polygon visible (built-in static mode) so the user
+        // can see what will be clipped — removing it left the mask invisible
+        // with only a "Clip area set" note as evidence. Clearing the mask
+        // stops TerraDraw, which removes its layers.
+        td.setMode('static');
+        setIsDrawing(false);
+      } else {
+        td.removeFeatures([id]);
+        stopDrawing();
       }
-      td.removeFeatures([id]);
-      stopDrawing();
     });
     drawRef.current = td;
     setIsDrawing(true);
@@ -138,6 +181,10 @@ export function AnalysisPanel({
     },
     onSuccess: (result) => {
       if (!result.feature_count || !result.bbox) {
+        // fix(#676) parity: chat surfaces clear a stale overlay on an empty
+        // result; without this the previous preview kept describing a result
+        // the toast says doesn't exist.
+        onClearPreview?.();
         toast.info(
           t('analysisTools.noResults', {
             defaultValue: 'The operation returned no features',
@@ -145,16 +192,28 @@ export function AnalysisPanel({
         );
         return;
       }
-      onPreviewResult?.(
-        result.geojson,
-        result.bbox as [number, number, number, number],
-      );
+      const total = result.source_feature_count;
+      const bbox = result.bbox as [number, number, number, number];
+      if (result.truncated) {
+        onPreviewResult?.(result.geojson, bbox, {
+          truncated: true,
+          totalCount: total ?? undefined,
+        });
+      } else {
+        onPreviewResult?.(result.geojson, bbox);
+      }
       if (result.truncated) {
         toast.info(
-          t('analysisTools.truncatedNotice', {
-            defaultValue: 'Preview capped at {{count}} features',
-            count: result.feature_count,
-          }),
+          total != null
+            ? t('analysisTools.truncatedNoticeTotal', {
+                defaultValue: 'Showing the first {{count}} of {{total}} features',
+                count: result.feature_count,
+                total: total.toLocaleString(i18n.language),
+              })
+            : t('analysisTools.truncatedNotice', {
+                defaultValue: 'Preview capped at {{count}} features',
+                count: result.feature_count,
+              }),
         );
       }
     },
@@ -175,6 +234,9 @@ export function AnalysisPanel({
         title: outputTitle.trim(),
         ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
         ...(operation === 'clip' && mask ? { mask } : {}),
+        ...(operation === 'dissolve' && byField !== BY_FIELD_NONE
+          ? { by_field: byField }
+          : {}),
       });
     },
     onSuccess: (result) => setJobId(result.job_id),
@@ -267,11 +329,38 @@ export function AnalysisPanel({
           <p className="text-xs text-muted-foreground">
             {t('analysisTools.dissolveHint', {
               defaultValue:
-                'Dissolve merges all features into one geometry; run it with Create dataset',
+                'Dissolve merges features into one geometry per group; run it with Create dataset',
             })}
           </p>
         )}
       </div>
+
+      {operation === 'dissolve' && (
+        <div className="space-y-1.5">
+          <Label className="text-xs" htmlFor="analysis-by-field">
+            {t('analysisTools.byFieldLabel', {
+              defaultValue: 'Group by field (optional)',
+            })}
+          </Label>
+          <Select value={byField} onValueChange={setByField}>
+            <SelectTrigger id="analysis-by-field" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={BY_FIELD_NONE}>
+                {t('analysisTools.byFieldNone', {
+                  defaultValue: 'No grouping — merge everything',
+                })}
+              </SelectItem>
+              {byFieldColumns.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {operation === 'buffer' && (
         <div className="space-y-1.5">
@@ -295,7 +384,9 @@ export function AnalysisPanel({
 
       {operation === 'clip' && (
         <div className="space-y-1.5">
-          <Label className="text-xs">
+          {/* Exactly one of the three buttons below renders at a time, so
+              they can share the id this label points at. */}
+          <Label className="text-xs" htmlFor="analysis-clip-action">
             {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
           </Label>
           {isDrawing ? (
@@ -305,7 +396,12 @@ export function AnalysisPanel({
                   defaultValue: 'Draw on the map — double-click to finish',
                 })}
               </p>
-              <Button variant="outline" size="sm" onClick={stopDrawing}>
+              <Button
+                id="analysis-clip-action"
+                variant="outline"
+                size="sm"
+                onClick={stopDrawing}
+              >
                 {t('analysisTools.cancelDrawing', { defaultValue: 'Cancel' })}
               </Button>
             </div>
@@ -314,12 +410,23 @@ export function AnalysisPanel({
               <span className="text-xs text-muted-foreground">
                 {t('analysisTools.maskSet', { defaultValue: 'Clip area set' })}
               </span>
-              <Button variant="ghost" size="sm" onClick={() => setMask(null)}>
+              <Button
+                id="analysis-clip-action"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setMask(null);
+                  // Also removes the kept-visible drawn polygon (TerraDraw
+                  // owns its own map layers; stop() tears them down).
+                  stopDrawing();
+                }}
+              >
                 {t('analysisTools.clearMask', { defaultValue: 'Clear' })}
               </Button>
             </div>
           ) : (
             <Button
+              id="analysis-clip-action"
               variant="outline"
               size="sm"
               onClick={startDrawing}

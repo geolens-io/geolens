@@ -38,9 +38,13 @@ router = APIRouter(
 _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # Sandbox error categories → HTTP status. Everything else is a sanitized 500.
+# query_failed is a 422 here (not 500): all SQL on this path is server-built
+# from validated params, so execution failures are data-driven (e.g. degenerate
+# geometries), not server faults.
 _SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "query_failed": status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
 
 
@@ -126,6 +130,14 @@ async def analysis_materialize_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown dissolve column: {body.by_field!r}",
+            )
+        if body.by_field == "source_count":
+            # The dissolve output already emits a generated source_count
+            # column; carrying a same-named group key would fail the CTAS
+            # with an opaque "column specified more than once".
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="by_field conflicts with the generated 'source_count' column",
             )
 
     # Best-effort dataset-count pre-check; the authoritative atomic

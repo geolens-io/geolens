@@ -29,6 +29,11 @@ logger = structlog.stdlib.get_logger(__name__)
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 
+# The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
+# here is the only unbounded statement a user can queue, so cap it.
+# ponytail: hardcoded ceiling; promote to persistent-config if operators hit it.
+MATERIALIZE_TIMEOUT = "300s"
+
 
 async def _list_carry_columns(
     session: AsyncSession, schema: str, table_name: str
@@ -56,17 +61,22 @@ def _build_materialize_select(
 ) -> str:
     """Render the SELECT that produces the output table's rows."""
     if operation == "dissolve":
+        # ST_MakeValid: one invalid ring would abort the whole union.
+        # ST_CollectionExtract: a union over mixed geometry types returns a
+        # GEOMETRYCOLLECTION, which the MVT tile path can't render — keep only
+        # the highest-dimension components so the output stays typed.
+        union_expr = "ST_Multi(ST_CollectionExtract(ST_Union(ST_MakeValid(geom_4326))))"
         if by_field:
             col = f'"{by_field}"'
             return (
                 f"SELECT (row_number() OVER ())::integer AS gid, {col}, "
                 f"COUNT(*)::integer AS source_count, "
-                f"ST_Multi(ST_Union(geom_4326)) AS geom "
+                f"{union_expr} AS geom "
                 f"FROM {src_ref} GROUP BY {col}"
             )
         return (
             f"SELECT 1 AS gid, COUNT(*)::integer AS source_count, "
-            f"ST_Multi(ST_Union(geom_4326)) AS geom FROM {src_ref}"
+            f"{union_expr} AS geom FROM {src_ref}"
         )
     expr, where = render_geometry_expr(
         operation, distance_meters=distance_meters, mask=mask
@@ -109,6 +119,11 @@ async def _materialize(
             current_tenant_var.get() if is_multi_tenant() else None
         )
         out_table: str | None = None
+        # Only drop the output table on failure if THIS job created it: when
+        # CREATE TABLE itself fails because a concurrent job won the same
+        # generated name, an unconditional cleanup would destroy the winner's
+        # table while its dataset registration stays live.
+        out_table_created = False
         try:
             port = get_processing_port()
             Dataset = port.get_dataset_orm_class()
@@ -140,7 +155,28 @@ async def _materialize(
                 by_field=by_field,
                 carry_cols=carry_cols,
             )
+            await session.execute(
+                text(f"SET LOCAL statement_timeout = '{MATERIALIZE_TIMEOUT}'")
+            )
             await session.execute(text(f"CREATE TABLE {out_ref} AS {select_sql}"))
+            out_table_created = True
+            if operation == "clip":
+                # Boundary-grazing rows survive ST_Intersects but extract to
+                # EMPTY (see analysis_sql.render_geometry_expr) — drop them.
+                await session.execute(
+                    text(f"DELETE FROM {out_ref} WHERE ST_IsEmpty(geom)")
+                )
+            has_features = await session.scalar(
+                text(
+                    f"SELECT EXISTS (SELECT 1 FROM {out_ref} "
+                    f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom))"
+                )
+            )
+            if not has_features:
+                # e.g. a clip matching nothing, or dissolving an empty
+                # dataset (whose no-GROUP-BY aggregate still yields one
+                # NULL-geometry row) — fail loud instead of registering junk.
+                raise ValueError("Analysis produced no features to save")
             # CTAS yields an untyped geometry column (typmod srid=0), which
             # metadata extraction reports as SRID 0 — stamp the 4326 typmod.
             await session.execute(
@@ -168,7 +204,7 @@ async def _materialize(
         except Exception as exc:  # broad: any failure must mark the job failed, not raise into the queue
             logger.warning("analysis.materialize_failed", job_id=job_id, error=str(exc))
             await session.rollback()
-            if out_table:
+            if out_table and out_table_created:
                 try:
                     await session.execute(
                         text(f'DROP TABLE IF EXISTS "{_schema}"."{out_table}"')

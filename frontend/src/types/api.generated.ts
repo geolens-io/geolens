@@ -5469,6 +5469,11 @@ export interface components {
             geojson: {
                 [key: string]: unknown;
             };
+            /**
+             * Source Feature Count
+             * @description Total feature count of the source dataset (1:1 operations only; null when the operation filters rows, e.g. clip)
+             */
+            source_feature_count?: number | null;
             /** Truncated */
             truncated: boolean;
         };

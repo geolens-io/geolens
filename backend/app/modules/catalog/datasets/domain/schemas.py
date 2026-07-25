@@ -877,6 +877,16 @@ class AnalysisPreviewRequest(BaseModel):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_ignored_distance(cls, data: Any) -> Any:
+        # distance_meters is documented as "buffer only; ignored otherwise" —
+        # actually ignore it, or the optional field's gt/le bounds fire on
+        # placeholder values SDK/CLI callers send alongside centroid/clip.
+        if isinstance(data, dict) and data.get("operation") != "buffer":
+            data = {k: v for k, v in data.items() if k != "distance_meters"}
+        return data
+
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisPreviewRequest":
         if self.operation == "buffer" and self.distance_meters is None:
@@ -893,6 +903,13 @@ class AnalysisPreviewResponse(BaseModel):
     feature_count: int
     truncated: bool
     bbox: list[float] | None = None
+    source_feature_count: int | None = Field(
+        default=None,
+        description=(
+            "Total feature count of the source dataset (1:1 operations only; "
+            "null when the operation filters rows, e.g. clip)"
+        ),
+    )
 
 
 class AnalysisMaterializeRequest(BaseModel):
@@ -917,6 +934,14 @@ class AnalysisMaterializeRequest(BaseModel):
         max_length=63,
         description="Optional group-by column for dissolve",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_ignored_distance(cls, data: Any) -> Any:
+        # Same contract as AnalysisPreviewRequest: distance is buffer-only.
+        if isinstance(data, dict) and data.get("operation") != "buffer":
+            data = {k: v for k, v in data.items() if k != "distance_meters"}
+        return data
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisMaterializeRequest":

@@ -1,14 +1,22 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
 import { AnalysisPanel } from '../AnalysisPanel';
-import { previewAnalysis } from '@/api/analysis';
+import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import type { MapLayerResponse } from '@/types/api';
+
+// Radix Select needs pointer-capture APIs jsdom lacks (DataDrivenStyleEditor
+// precedent).
+Element.prototype.hasPointerCapture = vi.fn(() => false);
+Element.prototype.releasePointerCapture = vi.fn();
+Element.prototype.scrollIntoView = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_key: string, options?: { defaultValue?: string }) =>
       options?.defaultValue ?? _key,
+    i18n: { language: 'en' },
   }),
 }));
 
@@ -28,6 +36,21 @@ vi.mock('@/api/analysis', () => ({
     truncated: false,
     bbox: [0, 0, 1, 1],
   }),
+  materializeAnalysis: vi
+    .fn()
+    .mockResolvedValue({ job_id: 'job1', status: 'pending' }),
+}));
+
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
+  useDataset: vi.fn(() => ({
+    data: {
+      column_info: [
+        { name: 'name', type: 'text' },
+        // Must be filtered out — collides with the generated output column.
+        { name: 'source_count', type: 'integer' },
+      ],
+    },
+  })),
 }));
 
 const datasetLayer = {
@@ -112,6 +135,79 @@ describe('AnalysisPanel', () => {
     const clearButton = screen.getByRole('button', { name: 'Clear preview' });
     fireEvent.click(clearButton);
     expect(onClearPreview).toHaveBeenCalled();
+  });
+
+  it('clears a stale overlay when the preview returns no features (#676 parity)', async () => {
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 0,
+      truncated: false,
+      bbox: null,
+    });
+    const onPreviewResult = vi.fn();
+    const onClearPreview = vi.fn();
+    renderPanel([datasetLayer], { onPreviewResult, onClearPreview });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(onClearPreview).toHaveBeenCalled());
+    expect(onPreviewResult).not.toHaveBeenCalled();
+  });
+
+  it('passes truncation and the source total through to the overlay', async () => {
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [0, 0] },
+            properties: { gid: 1 },
+          },
+        ],
+      },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: 10651,
+    });
+    const onPreviewResult = vi.fn();
+    renderPanel([datasetLayer], { onPreviewResult });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(onPreviewResult).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'FeatureCollection' }),
+        [0, 0, 1, 1],
+        { truncated: true, totalCount: 10651 },
+      ),
+    );
+  });
+
+  it('sends by_field when a dissolve group column is chosen', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+
+    // Combobox order: layer, operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Dissolve' }));
+
+    // The group-by select appears; source_count is filtered from the options.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(screen.queryByRole('option', { name: 'source_count' })).toBeNull();
+    await user.click(await screen.findByRole('option', { name: 'name' }));
+
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Dissolved by name' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    await waitFor(() =>
+      expect(materializeAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'dissolve',
+        title: 'Dissolved by name',
+        by_field: 'name',
+      }),
+    );
   });
 });
 

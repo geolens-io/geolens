@@ -107,4 +107,10 @@ async def run_analysis_preview(
         feature_count=len(features),
         truncated=result.truncated,
         bbox=bbox,
+        # buffer/centroid are 1:1 per feature, so the source count IS the
+        # output total and lets clients render "500 of N" on truncation.
+        # clip filters rows, so its total is unknowable without a second scan.
+        source_feature_count=(
+            dataset.feature_count if request.operation != "clip" else None
+        ),
     )

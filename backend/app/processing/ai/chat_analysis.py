@@ -143,9 +143,9 @@ async def _run_analysis(
     out["bbox"] = result.bbox
     if result.truncated:
         # Surface the source total so the map badge can say "500 of N" rather
-        # than presenting a capped preview as the whole result. buffer and
-        # centroid are 1:1 per feature, so the source count IS the output total.
-        out["source_feature_count"] = getattr(dataset, "feature_count", None)
+        # than presenting a capped preview as the whole result. The service
+        # computes it (1:1 ops only) — same field the HTTP preview now returns.
+        out["source_feature_count"] = result.source_feature_count
     # Deliberately surface-neutral: view-only callers get this tool too (it is
     # read-only), and they land on the public viewer, which has no Analysis
     # rail — BuilderRail is rendered by MapBuilderPage alone. Naming the panel
