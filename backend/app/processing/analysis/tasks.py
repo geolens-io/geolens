@@ -52,6 +52,12 @@ MATERIALIZE_TIMEOUT = "300s"
 # the build, but must never be unbounded.
 REGISTRATION_TIMEOUT = "600s"
 
+# fix(#694): post-CTAS backstop on the built output's on-disk size. The
+# enqueue gates read the cached feature_count snapshot, which can be stale;
+# this is the enforcement that can't be. Buffer is the motivating case: it
+# is the only amplifying operation and vector datasets carry no byte quota.
+MAX_OUTPUT_BYTES = 2 * 1024**3
+
 # Served by the worker's :8001 /metrics endpoint (default registry).
 # ponytail: analysis-only counter; generalize to all ingest job types when
 # another type needs it.
@@ -351,8 +357,29 @@ async def _materialize(
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{MATERIALIZE_TIMEOUT}'")
             )
+            if operation == "dissolve":
+                # fix(#694): hash aggregation holds every group's union state
+                # in memory at once, so a grouped dissolve over enough
+                # polygons can OOM-kill the shared db container. Sorted
+                # aggregation bounds memory to one group at a time. The
+                # enqueue-time feature cap is the first line of defense;
+                # this is the second.
+                await session.execute(text("SET LOCAL enable_hashagg = off"))
             await session.execute(text(f"CREATE TABLE {out_ref} AS {select_sql}"))
             out_table_created = True
+            size_bytes = await session.scalar(
+                text(
+                    "SELECT pg_total_relation_size(CAST(:ref AS regclass))"
+                ).bindparams(ref=out_ref)
+            )
+            if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
+                # Fail before spending the rewrite/index/registration phases
+                # on a table that will be rejected; the failure path drops it.
+                raise ValueError(
+                    f"The analysis output exceeded the "
+                    f"{MAX_OUTPUT_BYTES // 1024**3} GB size limit. Reduce the "
+                    "buffer distance or run it on a smaller dataset."
+                )
             # Rows with nothing to show are dropped for EVERY operation, not
             # just clip (fix(#692)): buffer/centroid map NULL source
             # geometries to NULL, dissolve unions an all-NULL group to NULL,

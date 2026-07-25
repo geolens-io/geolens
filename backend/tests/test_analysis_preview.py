@@ -619,6 +619,43 @@ class TestAnalysisPreviewEndpoint:
         assert data["feature_count"] == 1
         assert data["bbox"] == pytest.approx([0.0, 0.0, 0.5, 0.5])
 
+    async def test_oversized_mask_layer_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#693): the mask layer is unioned whole before any row limit
+        can bite, inside the preview's 10s budget — gate on the cached
+        feature_count when the mask dataset loads."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+        )
+        mask_ds.feature_count = 1_001
+        await test_db_session.commit()
+
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(mask_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "mask layer has too many features" in resp.json()["detail"].lower()
+
+        # At the cap it still runs.
+        mask_ds.feature_count = 1_000
+        await test_db_session.commit()
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(mask_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
     async def test_clip_by_layer_mask_access_checked(
         self,
         client: AsyncClient,
