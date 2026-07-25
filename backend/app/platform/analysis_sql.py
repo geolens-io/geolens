@@ -31,6 +31,25 @@ from shapely.geometry import shape
 MAX_BUFFER_METERS = 100_000.0
 MAX_MASK_VERTICES = 5_000
 
+# fix(#693): a layer-sourced clip mask is unioned WHOLE before any row limit
+# can bite, inside the preview's 10-second budget — a few thousand realistic
+# polygons already blow it.
+MAX_MASK_LAYER_FEATURES = 1_000
+
+# fix(#694): per-operation source-size ceilings.
+# dissolve: ST_Union memory grows with input; ~1M polygons OOM-kills a 2 GB
+# db container, taking every connection with it — 250k keeps 4x headroom.
+# buffer: the only output-amplifying operation, and vector datasets carry no
+# byte quota, so bound the amplification source instead.
+# Enforced twice with LIMIT-bounded live counts: at enqueue (router, fast
+# 422) and again in the worker right before the CTAS — the queue wait can be
+# long enough for a dataset to be re-uploaded past its cap (fix(#701
+# review)).
+MAX_SOURCE_FEATURES = {
+    "dissolve": 250_000,
+    "buffer": 500_000,
+}
+
 # CTE name for layer-sourced clip masks. The union is computed ONCE in a
 # MATERIALIZED CTE; referencing it from the expression and both WHERE terms
 # as a scalar subquery would otherwise evaluate the union three times.

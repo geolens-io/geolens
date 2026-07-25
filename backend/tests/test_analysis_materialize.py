@@ -392,6 +392,158 @@ class TestMaterializeEndpoint:
         job.status = "failed"
         await test_db_session.commit()
 
+    async def test_source_size_gates_dissolve_and_buffer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#694): dissolve/buffer are size-gated at enqueue on the cached
+        feature_count — dissolve's ST_Union can OOM the shared db container,
+        and buffer amplifies storage with no byte quota. Centroid is 1:1 and
+        stays ungated."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+
+        ds.feature_count = 250_001
+        await test_db_session.commit()
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={"operation": "dissolve", "title": "Too big"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "too large for dissolve" in resp.json()["detail"]
+
+        # The boundary itself is allowed.
+        ds.feature_count = 250_000
+        await test_db_session.commit()
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "dissolve", "title": "At the cap"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        await test_db_session.commit()
+
+        # buffer's ceiling is higher but real; centroid has none.
+        ds.feature_count = 500_001
+        await test_db_session.commit()
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={"operation": "buffer", "distance_meters": 10, "title": "Too big"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "too large for buffer" in resp.json()["detail"]
+
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Centroid ok"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        await test_db_session.commit()
+
+    async def test_oversized_mask_layer_rejected_at_enqueue(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#693): the shared mask loader caps the mask layer's cached
+        feature_count — the whole layer is unioned before any row limit can
+        bite — so materialize rejects it before creating a job."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+        )
+        mask_ds.feature_count = 1_001
+        await test_db_session.commit()
+
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={
+                "operation": "clip",
+                "mask_dataset_id": str(mask_ds.id),
+                "title": "Too many mask features",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "mask layer has too many features" in resp.json()["detail"].lower()
+
+        # fix(#701 review): a NULL snapshot must not read as zero — the mask
+        # table (1 row) is counted live against the patched cap.
+        mask_ds.feature_count = None
+        await test_db_session.commit()
+        with patch.object(router_analysis, "MAX_MASK_LAYER_FEATURES", 0):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={
+                    "operation": "clip",
+                    "mask_dataset_id": str(mask_ds.id),
+                    "title": "Unknown mask size",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 422
+        assert "mask layer has too many features" in resp.json()["detail"].lower()
+
+    async def test_null_feature_count_probes_live_table(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#701 review): a NULL feature_count (legacy imports,
+        register_existing_table paths) must not read as zero — that admits
+        exactly the unknown-size datasets the OOM gate exists for. The gate
+        falls back to a LIMIT-bounded live count of the physical table."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        ds.feature_count = None
+        await test_db_session.commit()
+
+        # The fixture table holds 2 rows; a cap of 1 must reject via the
+        # live probe...
+        with patch.dict(
+            "app.platform.analysis_sql.MAX_SOURCE_FEATURES", {"dissolve": 1}
+        ):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "dissolve", "title": "Unknown size"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 422
+        assert "too large for dissolve" in resp.json()["detail"]
+
+        # ...and a cap above the true count enqueues.
+        with (
+            patch.dict(
+                "app.platform.analysis_sql.MAX_SOURCE_FEATURES", {"dissolve": 5}
+            ),
+            patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()),
+        ):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "dissolve", "title": "Small enough"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        await test_db_session.commit()
+
 
 # ---------------------------------------------------------------------------
 # Worker tests (core logic run inline, no queue)
@@ -1020,6 +1172,136 @@ class TestMaterializeWorker:
         # The registration budget is set after the ANALYZE (i.e. in the new
         # transaction), not before.
         assert executed.index(timeouts[1]) > executed.index(analyzes[0])
+        # Only dissolve flips the aggregation strategy (fix(#694)).
+        assert not [s for s in executed if "enable_hashagg" in s]
+        # fix(#701 review): the size ceiling is probed twice — a cheap early
+        # exit after the CTAS, and the authoritative check on the finished
+        # relation (post-4326-rewrite, so heap + TOAST + GIST all count),
+        # which must land before the ANALYZE that precedes the commit.
+        # Positions, not values: both probes stringify identically, so
+        # list.index() would find the first one twice.
+        size_pos = [i for i, s in enumerate(executed) if "pg_total_relation_size" in s]
+        assert len(size_pos) == 2
+        rewrite_pos = max(
+            i for i, s in enumerate(executed) if "geom_4326" in s and "UPDATE" in s
+        )
+        assert size_pos[1] > rewrite_pos
+        assert size_pos[1] < executed.index(analyzes[0])
+
+    async def test_dissolve_ctas_disables_hashagg(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#694): hash aggregation holds every group's union state in
+        memory simultaneously; the dissolve CTAS transaction must switch to
+        sorted aggregation, which bounds memory to one group at a time."""
+        executed: list[str] = []
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+
+        real_execute = _AS.execute
+
+        async def spying_execute(self, statement, *args, **kwargs):
+            executed.append(str(statement))
+            return await real_execute(self, statement, *args, **kwargs)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch.object(_AS, "execute", spying_execute):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title=f"Hashagg {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        hashaggs = [s for s in executed if "enable_hashagg" in s]
+        assert len(hashaggs) == 1
+        ctas = [s for s in executed if s.startswith("CREATE TABLE")]
+        # Same transaction, ahead of the CTAS it protects.
+        assert executed.index(hashaggs[0]) < executed.index(ctas[0])
+
+    async def test_worker_rechecks_size_caps_before_ctas(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#701 review): the enqueue gate's count can go stale while the
+        job waits in the queue (a source or mask can be re-uploaded past its
+        cap), and the post-CTAS size check is too late to protect the
+        dissolve/mask union itself from OOM — the worker re-counts the live
+        tables immediately before building the SQL."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+
+        # Source recheck: the fixture table holds 2 rows; cap 1 must fail
+        # the job before any output table exists.
+        job = await _create_job(test_db_session, admin_id)
+        with patch.dict(
+            "app.platform.analysis_sql.MAX_SOURCE_FEATURES", {"dissolve": 1}
+        ):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title="Grew past the cap",
+            )
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "too large for dissolve" in (job.error_message or "")
+        assert job.dataset_id is None
+
+        # Mask recheck: the 1-row mask table against a cap of 0.
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+        )
+        job2 = await _create_job(test_db_session, admin_id)
+        with patch("app.processing.analysis.tasks.MAX_MASK_LAYER_FEATURES", 0):
+            await _materialize(
+                job_id=str(job2.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="clip",
+                title="Mask grew past the cap",
+                mask_dataset_id=str(mask_ds.id),
+            )
+        await test_db_session.refresh(job2)
+        assert job2.status == "failed"
+        assert "mask layer has too many features" in (job2.error_message or "")
+        assert job2.dataset_id is None
+
+    async def test_oversized_output_fails_before_registration(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#694): the enqueue gates read a cached feature_count snapshot;
+        the post-CTAS pg_total_relation_size backstop is the enforcement that
+        can't go stale. The job fails with an actionable message, no dataset
+        is registered, and the cleanup path drops the built table."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch("app.processing.analysis.tasks.MAX_OUTPUT_BYTES", 1):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="buffer",
+                title=f"Oversized {uuid.uuid4().hex[:6]}",
+                distance_meters=10.0,
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "size limit" in (job.error_message or "")
+        assert job.dataset_id is None
 
     async def test_mixed_geometry_dissolve_stays_typed(
         self,

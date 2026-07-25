@@ -24,7 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
-from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
+from app.platform.analysis_sql import (
+    MAX_MASK_LAYER_FEATURES,
+    MAX_SOURCE_FEATURES,
+    render_geometry_expr,
+    render_mask_cte,
+)
 from app.platform.jobs.heartbeat import (
     claim_ingest_job_attempt,
     maintain_ingest_job_heartbeat,
@@ -51,6 +56,12 @@ MATERIALIZE_TIMEOUT = "300s"
 # (fix(#692)). Larger than the CTAS budget: those scans are cheap relative to
 # the build, but must never be unbounded.
 REGISTRATION_TIMEOUT = "600s"
+
+# fix(#694): post-CTAS backstop on the built output's on-disk size. The
+# enqueue gates read the cached feature_count snapshot, which can be stale;
+# this is the enforcement that can't be. Buffer is the motivating case: it
+# is the only amplifying operation and vector datasets carry no byte quota.
+MAX_OUTPUT_BYTES = 2 * 1024**3
 
 # Served by the worker's :8001 /metrics endpoint (default registry).
 # ponytail: analysis-only counter; generalize to all ingest job types when
@@ -138,6 +149,82 @@ async def _fail_cancelled_job(
             except Exception:  # broad: best-effort cleanup of the partial table
                 await session.rollback()
     ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
+
+
+async def _count_features_bounded(
+    session: AsyncSession, table_ref: str, cap: int
+) -> int:
+    """Live row count, stopping at ``cap + 1`` so the probe stays bounded."""
+    result = await session.execute(
+        text(
+            f"SELECT count(*) FROM (SELECT 1 FROM {table_ref} LIMIT :lim) AS _n"  # noqa: S608
+        ).bindparams(lim=cap + 1)
+    )
+    return int(result.scalar_one())
+
+
+async def _recheck_size_caps(
+    session: AsyncSession,
+    *,
+    operation: str,
+    src_ref: str,
+    mask_table_ref: str | None,
+) -> None:
+    """Re-validate the enqueue-time size gates against the live tables.
+
+    The queue wait can be long enough for a source or mask dataset to be
+    re-uploaded past its cap (fix(#701 review)), and the post-CTAS output
+    check is too late to protect the dissolve/mask union itself from OOM —
+    so the bounded counts run again here, immediately before the SQL is
+    built.
+    """
+    cap = MAX_SOURCE_FEATURES.get(operation)
+    if cap is not None and await _count_features_bounded(session, src_ref, cap) > cap:
+        raise ValueError(
+            f"This dataset is too large for {operation} (the limit is "
+            f"{cap:,} features). Filter it to a smaller dataset first."
+        )
+    if (
+        mask_table_ref is not None
+        and await _count_features_bounded(
+            session, mask_table_ref, MAX_MASK_LAYER_FEATURES
+        )
+        > MAX_MASK_LAYER_FEATURES
+    ):
+        raise ValueError(
+            "The mask layer has too many features to clip with (limit "
+            f"{MAX_MASK_LAYER_FEATURES:,}). Choose a smaller mask layer or "
+            "draw the mask on the map."
+        )
+
+
+async def _enforce_output_size(
+    session: AsyncSession, schema: str, table_name: str
+) -> None:
+    """Fail the build when the output relation is over MAX_OUTPUT_BYTES.
+
+    ``pg_total_relation_size`` counts heap, TOAST, and indexes, so the
+    post-rewrite call measures what the registered dataset will actually
+    occupy. Resolved via pg_class with the ``:schema`` bind rather than a
+    ``regclass`` cast (fix(#701 review)): the tenant statement hook only
+    recognizes schema references in SQL text or schema-named binds, and it
+    masks string literals — a schema hidden inside a generic bind would
+    skip the tenant role setup and fail the lookup in multi-tenant.
+    """
+    result = await session.execute(
+        text(
+            "SELECT pg_total_relation_size(c.oid) FROM pg_catalog.pg_class c"
+            " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = :schema AND c.relname = :table_name"
+        ).bindparams(schema=schema, table_name=table_name)
+    )
+    size_bytes = result.scalar_one_or_none()
+    if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
+        raise ValueError(
+            f"The analysis output exceeded the "
+            f"{MAX_OUTPUT_BYTES // 1024**3} GB size limit. Reduce the "
+            "buffer distance or run it on a smaller dataset."
+        )
 
 
 async def _mark_job_failed(
@@ -331,6 +418,13 @@ async def _materialize(
                     raise ValueError("Invalid mask table name")
                 mask_table_ref = f'"{_schema}"."{mask_ds.table_name}"'
 
+            await _recheck_size_caps(
+                session,
+                operation=operation,
+                src_ref=src_ref,
+                mask_table_ref=mask_table_ref,
+            )
+
             out_table, _warning = await generate_table_name(title, session)
             out_ref = f'"{_schema}"."{out_table}"'
 
@@ -351,8 +445,20 @@ async def _materialize(
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{MATERIALIZE_TIMEOUT}'")
             )
+            if operation == "dissolve":
+                # fix(#694): hash aggregation holds every group's union state
+                # in memory at once, so a grouped dissolve over enough
+                # polygons can OOM-kill the shared db container. Sorted
+                # aggregation bounds memory to one group at a time. The
+                # enqueue-time feature cap is the first line of defense;
+                # this is the second.
+                await session.execute(text("SET LOCAL enable_hashagg = off"))
             await session.execute(text(f"CREATE TABLE {out_ref} AS {select_sql}"))
             out_table_created = True
+            # Early exit only — a table already over the ceiling must not
+            # hold the single worker slot through the rewrite phases. The
+            # authoritative check runs after add_4326_column below.
+            await _enforce_output_size(session, _schema, out_table)
             # Rows with nothing to show are dropped for EVERY operation, not
             # just clip (fix(#692)): buffer/centroid map NULL source
             # geometries to NULL, dissolve unions an all-NULL group to NULL,
@@ -381,6 +487,11 @@ async def _materialize(
             )
             await session.execute(text(f"ALTER TABLE {out_ref} ADD PRIMARY KEY (gid)"))
             await add_4326_column(session, out_table, 4326, schema=_schema)
+            # fix(#701 review): the 4326 rewrite roughly doubles the geometry
+            # payload, rewrites every row, and adds the GIST index — the
+            # post-CTAS probe undercounts the final footprint by a multiple,
+            # so the ceiling is enforced here, on the finished relation.
+            await _enforce_output_size(session, _schema, out_table)
             # In-transaction ANALYZE (fix(#692)): the table only becomes
             # visible to autovacuum at the commit below, and the first tile
             # queries land before its pass — without statistics the planner

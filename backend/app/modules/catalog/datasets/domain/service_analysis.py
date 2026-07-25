@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import uuid
+
+from sqlalchemy import text
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +34,33 @@ from app.platform.sandbox.executor import execute_safe
 
 PREVIEW_FEATURE_CAP = 500
 _GEOJSON_PRECISION = 6
+
+
+async def resolve_source_feature_count(
+    db: AsyncSession, dataset: Dataset, *, cap: int
+) -> int:
+    """Feature count for enqueue gating, bounded by ``cap``.
+
+    Uses the cached catalog snapshot when present. When it is NULL (legacy
+    imports, ``register_existing_table`` paths), a NULL-as-zero default
+    would admit exactly the unknown-size datasets the OOM gates exist for
+    (fix(#701 review)) — so count the physical table instead, stopping at
+    ``cap + 1`` rows so the probe itself stays bounded.
+    """
+    if dataset.feature_count is not None:
+        return dataset.feature_count
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
+    ref = _safe_table_ref(dataset.table_name, schema=schema)
+    result = await db.execute(
+        text(
+            f"SELECT count(*) FROM (SELECT 1 FROM {ref} LIMIT :lim) AS _n"  # noqa: S608
+        ).bindparams(lim=cap + 1)
+    )
+    return int(result.scalar_one())
 
 
 def build_preview_sql(
