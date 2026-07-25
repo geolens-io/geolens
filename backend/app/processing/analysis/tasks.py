@@ -9,6 +9,7 @@ reader grants, and the atomic dataset-slot quota all apply.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
+from app.platform.jobs.heartbeat import maintain_ingest_job_heartbeat
 from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -131,18 +133,43 @@ async def _materialize(
             return
         job.status = "running"
         # Stamp the start time. Without it this row carries NO liveness signal
-        # at all (materialize does not renew a heartbeat lease), and the
-        # platform's stale-job recovery matches on
+        # at all, and the platform's stale-job recovery matches on
         # `coalesce(heartbeat_at, started_at) < cutoff` — which is NULL for
         # such a row, so a worker that dies mid-CTAS would strand the job in
-        # 'running' forever. It also lets the per-user job cap measure from
-        # actual start rather than enqueue time (fix(#682 review)).
-        job.started_at = datetime.now(timezone.utc)
+        # 'running' forever.
+        _now = datetime.now(timezone.utc)
+        job.started_at = _now
+        # ...and renew a lease from here on, or started_at alone would condemn
+        # a job that legitimately outlives JOB_TIMEOUT_SECONDS (fix(#682
+        # review)). statement_timeout bounds each STATEMENT, not the task: the
+        # CTAS, DELETE, EXISTS probe, two ALTERs, the primary key,
+        # add_4326_column and registration each get their own budget, so a
+        # large materialize can run long. Without a lease the sweep would mark
+        # a live job failed, the watcher would report a false failure, the
+        # per-user slot would reopen for a second CTAS, and this worker would
+        # later overwrite 'failed' with 'complete'.
+        #
+        # Reuse the token the row already carries (IngestJob.attempt_id
+        # defaults to uuid4 at creation) rather than minting a fresh one —
+        # rotating it here would invalidate the token the enqueue side
+        # recorded, and this task is retry=0 so there is no second delivery to
+        # fence against. The fallback covers rows predating that default.
+        attempt_id = job.attempt_id
+        if attempt_id is None:
+            attempt_id = uuid.uuid4()
+            job.attempt_id = attempt_id
+        job.heartbeat_at = _now
         # current_step only, no numeric progress: the operation is a single
         # CTAS, so there is no intra-statement telemetry to report and a bar
         # parked at 10% for five minutes reads as "stuck" rather than "busy".
         job.current_step = "analyzing"
         await session.commit()
+
+        # Renews on its own session, so it never contends with the work below,
+        # and returns by itself once the row leaves 'running'.
+        heartbeat = asyncio.create_task(
+            maintain_ingest_job_heartbeat(job.id, attempt_id)
+        )
 
         _schema = tenant_data_schema(
             current_tenant_var.get() if is_multi_tenant() else None
@@ -265,6 +292,11 @@ async def _materialize(
                 failed_job.error_message = str(exc)[:2000]
                 await session.commit()
             ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
+        finally:
+            # The row has left 'running' by now, so the loop would exit on its
+            # own at the next renewal — cancel so the task does not outlive the
+            # work by up to one heartbeat interval.
+            heartbeat.cancel()
 
 
 @task_app.task(

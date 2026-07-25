@@ -387,8 +387,14 @@ class TestMaterializeWorker:
         # fix(#682 review): without started_at the row carries no liveness
         # signal, so the platform's stale-job sweep (which matches on
         # coalesce(heartbeat_at, started_at)) could never recover a crashed
-        # analysis job, and the per-user cap could not time from actual start.
+        # analysis job.
         assert job.started_at is not None
+        # ...and started_at ALONE would condemn a job that legitimately outlives
+        # JOB_TIMEOUT_SECONDS, since the same coalesce would then read as stale
+        # while the work is still running. The lease the worker takes is what
+        # keeps a live job out of the sweep, so pin that it exists.
+        assert job.attempt_id is not None
+        assert job.heartbeat_at is not None
 
         from app.modules.catalog.datasets.domain.models import Dataset
 
