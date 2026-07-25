@@ -389,8 +389,8 @@ plans, checkpoint activity — into daily-rotated files inside the pgdata volume
 Read them with:
 
 ```bash
-docker compose exec db sh -c 'ls -t /var/lib/postgresql/data/log/'
-docker compose exec db sh -c 'tail -100 "/var/lib/postgresql/data/log/$(ls -t /var/lib/postgresql/data/log/ | head -1)"'
+docker compose exec db sh -c 'ls -t "$PGDATA/log/"'
+docker compose exec db sh -c 'tail -100 "$PGDATA/log/$(ls -t "$PGDATA/log/" | head -1)"'
 ```
 
 An empty `docker compose logs db` does **not** mean there are no slow queries —
@@ -517,18 +517,21 @@ docker run --rm -v <project>_backup_data:/backups -v "$PWD/restore":/out alpine 
 docker compose down
 docker volume rm <project>_pgdata
 
-# 3. Pull/build the new images and start the db — a fresh PG 18 cluster
-#    initializes, and scripts/init-db.sh provisions extensions + roles.
+# 3. Pull/build the new images and start the WHOLE stack once — a fresh PG 18
+#    cluster initializes (scripts/init-db.sh provisions extensions + base
+#    roles), then the migrate service applies all migrations. This step is
+#    REQUIRED before the restore: migrations create the app roles (e.g.
+#    geolens_readonly) that the dump's GRANT statements reference — restoring
+#    onto an unmigrated cluster spews "role ... does not exist" errors.
 docker compose pull   # or: docker compose build db, if you build locally
-docker compose up -d --wait db
+docker compose up -d --wait
 
-# 4. Restore the dump (canonical entry point, validates before restoring).
+# 4. Restore the dump (canonical entry point: validates the file, stops
+#    api/worker, restores over the freshly migrated schema via
+#    --clean --if-exists, and restarts api/worker when done).
 ./scripts/restore.sh ./restore/pre_pg18_manual.dump
 
-# 5. Start the rest of the stack; migrations run via the migrate service.
-docker compose up -d
-
-# 6. Verify.
+# 5. Verify.
 docker compose exec db psql -U geolens -c 'select version();'
 curl -fsS http://localhost:8080/api/health
 ```

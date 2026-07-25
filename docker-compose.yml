@@ -164,7 +164,10 @@ services:
       # Host-port fallback (5434 from .env, 5432 bare).
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # chore(#704): PG 18+ images take a single mount at /var/lib/postgresql
+      # (PGDATA lives at <major>/docker inside it); mounting the legacy
+      # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
+      - pgdata:/var/lib/postgresql
       # GAP-021: :ro mirrors the sibling conf mount and every repo-file mount on
       # the api service — the init script is read+exec inside the container, never
       # written, so a compromised db container cannot rewrite this host file (it
@@ -595,7 +598,7 @@ services:
     # tmpfs because this image only runs pg_dump; otherwise Docker creates an
     # unused anonymous volume for every backup container.
     tmpfs:
-      - /var/lib/postgresql/data:size=1m,mode=0700
+      - /var/lib/postgresql:size=1m,mode=0700
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
