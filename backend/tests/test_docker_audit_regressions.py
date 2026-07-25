@@ -32,7 +32,7 @@ def test_backup_base_is_digest_pinned():
     text = DOCKERFILE.read_text()
 
     assert re.search(
-        r"^FROM postgres:17@sha256:[0-9a-f]{64} AS backup$", text, re.MULTILINE
+        r"^FROM postgres:18@sha256:[0-9a-f]{64} AS backup$", text, re.MULTILINE
     )
 
 
