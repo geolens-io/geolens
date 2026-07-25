@@ -950,7 +950,7 @@
     "previewFailed": "Error en el análisis",
     "noLayers": "Añade una capa de datos para usar las herramientas de análisis",
     "opDissolve": "Disolver",
-    "dissolveHint": "Disolver combina las entidades en una geometría por grupo; ejecútalo con Crear conjunto de datos",
+    "dissolveHint": "Disolver combina las entidades en una geometría por grupo; solo se conserva el campo de agrupación. Ejecútalo con Crear conjunto de datos",
     "outputTitleLabel": "Nombre del nuevo conjunto de datos",
     "outputTitlePlaceholder": "p. ej. Parcelas con zona de 500 m",
     "saveButton": "Crear conjunto de datos",
@@ -961,7 +961,7 @@
     "addToMap": "Añadir al mapa",
     "byFieldLabel": "Agrupar por campo (opcional)",
     "byFieldNone": "Sin agrupación — combinar todo",
-    "truncatedNoticeTotal": "Mostrando las primeras {{count}} de {{total}} entidades",
+    "truncatedNoticeTotal": "Mostrando las primeras {{count}} de {{total}} entidades de origen",
     "clipLayerLabel": "O recortar con una capa",
     "clipLayerNone": "Ninguna — dibujar en el mapa"
   },

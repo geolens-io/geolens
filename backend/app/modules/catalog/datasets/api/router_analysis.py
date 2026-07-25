@@ -4,6 +4,7 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -28,6 +29,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.jobs.models import IngestJob
 from app.platform.sandbox.schemas import SandboxError
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
@@ -174,6 +176,26 @@ async def analysis_materialize_endpoint(
     # Best-effort dataset-count pre-check; the authoritative atomic
     # reservation happens at registration time in the worker.
     await check_upload_quota(db, user.id, 0, request)
+
+    # One materialize at a time per user: each queued job is an unbounded-ish
+    # CTAS (bounded only by the 300s statement timeout), so without a cap one
+    # user can stack N of them. ponytail: soft cap — a TOCTOU race can briefly
+    # admit two; add a DB-side partial unique index if operators need a hard
+    # guarantee.
+    active = await db.scalar(
+        select(func.count())
+        .select_from(IngestJob)
+        .where(
+            IngestJob.created_by == user.id,
+            IngestJob.source_filename.like("analysis-%"),
+            IngestJob.status.in_(("pending", "running")),
+        )
+    )
+    if active:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="An analysis job is already running; wait for it to finish",
+        )
 
     job = await get_catalog_port().create_ingest_job(
         db, f"analysis-{body.operation}", "", user.id

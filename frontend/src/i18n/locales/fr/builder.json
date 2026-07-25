@@ -950,7 +950,7 @@
     "previewFailed": "Échec de l'analyse",
     "noLayers": "Ajoutez une couche de données pour utiliser les outils d'analyse",
     "opDissolve": "Dissoudre",
-    "dissolveHint": "Dissoudre fusionne les entités en une géométrie par groupe ; exécutez-le avec Créer un jeu de données",
+    "dissolveHint": "Dissoudre fusionne les entités en une géométrie par groupe ; seul le champ de regroupement est conservé. Exécutez-le avec Créer un jeu de données",
     "outputTitleLabel": "Nom du nouveau jeu de données",
     "outputTitlePlaceholder": "p. ex. Parcelles tampon 500 m",
     "saveButton": "Créer un jeu de données",
@@ -961,7 +961,7 @@
     "addToMap": "Ajouter à la carte",
     "byFieldLabel": "Regrouper par champ (optionnel)",
     "byFieldNone": "Sans regroupement — tout fusionner",
-    "truncatedNoticeTotal": "Affichage des {{count}} premières entités sur {{total}}",
+    "truncatedNoticeTotal": "Affichage des {{count}} premières entités sur {{total}} entités sources",
     "clipLayerLabel": "Ou découper selon une couche",
     "clipLayerNone": "Aucune — dessiner sur la carte"
   },

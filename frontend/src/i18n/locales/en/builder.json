@@ -950,7 +950,7 @@
     "previewFailed": "Analysis failed",
     "noLayers": "Add a dataset layer to use analysis tools",
     "opDissolve": "Dissolve",
-    "dissolveHint": "Dissolve merges features into one geometry per group; run it with Create dataset",
+    "dissolveHint": "Dissolve merges features into one geometry per group; only the group field is carried over. Run it with Create dataset",
     "outputTitleLabel": "New dataset name",
     "outputTitlePlaceholder": "e.g. Parcels buffered 500 m",
     "saveButton": "Create dataset",
@@ -961,7 +961,7 @@
     "addToMap": "Add to map",
     "byFieldLabel": "Group by field (optional)",
     "byFieldNone": "No grouping — merge everything",
-    "truncatedNoticeTotal": "Showing the first {{count}} of {{total}} features",
+    "truncatedNoticeTotal": "Showing the first {{count}} of {{total}} source features",
     "clipLayerLabel": "Or clip to a layer",
     "clipLayerNone": "None — draw on the map"
   },

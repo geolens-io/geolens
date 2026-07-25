@@ -91,7 +91,11 @@ export function AnalysisPanel({
     const opLabel =
       prefill.operation === 'buffer'
         ? t('analysisTools.opBuffer', { defaultValue: 'Buffer' })
-        : t('analysisTools.opCentroid', { defaultValue: 'Centroids' });
+        : prefill.operation === 'centroid'
+          ? t('analysisTools.opCentroid', { defaultValue: 'Centroids' })
+          : prefill.operation === 'clip'
+            ? t('analysisTools.opClip', { defaultValue: 'Clip' })
+            : t('analysisTools.opDissolve', { defaultValue: 'Dissolve' });
     return [base, opLabel].filter(Boolean).join(' — ');
   });
   const [jobId, setJobId] = useState<string | null>(null);
@@ -215,7 +219,11 @@ export function AnalysisPanel({
         toast.info(
           total != null
             ? t('analysisTools.truncatedNoticeTotal', {
-                defaultValue: 'Showing the first {{count}} of {{total}} features',
+                // fix(#680 review): "source features" — the total is the
+                // source dataset's COUNT(*), which can exceed the number of
+                // rows that produce output (NULL/EMPTY geometries).
+                defaultValue:
+                  'Showing the first {{count}} of {{total}} source features',
                 count: result.feature_count,
                 total: total.toLocaleString(i18n.language),
               })
@@ -247,7 +255,7 @@ export function AnalysisPanel({
           ? { mask_dataset_id: maskLayer.dataset_id }
           : {}),
         ...(operation === 'dissolve' && byField !== BY_FIELD_NONE
-          ? { by_field: byField }
+          ? { by_field: byField.replace(/^col:/, '') }
           : {}),
       });
       // Notify the page from inside the mutationFn, NOT onSuccess: TanStack
@@ -368,7 +376,7 @@ export function AnalysisPanel({
           <p className="text-xs text-muted-foreground">
             {t('analysisTools.dissolveHint', {
               defaultValue:
-                'Dissolve merges features into one geometry per group; run it with Create dataset',
+                'Dissolve merges features into one geometry per group; only the group field is carried over. Run it with Create dataset',
             })}
           </p>
         )}
@@ -392,7 +400,9 @@ export function AnalysisPanel({
                 })}
               </SelectItem>
               {byFieldColumns.map((name) => (
-                <SelectItem key={name} value={name}>
+                // fix(#680 review): 'col:' prefix keeps a real column named
+                // '__none__' from colliding with the no-grouping sentinel.
+                <SelectItem key={name} value={`col:${name}`}>
                   {name}
                 </SelectItem>
               ))}

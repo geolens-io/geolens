@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import structlog
+from prometheus_client import Counter
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,15 @@ _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 # here is the only unbounded statement a user can queue, so cap it.
 # ponytail: hardcoded ceiling; promote to persistent-config if operators hit it.
 MATERIALIZE_TIMEOUT = "300s"
+
+# Served by the worker's :8001 /metrics endpoint (default registry).
+# ponytail: analysis-only counter; generalize to all ingest job types when
+# another type needs it.
+ANALYSIS_JOBS = Counter(
+    "geolens_analysis_jobs_total",
+    "Materialize-analysis job outcomes",
+    ["operation", "status"],
+)
 
 
 async def _list_carry_columns(
@@ -223,6 +233,7 @@ async def _materialize(
             job.dataset_id = dataset.id
             job.status = "complete"
             await session.commit()
+            ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
         except Exception as exc:  # broad: any failure must mark the job failed, not raise into the queue
             logger.warning("analysis.materialize_failed", job_id=job_id, error=str(exc))
             await session.rollback()
@@ -239,6 +250,7 @@ async def _materialize(
                 failed_job.status = "failed"
                 failed_job.error_message = str(exc)[:2000]
                 await session.commit()
+            ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
 
 
 @task_app.task(

@@ -81,6 +81,51 @@ class TestMaterializeEndpoint:
         assert meta["distance_meters"] == 100
         assert meta["source_dataset_id"] == str(ds.id)
         assert "mask" not in meta
+        # Release the per-user active-job slot for later tests (shared DB).
+        job.status = "failed"
+        await test_db_session.commit()
+
+    async def test_second_materialize_while_active_is_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """One materialize per user at a time: a second request while a job is
+        still pending/running 429s instead of stacking CTAS work; a finished
+        job releases the slot."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            first = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "First"},
+                headers=admin_auth_header,
+            )
+            assert first.status_code == 200, first.text
+            second = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Second"},
+                headers=admin_auth_header,
+            )
+            assert second.status_code == 429
+            job = await test_db_session.get(
+                IngestJob, uuid.UUID(first.json()["job_id"])
+            )
+            job.status = "failed"
+            await test_db_session.commit()
+            third = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Third"},
+                headers=admin_auth_header,
+            )
+            assert third.status_code == 200, third.text
+            # Release the slot for later tests (shared DB).
+            third_job = await test_db_session.get(
+                IngestJob, uuid.UUID(third.json()["job_id"])
+            )
+            third_job.status = "failed"
+            await test_db_session.commit()
 
     async def test_materialize_private_source_hidden(
         self,
@@ -182,6 +227,10 @@ class TestMaterializeEndpoint:
                 headers=admin_auth_header,
             )
         assert resp.status_code == 200, resp.text
+        # Release the per-user active-job slot for later tests (shared DB).
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        await test_db_session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +453,8 @@ class TestMaterializeWorker:
         test_db_session: AsyncSession,
     ):
         """A clip matching nothing must fail loud, not register a junk dataset."""
+        from app.processing.analysis.tasks import ANALYSIS_JOBS
+
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
         job = await _create_job(test_db_session, admin_id)
@@ -411,6 +462,9 @@ class TestMaterializeWorker:
             "type": "Polygon",
             "coordinates": [[[50, 50], [51, 50], [51, 51], [50, 51], [50, 50]]],
         }
+        failed_before = ANALYSIS_JOBS.labels(
+            operation="clip", status="failed"
+        )._value.get()
 
         await _materialize(
             job_id=str(job.id),
@@ -425,6 +479,10 @@ class TestMaterializeWorker:
         assert job.status == "failed"
         assert "no features" in (job.error_message or "")
         assert job.dataset_id is None
+        assert (
+            ANALYSIS_JOBS.labels(operation="clip", status="failed")._value.get()
+            == failed_before + 1
+        )
 
     async def test_name_collision_preserves_existing_table(
         self,
