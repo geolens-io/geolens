@@ -252,7 +252,7 @@
     "visibilityPrivate": "Private",
     "visibilityRestricted": "Restricted",
     "visibilityPublic": "Public",
-    "visibilityHelp": "Public = visible to everyone, including signed-out visitors. Restricted = only users whose role has been granted access. Private = only the owner and admins.",
+    "visibilityHelp": "Public = visible to everyone, including signed-out visitors. Restricted = only admins and users whose role has been granted access. Private = only the owner and admins.",
     "registering": "Registering...",
     "registerButton_one": "Register {{count}} Table",
     "registerButton_other": "Register {{count}} Tables",
