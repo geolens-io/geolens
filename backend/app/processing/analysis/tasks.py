@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -129,6 +130,14 @@ async def _materialize(
             logger.warning("analysis.job_not_found", job_id=job_id)
             return
         job.status = "running"
+        # Stamp the start time. Without it this row carries NO liveness signal
+        # at all (materialize does not renew a heartbeat lease), and the
+        # platform's stale-job recovery matches on
+        # `coalesce(heartbeat_at, started_at) < cutoff` — which is NULL for
+        # such a row, so a worker that dies mid-CTAS would strand the job in
+        # 'running' forever. It also lets the per-user job cap measure from
+        # actual start rather than enqueue time (fix(#682 review)).
+        job.started_at = datetime.now(timezone.utc)
         # current_step only, no numeric progress: the operation is a single
         # CTAS, so there is no intra-statement telemetry to report and a bar
         # parked at 10% for five minutes reads as "stuck" rather than "busy".

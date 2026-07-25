@@ -185,6 +185,36 @@ class TestMaterializeEndpoint:
         backlogged.status = "failed"
         await test_db_session.commit()
 
+    async def test_backlogged_job_that_just_started_still_blocks(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#682 review): the window measures from actual START. A job that
+        waited out a queue backlog and only just began is fully active, so
+        enqueue age must not exclude it from the cap."""
+        from datetime import datetime, timedelta, timezone
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        backlogged = await _create_job(test_db_session, admin_id)
+        backlogged.user_metadata = {"analysis": {"operation": "buffer"}}
+        backlogged.status = "running"
+        backlogged.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        backlogged.started_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await test_db_session.commit()
+
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Should be blocked"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 429, resp.text
+        backlogged.status = "failed"
+        await test_db_session.commit()
+
     async def test_zombie_job_stops_blocking_after_the_window(
         self,
         client: AsyncClient,
@@ -202,6 +232,11 @@ class TestMaterializeEndpoint:
         zombie.status = "running"
         zombie.source_filename = "analysis-buffer"
         zombie.user_metadata = {"analysis": {"operation": "buffer"}}
+        zombie.started_at = (
+            datetime.now(timezone.utc)
+            - router_analysis._RUNNING_JOB_WINDOW
+            - timedelta(minutes=1)
+        )
         zombie.created_at = (
             datetime.now(timezone.utc)
             - router_analysis._RUNNING_JOB_WINDOW
@@ -354,6 +389,11 @@ class TestMaterializeWorker:
         await test_db_session.refresh(job)
         assert job.status == "complete", job.error_message
         assert job.dataset_id is not None
+        # fix(#682 review): without started_at the row carries no liveness
+        # signal, so the platform's stale-job sweep (which matches on
+        # coalesce(heartbeat_at, started_at)) could never recover a crashed
+        # analysis job, and the per-user cap could not time from actual start.
+        assert job.started_at is not None
 
         from app.modules.catalog.datasets.domain.models import Dataset
 

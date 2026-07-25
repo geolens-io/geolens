@@ -72,14 +72,15 @@ async def _load_vector_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Id
 
 _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 
-# Staleness bound for a *running* analysis job. Materialize tasks do not renew
-# a heartbeat lease (that is opt-in per task — see maintain_ingest_job_heartbeat,
-# which only the ingest tasks use), so there is no liveness signal to read here.
-# Age is a sound proxy in this one case because the work is self-limiting: the
-# CTAS carries a 300s statement timeout, so a live job physically cannot still
-# be working past this window — anything older is a worker that died mid-job.
-# Without the bound, such a zombie would hold the user's slot until the
-# platform reaper sweeps it an HOUR later.
+# Staleness bound for a *running* analysis job, measured from when it actually
+# STARTED (fix(#682 review)): a job can sit queued arbitrarily long behind a
+# backlog, so enqueue time would exclude a CTAS the moment it finally began.
+# Materialize tasks do not renew a heartbeat lease (that is opt-in per task —
+# see maintain_ingest_job_heartbeat, which only the ingest tasks use), so
+# elapsed run time is the liveness signal available here. It is a sound one
+# because the work is self-limiting: the CTAS carries a 300s statement timeout,
+# so a live job cannot still be working past this window — anything older is a
+# worker that died mid-job, holding the user's slot.
 #
 # Deliberately NOT applied to pending jobs: those are queued work that will
 # still run, and a backlogged queue must not be able to let a second CTAS
@@ -215,7 +216,9 @@ async def analysis_materialize_endpoint(
                 IngestJob.status == "pending",
                 and_(
                     IngestJob.status == "running",
-                    IngestJob.created_at
+                    # created_at is the fallback for rows written before the
+                    # worker started stamping started_at.
+                    func.coalesce(IngestJob.started_at, IngestJob.created_at)
                     >= datetime.now(timezone.utc) - _RUNNING_JOB_WINDOW,
                 ),
             ),
