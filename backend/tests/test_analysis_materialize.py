@@ -516,7 +516,9 @@ class TestMaterializeEndpoint:
 
         # The fixture table holds 2 rows; a cap of 1 must reject via the
         # live probe...
-        with patch.dict(router_analysis._MAX_SOURCE_FEATURES, {"dissolve": 1}):
+        with patch.dict(
+            "app.platform.analysis_sql.MAX_SOURCE_FEATURES", {"dissolve": 1}
+        ):
             resp = await client.post(
                 _materialize_url(ds.id),
                 json={"operation": "dissolve", "title": "Unknown size"},
@@ -527,7 +529,9 @@ class TestMaterializeEndpoint:
 
         # ...and a cap above the true count enqueues.
         with (
-            patch.dict(router_analysis._MAX_SOURCE_FEATURES, {"dissolve": 5}),
+            patch.dict(
+                "app.platform.analysis_sql.MAX_SOURCE_FEATURES", {"dissolve": 5}
+            ),
             patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()),
         ):
             resp = await client.post(
@@ -1220,6 +1224,57 @@ class TestMaterializeWorker:
         ctas = [s for s in executed if s.startswith("CREATE TABLE")]
         # Same transaction, ahead of the CTAS it protects.
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
+
+    async def test_worker_rechecks_size_caps_before_ctas(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#701 review): the enqueue gate's count can go stale while the
+        job waits in the queue (a source or mask can be re-uploaded past its
+        cap), and the post-CTAS size check is too late to protect the
+        dissolve/mask union itself from OOM — the worker re-counts the live
+        tables immediately before building the SQL."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+
+        # Source recheck: the fixture table holds 2 rows; cap 1 must fail
+        # the job before any output table exists.
+        job = await _create_job(test_db_session, admin_id)
+        with patch.dict(
+            "app.platform.analysis_sql.MAX_SOURCE_FEATURES", {"dissolve": 1}
+        ):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title="Grew past the cap",
+            )
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "too large for dissolve" in (job.error_message or "")
+        assert job.dataset_id is None
+
+        # Mask recheck: the 1-row mask table against a cap of 0.
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+        )
+        job2 = await _create_job(test_db_session, admin_id)
+        with patch("app.processing.analysis.tasks.MAX_MASK_LAYER_FEATURES", 0):
+            await _materialize(
+                job_id=str(job2.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="clip",
+                title="Mask grew past the cap",
+                mask_dataset_id=str(mask_ds.id),
+            )
+        await test_db_session.refresh(job2)
+        assert job2.status == "failed"
+        assert "mask layer has too many features" in (job2.error_message or "")
+        assert job2.dataset_id is None
 
     async def test_oversized_output_fails_before_registration(
         self,

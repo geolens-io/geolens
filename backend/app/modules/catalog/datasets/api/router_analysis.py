@@ -24,7 +24,11 @@ from app.modules.catalog.datasets.domain.service import (
     run_analysis_preview,
 )
 from app.modules.quota.service import check_upload_quota
-from app.platform.analysis_sql import render_mask_expr
+from app.platform.analysis_sql import (
+    MAX_MASK_LAYER_FEATURES,
+    MAX_SOURCE_FEATURES,
+    render_mask_expr,
+)
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
@@ -72,24 +76,11 @@ async def _load_vector_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Id
 
 _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 
-# fix(#693): a layer-sourced clip mask is unioned WHOLE before any row limit
-# can bite, inside the preview's 10-second budget — a few thousand realistic
-# polygons already blow it. Counted via resolve_source_feature_count: the
+# Size-gate ceilings live in app.platform.analysis_sql (shared with the
+# worker's pre-CTAS recheck). Counted via resolve_source_feature_count: the
 # cached snapshot when present, a LIMIT-bounded live count when it is NULL
 # (fix(#701 review): NULL-as-zero would admit exactly the unknown-size
 # datasets these gates exist for).
-MAX_MASK_LAYER_FEATURES = 1_000
-
-# fix(#694): per-operation source-size ceilings, enforced at enqueue with
-# the same counting rule as the mask cap.
-# dissolve: ST_Union memory grows with input; ~1M polygons OOM-kills a 2 GB
-# db container, taking every connection with it — 250k keeps 4x headroom.
-# buffer: the only output-amplifying operation, and vector datasets carry no
-# byte quota, so bound the amplification source instead.
-_MAX_SOURCE_FEATURES = {
-    "dissolve": 250_000,
-    "buffer": 500_000,
-}
 
 
 async def _load_mask_dataset(
@@ -179,7 +170,7 @@ async def analysis_materialize_endpoint(
     """
     dataset = await _load_vector_dataset(db, dataset_id, user)
 
-    max_features = _MAX_SOURCE_FEATURES.get(body.operation)
+    max_features = MAX_SOURCE_FEATURES.get(body.operation)
     if max_features is not None:
         source_count = await resolve_source_feature_count(db, dataset, cap=max_features)
         if source_count > max_features:

@@ -24,7 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
-from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
+from app.platform.analysis_sql import (
+    MAX_MASK_LAYER_FEATURES,
+    MAX_SOURCE_FEATURES,
+    render_geometry_expr,
+    render_mask_cte,
+)
 from app.platform.jobs.heartbeat import (
     claim_ingest_job_attempt,
     maintain_ingest_job_heartbeat,
@@ -144,6 +149,53 @@ async def _fail_cancelled_job(
             except Exception:  # broad: best-effort cleanup of the partial table
                 await session.rollback()
     ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
+
+
+async def _count_features_bounded(
+    session: AsyncSession, table_ref: str, cap: int
+) -> int:
+    """Live row count, stopping at ``cap + 1`` so the probe stays bounded."""
+    result = await session.execute(
+        text(
+            f"SELECT count(*) FROM (SELECT 1 FROM {table_ref} LIMIT :lim) AS _n"  # noqa: S608
+        ).bindparams(lim=cap + 1)
+    )
+    return int(result.scalar_one())
+
+
+async def _recheck_size_caps(
+    session: AsyncSession,
+    *,
+    operation: str,
+    src_ref: str,
+    mask_table_ref: str | None,
+) -> None:
+    """Re-validate the enqueue-time size gates against the live tables.
+
+    The queue wait can be long enough for a source or mask dataset to be
+    re-uploaded past its cap (fix(#701 review)), and the post-CTAS output
+    check is too late to protect the dissolve/mask union itself from OOM —
+    so the bounded counts run again here, immediately before the SQL is
+    built.
+    """
+    cap = MAX_SOURCE_FEATURES.get(operation)
+    if cap is not None and await _count_features_bounded(session, src_ref, cap) > cap:
+        raise ValueError(
+            f"This dataset is too large for {operation} (the limit is "
+            f"{cap:,} features). Filter it to a smaller dataset first."
+        )
+    if (
+        mask_table_ref is not None
+        and await _count_features_bounded(
+            session, mask_table_ref, MAX_MASK_LAYER_FEATURES
+        )
+        > MAX_MASK_LAYER_FEATURES
+    ):
+        raise ValueError(
+            "The mask layer has too many features to clip with (limit "
+            f"{MAX_MASK_LAYER_FEATURES:,}). Choose a smaller mask layer or "
+            "draw the mask on the map."
+        )
 
 
 async def _enforce_output_size(session: AsyncSession, out_ref: str) -> None:
@@ -357,6 +409,13 @@ async def _materialize(
                 if not _SAFE_TABLE.match(mask_ds.table_name):
                     raise ValueError("Invalid mask table name")
                 mask_table_ref = f'"{_schema}"."{mask_ds.table_name}"'
+
+            await _recheck_size_caps(
+                session,
+                operation=operation,
+                src_ref=src_ref,
+                mask_table_ref=mask_table_ref,
+            )
 
             out_table, _warning = await generate_table_name(title, session)
             out_ref = f'"{_schema}"."{out_table}"'
