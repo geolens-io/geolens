@@ -163,8 +163,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#682 review): the staleness window applies to RUNNING jobs only.
-        A pending job is queued work that will still run, so a backlogged
+        """A pending job is queued work that will still run, so a backlogged
         ingest queue must not let a second CTAS through however old it is."""
         from datetime import datetime, timedelta, timezone
 
@@ -191,9 +190,8 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#682 review): the window measures from actual START. A job that
-        waited out a queue backlog and only just began is fully active, so
-        enqueue age must not exclude it from the cap."""
+        """A job that waited out a queue backlog and only just began is fully
+        active, so enqueue age must not exclude it from the cap."""
         from datetime import datetime, timedelta, timezone
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -215,45 +213,42 @@ class TestMaterializeEndpoint:
         backlogged.status = "failed"
         await test_db_session.commit()
 
-    async def test_zombie_job_stops_blocking_after_the_window(
+    async def test_long_running_job_still_blocks(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """A job stuck 'running' (worker died mid-CTAS) must not hold the
-        per-user slot until the hour-long platform reaper sweeps it — the
-        active-job check only looks back _ACTIVE_JOB_WINDOW."""
+        """fix(#682 review): elapsed time is NOT a liveness signal, so an old
+        'running' job keeps the slot.
+
+        The 300s statement_timeout bounds each statement, not the job — a
+        materialize runs a CTAS, a DELETE, an EXISTS probe, two ALTERs, a
+        primary key, add_4326_column and registration in sequence, so a
+        legitimate run over a large dataset can outlive any window short
+        enough to be useful. Releasing the slot on age would let a second
+        expensive CTAS through and defeat the cap. A worker that truly died
+        is resolved by the platform job timeout instead (see #691).
+        """
         from datetime import datetime, timedelta, timezone
 
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
-        zombie = await _create_job(test_db_session, admin_id)
-        zombie.status = "running"
-        zombie.source_filename = "analysis-buffer"
-        zombie.user_metadata = {"analysis": {"operation": "buffer"}}
-        zombie.started_at = (
-            datetime.now(timezone.utc)
-            - router_analysis._RUNNING_JOB_WINDOW
-            - timedelta(minutes=1)
-        )
-        zombie.created_at = (
-            datetime.now(timezone.utc)
-            - router_analysis._RUNNING_JOB_WINDOW
-            - timedelta(minutes=1)
-        )
+        long_running = await _create_job(test_db_session, admin_id)
+        long_running.status = "running"
+        long_running.user_metadata = {"analysis": {"operation": "buffer"}}
+        long_running.started_at = datetime.now(timezone.utc) - timedelta(minutes=45)
+        long_running.created_at = datetime.now(timezone.utc) - timedelta(minutes=45)
         await test_db_session.commit()
 
         with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
             resp = await client.post(
                 _materialize_url(ds.id),
-                json={"operation": "centroid", "title": "After zombie"},
+                json={"operation": "centroid", "title": "Should be blocked"},
                 headers=admin_auth_header,
             )
-        assert resp.status_code == 200, resp.text
-        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
-        job.status = "failed"
-        zombie.status = "failed"
+        assert resp.status_code == 429, resp.text
+        long_running.status = "failed"
         await test_db_session.commit()
 
     async def test_materialize_private_source_hidden(

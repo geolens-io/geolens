@@ -8,9 +8,6 @@ import { ApiError } from '@/api/client';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 
-/** Mirrors _RUNNING_JOB_WINDOW in backend/.../api/router_analysis.py. */
-const STALE_RUNNING_JOB_MS = 10 * 60 * 1000;
-
 /**
  * Global notifier for a materialize-analysis job (renders nothing).
  *
@@ -44,27 +41,13 @@ export function AnalysisJobWatcher() {
       setJob(null);
       return;
     }
-    // fix(#682 review): stop tracking a job stuck in 'running' past the window
-    // the API uses for its per-user cap. Without this the save guard outlives
-    // the server's own: the materialize endpoint stops counting a job this old
-    // (_RUNNING_JOB_WINDOW in router_analysis.py), but GET /jobs/{id} keeps
-    // reporting 'running' until the hour-long platform reaper fails it, so the
-    // Create button stayed disabled for ~50 minutes after the API would have
-    // accepted a replacement. The CTAS carries a 300s statement timeout, so a
-    // job still 'running' here is a dead worker, not slow work.
-    //
-    // Deliberately not applied to 'pending': queued work will still run, and
-    // the endpoint counts pending jobs without a time bound for that reason.
-    // This measures from enqueue while the server measures from actual start,
-    // so a job that sat in a backlog can clear here while the endpoint still
-    // counts it — that path just earns an explicit 429 instead of a dead button.
-    if (
-      status === 'running' &&
-      Date.now() - job.enqueuedAt > STALE_RUNNING_JOB_MS
-    ) {
-      setJob(null);
-      return;
-    }
+    // Only a terminal status stops tracking — deliberately no client-side
+    // staleness rule (fix(#682 review)). An elapsed-time guess is wrong in both
+    // directions: too short and a legitimately long job loses its completion
+    // notification entirely, too long and the save guard outlives the API's own
+    // cap. The endpoint applies the same rule (pending or running blocks), so
+    // the two never disagree. A dead worker is resolved by the platform's job
+    // timeout rather than guessed at here.
     if (status !== 'complete' && status !== 'failed') return;
 
     // Stable id so a re-run (StrictMode's double invoke) replaces the toast

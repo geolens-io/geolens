@@ -7,8 +7,6 @@ export interface TrackedAnalysisJob {
   title: string;
   /** Map the job was started from; enables the "Add to map" action. */
   mapId: string | null;
-  /** Enqueue time (ms epoch), used to stop tracking a job whose worker died. */
-  enqueuedAt: number;
 }
 
 interface AnalysisJobState {
@@ -30,10 +28,7 @@ interface AnalysisJobState {
 export const useAnalysisJobStore = create<AnalysisJobState>()(
   persist((set) => ({ job: null, setJob: (job) => set({ job }) }), {
     name: 'geolens-analysis-job',
-    // v2 added enqueuedAt. A v1 entry has no timestamp, so it could never age
-    // out of the save guard — drop it rather than invent a start time.
-    version: 2,
-    migrate: () => ({ job: null }),
+    version: 1,
   }),
 );
 

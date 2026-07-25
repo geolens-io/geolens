@@ -2,10 +2,9 @@
 
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -71,24 +70,6 @@ async def _load_vector_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Id
 
 
 _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
-
-# Staleness bound for a *running* analysis job, measured from when it actually
-# STARTED (fix(#682 review)): a job can sit queued arbitrarily long behind a
-# backlog, so enqueue time would exclude a CTAS the moment it finally began.
-# Materialize tasks do not renew a heartbeat lease (that is opt-in per task —
-# see maintain_ingest_job_heartbeat, which only the ingest tasks use), so
-# elapsed run time is the liveness signal available here. It is a sound one
-# because the work is self-limiting: the CTAS carries a 300s statement timeout,
-# so a live job cannot still be working past this window — anything older is a
-# worker that died mid-job, holding the user's slot.
-#
-# Deliberately NOT applied to pending jobs: those are queued work that will
-# still run, and a backlogged queue must not be able to let a second CTAS
-# through (fix(#682 review)). Orphaned pending jobs are already handled —
-# defer_with_orphan_guard fails them when the enqueue itself fails, and the
-# platform sweeps the rest. Upgrade path: call maintain_ingest_job_heartbeat
-# from the materialize task and switch this to a real liveness check.
-_RUNNING_JOB_WINDOW = timedelta(minutes=10)
 
 
 async def _load_mask_dataset(
@@ -197,10 +178,24 @@ async def analysis_materialize_endpoint(
     await check_upload_quota(db, user.id, 0, request)
 
     # One materialize at a time per user: each queued job is an unbounded-ish
-    # CTAS (bounded only by the 300s statement timeout), so without a cap one
-    # user can stack N of them. ponytail: soft cap — a TOCTOU race can briefly
-    # admit two; add a DB-side partial unique index if operators need a hard
-    # guarantee.
+    # CTAS, so without a cap one user can stack N of them. ponytail: soft cap —
+    # a TOCTOU race can briefly admit two; add a DB-side partial unique index if
+    # operators need a hard guarantee.
+    #
+    # Any pending-or-running job blocks, with NO staleness window (fix(#682
+    # review)). A window looks appealing — it would stop a worker that died
+    # mid-job from holding the slot — but there is no liveness signal here to
+    # base one on, and elapsed time is not a substitute: the 300s
+    # statement_timeout bounds each STATEMENT, while the task runs a CTAS, a
+    # DELETE, an EXISTS probe, two ALTERs, a primary key, add_4326_column and
+    # registration in sequence. A legitimate materialize over a large dataset
+    # can outlive any window short enough to be useful, and releasing the slot
+    # then lets a second expensive CTAS through — defeating the cap outright.
+    # The cost of not having one is bounded and visible: a dead worker holds
+    # the slot until the platform's job timeout fails the row (started_at is
+    # stamped, so that path works), and the client applies this same rule, so
+    # the UI never disagrees with the API about whether a job is active.
+    # Proper fix is a heartbeat lease (issue #691), as the ingest tasks use.
     active = await db.scalar(
         select(func.count())
         .select_from(IngestJob)
@@ -212,16 +207,7 @@ async def analysis_materialize_endpoint(
             # uploader out of analysis. The metadata below is written in the
             # same transaction as the job row, so this never misses one.
             IngestJob.user_metadata.has_key("analysis"),
-            or_(
-                IngestJob.status == "pending",
-                and_(
-                    IngestJob.status == "running",
-                    # created_at is the fallback for rows written before the
-                    # worker started stamping started_at.
-                    func.coalesce(IngestJob.started_at, IngestJob.created_at)
-                    >= datetime.now(timezone.utc) - _RUNNING_JOB_WINDOW,
-                ),
-            ),
+            IngestJob.status.in_(("pending", "running")),
         )
     )
     if active:

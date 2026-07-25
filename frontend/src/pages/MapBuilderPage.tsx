@@ -787,11 +787,7 @@ export function MapBuilderPage() {
   const setAnalysisJob = useAnalysisJobStore((s) => s.setJob);
   const handleAnalysisJobChange = useCallback(
     (jobId: string | null, title?: string) => {
-      setAnalysisJob(
-        jobId
-          ? { jobId, title: title ?? '', mapId: id ?? null, enqueuedAt: Date.now() }
-          : null,
-      );
+      setAnalysisJob(jobId ? { jobId, title: title ?? '', mapId: id ?? null } : null);
     },
     [setAnalysisJob, id],
   );

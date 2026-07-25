@@ -48,7 +48,7 @@ describe('AnalysisJobWatcher', () => {
   });
 
   it('does nothing while the job is still running', () => {
-    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1', enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'running', dataset_id: null });
     renderWatcher();
     expect(toast.success).not.toHaveBeenCalled();
@@ -56,7 +56,7 @@ describe('AnalysisJobWatcher', () => {
   });
 
   it('raises a non-expiring named toast on completion and stops tracking', async () => {
-    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1', enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
 
@@ -72,7 +72,7 @@ describe('AnalysisJobWatcher', () => {
     const onAdd = vi.fn();
     analysisAddToMap.current = onAdd;
     analysisAddToMap.mapId = 'm1';
-    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1', enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
 
@@ -89,7 +89,7 @@ describe('AnalysisJobWatcher', () => {
 
   it('falls back to viewing the dataset when the builder is gone', async () => {
     analysisAddToMap.mapId = 'a-different-map';
-    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: '', mapId: 'm1', enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: '', mapId: 'm1' } });
     mockJob({ status: 'complete', dataset_id: 'ds9' });
     renderWatcher();
 
@@ -105,7 +105,7 @@ describe('AnalysisJobWatcher', () => {
   });
 
   it('reports failures with the job error message', async () => {
-    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1', enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'failed', dataset_id: null, error_message: 'no features' });
     renderWatcher();
 
@@ -115,7 +115,7 @@ describe('AnalysisJobWatcher', () => {
   });
 
   it('stops tracking a job that is gone instead of polling forever', async () => {
-    useAnalysisJobStore.setState({ job: { jobId: 'gone', title: 'x', mapId: null, enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'gone', title: 'x', mapId: null } });
     mockJob(undefined, new ApiError('Not Found', 404));
     renderWatcher();
 
@@ -127,7 +127,7 @@ describe('AnalysisJobWatcher', () => {
   it('keeps tracking through a transient failure (fix(#682) review)', () => {
     // A 5xx or dropped connection after a reload must not discard the job:
     // polling continues, so tracking recovers on the next good response.
-    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'x', mapId: null, enqueuedAt: Date.now() } });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'x', mapId: null } });
     mockJob(undefined, new ApiError('Service Unavailable', 503));
     renderWatcher();
 
@@ -135,39 +135,16 @@ describe('AnalysisJobWatcher', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('stops tracking a job stuck running past the cap window (fix(#682) review)', async () => {
-    // The API stops counting a 'running' job this old, but GET /jobs/{id}
-    // reports 'running' until the hour-long reaper — so without this the save
-    // guard outlives the server's own cap by ~50 minutes.
-    useAnalysisJobStore.setState({
-      job: {
-        jobId: 'zombie',
-        title: 'x',
-        mapId: null,
-        enqueuedAt: Date.now() - 11 * 60 * 1000,
-      },
-    });
-    mockJob({ status: 'running' });
-    renderWatcher();
-
-    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
-    // Silent: nothing completed and nothing is known to have failed.
-    expect(toast.success).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it('keeps tracking a running job inside the window', () => {
-    useAnalysisJobStore.setState({
-      job: {
-        jobId: 'j1',
-        title: 'x',
-        mapId: null,
-        enqueuedAt: Date.now() - 60 * 1000,
-      },
-    });
+  it('keeps tracking a long-running job — no client staleness rule (fix(#682) review)', () => {
+    // Deliberately mirrors the API's cap, which also has no staleness window.
+    // Dropping a job on elapsed time loses its completion notification for
+    // good, and the endpoint would still refuse a replacement anyway.
+    useAnalysisJobStore.setState({ job: { jobId: 'slow', title: 'x', mapId: null } });
     mockJob({ status: 'running' });
     renderWatcher();
 
     expect(useAnalysisJobStore.getState().job).not.toBeNull();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

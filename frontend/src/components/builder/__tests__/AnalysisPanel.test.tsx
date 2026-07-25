@@ -204,12 +204,7 @@ describe('AnalysisPanel', () => {
     // fix(#682 review): the API allows one active analysis job per user.
     // Clicking through would 429 AND orphan the running job's notification.
     useAnalysisJobStore.setState({
-      job: {
-        jobId: 'j-earlier',
-        title: 'Earlier',
-        mapId: 'm1',
-        enqueuedAt: Date.now(),
-      },
+      job: { jobId: 'j-earlier', title: 'Earlier', mapId: 'm1' },
     });
     renderPanel([datasetLayer]);
 
