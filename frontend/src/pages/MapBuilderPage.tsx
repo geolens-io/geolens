@@ -816,11 +816,16 @@ export function MapBuilderPage() {
             }
           : undefined,
       );
+      // fix(#682 review P3): stop tracking a handled job — `t` is a dep, so a
+      // language switch would otherwise rerun this effect and replay the
+      // toast + invalidation for a job that already finished.
+      setAnalysisJobId(null);
     } else if (analysisJobStatus === 'failed') {
       const message = analysisJobRef.current?.error_message;
       toast.error(
         `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${message ? `: ${message}` : ''}`,
       );
+      setAnalysisJobId(null);
     }
   }, [analysisJobId, analysisJobStatus, queryClient, t]);
 
