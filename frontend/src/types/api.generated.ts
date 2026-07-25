@@ -1769,8 +1769,9 @@ export interface paths {
          * Analysis Materialize Endpoint
          * @description Materialize an analysis result as a new private dataset (async job).
          *
-         *     Requires read visibility on the source dataset; the new dataset is owned
-         *     by the caller and counted against their dataset quota (the atomic slot
+         *     Requires the ``upload`` permission (this endpoint creates a dataset) and
+         *     read visibility on the source dataset; the new dataset is owned by the
+         *     caller and counted against their dataset quota (the atomic slot
          *     reservation runs at registration inside the worker). Poll
          *     ``GET /jobs/{job_id}`` for progress.
          */
