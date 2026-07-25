@@ -183,6 +183,42 @@ describe('AnalysisPanel', () => {
     );
   });
 
+  it('notifies the page of the materialize job id', async () => {
+    const onAnalysisJobChange = vi.fn();
+    renderPanel([datasetLayer], { onAnalysisJobChange });
+
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Buffered parcels' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    await waitFor(() =>
+      expect(onAnalysisJobChange).toHaveBeenCalledWith('job1'),
+    );
+  });
+
+  it('sends mask_dataset_id when clipping to a layer', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+
+    // Combobox order: layer, operation.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Clip' }));
+
+    // Mask-layer select excludes the source layer itself.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(screen.queryByRole('option', { name: 'Parcels' })).toBeNull();
+    await user.click(await screen.findByRole('option', { name: 'Roads' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'clip',
+        mask_dataset_id: 'ds2',
+      }),
+    );
+  });
+
   it('sends by_field when a dissolve group column is chosen', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer]);

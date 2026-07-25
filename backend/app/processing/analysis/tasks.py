@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
-from app.platform.analysis_sql import render_geometry_expr
+from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
 from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -58,6 +58,7 @@ def _build_materialize_select(
     mask: dict[str, Any] | None,
     by_field: str | None,
     carry_cols: list[str],
+    mask_table_ref: str | None = None,
 ) -> str:
     """Render the SELECT that produces the output table's rows."""
     if operation == "dissolve":
@@ -79,10 +80,14 @@ def _build_materialize_select(
             f"{union_expr} AS geom FROM {src_ref}"
         )
     expr, where = render_geometry_expr(
-        operation, distance_meters=distance_meters, mask=mask
+        operation,
+        distance_meters=distance_meters,
+        mask=mask,
+        layer_mask=mask_table_ref is not None,
     )
+    cte = f"{render_mask_cte(mask_table_ref)} " if mask_table_ref else ""
     cols = "".join(f'"{c}", ' for c in carry_cols)
-    return f"SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
+    return f"{cte}SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
 
 
 async def _materialize(
@@ -94,6 +99,7 @@ async def _materialize(
     title: str,
     distance_meters: float | None = None,
     mask: dict[str, Any] | None = None,
+    mask_dataset_id: str | None = None,
     by_field: str | None = None,
 ) -> None:
     """Core materialize logic; separated from the task wrapper for tests."""
@@ -139,6 +145,21 @@ async def _materialize(
                 raise ValueError("Invalid dissolve column name")
             src_ref = f'"{_schema}"."{src.table_name}"'
 
+            # Layer-sourced clip mask: re-resolve the table name at run time
+            # (access was checked at enqueue by the router, same trust model
+            # as the source dataset).
+            mask_table_ref: str | None = None
+            if mask_dataset_id is not None:
+                mask_result = await session.execute(
+                    select(Dataset).where(Dataset.id == uuid.UUID(mask_dataset_id))
+                )
+                mask_ds = mask_result.scalar_one_or_none()
+                if mask_ds is None or not mask_ds.table_name:
+                    raise ValueError("Mask dataset not found")
+                if not _SAFE_TABLE.match(mask_ds.table_name):
+                    raise ValueError("Invalid mask table name")
+                mask_table_ref = f'"{_schema}"."{mask_ds.table_name}"'
+
             out_table, _warning = await generate_table_name(title, session)
             out_ref = f'"{_schema}"."{out_table}"'
 
@@ -154,6 +175,7 @@ async def _materialize(
                 mask=mask,
                 by_field=by_field,
                 carry_cols=carry_cols,
+                mask_table_ref=mask_table_ref,
             )
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{MATERIALIZE_TIMEOUT}'")
@@ -231,6 +253,7 @@ async def materialize_analysis(
     title: str,
     distance_meters: float | None = None,
     mask: dict[str, Any] | None = None,
+    mask_dataset_id: str | None = None,
     by_field: str | None = None,
 ) -> None:
     """Procrastinate entry point for async analysis materialization."""
@@ -242,5 +265,6 @@ async def materialize_analysis(
         title=title,
         distance_meters=distance_meters,
         mask=mask,
+        mask_dataset_id=mask_dataset_id,
         by_field=by_field,
     )

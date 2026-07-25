@@ -15,6 +15,7 @@ from ..models.analysis_materialize_request_operation import (
     check_analysis_materialize_request_operation,
 )
 from typing import cast
+from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.analysis_materialize_request_mask_type_0 import (
@@ -36,6 +37,8 @@ class AnalysisMaterializeRequest:
         distance_meters (float | None | Unset): Buffer distance in meters (buffer only)
         mask (AnalysisMaterializeRequestMaskType0 | None | Unset): GeoJSON Polygon or MultiPolygon geometry in EPSG:4326
             (clip only)
+        mask_dataset_id (None | Unset | UUID): Polygon dataset whose unioned features form the clip mask (clip only;
+            alternative to mask)
     """
 
     operation: AnalysisMaterializeRequestOperation
@@ -43,6 +46,7 @@ class AnalysisMaterializeRequest:
     by_field: None | str | Unset = UNSET
     distance_meters: float | None | Unset = UNSET
     mask: AnalysisMaterializeRequestMaskType0 | None | Unset = UNSET
+    mask_dataset_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -74,6 +78,14 @@ class AnalysisMaterializeRequest:
         else:
             mask = self.mask
 
+        mask_dataset_id: None | str | Unset
+        if isinstance(self.mask_dataset_id, Unset):
+            mask_dataset_id = UNSET
+        elif isinstance(self.mask_dataset_id, UUID):
+            mask_dataset_id = str(self.mask_dataset_id)
+        else:
+            mask_dataset_id = self.mask_dataset_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -88,6 +100,8 @@ class AnalysisMaterializeRequest:
             field_dict["distance_meters"] = distance_meters
         if mask is not UNSET:
             field_dict["mask"] = mask
+        if mask_dataset_id is not UNSET:
+            field_dict["mask_dataset_id"] = mask_dataset_id
 
         return field_dict
 
@@ -139,12 +153,30 @@ class AnalysisMaterializeRequest:
 
         mask = _parse_mask(d.pop("mask", UNSET))
 
+        def _parse_mask_dataset_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                mask_dataset_id_type_0 = UUID(data)
+
+                return mask_dataset_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        mask_dataset_id = _parse_mask_dataset_id(d.pop("mask_dataset_id", UNSET))
+
         analysis_materialize_request = cls(
             operation=operation,
             title=title,
             by_field=by_field,
             distance_meters=distance_meters,
             mask=mask,
+            mask_dataset_id=mask_dataset_id,
         )
 
         analysis_materialize_request.additional_properties = d

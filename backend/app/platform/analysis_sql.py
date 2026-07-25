@@ -31,7 +31,33 @@ from shapely.geometry import shape
 MAX_BUFFER_METERS = 100_000.0
 MAX_MASK_VERTICES = 5_000
 
+# CTE name for layer-sourced clip masks. The union is computed ONCE in a
+# MATERIALIZED CTE; referencing it from the expression and both WHERE terms
+# as a scalar subquery would otherwise evaluate the union three times.
+MASK_CTE_NAME = "_mask"
+
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
+
+
+def render_mask_cte(mask_table_ref: str) -> str:
+    """Render the CTE that unions a mask layer's geometries into one mask.
+
+    ``mask_table_ref`` must come from ``_safe_table_ref`` / regex-validated
+    names, same contract as the source table. NULL geometries are excluded;
+    a mask layer with no usable geometry unions to NULL, which intersects
+    nothing — callers surface that as an empty result.
+
+    Only polygonal components enter the union (fix(#682): the catalog's
+    geometry_type is classified from the first feature, so a "POLYGON" mask
+    layer can still hold point/line rows, and ST_MakeValid can shed line
+    remnants from degenerate polygons — either would let point/line source
+    features outside every polygon survive the clip).
+    """
+    return (
+        f"WITH {MASK_CTE_NAME} AS MATERIALIZED ("
+        f"SELECT ST_Union(ST_CollectionExtract(ST_MakeValid(geom_4326), 3)) AS geom "
+        f"FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL)"
+    )
 
 
 def render_mask_expr(mask: dict[str, Any]) -> str:
@@ -72,12 +98,17 @@ def render_geometry_expr(
     *,
     distance_meters: float | None = None,
     mask: dict[str, Any] | None = None,
+    layer_mask: bool = False,
 ) -> tuple[str, str]:
     """Return ``(geometry expression, WHERE clause)`` for a per-row operation.
 
     Operates on the conventional ``geom_4326`` column. The aggregate
     ``dissolve`` operation has a different query shape and is rendered by the
     materialize worker, not here.
+
+    ``layer_mask=True`` renders clip against the ``MASK_CTE_NAME`` CTE (see
+    ``render_mask_cte``, which the caller must prepend) instead of an inline
+    GeoJSON mask.
     """
     if operation == "buffer":
         if distance_meters is None:
@@ -94,7 +125,10 @@ def render_geometry_expr(
     if operation == "centroid":
         return "ST_Centroid(ST_MakeValid(geom_4326))", ""
     if operation == "clip":
-        mask_expr = render_mask_expr(mask or {})
+        if layer_mask:
+            mask_expr = f"(SELECT geom FROM {MASK_CTE_NAME})"
+        else:
+            mask_expr = render_mask_expr(mask or {})
         # A clip that only grazes a boundary intersects at a lower dimension
         # (polygon ∩ polygon edge → LineString). Extract only components
         # matching the source geometry's dimension (type code = dimension + 1)

@@ -1865,6 +1865,8 @@ export interface AnalysisPreviewRequest {
   distance_meters?: number;
   /** GeoJSON Polygon/MultiPolygon mask in EPSG:4326 (clip only). */
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
+  mask_dataset_id?: string;
 }
 
 export interface AnalysisPreviewResponse {
@@ -1881,6 +1883,8 @@ export interface AnalysisMaterializeRequest {
   title: string;
   distance_meters?: number;
   mask?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  /** Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask). */
+  mask_dataset_id?: string;
   by_field?: string;
 }
 

@@ -961,7 +961,9 @@
     "addToMap": "Ajouter à la carte",
     "byFieldLabel": "Regrouper par champ (optionnel)",
     "byFieldNone": "Sans regroupement — tout fusionner",
-    "truncatedNoticeTotal": "Affichage des {{count}} premières entités sur {{total}}"
+    "truncatedNoticeTotal": "Affichage des {{count}} premières entités sur {{total}}",
+    "clipLayerLabel": "Ou découper selon une couche",
+    "clipLayerNone": "Aucune — dessiner sur la carte"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

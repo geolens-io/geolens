@@ -27,31 +27,38 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewRequest,
     AnalysisPreviewResponse,
 )
-from app.platform.analysis_sql import render_geometry_expr
+from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
 from app.platform.sandbox.executor import execute_safe
 
 PREVIEW_FEATURE_CAP = 500
 _GEOJSON_PRECISION = 6
 
 
-def build_preview_sql(table_ref: str, request: AnalysisPreviewRequest) -> str:
+def build_preview_sql(
+    table_ref: str,
+    request: AnalysisPreviewRequest,
+    mask_table_ref: str | None = None,
+) -> str:
     """Render the preview SELECT for one operation. Pure; unit-testable.
 
-    ``table_ref`` must come from ``_safe_table_ref`` (logical ``data`` schema;
-    the sandbox executor rewrites it to the tenant schema in multi-tenant).
+    ``table_ref`` (and ``mask_table_ref`` for layer-sourced clip masks) must
+    come from ``_safe_table_ref`` (logical ``data`` schema; the sandbox
+    executor rewrites it to the tenant schema in multi-tenant).
     """
     expr, where = render_geometry_expr(
         request.operation,
         distance_meters=request.distance_meters,
         mask=request.mask,
+        layer_mask=mask_table_ref is not None,
     )
+    cte = f"{render_mask_cte(mask_table_ref)} " if mask_table_ref else ""
     # fix(#680 review): drop NULL/EMPTY results in SQL, not in Python — the
     # sandbox applies its row cap to raw rows, so boundary-grazing clips
     # (which pass ST_Intersects but extract to EMPTY) could consume the whole
     # preview budget along a shared boundary and hide real intersections with
     # higher gids, even reporting a false "no features".
     return (
-        f"SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
+        f"{cte}SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
         f" FROM (SELECT gid, {expr} AS geom_out FROM {table_ref}{where}) AS _op"
         f" WHERE geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
         f" ORDER BY gid"
@@ -81,15 +88,24 @@ async def run_analysis_preview(
     dataset: Dataset,
     request: AnalysisPreviewRequest,
     user_id: uuid.UUID,
+    *,
+    mask_dataset: Dataset | None = None,
 ) -> AnalysisPreviewResponse:
     """Execute a preview operation and assemble a GeoJSON FeatureCollection.
 
     Results are capped at ``PREVIEW_FEATURE_CAP`` features (``truncated`` set
     when the cap was hit). Shares the sandbox's per-user advisory lock
     namespace with AI data queries: one expensive read per user at a time.
+
+    ``mask_dataset`` (clip only) sources the mask from another dataset's
+    unioned geometries; the CALLER owns its visibility check, exactly as it
+    owns the source dataset's.
     """
     table_ref = _safe_table_ref(dataset.table_name)
-    sql = build_preview_sql(table_ref, request)
+    mask_table_ref = (
+        _safe_table_ref(mask_dataset.table_name) if mask_dataset is not None else None
+    )
+    sql = build_preview_sql(table_ref, request, mask_table_ref)
     result = await execute_safe(
         db,
         sql,

@@ -961,7 +961,9 @@
     "addToMap": "Add to map",
     "byFieldLabel": "Group by field (optional)",
     "byFieldNone": "No grouping — merge everything",
-    "truncatedNoticeTotal": "Showing the first {{count}} of {{total}} features"
+    "truncatedNoticeTotal": "Showing the first {{count}} of {{total}} features",
+    "clipLayerLabel": "Or clip to a layer",
+    "clipLayerNone": "None — draw on the map"
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

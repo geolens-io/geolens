@@ -837,6 +837,19 @@
             "description": "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)",
             "title": "Mask"
           },
+          "mask_dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)",
+            "title": "Mask Dataset Id"
+          },
           "operation": {
             "enum": [
               "buffer",
@@ -910,6 +923,19 @@
             ],
             "description": "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)",
             "title": "Mask"
+          },
+          "mask_dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)",
+            "title": "Mask Dataset Id"
           },
           "operation": {
             "enum": [

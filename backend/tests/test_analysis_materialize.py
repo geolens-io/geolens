@@ -19,7 +19,7 @@ from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import _materialize
 
 from tests.factories import get_user_id
-from tests.test_analysis_preview import _create_polygon_dataset
+from tests.test_analysis_preview import _create_mask_dataset, _create_polygon_dataset
 
 
 def _materialize_url(dataset_id) -> str:
@@ -75,6 +75,12 @@ class TestMaterializeEndpoint:
         job = await test_db_session.get(IngestJob, uuid.UUID(data["job_id"]))
         assert job is not None
         assert job.status == "pending"
+        # Request params ride the job row so Admin → Jobs can diagnose runs.
+        meta = (job.user_metadata or {}).get("analysis", {})
+        assert meta["operation"] == "buffer"
+        assert meta["distance_meters"] == 100
+        assert meta["source_dataset_id"] == str(ds.id)
+        assert "mask" not in meta
 
     async def test_materialize_private_source_hidden(
         self,
@@ -470,6 +476,68 @@ class TestMaterializeWorker:
             .all()
         )
         assert cols == ["marker"]
+
+    async def test_clip_by_layer_materialize(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Worker resolves the mask dataset's table and clips against its
+        unioned geometries — same output as an equivalent drawn mask."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Layer clipped {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT name, GeometryType(geom_4326) FROM data.{new_ds.table_name}"  # noqa: S608
+                )
+            )
+        ).all()
+        assert rows == [("a", "POLYGON")]
+
+    async def test_clip_by_layer_missing_mask_fails_job(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """A mask dataset deleted between enqueue and run fails cleanly."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title="Ghost mask",
+            mask_dataset_id=str(uuid.uuid4()),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "Mask dataset not found" in (job.error_message or "")
 
     async def test_mixed_geometry_dissolve_stays_typed(
         self,

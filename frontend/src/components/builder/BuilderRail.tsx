@@ -106,6 +106,8 @@ interface BuilderRailProps {
   /** feat(#675): chat-preview handoff — keys a remount of AnalysisPanel so the
    *  form initializes from it. The nonce distinguishes successive handoffs. */
   analysisPrefill?: (EphemeralAnalysisHandoff & { nonce: number }) | null;
+  /** Page-level materialize-job tracking (toast survives panel close). */
+  onAnalysisJobChange?: (jobId: string | null) => void;
   /** Phase 1135 AI-05: optional viewport context passed through to ChatPanel for
    *  viewport-aware suggestion chips. Purely additive — omitting this prop has no effect. */
   viewport?: ViewportContext;
@@ -127,6 +129,7 @@ export function BuilderRail({
   onClearPreview,
   hasPreview,
   analysisPrefill,
+  onAnalysisJobChange,
   viewport,
   onMarkDirty,
   showRail = true,
@@ -284,6 +287,7 @@ export function BuilderRail({
                     hasPreview={hasPreview}
                     layerActions={layerActions}
                     prefill={analysisPrefill ?? undefined}
+                    onAnalysisJobChange={onAnalysisJobChange}
                   />
                 </Suspense>
               </LazyLoadErrorBoundary>

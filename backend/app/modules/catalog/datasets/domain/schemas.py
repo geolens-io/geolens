@@ -855,6 +855,27 @@ class IngestionResult(BaseModel):
 # Analysis (M4) — parameterized PostGIS operations
 # ---------------------------------------------------------------------------
 
+# Operation-scoped request fields → the only operation that reads them.
+# Documented as "<op> only; ignored otherwise", and actually dropped by the
+# request validators (fix(#682): a stray mask_dataset_id sent alongside
+# buffer/centroid would otherwise be loaded — and could 404/422 the request
+# or fail the job — and distance's gt/le bounds fire on placeholder values).
+_ANALYSIS_PARAM_OWNERS = {
+    "distance_meters": "buffer",
+    "mask": "clip",
+    "mask_dataset_id": "clip",
+    "by_field": "dissolve",
+}
+
+
+def _drop_params_for_other_operations(data: Any) -> Any:
+    if isinstance(data, dict):
+        op = data.get("operation")
+        data = {
+            k: v for k, v in data.items() if _ANALYSIS_PARAM_OWNERS.get(k, op) == op
+        }
+    return data
+
 
 class AnalysisPreviewRequest(BaseModel):
     """Parameters for a synchronous analysis preview.
@@ -876,23 +897,27 @@ class AnalysisPreviewRequest(BaseModel):
             "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)"
         ),
     )
+    mask_dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Polygon dataset whose unioned features form the clip mask "
+            "(clip only; alternative to mask)"
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
-    def _drop_ignored_distance(cls, data: Any) -> Any:
-        # distance_meters is documented as "buffer only; ignored otherwise" —
-        # actually ignore it, or the optional field's gt/le bounds fire on
-        # placeholder values SDK/CLI callers send alongside centroid/clip.
-        if isinstance(data, dict) and data.get("operation") != "buffer":
-            data = {k: v for k, v in data.items() if k != "distance_meters"}
-        return data
+    def _drop_ignored_params(cls, data: Any) -> Any:
+        return _drop_params_for_other_operations(data)
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisPreviewRequest":
         if self.operation == "buffer" and self.distance_meters is None:
             raise ValueError("buffer requires distance_meters")
-        if self.operation == "clip" and self.mask is None:
-            raise ValueError("clip requires mask")
+        if self.operation == "clip" and (self.mask is None) == (
+            self.mask_dataset_id is None
+        ):
+            raise ValueError("clip requires exactly one of mask or mask_dataset_id")
         return self
 
 
@@ -929,6 +954,13 @@ class AnalysisMaterializeRequest(BaseModel):
             "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)"
         ),
     )
+    mask_dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Polygon dataset whose unioned features form the clip mask "
+            "(clip only; alternative to mask)"
+        ),
+    )
     by_field: str | None = Field(
         default=None,
         max_length=63,
@@ -937,18 +969,17 @@ class AnalysisMaterializeRequest(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _drop_ignored_distance(cls, data: Any) -> Any:
-        # Same contract as AnalysisPreviewRequest: distance is buffer-only.
-        if isinstance(data, dict) and data.get("operation") != "buffer":
-            data = {k: v for k, v in data.items() if k != "distance_meters"}
-        return data
+    def _drop_ignored_params(cls, data: Any) -> Any:
+        return _drop_params_for_other_operations(data)
 
     @model_validator(mode="after")
     def _require_operation_params(self) -> "AnalysisMaterializeRequest":
         if self.operation == "buffer" and self.distance_meters is None:
             raise ValueError("buffer requires distance_meters")
-        if self.operation == "clip" and self.mask is None:
-            raise ValueError("clip requires mask")
+        if self.operation == "clip" and (self.mask is None) == (
+            self.mask_dataset_id is None
+        ):
+            raise ValueError("clip requires exactly one of mask or mask_dataset_id")
         return self
 
 

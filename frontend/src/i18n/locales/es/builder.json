@@ -961,7 +961,9 @@
     "addToMap": "Añadir al mapa",
     "byFieldLabel": "Agrupar por campo (opcional)",
     "byFieldNone": "Sin agrupación — combinar todo",
-    "truncatedNoticeTotal": "Mostrando las primeras {{count}} de {{total}} entidades"
+    "truncatedNoticeTotal": "Mostrando las primeras {{count}} de {{total}} entidades",
+    "clipLayerLabel": "O recortar con una capa",
+    "clipLayerNone": "Ninguna — dibujar en el mapa"
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

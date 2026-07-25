@@ -104,6 +104,41 @@ async def _create_point_dataset(
     )
 
 
+async def _create_mask_dataset(
+    session: AsyncSession,
+    *,
+    created_by: uuid.UUID,
+    wkt: str,
+    visibility: str = "public",
+):
+    """Create a one-polygon dataset usable as a clip-by-layer mask."""
+    table_name = f"ds_{uuid.uuid4().hex[:12]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            f"  gid SERIAL PRIMARY KEY,"
+            f"  geom geometry(Polygon, 4326),"
+            f"  geom_4326 geometry(Polygon, 4326)"
+            f")"
+        )
+    )
+    await session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "
+            f"(ST_GeomFromText('{wkt}', 4326), ST_GeomFromText('{wkt}', 4326))"
+        )
+    )
+    await session.commit()
+    return await create_dataset(
+        session,
+        created_by=created_by,
+        table_name=table_name,
+        geometry_type="POLYGON",
+        feature_count=1,
+        visibility=visibility,
+    )
+
+
 def _preview_url(dataset_id) -> str:
     return f"/datasets/{dataset_id}/analysis/preview/"
 
@@ -416,6 +451,30 @@ class TestAnalysisPreviewEndpoint:
             )
             assert resp.status_code == 200, (stray, resp.text)
 
+    async def test_buffer_ignores_stray_mask_sources(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#682): mask/mask_dataset_id are clip-only; a stray (even
+        nonexistent) mask dataset riding along on a buffer request must not
+        be loaded, let alone 404 the whole call."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "buffer",
+                "distance_meters": 100,
+                "mask": CLIP_MASK,
+                "mask_dataset_id": str(uuid.uuid4()),
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["feature_count"] == 2
+
     async def test_grazing_rows_do_not_consume_preview_cap(
         self,
         client: AsyncClient,
@@ -534,6 +593,116 @@ class TestAnalysisPreviewEndpoint:
         assert resp.status_code == 200, resp.text
         assert resp.json()["source_feature_count"] is None
 
+    async def test_clip_by_layer_preview(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Clip against another dataset's unioned geometries via mask_dataset_id."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        # Mask layer overlapping only SQUARE's lower-left quarter (same
+        # geometry as CLIP_MASK, but sourced from a table).
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+        )
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(mask_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["feature_count"] == 1
+        assert data["bbox"] == pytest.approx([0.0, 0.0, 0.5, 0.5])
+
+    async def test_clip_by_layer_mask_access_checked(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Rule 1 applies to the MASK dataset too: a private mask layer of
+        another user 404s even when the source dataset is readable."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        private_mask = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))",
+            visibility="private",
+        )
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(private_mask.id)},
+            headers=viewer_auth_header,
+        )
+        assert resp.status_code == 404
+
+    async def test_clip_by_layer_requires_polygonal_mask(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        points = await _create_point_dataset(test_db_session, created_by=admin_id, n=3)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(points.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "polygon dataset" in resp.json()["detail"]
+
+    async def test_degenerate_mask_row_stays_polygonal(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#682): ST_MakeValid collapses a zero-area mask polygon to
+        LINESTRING(0 0, 0.002 0); without polygon extraction in the mask
+        union, the point source at (0.001, 0) sits on that line and would
+        survive the clip despite being outside every real polygon."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        points = await _create_point_dataset(test_db_session, created_by=admin_id, n=1)
+        degenerate = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 0.002 0, 0.002 0, 0 0))",
+        )
+        resp = await client.post(
+            _preview_url(points.id),
+            json={"operation": "clip", "mask_dataset_id": str(degenerate.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["feature_count"] == 0
+
+    async def test_clip_rejects_both_mask_sources(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={
+                "operation": "clip",
+                "mask": CLIP_MASK,
+                "mask_dataset_id": str(uuid.uuid4()),
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # Pure SQL-builder tests (no DB)
@@ -598,3 +767,26 @@ class TestBuildPreviewSql:
         )
         with pytest.raises(ValueError, match="vertices"):
             build_preview_sql('"data"."t1"', req)
+
+    def test_materialize_request_drops_other_operations_params(self):
+        """fix(#682): the defer builds worker kwargs from the parsed model, so
+        stray clip/dissolve params on a buffer request must parse to None or
+        the worker would resolve a mask dataset the operation never uses."""
+        from app.modules.catalog.datasets.domain.schemas import (
+            AnalysisMaterializeRequest,
+        )
+
+        req = AnalysisMaterializeRequest.model_validate(
+            {
+                "operation": "buffer",
+                "title": "t",
+                "distance_meters": 100,
+                "mask": CLIP_MASK,
+                "mask_dataset_id": str(uuid.uuid4()),
+                "by_field": "name",
+            }
+        )
+        assert req.mask is None
+        assert req.mask_dataset_id is None
+        assert req.by_field is None
+        assert req.distance_meters == 100

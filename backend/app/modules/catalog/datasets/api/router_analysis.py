@@ -67,6 +67,24 @@ async def _load_vector_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Id
     return dataset
 
 
+_POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
+
+
+async def _load_mask_dataset(
+    db: AsyncSession, mask_dataset_id: uuid.UUID, user: Identity
+):
+    """Fetch + visibility-check a clip-mask dataset (Rule 1 applies to BOTH
+    datasets of a two-layer operation) and require it to be polygonal —
+    unioning points/lines produces a mask that clips nothing meaningful."""
+    dataset = await _load_vector_dataset(db, mask_dataset_id, user)
+    if (dataset.geometry_type or "").upper() not in _POLYGONAL_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="mask_dataset_id must reference a polygon dataset",
+        )
+    return dataset
+
+
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
 async def analysis_preview_endpoint(
     dataset_id: uuid.UUID,
@@ -80,8 +98,15 @@ async def analysis_preview_endpoint(
     persistence — use the materialize endpoint to save output as a dataset.
     """
     dataset = await _load_vector_dataset(db, dataset_id, user)
+    mask_dataset = (
+        await _load_mask_dataset(db, body.mask_dataset_id, user)
+        if body.mask_dataset_id is not None
+        else None
+    )
     try:
-        return await run_analysis_preview(db, dataset, body, user.id)
+        return await run_analysis_preview(
+            db, dataset, body, user.id, mask_dataset=mask_dataset
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -116,7 +141,11 @@ async def analysis_materialize_endpoint(
     dataset = await _load_vector_dataset(db, dataset_id, user)
 
     # Fail fast on invalid params before creating a job.
-    if body.operation == "clip":
+    if body.operation == "clip" and body.mask_dataset_id is not None:
+        # Access + polygon checks happen here at enqueue time; the worker
+        # re-resolves the table name and re-validates it against _SAFE_TABLE.
+        await _load_mask_dataset(db, body.mask_dataset_id, user)
+    elif body.operation == "clip":
         try:
             render_mask_expr(body.mask or {})
         except ValueError as exc:
@@ -149,6 +178,23 @@ async def analysis_materialize_endpoint(
     job = await get_catalog_port().create_ingest_job(
         db, f"analysis-{body.operation}", "", user.id
     )
+    # Record the request params so Admin → Jobs can diagnose a failed run
+    # ("analysis-buffer failed" alone says nothing). The drawn mask geometry
+    # is deliberately NOT stored — it can be kilobytes; a marker suffices.
+    analysis_meta = {
+        "operation": body.operation,
+        "source_dataset_id": str(dataset.id),
+        "title": body.title,
+    }
+    if body.distance_meters is not None:
+        analysis_meta["distance_meters"] = body.distance_meters
+    if body.by_field is not None:
+        analysis_meta["by_field"] = body.by_field
+    if body.operation == "clip":
+        analysis_meta["mask_source"] = "layer" if body.mask_dataset_id else "drawn"
+        if body.mask_dataset_id is not None:
+            analysis_meta["mask_dataset_id"] = str(body.mask_dataset_id)
+    job.user_metadata = {"analysis": analysis_meta}
     await db.commit()
 
     rollback = make_ingest_job_failed_rollback(
@@ -156,6 +202,15 @@ async def analysis_materialize_endpoint(
     )
 
     async def _defer() -> None:
+        # mask_dataset_id rides along only when set: a worker still running
+        # the pre-clip-by-layer code rejects unknown kwargs, and an
+        # unconditional None would break EVERY materialize during a rolling
+        # deploy instead of only the new feature.
+        extra_kwargs = (
+            {"mask_dataset_id": str(body.mask_dataset_id)}
+            if body.mask_dataset_id is not None
+            else {}
+        )
         await defer_async_with_tenant(
             get_catalog_port().materialize_analysis_task(),
             job_id=str(job.id),
@@ -166,6 +221,7 @@ async def analysis_materialize_endpoint(
             distance_meters=body.distance_meters,
             mask=body.mask,
             by_field=body.by_field,
+            **extra_kwargs,
         )
 
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db)

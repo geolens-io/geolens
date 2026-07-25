@@ -961,7 +961,9 @@
     "addToMap": "Zur Karte hinzufügen",
     "byFieldLabel": "Nach Feld gruppieren (optional)",
     "byFieldNone": "Keine Gruppierung — alles zusammenführen",
-    "truncatedNoticeTotal": "Die ersten {{count}} von {{total}} Features werden angezeigt"
+    "truncatedNoticeTotal": "Die ersten {{count}} von {{total}} Features werden angezeigt",
+    "clipLayerLabel": "Oder an einer Ebene zuschneiden",
+    "clipLayerNone": "Keine — auf der Karte zeichnen"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

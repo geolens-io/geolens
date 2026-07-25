@@ -523,6 +523,12 @@ export type AnalysisMaterializeRequest = {
         [key: string]: unknown;
     } | null;
     /**
+     * Mask Dataset Id
+     *
+     * Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)
+     */
+    mask_dataset_id?: string | null;
+    /**
      * Operation
      */
     operation: 'buffer' | 'centroid' | 'clip' | 'dissolve';
@@ -571,6 +577,12 @@ export type AnalysisPreviewRequest = {
     mask?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Mask Dataset Id
+     *
+     * Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)
+     */
+    mask_dataset_id?: string | null;
     /**
      * Operation
      */
