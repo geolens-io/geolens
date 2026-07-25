@@ -172,7 +172,7 @@
     "visibilityPublic": "Publique",
     "visibilityPrivate": "Privé",
     "visibilityRestricted": "Restreint",
-    "visibilityHelp": "Publique = visible par tous. Restreint = utilisateurs connectés uniquement. Privé = éditeurs et administrateurs uniquement.",
+    "visibilityHelp": "Publique = visible par tous, y compris les visiteurs non connectés. Restreint = uniquement les administrateurs et les utilisateurs dont le rôle a reçu l'accès. Privé = uniquement le propriétaire et les administrateurs.",
     "sourceOrganization": "Organisation source",
     "license": "Licence",
     "vintageStart": "Début du millésime",

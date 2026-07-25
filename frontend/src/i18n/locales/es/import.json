@@ -208,7 +208,7 @@
     "visibilityLabel": "Visibilidad",
     "visibilityPrivate": "Privado",
     "visibilityRestricted": "Restringido",
-    "visibilityHelp": "Público = visible para todos. Restringido = solo usuarios con sesión iniciada. Privado = solo editores y administradores.",
+    "visibilityHelp": "Público = visible para todos, incluidos los visitantes sin sesión iniciada. Restringido = solo los administradores y los usuarios cuyo rol tenga acceso concedido. Privado = solo el propietario y los administradores.",
     "visibilityPublic": "Público",
     "registering": "Registrando...",
     "registerButton_one": "Registrar {{count}} tabla",

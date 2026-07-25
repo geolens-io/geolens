@@ -172,7 +172,7 @@
     "visibilityPublic": "Public",
     "visibilityPrivate": "Private",
     "visibilityRestricted": "Restricted",
-    "visibilityHelp": "Public = visible to all. Restricted = logged-in users only. Private = editors and admins only.",
+    "visibilityHelp": "Public = visible to everyone, including signed-out visitors. Restricted = only admins and users whose role has been granted access. Private = only the owner and admins.",
     "sourceOrganization": "Source Organization",
     "license": "License",
     "vintageStart": "Data Vintage Start",

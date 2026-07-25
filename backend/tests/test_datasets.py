@@ -397,6 +397,49 @@ class TestAnonymousAccess:
         resp = await client.get(f"/datasets/{ds.id}")
         assert resp.status_code == 404
 
+    async def test_logged_in_non_grantee_get_restricted_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """Restricted requires a role GRANT, not merely a session — but admins bypass it.
+
+        Every other restricted-denial test signs the caller out, so nothing
+        pinned the authenticated case and the UI told users "Restricted =
+        logged-in users only" for months. The public control rules out a 404
+        from some unrelated cause: the same viewer sees a public dataset
+        built the same way. The admin leg pins the other half of the help
+        text (fix(#690) review) — `can_access_dataset` returns True on the
+        admin role before it ever looks for a grant.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        restricted = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="restricted",
+            name="Non-Grantee Restricted DS",
+        )
+        public = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Non-Grantee Public DS",
+        )
+        control = await client.get(f"/datasets/{public.id}", headers=viewer_auth_header)
+        assert control.status_code == 200
+        resp = await client.get(
+            f"/datasets/{restricted.id}", headers=viewer_auth_header
+        )
+        assert resp.status_code == 404
+
+        # ...while an admin reads the same dataset with no grant at all.
+        as_admin = await client.get(
+            f"/datasets/{restricted.id}", headers=admin_auth_header
+        )
+        assert as_admin.status_code == 200
+
     async def test_anon_get_attributes_public(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

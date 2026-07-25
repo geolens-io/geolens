@@ -172,7 +172,7 @@
     "visibilityPublic": "Öffentlich",
     "visibilityPrivate": "Privat",
     "visibilityRestricted": "Eingeschränkt",
-    "visibilityHelp": "Öffentlich = für alle sichtbar. Eingeschränkt = nur angemeldete Benutzer. Privat = nur Bearbeiter und Administratoren.",
+    "visibilityHelp": "Öffentlich = für alle sichtbar, auch für nicht angemeldete Besucher. Eingeschränkt = nur Administratoren und Benutzer, deren Rolle Zugriff erhalten hat. Privat = nur der Eigentümer und Administratoren.",
     "sourceOrganization": "Quellorganisation",
     "license": "Lizenz",
     "vintageStart": "Datenstand Beginn",
