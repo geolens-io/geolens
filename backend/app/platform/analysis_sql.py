@@ -31,9 +31,9 @@ from shapely.geometry import shape
 MAX_BUFFER_METERS = 100_000.0
 MAX_MASK_VERTICES = 5_000
 
-# fix(#693): a layer-sourced clip mask is unioned WHOLE before any row limit
-# can bite, inside the preview's 10-second budget — a few thousand realistic
-# polygons already blow it.
+# fix(#693): the materialize path unions the mask layer WHOLE, and the
+# preview pays a per-request subdivide pass over every mask row — both scale
+# with the layer, and neither is bounded by any row limit.
 MAX_MASK_LAYER_FEATURES = 1_000
 
 # fix(#694): per-operation source-size ceilings.
@@ -77,6 +77,66 @@ def render_mask_cte(mask_table_ref: str) -> str:
         f"SELECT ST_Union(ST_CollectionExtract(ST_MakeValid(geom_4326), 3)) AS geom "
         f"FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL)"
     )
+
+
+# Vertex ceiling per mask piece in the preview shape below. 256 is the
+# PostGIS-documented sweet spot where per-piece index rebuild overhead and
+# per-pair intersection cost balance.
+MASK_SUBDIVIDE_MAX_VERTICES = 256
+
+
+def render_clip_layer_preview(mask_table_ref: str, *, src: str) -> tuple[str, str, str]:
+    """Clip against a mask LAYER — the PREVIEW shape (fix(#693)).
+
+    Returns ``(cte, lateral_subquery, where_clause)`` for a source table
+    aliased ``src``. The materialize worker keeps ``render_mask_cte``'s
+    single whole-layer union: right for a batch job, where one union
+    amortizes over every row — but a preview pays it per click inside a
+    10-second sandbox budget, and per-row ST_Intersection against one giant
+    union geometry is what made realistic mask layers time out (measured,
+    first 500 rows of a 100k-row source: 1,000 x 257-vertex mask >120s;
+    single 100k-vertex mask 87.9s).
+
+    Three cooperating parts (each choice benchmarked on those same masks):
+
+    - ``_mask_pieces`` subdivides the mask's polygonal parts into bounded
+      chunks ONCE per statement (MATERIALIZED), so per-row intersection cost
+      scales with the local overlap instead of the whole mask — the single
+      100k-vertex mask drops 87.9s -> 0.36s. Intersection distributes over
+      union, so unioning the per-piece intersections equals clipping against
+      the unioned mask.
+    - The lateral aggregates those piece intersections per source row: one
+      output row per gid however many mask rows touch it, evaluated once per
+      row (aggregate subqueries cannot be pulled up, so the fix(#700)
+      property needs no OFFSET 0 fence here; the inner OFFSET 0 only pins
+      the extract/makevalid pass to once per mask row).
+    - The EXISTS row filter probes the RAW mask table, not the CTE: it stays
+      index-drivable with real join statistics in either direction (the
+      union CTE reached the outer query as an InitPlan Param, blinding the
+      selectivity estimator; filtering on the un-indexed piece CTE instead
+      costs a linear piece scan per source row — 2.4s vs 0.25s when the mask
+      sits at the high end of the gid order).
+    """
+    cte = (
+        f"WITH _mask_pieces AS MATERIALIZED ("
+        f"SELECT ST_Subdivide(geom, {MASK_SUBDIVIDE_MAX_VERTICES}) AS geom"
+        f" FROM (SELECT ST_CollectionExtract(ST_MakeValid(geom_4326), 3) AS geom"
+        f" FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL OFFSET 0) AS _p"
+        f" WHERE NOT ST_IsEmpty(geom))"
+    )
+    lateral = (
+        f"(SELECT ST_Union(ST_CollectionExtract("
+        f"ST_Intersection(ST_MakeValid({src}.geom_4326), _m.geom),"
+        f" ST_Dimension({src}.geom_4326) + 1)) AS geom_out"
+        f" FROM _mask_pieces AS _m"
+        f" WHERE _m.geom && {src}.geom_4326"
+        f" AND ST_Intersects(_m.geom, ST_MakeValid({src}.geom_4326)))"
+    )
+    where = (
+        f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref}"
+        f" WHERE geom_4326 && {src}.geom_4326)"
+    )
+    return cte, lateral, where
 
 
 def render_mask_expr(mask: dict[str, Any]) -> str:
@@ -127,7 +187,8 @@ def render_geometry_expr(
 
     ``layer_mask=True`` renders clip against the ``MASK_CTE_NAME`` CTE (see
     ``render_mask_cte``, which the caller must prepend) instead of an inline
-    GeoJSON mask.
+    GeoJSON mask — the materialize shape; previews use
+    ``render_clip_layer_preview``.
     """
     if operation == "buffer":
         if distance_meters is None:

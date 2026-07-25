@@ -110,8 +110,9 @@ async def _create_mask_dataset(
     created_by: uuid.UUID,
     wkt: str,
     visibility: str = "public",
+    extra_wkts: tuple[str, ...] = (),
 ):
-    """Create a one-polygon dataset usable as a clip-by-layer mask."""
+    """Create a small polygon dataset usable as a clip-by-layer mask."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
     await session.execute(
         text(
@@ -122,19 +123,21 @@ async def _create_mask_dataset(
             f")"
         )
     )
-    await session.execute(
-        text(
-            f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "
-            f"(ST_GeomFromText('{wkt}', 4326), ST_GeomFromText('{wkt}', 4326))"
+    for row_wkt in (wkt, *extra_wkts):
+        await session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "
+                f"(ST_GeomFromText('{row_wkt}', 4326),"
+                f" ST_GeomFromText('{row_wkt}', 4326))"
+            )
         )
-    )
     await session.commit()
     return await create_dataset(
         session,
         created_by=created_by,
         table_name=table_name,
         geometry_type="POLYGON",
-        feature_count=1,
+        feature_count=1 + len(extra_wkts),
         visibility=visibility,
     )
 
@@ -619,15 +622,49 @@ class TestAnalysisPreviewEndpoint:
         assert data["feature_count"] == 1
         assert data["bbox"] == pytest.approx([0.0, 0.0, 0.5, 0.5])
 
+    async def test_clip_by_layer_overlapping_mask_rows(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#693): the preview semi-joins the mask per row instead of
+        unioning the layer per request; two OVERLAPPING mask rows must still
+        yield one merged feature per source row (intersection distributes
+        over union), not duplicates or double-counted slivers."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        # Together the two rows cover SQUARE's lower-left quarter, same as
+        # CLIP_MASK — but split into overlapping halves (both cover
+        # x in [0.1, 0.25]).
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-0.5 -0.5, -0.5 0.5, 0.25 0.5, 0.25 -0.5, -0.5 -0.5))",
+            extra_wkts=("POLYGON((0.1 -0.5, 0.1 0.5, 0.5 0.5, 0.5 -0.5, 0.1 -0.5))",),
+        )
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(mask_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["feature_count"] == 1
+        assert data["bbox"] == pytest.approx([0.0, 0.0, 0.5, 0.5])
+        # The overlapping pieces union into one clean polygon.
+        geometry = data["geojson"]["features"][0]["geometry"]
+        assert geometry["type"] == "Polygon"
+
     async def test_oversized_mask_layer_rejected(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#693): the mask layer is unioned whole before any row limit
-        can bite, inside the preview's 10s budget — gate on the cached
-        feature_count when the mask dataset loads."""
+        """fix(#693): the materialize path unions the mask layer whole and
+        the preview subdivides every mask row per request — gate on the
+        cached feature_count when the mask dataset loads."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
         mask_ds = await _create_mask_dataset(
@@ -799,6 +836,29 @@ class TestBuildPreviewSql:
             assert "OFFSET 0" in sql
             assert sql.count(fn) == 1
             assert sql.endswith("ORDER BY gid")
+
+    def test_clip_by_layer_sql_subdivides_instead_of_unioning(self):
+        """fix(#693): a layer-sourced clip preview must not union the whole
+        mask layer per request — that shape made realistic masks time out
+        inside the 10s sandbox budget. The preview subdivides the mask into
+        bounded pieces once per statement, joins the pieces per source row,
+        and row-filters via an EXISTS probe of the raw (GIST-indexed) mask
+        table; the whole-layer union remains materialize-only."""
+        req = AnalysisPreviewRequest(operation="clip", mask_dataset_id=uuid.uuid4())
+        sql = build_preview_sql('"data"."t1"', req, '"data"."m1"')
+        assert "ST_Subdivide" in sql
+        assert "AS MATERIALIZED" in sql
+        # The layer union shape must be gone...
+        assert "ST_Union(ST_CollectionExtract(ST_MakeValid" not in sql
+        # ...replaced by one per-row aggregate over the intersected pieces:
+        # one output row per gid however many mask rows intersect it.
+        assert sql.count("ST_Union") == 1
+        assert sql.count("ST_Intersection") == 1
+        # Mask table referenced twice: the pieces CTE and the EXISTS probe.
+        assert sql.count('"data"."m1"') == 2
+        assert "EXISTS" in sql
+        assert "CROSS JOIN LATERAL" in sql
+        assert sql.endswith("ORDER BY gid")
 
     def test_clip_mask_injection_rejected(self):
         req = AnalysisPreviewRequest(
