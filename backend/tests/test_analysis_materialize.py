@@ -157,6 +157,34 @@ class TestMaterializeEndpoint:
         upload.status = "failed"
         await test_db_session.commit()
 
+    async def test_old_pending_job_still_blocks(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#682 review): the staleness window applies to RUNNING jobs only.
+        A pending job is queued work that will still run, so a backlogged
+        ingest queue must not let a second CTAS through however old it is."""
+        from datetime import datetime, timedelta, timezone
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        backlogged = await _create_job(test_db_session, admin_id)
+        backlogged.user_metadata = {"analysis": {"operation": "buffer"}}
+        backlogged.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        await test_db_session.commit()
+
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Should be blocked"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 429, resp.text
+        backlogged.status = "failed"
+        await test_db_session.commit()
+
     async def test_zombie_job_stops_blocking_after_the_window(
         self,
         client: AsyncClient,
@@ -176,7 +204,7 @@ class TestMaterializeEndpoint:
         zombie.user_metadata = {"analysis": {"operation": "buffer"}}
         zombie.created_at = (
             datetime.now(timezone.utc)
-            - router_analysis._ACTIVE_JOB_WINDOW
+            - router_analysis._RUNNING_JOB_WINDOW
             - timedelta(minutes=1)
         )
         await test_db_session.commit()
