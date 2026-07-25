@@ -7410,7 +7410,9 @@
                   "finalize",
                   "complete",
                   "cog_convert",
-                  "quicklook"
+                  "quicklook",
+                  "analyzing",
+                  "registering"
                 ],
                 "type": "string"
               },

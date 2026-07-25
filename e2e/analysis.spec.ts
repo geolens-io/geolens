@@ -78,10 +78,20 @@ test.describe('builder analysis tools', () => {
     };
     expect(jobId).toBeTruthy();
 
-    // Close the panel mid-job: completion must still surface (page-level toast).
+    // Abandon the builder mid-job: tracking is global (AnalysisJobWatcher in
+    // RootLayout), so completion must still surface on a different page — with
+    // "View dataset" rather than "Add to map", since no builder is mounted.
     await page.getByRole('button', { name: 'Close panel' }).click();
-    await expect(page.getByText('Dataset created')).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByRole('button', { name: 'Add to map' })).toBeVisible();
+    await page.goto('/');
+    // Scope to the toast: the finished dataset also lands in the catalog list
+    // behind it (which is the query invalidation doing its job).
+    const completionToast = page
+      .locator('[data-sonner-toast]')
+      .filter({ hasText: OUTPUT_TITLE });
+    await expect(completionToast).toBeVisible({ timeout: 60_000 });
+    await expect(
+      completionToast.getByRole('button', { name: 'View dataset' }),
+    ).toBeVisible();
 
     // Resolve the created dataset id for cleanup.
     for (let attempt = 0; attempt < 30; attempt++) {

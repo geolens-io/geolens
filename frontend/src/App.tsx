@@ -10,6 +10,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
 import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
+import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
 
 // Lazy page imports — each produces a separate Vite chunk
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -55,6 +56,11 @@ function RootLayout() {
       {/* fix(#628): global session-expiry host — needs router context for the
           sign-in-returns-to-route action, so it lives here rather than main.tsx. */}
       <SessionExpiredDialog />
+      {/* feat(#682): analysis-job notifier — global so a materialize job that
+          outlives the builder (panel closed, navigated away, tab reloaded)
+          still reports when it lands. Needs router context for its
+          "View dataset" action, so it lives here rather than main.tsx. */}
+      <AnalysisJobWatcher />
       <Suspense fallback={<LoadingState />}>
         <Outlet />
       </Suspense>

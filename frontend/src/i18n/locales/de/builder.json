@@ -963,7 +963,10 @@
     "byFieldNone": "Keine Gruppierung — alles zusammenführen",
     "truncatedNoticeTotal": "Die ersten {{count}} von {{total}} Quell-Features werden angezeigt",
     "clipLayerLabel": "Oder an einer Ebene zuschneiden",
-    "clipLayerNone": "Keine — auf der Karte zeichnen"
+    "clipLayerNone": "Keine — auf der Karte zeichnen",
+    "jobCompleteNamed": "„{{title}}“ ist fertig",
+    "viewDataset": "Datensatz anzeigen",
+    "jobSaving": "Datensatz wird gespeichert…"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

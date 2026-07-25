@@ -94,6 +94,10 @@ class JobStatusResponse(BaseModel):
             "complete",
             "cog_convert",
             "quicklook",
+            # Analysis materialize (no numeric progress — the operation is a
+            # single CTAS, so there is nothing to report between these two).
+            "analyzing",
+            "registering",
         ]
         | None
     ) = None

@@ -8242,7 +8242,7 @@ export interface components {
              */
             created_at: string;
             /** Current Step */
-            current_step?: ("validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook") | null;
+            current_step?: ("validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
             /** Dataset Id */
             dataset_id: string | null;
             /** Error Message */

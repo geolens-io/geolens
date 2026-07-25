@@ -43,9 +43,10 @@ interface AnalysisPanelProps {
    *  preview ("Save as dataset"). Applied on mount only — BuilderRail keys the
    *  panel on the handoff so a new one remounts it. */
   prefill?: EphemeralAnalysisHandoff;
-  /** Notifies the page of materialize-job changes so completion/failure can
-   *  toast (and invalidate queries) even after this panel unmounts. */
-  onAnalysisJobChange?: (jobId: string | null) => void;
+  /** Notifies the app-level watcher of materialize-job changes so
+   *  completion/failure still reports after this panel unmounts. The title
+   *  rides along so a notification arriving minutes later has context. */
+  onAnalysisJobChange?: (jobId: string | null, title?: string) => void;
 }
 
 /**
@@ -246,9 +247,10 @@ export function AnalysisPanel({
     mutationFn: async () => {
       const datasetId = selectedLayer?.dataset_id;
       if (!datasetId) throw new Error('No layer selected');
+      const title = outputTitle.trim();
       const result = await materializeAnalysis(datasetId, {
         operation,
-        title: outputTitle.trim(),
+        title,
         ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
         ...(operation === 'clip' && mask ? { mask } : {}),
         ...(operation === 'clip' && !mask && maskLayer?.dataset_id
@@ -262,7 +264,7 @@ export function AnalysisPanel({
       // suppresses observer callbacks once the component unmounts, and the
       // whole point of page-level tracking is surviving an unmount while the
       // request is in flight.
-      onAnalysisJobChange?.(result.job_id);
+      onAnalysisJobChange?.(result.job_id, title);
       return result;
     },
     onSuccess: (result) => setJobId(result.job_id),
@@ -572,7 +574,13 @@ export function AnalysisPanel({
                 ? `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${job.error_message ? `: ${job.error_message}` : ''}`
                 : job.status === 'complete'
                   ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                  : t('analysisTools.jobRunning', { defaultValue: 'Creating dataset…' })}
+                  : job.current_step === 'registering'
+                    ? t('analysisTools.jobSaving', {
+                        defaultValue: 'Saving the dataset…',
+                      })
+                    : t('analysisTools.jobRunning', {
+                        defaultValue: 'Creating dataset…',
+                      })}
             </p>
           )}
           {job?.status === 'complete' && !!job.dataset_id && layerActions && (

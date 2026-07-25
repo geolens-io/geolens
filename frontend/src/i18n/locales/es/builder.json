@@ -963,7 +963,10 @@
     "byFieldNone": "Sin agrupación — combinar todo",
     "truncatedNoticeTotal": "Mostrando las primeras {{count}} de {{total}} entidades de origen",
     "clipLayerLabel": "O recortar con una capa",
-    "clipLayerNone": "Ninguna — dibujar en el mapa"
+    "clipLayerNone": "Ninguna — dibujar en el mapa",
+    "jobCompleteNamed": "«{{title}}» está listo",
+    "viewDataset": "Ver conjunto de datos",
+    "jobSaving": "Guardando el conjunto de datos…"
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

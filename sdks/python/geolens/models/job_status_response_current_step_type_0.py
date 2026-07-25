@@ -1,17 +1,26 @@
 from typing import Literal, cast
 
 JobStatusResponseCurrentStepType0 = Literal[
-    "cog_convert", "complete", "finalize", "ogr2ogr", "quicklook", "validating"
-]
-
-JOB_STATUS_RESPONSE_CURRENT_STEP_TYPE_0_VALUES: set[
-    JobStatusResponseCurrentStepType0
-] = {
+    "analyzing",
     "cog_convert",
     "complete",
     "finalize",
     "ogr2ogr",
     "quicklook",
+    "registering",
+    "validating",
+]
+
+JOB_STATUS_RESPONSE_CURRENT_STEP_TYPE_0_VALUES: set[
+    JobStatusResponseCurrentStepType0
+] = {
+    "analyzing",
+    "cog_convert",
+    "complete",
+    "finalize",
+    "ogr2ogr",
+    "quicklook",
+    "registering",
     "validating",
 }
 

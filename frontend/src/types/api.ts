@@ -609,6 +609,8 @@ export interface JobStatusResponse {
     | 'complete'
     | 'cog_convert'
     | 'quicklook'
+    | 'analyzing'
+    | 'registering'
     | null;
   rows_processed?: number | null;
   archive_failed: boolean;

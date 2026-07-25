@@ -4,6 +4,7 @@ import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConica
 import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
+import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { Button } from '@/components/ui/button';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
@@ -135,6 +136,9 @@ export function BuilderRail({
   showRail = true,
 }: BuilderRailProps) {
   const { t } = useTranslation('builder');
+  // AnalysisJobWatcher clears the tracked job on any terminal status, so a
+  // tracked job is by definition still in flight.
+  const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
 
   const togglePanel = useCallback((panel: RailPanel) => {
     onPanelChange(activePanel === panel ? null : panel);
@@ -187,6 +191,11 @@ export function BuilderRail({
               title={btn.label}
               aria-label={btn.label}
               aria-pressed={activePanel === btn.id}
+              // feat(#682): the only ambient signal that a materialize job is
+              // still running once the panel is closed — the completion toast
+              // fires at the END, so without this the rail says nothing for up
+              // to five minutes.
+              aria-busy={btn.id === 'analysis' && analysisJobRunning}
               className={cn(
                 'relative flex items-center justify-center h-8 w-8 rounded-md transition-colors',
                 btn.disabled
@@ -196,7 +205,11 @@ export function BuilderRail({
                     : 'cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
-              <btn.icon className="h-4 w-4" />
+              {btn.id === 'analysis' && analysisJobRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <btn.icon className="h-4 w-4" />
+              )}
               {/* MAP-22: presence dot — non-whitespace notes render a 6px primary-color dot
                   at the button's top-right corner. aria-label keeps the dot accessible.
                   No animation (static state indicator per UI-SPEC). */}

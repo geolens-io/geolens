@@ -963,7 +963,10 @@
     "byFieldNone": "No grouping — merge everything",
     "truncatedNoticeTotal": "Showing the first {{count}} of {{total}} source features",
     "clipLayerLabel": "Or clip to a layer",
-    "clipLayerNone": "None — draw on the map"
+    "clipLayerNone": "None — draw on the map",
+    "jobCompleteNamed": "“{{title}}” is ready",
+    "viewDataset": "View dataset",
+    "jobSaving": "Saving the dataset…"
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

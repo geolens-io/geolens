@@ -183,7 +183,7 @@ describe('AnalysisPanel', () => {
     );
   });
 
-  it('notifies the page of the materialize job id', async () => {
+  it('notifies the watcher of the materialize job id and title', async () => {
     const onAnalysisJobChange = vi.fn();
     renderPanel([datasetLayer], { onAnalysisJobChange });
 
@@ -193,7 +193,7 @@ describe('AnalysisPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
 
     await waitFor(() =>
-      expect(onAnalysisJobChange).toHaveBeenCalledWith('job1'),
+      expect(onAnalysisJobChange).toHaveBeenCalledWith('job1', 'Buffered parcels'),
     );
   });
 

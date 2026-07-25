@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
@@ -70,6 +71,14 @@ async def _load_vector_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Id
 
 
 _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
+
+# How far back the per-user active-job check looks. The materialize CTAS is
+# capped by its own 300s statement timeout, so anything older than this is a
+# zombie (worker died mid-job, or the job was never picked up) — and the
+# platform-wide stale-job reaper only sweeps those after an hour. Without this
+# window a single crashed worker would lock a user out of analysis for that
+# whole hour.
+_ACTIVE_JOB_WINDOW = timedelta(minutes=10)
 
 
 async def _load_mask_dataset(
@@ -189,6 +198,7 @@ async def analysis_materialize_endpoint(
             IngestJob.created_by == user.id,
             IngestJob.source_filename.like("analysis-%"),
             IngestJob.status.in_(("pending", "running")),
+            IngestJob.created_at >= datetime.now(timezone.utc) - _ACTIVE_JOB_WINDOW,
         )
     )
     if active:

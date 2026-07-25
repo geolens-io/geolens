@@ -1,8 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
 import { FileText, History, Sparkles, Info, FlaskConical } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
@@ -54,8 +52,6 @@ import { clearPersistedFolderGroup, getParentGroupId, resolveDropGroupMembership
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
-import { useJobStatus } from '@/components/import/hooks/use-ingest';
-import { queryKeys } from '@/lib/query-keys';
 import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
 import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
@@ -109,6 +105,7 @@ import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { readStorage, removeStorage, storageKeys } from '@/lib/storage';
+import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { takeChatResult } from '@/lib/chat-result-handoff';
 
 export function MapBuilderPage() {
@@ -148,11 +145,6 @@ export function MapBuilderPage() {
   const [analysisPrefill, setAnalysisPrefill] = useState<
     (EphemeralAnalysisHandoff & { nonce: number }) | null
   >(null);
-  // Page-level analysis-job tracking: the AnalysisPanel unmounts on rail
-  // switch/sheet close, which used to silently abandon a running materialize.
-  // TanStack dedupes this against the panel's own useJobStatus (same key),
-  // so there is still exactly one 2s poll loop.
-  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [dockNotes, setDockNotes] = useState('');
   // Projection (Mercator/Globe). Persisted on basemap_config.projection; seeded from
   // the saved map on load and applied to the live map once it's ready (effects below).
@@ -788,46 +780,28 @@ export function MapBuilderPage() {
       .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
   }, [layers.localLayers]);
 
-  // Completion/failure signal for analysis materialize jobs that outlives the
-  // AnalysisPanel: toast with an "Add to map" action, and invalidate the
-  // dataset/search queries exactly once per job (the panel used to own the
-  // invalidation, but it unmounts).
-  const queryClient = useQueryClient();
-  const analysisJob = useJobStatus(analysisJobId).data;
-  const analysisJobStatus = analysisJob?.status;
-  const analysisJobRef = useRef(analysisJob);
-  analysisJobRef.current = analysisJob;
-  const addDatasetRef = useRef(layers.chatLayerActions?.onAddDataset);
-  addDatasetRef.current = layers.chatLayerActions?.onAddDataset;
+  // Analysis materialize jobs are tracked globally (AnalysisJobWatcher in
+  // RootLayout owns polling, the completion toast, and cache invalidation) so
+  // the signal survives this page unmounting. This page contributes only the
+  // "Add to map" capability, which needs its layer actions.
+  const setAnalysisJob = useAnalysisJobStore((s) => s.setJob);
+  const handleAnalysisJobChange = useCallback(
+    (jobId: string | null, title?: string) => {
+      setAnalysisJob(jobId ? { jobId, title: title ?? '', mapId: id ?? null } : null);
+    },
+    [setAnalysisJob, id],
+  );
+  // No dep array: keeps the registered callback fresh on every render; the
+  // cleanup is what matters, so the watcher falls back to "View dataset" once
+  // this builder is gone.
   useEffect(() => {
-    if (!analysisJobId) return;
-    if (analysisJobStatus === 'complete') {
-      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
-      const datasetId = analysisJobRef.current?.dataset_id;
-      toast.success(
-        t('analysisTools.jobComplete', { defaultValue: 'Dataset created' }),
-        datasetId
-          ? {
-              action: {
-                label: t('analysisTools.addToMap', { defaultValue: 'Add to map' }),
-                onClick: () => addDatasetRef.current?.(datasetId),
-              },
-            }
-          : undefined,
-      );
-      // fix(#682 review P3): stop tracking a handled job — `t` is a dep, so a
-      // language switch would otherwise rerun this effect and replay the
-      // toast + invalidation for a job that already finished.
-      setAnalysisJobId(null);
-    } else if (analysisJobStatus === 'failed') {
-      const message = analysisJobRef.current?.error_message;
-      toast.error(
-        `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${message ? `: ${message}` : ''}`,
-      );
-      setAnalysisJobId(null);
-    }
-  }, [analysisJobId, analysisJobStatus, queryClient, t]);
+    analysisAddToMap.current = layers.chatLayerActions?.onAddDataset ?? null;
+    analysisAddToMap.mapId = id ?? null;
+    return () => {
+      analysisAddToMap.current = null;
+      analysisAddToMap.mapId = null;
+    };
+  });
 
   // feat(#675): "Save as dataset" on the ephemeral badge — open the Analysis
   // panel prefilled with the operation behind the chat preview.
@@ -861,10 +835,10 @@ export function MapBuilderPage() {
     hasPreview: !!layers.ephemeralResult,
     analysisPrefill,
     // setState identity is stable — safe to pass without a memo dep.
-    onAnalysisJobChange: setAnalysisJobId,
+    onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport]);
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
 
   const mobileRailButtons = useMemo(() => [
     {

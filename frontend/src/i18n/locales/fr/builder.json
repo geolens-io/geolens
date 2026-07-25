@@ -963,7 +963,10 @@
     "byFieldNone": "Sans regroupement — tout fusionner",
     "truncatedNoticeTotal": "Affichage des {{count}} premières entités sur {{total}} entités sources",
     "clipLayerLabel": "Ou découper selon une couche",
-    "clipLayerNone": "Aucune — dessiner sur la carte"
+    "clipLayerNone": "Aucune — dessiner sur la carte",
+    "jobCompleteNamed": "« {{title}} » est prêt",
+    "viewDataset": "Voir le jeu de données",
+    "jobSaving": "Enregistrement du jeu de données…"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

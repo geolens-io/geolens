@@ -129,6 +129,10 @@ async def _materialize(
             logger.warning("analysis.job_not_found", job_id=job_id)
             return
         job.status = "running"
+        # current_step only, no numeric progress: the operation is a single
+        # CTAS, so there is no intra-statement telemetry to report and a bar
+        # parked at 10% for five minutes reads as "stuck" rather than "busy".
+        job.current_step = "analyzing"
         await session.commit()
 
         _schema = tenant_data_schema(
@@ -219,6 +223,7 @@ async def _materialize(
             )
             await session.execute(text(f"ALTER TABLE {out_ref} ADD PRIMARY KEY (gid)"))
             await add_4326_column(session, out_table, 4326, schema=_schema)
+            job.current_step = "registering"
             await session.commit()
 
             # Identity is a structural Protocol; registration only reads .id.
