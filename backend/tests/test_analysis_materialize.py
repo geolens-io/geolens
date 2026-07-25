@@ -482,6 +482,64 @@ class TestMaterializeEndpoint:
         assert resp.status_code == 422
         assert "mask layer has too many features" in resp.json()["detail"].lower()
 
+        # fix(#701 review): a NULL snapshot must not read as zero — the mask
+        # table (1 row) is counted live against the patched cap.
+        mask_ds.feature_count = None
+        await test_db_session.commit()
+        with patch.object(router_analysis, "MAX_MASK_LAYER_FEATURES", 0):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={
+                    "operation": "clip",
+                    "mask_dataset_id": str(mask_ds.id),
+                    "title": "Unknown mask size",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 422
+        assert "mask layer has too many features" in resp.json()["detail"].lower()
+
+    async def test_null_feature_count_probes_live_table(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#701 review): a NULL feature_count (legacy imports,
+        register_existing_table paths) must not read as zero — that admits
+        exactly the unknown-size datasets the OOM gate exists for. The gate
+        falls back to a LIMIT-bounded live count of the physical table."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        ds.feature_count = None
+        await test_db_session.commit()
+
+        # The fixture table holds 2 rows; a cap of 1 must reject via the
+        # live probe...
+        with patch.dict(router_analysis._MAX_SOURCE_FEATURES, {"dissolve": 1}):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "dissolve", "title": "Unknown size"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 422
+        assert "too large for dissolve" in resp.json()["detail"]
+
+        # ...and a cap above the true count enqueues.
+        with (
+            patch.dict(router_analysis._MAX_SOURCE_FEATURES, {"dissolve": 5}),
+            patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()),
+        ):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "dissolve", "title": "Small enough"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        await test_db_session.commit()
+
 
 # ---------------------------------------------------------------------------
 # Worker tests (core logic run inline, no queue)

@@ -20,6 +20,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.modules.catalog.datasets.domain.service import (
     get_dataset,
+    resolve_source_feature_count,
     run_analysis_preview,
 )
 from app.modules.quota.service import check_upload_quota
@@ -73,12 +74,14 @@ _POLYGONAL_TYPES = {"POLYGON", "MULTIPOLYGON"}
 
 # fix(#693): a layer-sourced clip mask is unioned WHOLE before any row limit
 # can bite, inside the preview's 10-second budget — a few thousand realistic
-# polygons already blow it. The cap reads the cached catalog feature_count,
-# so it is a blast-radius guard, not an exact gate.
+# polygons already blow it. Counted via resolve_source_feature_count: the
+# cached snapshot when present, a LIMIT-bounded live count when it is NULL
+# (fix(#701 review): NULL-as-zero would admit exactly the unknown-size
+# datasets these gates exist for).
 MAX_MASK_LAYER_FEATURES = 1_000
 
-# fix(#694): per-operation source-size ceilings, enforced at enqueue on the
-# cached catalog feature_count (same snapshot semantics as the mask cap).
+# fix(#694): per-operation source-size ceilings, enforced at enqueue with
+# the same counting rule as the mask cap.
 # dissolve: ST_Union memory grows with input; ~1M polygons OOM-kills a 2 GB
 # db container, taking every connection with it — 250k keeps 4x headroom.
 # buffer: the only output-amplifying operation, and vector datasets carry no
@@ -101,7 +104,10 @@ async def _load_mask_dataset(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="mask_dataset_id must reference a polygon dataset",
         )
-    if (dataset.feature_count or 0) > MAX_MASK_LAYER_FEATURES:
+    mask_count = await resolve_source_feature_count(
+        db, dataset, cap=MAX_MASK_LAYER_FEATURES
+    )
+    if mask_count > MAX_MASK_LAYER_FEATURES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
@@ -174,15 +180,17 @@ async def analysis_materialize_endpoint(
     dataset = await _load_vector_dataset(db, dataset_id, user)
 
     max_features = _MAX_SOURCE_FEATURES.get(body.operation)
-    if max_features is not None and (dataset.feature_count or 0) > max_features:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"This dataset is too large for {body.operation} "
-                f"(about {dataset.feature_count:,} features; the limit is "
-                f"{max_features:,}). Filter it to a smaller dataset first."
-            ),
-        )
+    if max_features is not None:
+        source_count = await resolve_source_feature_count(db, dataset, cap=max_features)
+        if source_count > max_features:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"This dataset is too large for {body.operation} "
+                    f"(the limit is {max_features:,} features). Filter it "
+                    "to a smaller dataset first."
+                ),
+            )
 
     # Fail fast on invalid params before creating a job.
     if body.operation == "clip" and body.mask_dataset_id is not None:

@@ -33,6 +33,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
 )
 from app.modules.catalog.datasets.domain.service_analysis import (
     build_preview_sql,
+    resolve_source_feature_count,
     run_analysis_preview,
 )
 from app.modules.catalog.datasets.domain.service_create import (
@@ -95,6 +96,7 @@ __all__ = [
     "list_relationships",
     "list_relationships_with_total",
     "reset_attribute",
+    "resolve_source_feature_count",
     "run_analysis_preview",
     "update_attribute",
     "update_auto_metadata",
