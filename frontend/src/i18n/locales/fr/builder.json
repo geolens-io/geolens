@@ -958,6 +958,7 @@
     "jobRunning": "Création du jeu de données…",
     "jobComplete": "Jeu de données créé",
     "jobFailed": "La tâche d'analyse a échoué",
+    "jobFailedDetail": "La tâche d'analyse a échoué : {{message}}",
     "addToMap": "Ajouter à la carte",
     "byFieldLabel": "Regrouper par champ (optionnel)",
     "byFieldNone": "Sans regroupement — tout fusionner",

@@ -958,6 +958,7 @@
     "jobRunning": "Creando conjunto de datos…",
     "jobComplete": "Conjunto de datos creado",
     "jobFailed": "El trabajo de análisis falló",
+    "jobFailedDetail": "El trabajo de análisis falló: {{message}}",
     "addToMap": "Añadir al mapa",
     "byFieldLabel": "Agrupar por campo (opcional)",
     "byFieldNone": "Sin agrupación — combinar todo",

@@ -89,8 +89,16 @@ export function AnalysisJobWatcher() {
       );
     } else {
       const message = data?.error_message;
+      // Interpolate the detail through i18n rather than concatenating onto
+      // t(): check:i18n:toast-strings flags any toast call whose first
+      // argument opens with a quote or backtick, template literals included.
       toast.error(
-        `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${message ? `: ${message}` : ''}`,
+        message
+          ? t('analysisTools.jobFailedDetail', {
+              message,
+              defaultValue: 'Analysis job failed: {{message}}',
+            })
+          : t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' }),
         { id: toastId, duration: Infinity },
       );
     }

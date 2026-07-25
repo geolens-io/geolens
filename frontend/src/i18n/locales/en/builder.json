@@ -958,6 +958,7 @@
     "jobRunning": "Creating dataset…",
     "jobComplete": "Dataset created",
     "jobFailed": "Analysis job failed",
+    "jobFailedDetail": "Analysis job failed: {{message}}",
     "addToMap": "Add to map",
     "byFieldLabel": "Group by field (optional)",
     "byFieldNone": "No grouping — merge everything",

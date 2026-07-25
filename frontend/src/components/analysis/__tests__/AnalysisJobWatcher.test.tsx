@@ -12,8 +12,14 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/import/hooks/use-ingest', () => ({ useJobStatus: vi.fn() }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string; title?: string }) =>
-      (options?.defaultValue ?? key).replace('{{title}}', options?.title ?? ''),
+    // Interpolates every {{placeholder}} from options, not just one: the
+    // assertions below check that real values (a dataset title, a job error)
+    // reach the user, which a mock returning the raw template would fake.
+    t: (key: string, options?: Record<string, unknown>) =>
+      String(options?.defaultValue ?? key).replace(
+        /\{\{(\w+)\}\}/g,
+        (_match, name: string) => String(options?.[name] ?? ''),
+      ),
   }),
 }));
 

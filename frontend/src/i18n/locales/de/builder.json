@@ -958,6 +958,7 @@
     "jobRunning": "Datensatz wird erstellt…",
     "jobComplete": "Datensatz erstellt",
     "jobFailed": "Analyseauftrag fehlgeschlagen",
+    "jobFailedDetail": "Analyseauftrag fehlgeschlagen: {{message}}",
     "addToMap": "Zur Karte hinzufügen",
     "byFieldLabel": "Nach Feld gruppieren (optional)",
     "byFieldNone": "Keine Gruppierung — alles zusammenführen",
