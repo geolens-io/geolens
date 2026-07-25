@@ -460,6 +460,12 @@ async def generate_table_name(
     # with no Dataset row; a catalog-only probe would hand out that name
     # forever, failing every retry on CREATE TABLE. The retry self-heals to a
     # _N suffix instead — deliberately NO auto-DROP of the orphan here.
+    # fix(#700 review): probe pg_catalog, not information_schema — the SQL
+    # standard filters information_schema to relations the current role has
+    # privileges on, so a role that doesn't own the orphan (it never reached
+    # grant_reader_access) can be blind to exactly the collision this probe
+    # exists to find. pg_class is visible to every role and covers all
+    # relation kinds that contend for the name.
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
@@ -469,8 +475,9 @@ async def generate_table_name(
     )
     info_result = await session.execute(
         text(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = :schema AND table_name LIKE :pattern"
+            "SELECT c.relname FROM pg_catalog.pg_class c"
+            " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = :schema AND c.relname LIKE :pattern"
         ).bindparams(schema=_schema, pattern=f"{base_slug}%")
     )
     existing |= {row[0] for row in info_result.all()}
