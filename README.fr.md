@@ -15,7 +15,7 @@ GeoLens est un catalogue et un générateur de cartes open source et auto-héber
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)](https://www.python.org/)
-[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![PostgreSQL 18 + PostGIS 3.6](https://img.shields.io/badge/PostGIS_3.6-PostgreSQL_18-336791.svg)](https://postgis.net/)
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
@@ -183,7 +183,7 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 
 ## Démarrage rapide
 
-**Prérequis :** Docker Engine 24+ et Docker Compose v2. La pile incluse fournit PostgreSQL 17. Si GeoLens utilise une base gérée en externe, celle-ci doit être **PostgreSQL 13+** (pour `gen_random_uuid()`) avec **pgvector 0.5+** (pour les index HNSW de recherche sémantique), ainsi que PostGIS, pg_trgm et unaccent. L’API et le worker s’exécutent en conteneurs (Python 3.14 inclus, aucun Python hôte nécessaire). La CLI facultative s’exécute sur l’hôte et nécessite Python 3.11+ ; le SDK Python et les scripts d’initialisation nécessitent Python 3.10+.
+**Prérequis :** Docker Engine 24+ et Docker Compose v2. La pile incluse fournit PostgreSQL 18. Si GeoLens utilise une base gérée en externe, celle-ci doit être **PostgreSQL 13+** (pour `gen_random_uuid()`) avec **pgvector 0.5+** (pour les index HNSW de recherche sémantique), ainsi que PostGIS, pg_trgm et unaccent. L’API et le worker s’exécutent en conteneurs (Python 3.14 inclus, aucun Python hôte nécessaire). La CLI facultative s’exécute sur l’hôte et nécessite Python 3.11+ ; le SDK Python et les scripts d’initialisation nécessitent Python 3.10+.
 
 L’installation en une ligne télécharge les images précompilées épinglées à une version et démarre la pile :
 
@@ -282,7 +282,7 @@ flowchart TB
     end
 
     subgraph store [Data and storage]
-      PG[("PostgreSQL 17<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
+      PG[("PostgreSQL 18<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
       OBJ[("Object storage<br/>local files or S3/MinIO")]
       CACHE[("Valkey cache")]
     end
@@ -307,7 +307,7 @@ flowchart TB
 | Tuiles raster | Titiler (serveur de tuiles COG) |
 | Stockage objet | MinIO (compatible S3, développement local) ou tout fournisseur S3 |
 | Cache | Valkey (cache de tuiles et de requêtes) |
-| Base de données | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm (minimum : PostgreSQL 13, pgvector 0.5) |
+| Base de données | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (minimum : PostgreSQL 13, pgvector 0.5) |
 | Proxy inverse | Nginx (production) / proxy de développement Vite (développement) |
 
 ## Configuration

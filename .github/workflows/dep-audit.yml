@@ -91,9 +91,9 @@ jobs:
         # is report-only. The slim/alpine images we pin (node/python/nginx) are
         # controllable — a CRITICAL there is actionable (bump the tag), so they
         # ENFORCE — keep these three pins matched to the Dockerfile `FROM` tags
-        # they mirror (bump together). postgis/postgis:17-3.5 is an
+        # they mirror (bump together). postgis/postgis:18-3.6 is an
         # uncontrollable third-party fat
-        # Debian-11 image whose CRITICAL set is dominated by CVEs in baked-in Go
+        # Debian-13 image whose CRITICAL set is dominated by CVEs in baked-in Go
         # binaries that only the upstream maintainer can rebuild — and that set
         # shifts with every Trivy DB update. Gating on it would make CI red on
         # upstream timing, not on our code, so it is scanned + REPORTED but not
@@ -106,7 +106,7 @@ jobs:
             enforce: "1"
           - image: "nginxinc/nginx-unprivileged:1.31.1-alpine"
             enforce: "1"
-          - image: "postgis/postgis:17-3.5"
+          - image: "postgis/postgis:18-3.6"
             enforce: "0"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0

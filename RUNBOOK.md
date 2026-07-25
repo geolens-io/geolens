@@ -18,6 +18,7 @@ documentation.
 3. [Restore — managed / external Postgres mode](#3-restore--managed--external-postgres-mode)
 4. [Monitoring](#4-monitoring)
 5. [Incident response — data loss](#5-incident-response--data-loss)
+6. [Major PostgreSQL version upgrade (17 → 18)](#6-major-postgresql-version-upgrade-17--18)
 
 ---
 
@@ -479,3 +480,74 @@ stack to confirm the restore procedure from end to end before trusting the data.
   whether any `ERROR: pg_dump failed` entries appear in the logs for that period.
 - Re-enable the backup service if it was stopped during recovery:
   `docker compose start backup`.
+
+---
+
+## 6. Major PostgreSQL version upgrade (17 → 18)
+
+GeoLens moved its bundled database image from PostgreSQL 17 + PostGIS 3.5 to
+PostgreSQL 18 + PostGIS 3.6. **A PG 17 `pgdata` volume cannot be opened by a
+PG 18 server** — the `db` container will refuse to start against the old
+volume ("database files are incompatible with server"). Plan a maintenance
+window; downtime is roughly proportional to database size (dump + restore).
+
+The supported path for the bundled `db` container is **dump → fresh volume →
+restore**, using the same shipped tooling as disaster recovery (section 2).
+`pg_upgrade` is not practical here because the bundled image ships only one
+set of server binaries.
+
+### Bundled Postgres mode (default Compose deployment)
+
+```bash
+# 0. Take a fresh pre-upgrade dump WITH THE OLD STACK STILL RUNNING, then
+#    verify it exists. (The scheduled backup service works too — this just
+#    guarantees a dump from the moment of the upgrade.)
+docker compose exec backup sh -c \
+  'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB" \
+   > /backups/daily/pre_pg18_manual.dump'
+docker compose exec backup sh -c 'ls -l /backups/daily/pre_pg18_manual.dump'
+
+# 1. Copy the dump out of the backup volume to the host (survives volume ops).
+#    Replace <project> with your Compose project name (see `docker volume ls`).
+mkdir -p ./restore
+docker run --rm -v <project>_backup_data:/backups -v "$PWD/restore":/out alpine \
+  cp /backups/daily/pre_pg18_manual.dump /out/
+
+# 2. Stop the stack and remove ONLY the database volume.
+docker compose down
+docker volume rm <project>_pgdata
+
+# 3. Pull/build the new images and start the db — a fresh PG 18 cluster
+#    initializes, and scripts/init-db.sh provisions extensions + roles.
+docker compose pull   # or: docker compose build db, if you build locally
+docker compose up -d --wait db
+
+# 4. Restore the dump (canonical entry point, validates before restoring).
+./scripts/restore.sh ./restore/pre_pg18_manual.dump
+
+# 5. Start the rest of the stack; migrations run via the migrate service.
+docker compose up -d
+
+# 6. Verify.
+docker compose exec db psql -U geolens -c 'select version();'
+curl -fsS http://localhost:8080/api/health
+```
+
+Multi-tenant deployments: after the fresh-cluster restore, rebuild the
+tenant data-plane roles exactly as documented in
+[section 2 → Multi-tenant role reconstruction](#multi-tenant-role-reconstruction-after-a-fresh-cluster-restore).
+
+### Managed / external Postgres mode
+
+Use your provider's managed major-version upgrade (all managed providers
+support in-place PG 17 → 18), then start the new GeoLens release and let the
+`migrate` service run as usual. GeoLens requires the `postgis`, `pg_trgm`,
+`unaccent`, and `vector` extensions to remain installed after the engine
+upgrade — most providers carry extensions across, but verify with
+`\dx` before starting the stack.
+
+### Rollback
+
+The pre-upgrade dump restores onto a PG 17 stack the same way (step 2-5 with
+the previous image tags). A dump taken FROM PG 18 does NOT restore onto 17 —
+keep the pre-upgrade dump until you are satisfied with the upgrade.

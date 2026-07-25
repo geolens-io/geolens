@@ -15,7 +15,7 @@ GeoLens is an open-source, self-hosted catalog and map builder for GIS and data 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)](https://www.python.org/)
-[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![PostgreSQL 18 + PostGIS 3.6](https://img.shields.io/badge/PostGIS_3.6-PostgreSQL_18-336791.svg)](https://postgis.net/)
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
@@ -186,7 +186,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 ## Quick start
 
 **Prerequisites:** Docker Engine 24+ and Docker Compose v2. The bundled stack
-ships PostgreSQL 17. If you point GeoLens at an externally managed database, it
+ships PostgreSQL 18. If you point GeoLens at an externally managed database, it
 must be **PostgreSQL 13+** (for `gen_random_uuid()`) with **pgvector 0.5+** (for
 HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent. The API and
 worker run in containers (Python 3.14 bundled, no host Python needed). The
@@ -321,7 +321,7 @@ flowchart TB
     end
 
     subgraph store [Data and storage]
-      PG[("PostgreSQL 17<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
+      PG[("PostgreSQL 18<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
       OBJ[("Object storage<br/>local files or S3/MinIO")]
       CACHE[("Valkey cache")]
     end
@@ -346,7 +346,7 @@ flowchart TB
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (tile and query cache) |
-| Database | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm (minimum: PostgreSQL 13, pgvector 0.5) |
+| Database | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (minimum: PostgreSQL 13, pgvector 0.5) |
 | Reverse Proxy | Nginx (production) / Vite dev proxy (development) |
 
 ## Configuration

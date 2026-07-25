@@ -10,6 +10,16 @@ fails, you re-pin the old version and restore the pre-upgrade dump.
 > **Always take a backup before upgrading.** The one-command flow does this for
 > you; the manual flows below tell you exactly when to do it.
 
+> **⚠️ Major PostgreSQL upgrades are a special case.** When a GeoLens release
+> bumps the bundled PostgreSQL **major** version (first occurrence: the release
+> that moves PostgreSQL 17 → 18 / PostGIS 3.5 → 3.6), the flows on this page do
+> **not** apply: a PG 17 `pgdata` volume cannot be opened by a PG 18 server, so
+> after the image pull the `db` container will refuse to start ("database files
+> are incompatible with server"). Follow
+> [RUNBOOK.md § 6 — Major PostgreSQL version upgrade](RUNBOOK.md#6-major-postgresql-version-upgrade-17--18)
+> instead (dump → fresh volume → restore, with rollback notes). The release
+> notes call out every release this applies to.
+
 ---
 
 ## How your install was set up

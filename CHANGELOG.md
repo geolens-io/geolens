@@ -7,6 +7,22 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (self-hosted): bundled database upgraded to PostgreSQL 18 +
+  PostGIS 3.6** (from PostgreSQL 17 + PostGIS 3.5; GEOS 3.9 → 3.13, PROJ 7.2 →
+  9.6, pgvector stays on 0.8.x). An existing PG 17 `pgdata` volume cannot be
+  opened by PG 18 — the standard `scripts/upgrade.sh` flow does **not** apply
+  to this release. Follow the dump → fresh volume → restore procedure in
+  [RUNBOOK.md § 6](RUNBOOK.md#6-major-postgresql-version-upgrade-17--18).
+  Managed/external-Postgres deployments: run your provider's PG 17 → 18
+  upgrade, then deploy as usual (minimum supported external version remains
+  PostgreSQL 13). Motivation: the upstream `postgis/postgis:17-3.5` image line
+  is frozen on Debian bullseye (LTS ends 2026-08-31) at PostgreSQL 17.5, and
+  GEOS 3.13 speeds up the analysis hot paths (dissolve/buffer/repair)
+  1.5–2.3× in like-for-like benchmarks. The backup image's `pg_dump` moves to
+  18 in lockstep (a v17 `pg_dump` cannot dump a PG 18 server).
+
 ## [1.4.13] - 2026-07-24
 
 STAC conformance hardening: the STAC API now passes stac-api-validator for
