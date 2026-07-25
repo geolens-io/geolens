@@ -146,6 +146,27 @@ async def _fail_cancelled_job(
     ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
 
 
+async def _enforce_output_size(session: AsyncSession, out_ref: str) -> None:
+    """Fail the build when the output relation is over MAX_OUTPUT_BYTES.
+
+    ``pg_total_relation_size`` counts heap, TOAST, and indexes, so the
+    post-rewrite call measures what the registered dataset will actually
+    occupy.
+    """
+    result = await session.execute(
+        text("SELECT pg_total_relation_size(CAST(:ref AS regclass))").bindparams(
+            ref=out_ref
+        )
+    )
+    size_bytes = result.scalar_one()
+    if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
+        raise ValueError(
+            f"The analysis output exceeded the "
+            f"{MAX_OUTPUT_BYTES // 1024**3} GB size limit. Reduce the "
+            "buffer distance or run it on a smaller dataset."
+        )
+
+
 async def _mark_job_failed(
     session: AsyncSession,
     *,
@@ -367,19 +388,10 @@ async def _materialize(
                 await session.execute(text("SET LOCAL enable_hashagg = off"))
             await session.execute(text(f"CREATE TABLE {out_ref} AS {select_sql}"))
             out_table_created = True
-            size_bytes = await session.scalar(
-                text(
-                    "SELECT pg_total_relation_size(CAST(:ref AS regclass))"
-                ).bindparams(ref=out_ref)
-            )
-            if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
-                # Fail before spending the rewrite/index/registration phases
-                # on a table that will be rejected; the failure path drops it.
-                raise ValueError(
-                    f"The analysis output exceeded the "
-                    f"{MAX_OUTPUT_BYTES // 1024**3} GB size limit. Reduce the "
-                    "buffer distance or run it on a smaller dataset."
-                )
+            # Early exit only — a table already over the ceiling must not
+            # hold the single worker slot through the rewrite phases. The
+            # authoritative check runs after add_4326_column below.
+            await _enforce_output_size(session, out_ref)
             # Rows with nothing to show are dropped for EVERY operation, not
             # just clip (fix(#692)): buffer/centroid map NULL source
             # geometries to NULL, dissolve unions an all-NULL group to NULL,
@@ -408,6 +420,11 @@ async def _materialize(
             )
             await session.execute(text(f"ALTER TABLE {out_ref} ADD PRIMARY KEY (gid)"))
             await add_4326_column(session, out_table, 4326, schema=_schema)
+            # fix(#701 review): the 4326 rewrite roughly doubles the geometry
+            # payload, rewrites every row, and adds the GIST index — the
+            # post-CTAS probe undercounts the final footprint by a multiple,
+            # so the ceiling is enforced here, on the finished relation.
+            await _enforce_output_size(session, out_ref)
             # In-transaction ANALYZE (fix(#692)): the table only becomes
             # visible to autovacuum at the commit below, and the first tile
             # queries land before its pass — without statistics the planner

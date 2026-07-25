@@ -1112,6 +1112,19 @@ class TestMaterializeWorker:
         assert executed.index(timeouts[1]) > executed.index(analyzes[0])
         # Only dissolve flips the aggregation strategy (fix(#694)).
         assert not [s for s in executed if "enable_hashagg" in s]
+        # fix(#701 review): the size ceiling is probed twice — a cheap early
+        # exit after the CTAS, and the authoritative check on the finished
+        # relation (post-4326-rewrite, so heap + TOAST + GIST all count),
+        # which must land before the ANALYZE that precedes the commit.
+        # Positions, not values: both probes stringify identically, so
+        # list.index() would find the first one twice.
+        size_pos = [i for i, s in enumerate(executed) if "pg_total_relation_size" in s]
+        assert len(size_pos) == 2
+        rewrite_pos = max(
+            i for i, s in enumerate(executed) if "geom_4326" in s and "UPDATE" in s
+        )
+        assert size_pos[1] > rewrite_pos
+        assert size_pos[1] < executed.index(analyzes[0])
 
     async def test_dissolve_ctas_disables_hashagg(
         self,
