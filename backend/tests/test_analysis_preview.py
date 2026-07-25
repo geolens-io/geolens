@@ -745,20 +745,23 @@ class TestBuildPreviewSql:
         # inside the JSON itself.
         assert sql.count("'") == 6
 
-    def test_clip_sql_fences_subquery_pullup(self):
-        """fix(#692): three outer references to geom_out would otherwise let
-        the planner flatten the subquery and evaluate ST_Intersection three
-        times per surviving row."""
-        req = AnalysisPreviewRequest(operation="clip", mask=CLIP_MASK)
-        assert "OFFSET 0" in build_preview_sql('"data"."t1"', req)
-
-    def test_one_to_one_ops_stay_flattenable(self):
-        """The pull-up is what lets buffer/centroid ride the pkey index and
-        halt at the row cap — they must NOT be fenced."""
-        buffer_req = AnalysisPreviewRequest(operation="buffer", distance_meters=10)
-        centroid_req = AnalysisPreviewRequest(operation="centroid")
-        assert "OFFSET 0" not in build_preview_sql('"data"."t1"', buffer_req)
-        assert "OFFSET 0" not in build_preview_sql('"data"."t1"', centroid_req)
+    def test_preview_sql_evaluates_expression_once_per_row(self):
+        """fix(#700 review): the geometry expression lives in a LATERAL
+        subquery (OFFSET 0 blocks pull-up), so the three geom_out references
+        don't triple-evaluate it — while the base table stays a plain FROM
+        item whose pkey index can satisfy ORDER BY and early-terminate at
+        the sandbox row cap."""
+        cases = {
+            "ST_Intersection": AnalysisPreviewRequest(operation="clip", mask=CLIP_MASK),
+            "ST_Buffer": AnalysisPreviewRequest(operation="buffer", distance_meters=10),
+            "ST_Centroid": AnalysisPreviewRequest(operation="centroid"),
+        }
+        for fn, req in cases.items():
+            sql = build_preview_sql('"data"."t1"', req)
+            assert "CROSS JOIN LATERAL (SELECT" in sql
+            assert "OFFSET 0" in sql
+            assert sql.count(fn) == 1
+            assert sql.endswith("ORDER BY gid")
 
     def test_clip_mask_injection_rejected(self):
         req = AnalysisPreviewRequest(

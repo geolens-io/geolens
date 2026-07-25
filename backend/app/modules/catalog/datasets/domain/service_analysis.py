@@ -58,17 +58,19 @@ def build_preview_sql(
     # preview budget along a shared boundary and hide real intersections with
     # higher gids, even reporting a false "no features".
     #
-    # fix(#692): fence the subquery for clip only. Three outer references to
-    # geom_out would otherwise let the planner flatten _op and evaluate
-    # ST_Intersection three times per row — and clip's WHERE means every
-    # mask-matching row is evaluated before the LIMIT can stop anything.
-    # buffer/centroid must stay flattenable: the pull-up is what lets their
-    # ORDER BY gid ride the pkey index and halt at the row cap.
-    fence = " OFFSET 0" if request.operation == "clip" else ""
+    # fix(#700 review): evaluate the geometry expression exactly once per row
+    # via a LATERAL subquery whose OFFSET 0 blocks pull-up — three outer
+    # references to geom_out would otherwise be inlined and evaluated three
+    # times per row. Unlike fencing the whole row source, the join shape
+    # keeps ORDER BY gid able to ride the pkey index, so the sandbox row cap
+    # can still stop the scan early instead of evaluating every mask match.
+    not_empty = "geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
+    filters = f"{where} AND {not_empty}" if where else f" WHERE {not_empty}"
     return (
         f"{cte}SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
-        f" FROM (SELECT gid, {expr} AS geom_out FROM {table_ref}{where}{fence}) AS _op"
-        f" WHERE geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
+        f" FROM {table_ref}"
+        f" CROSS JOIN LATERAL (SELECT {expr} AS geom_out OFFSET 0) AS _op"
+        f"{filters}"
         f" ORDER BY gid"
     )
 
