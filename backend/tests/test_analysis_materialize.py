@@ -7,16 +7,18 @@ Requirements:
   - Docker database must be running (docker compose up db)
 """
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.api import router_analysis
 from app.platform.jobs.models import IngestJob
-from app.processing.analysis.tasks import _materialize
+from app.processing.analysis.tasks import _materialize, _user_error_message
 
 from tests.factories import get_user_id
 from tests.test_analysis_preview import _create_mask_dataset, _create_polygon_dataset
@@ -254,9 +256,12 @@ class TestMaterializeEndpoint:
     async def test_materialize_private_source_hidden(
         self,
         client: AsyncClient,
-        viewer_auth_header: dict,
+        editor_auth_header: dict,
         test_db_session: AsyncSession,
     ):
+        """Rule 1 on the source dataset. Editor (who HAS the upload
+        permission) so the check exercised here is visibility, not the
+        permission gate covered below."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(
             test_db_session, created_by=admin_id, visibility="private"
@@ -264,9 +269,35 @@ class TestMaterializeEndpoint:
         resp = await client.post(
             _materialize_url(ds.id),
             json={"operation": "centroid", "title": "Nope"},
-            headers=viewer_auth_header,
+            headers=editor_auth_header,
         )
         assert resp.status_code == 404
+
+    async def test_materialize_requires_upload_permission(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#692): materialize creates a dataset, so it carries the same
+        `upload` permission as every ingest endpoint that creates one — a
+        viewer gets 403 even on a dataset they can read. Preview must stay
+        open to viewers: read-only, nothing persisted, and the chat tool's
+        read-only surface depends on it."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={"operation": "centroid", "title": "Not allowed"},
+            headers=viewer_auth_header,
+        )
+        assert resp.status_code == 403
+        preview = await client.post(
+            f"/datasets/{ds.id}/analysis/preview/",
+            json={"operation": "centroid"},
+            headers=viewer_auth_header,
+        )
+        assert preview.status_code == 200, preview.text
 
     async def test_dissolve_unknown_column_rejected(
         self,
@@ -421,6 +452,123 @@ class TestMaterializeWorker:
             )
         ).scalar_one()
         assert name_count == 2
+
+    async def test_null_geometry_rows_are_dropped_from_output(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#692): the preview filters NULL/EMPTY results in SQL, so the
+        saved dataset must agree — buffer of a NULL geometry is NULL and must
+        not survive into the registered output."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(f"INSERT INTO data.{ds.table_name} (name) VALUES ('null-geom')")  # noqa: S608
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="buffer",
+            title=f"Buffered nulls {uuid.uuid4().hex[:6]}",
+            distance_meters=100,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        total, nulls = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT COUNT(*), COUNT(*) FILTER (WHERE geom_4326 IS NULL) "  # noqa: S608
+                    f"FROM data.{new_ds.table_name}"
+                )
+            )
+        ).one()
+        assert (total, nulls) == (2, 0)
+
+    async def test_terminal_job_is_not_resurrected(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#692): the worker claims pending→running fenced on the attempt
+        token. A job that already reached a terminal state — the pending
+        sweeper failing a backlogged job, or the defer orphan-guard failing
+        the row after the queue INSERT committed — must stay there; before
+        the claim, a late delivery would flip it back to running and later
+        'complete', defeating the per-user cap and creating a dataset for a
+        job the user was told failed."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "failed"
+        job.error_message = "Stale: pending for over 1 hour (never queued)"
+        await test_db_session.commit()
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="centroid",
+            title="Resurrected?",
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.dataset_id is None
+
+    async def test_worker_cancellation_fails_job_and_reraises(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#692): graceful worker shutdown cancels the task mid-CTAS. The
+        job must fail immediately with a comprehensible message — not strand
+        in 'running' holding the slot until the 60-minute sweep — and the
+        CancelledError must propagate so the queue records the abort."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        slow_sql = (
+            "SELECT 1 AS gid, "
+            "(SELECT ST_GeomFromText('POINT(0 0)', 4326) FROM pg_sleep(30)) AS geom"
+        )
+        with patch(
+            "app.processing.analysis.tasks._build_materialize_select",
+            return_value=slow_sql,
+        ):
+            run = asyncio.create_task(
+                _materialize(
+                    job_id=str(job.id),
+                    dataset_id=str(ds.id),
+                    user_id=str(admin_id),
+                    operation="centroid",
+                    title="Cancelled",
+                )
+            )
+            # Cancel only once the worker owns the row (claim committed), so
+            # the cancellation lands inside the guarded body, then give the
+            # CTAS a beat to start.
+            for _ in range(100):
+                await asyncio.sleep(0.1)
+                await test_db_session.refresh(job)
+                if job.status == "running":
+                    break
+            assert job.status == "running"
+            await asyncio.sleep(0.3)
+            run.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await run
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "worker shut down" in (job.error_message or "")
 
     async def test_dissolve_materialize_single_feature(
         self,
@@ -624,28 +772,33 @@ class TestMaterializeWorker:
         test_db_session: AsyncSession,
     ):
         """When CREATE TABLE loses a name race, cleanup must not drop the
-        winner's table — only a table this job actually created."""
-        from app.processing.ingest.service import generate_table_name
+        winner's table — only a table this job actually created.
 
+        fix(#692): generate_table_name now sidesteps live relations, so the
+        lost race is simulated by pinning the generated name to the occupied
+        one — exactly what happens when two jobs draw the same name in the
+        window between generation and CREATE."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
         job = await _create_job(test_db_session, admin_id)
         title = f"Collide {uuid.uuid4().hex[:6]}"
-        # generate_table_name checks only the catalog, so pre-creating the
-        # physical table simulates the concurrent winner.
-        expected, _ = await generate_table_name(title, test_db_session)
+        expected = f"collide_{uuid.uuid4().hex[:6]}"
         await test_db_session.execute(
             text(f'CREATE TABLE data."{expected}" (marker integer)')
         )
         await test_db_session.commit()
 
-        await _materialize(
-            job_id=str(job.id),
-            dataset_id=str(ds.id),
-            user_id=str(admin_id),
-            operation="centroid",
-            title=title,
-        )
+        with patch(
+            "app.processing.ingest.service.generate_table_name",
+            AsyncMock(return_value=(expected, None)),
+        ):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="centroid",
+                title=title,
+            )
 
         await test_db_session.refresh(job)
         assert job.status == "failed"
@@ -663,6 +816,56 @@ class TestMaterializeWorker:
                         "SELECT column_name FROM information_schema.columns "
                         "WHERE table_schema = 'data' AND table_name = :t"
                     ).bindparams(t=expected)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert cols == ["marker"]
+
+    async def test_orphan_physical_table_self_heals_to_suffix(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#692): a table committed without a catalog row (worker killed
+        during registration) used to poison its title forever — the name
+        generator collided only against the catalog, so every retry died on
+        CREATE TABLE. It now probes information_schema too: the retry lands
+        on a _2 suffix and the orphan is left untouched for an operator."""
+        from app.processing.ingest.service import generate_table_name
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+        title = f"Orphaned {uuid.uuid4().hex[:6]}"
+        orphan, _ = await generate_table_name(title, test_db_session)
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{orphan}" (marker integer)')
+        )
+        await test_db_session.commit()
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="centroid",
+            title=title,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds.table_name == f"{orphan}_2"
+        cols = (
+            (
+                await test_db_session.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'data' AND table_name = :t"
+                    ).bindparams(t=orphan)
                 )
             )
             .scalars()
@@ -732,6 +935,47 @@ class TestMaterializeWorker:
         assert job.status == "failed"
         assert "Mask dataset not found" in (job.error_message or "")
 
+    async def test_analyze_and_registration_timeout_between_phases(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#692): the output table is ANALYZEd before the mid-task commit
+        (tile queries land before autovacuum's pass), and registration gets a
+        fresh statement_timeout (SET LOCAL died with that commit). Pin both
+        by inspecting the statements the worker actually ran."""
+        executed: list[str] = []
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+
+        real_execute = _AS.execute
+
+        async def spying_execute(self, statement, *args, **kwargs):
+            executed.append(str(statement))
+            return await real_execute(self, statement, *args, **kwargs)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch.object(_AS, "execute", spying_execute):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="centroid",
+                title=f"Spied {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        analyzes = [s for s in executed if s.startswith("ANALYZE ")]
+        assert len(analyzes) == 1
+        timeouts = [s for s in executed if "SET LOCAL statement_timeout" in s]
+        # One budget for the build transaction, one re-armed for registration.
+        assert len(timeouts) == 2
+        # The registration budget is set after the ANALYZE (i.e. in the new
+        # transaction), not before.
+        assert executed.index(timeouts[1]) > executed.index(analyzes[0])
+
     async def test_mixed_geometry_dissolve_stays_typed(
         self,
         test_db_session: AsyncSession,
@@ -792,3 +1036,38 @@ class TestMaterializeWorker:
             )
         ).scalar_one()
         assert geom_type == "MULTIPOLYGON"
+
+
+# ---------------------------------------------------------------------------
+# Error-message sanitization (pure, no DB)
+# ---------------------------------------------------------------------------
+
+
+class TestUserErrorMessage:
+    def test_db_error_hides_generated_sql(self):
+        """fix(#692): SQLAlchemy appends `[SQL: …]` to DB errors — schema and
+        table names must never reach GET /jobs/{id}."""
+        from sqlalchemy.exc import ProgrammingError
+
+        exc = ProgrammingError(
+            'CREATE TABLE "data"."secret_output" AS SELECT 1', {}, Exception("boom")
+        )
+        msg = _user_error_message(exc)
+        assert "secret_output" not in msg
+        assert "CREATE TABLE" not in msg
+
+    def test_statement_timeout_is_actionable(self):
+        from sqlalchemy.exc import OperationalError
+
+        exc = OperationalError(
+            'CREATE TABLE "data"."big_output" AS SELECT 1',
+            {},
+            Exception("canceling statement due to statement timeout"),
+        )
+        msg = _user_error_message(exc)
+        assert "time limit" in msg
+        assert "big_output" not in msg
+
+    def test_domain_errors_pass_through(self):
+        msg = _user_error_message(ValueError("Analysis produced no features to save"))
+        assert "no features" in msg

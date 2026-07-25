@@ -30640,7 +30640,7 @@
     },
     "/datasets/{dataset_id}/analysis/materialize/": {
       "post": {
-        "description": "Materialize an analysis result as a new private dataset (async job).\n\nRequires read visibility on the source dataset; the new dataset is owned\nby the caller and counted against their dataset quota (the atomic slot\nreservation runs at registration inside the worker). Poll\n``GET /jobs/{job_id}`` for progress.",
+        "description": "Materialize an analysis result as a new private dataset (async job).\n\nRequires the ``upload`` permission (this endpoint creates a dataset) and\nread visibility on the source dataset; the new dataset is owned by the\ncaller and counted against their dataset quota (the atomic slot\nreservation runs at registration inside the worker). Poll\n``GET /jobs/{job_id}`` for progress.",
         "operationId": "analysis_materialize_endpoint_datasets__dataset_id__analysis_materialize__post",
         "parameters": [
           {

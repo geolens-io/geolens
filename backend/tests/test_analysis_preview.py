@@ -745,6 +745,21 @@ class TestBuildPreviewSql:
         # inside the JSON itself.
         assert sql.count("'") == 6
 
+    def test_clip_sql_fences_subquery_pullup(self):
+        """fix(#692): three outer references to geom_out would otherwise let
+        the planner flatten the subquery and evaluate ST_Intersection three
+        times per surviving row."""
+        req = AnalysisPreviewRequest(operation="clip", mask=CLIP_MASK)
+        assert "OFFSET 0" in build_preview_sql('"data"."t1"', req)
+
+    def test_one_to_one_ops_stay_flattenable(self):
+        """The pull-up is what lets buffer/centroid ride the pkey index and
+        halt at the row cap — they must NOT be fenced."""
+        buffer_req = AnalysisPreviewRequest(operation="buffer", distance_meters=10)
+        centroid_req = AnalysisPreviewRequest(operation="centroid")
+        assert "OFFSET 0" not in build_preview_sql('"data"."t1"', buffer_req)
+        assert "OFFSET 0" not in build_preview_sql('"data"."t1"', centroid_req)
+
     def test_clip_mask_injection_rejected(self):
         req = AnalysisPreviewRequest(
             operation="clip",

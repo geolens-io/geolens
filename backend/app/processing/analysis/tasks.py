@@ -12,20 +12,26 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
 import structlog
 from prometheus_client import Counter
 from sqlalchemy import select, text
+from sqlalchemy.exc import DataError, InternalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import render_geometry_expr, render_mask_cte
-from app.platform.jobs.heartbeat import maintain_ingest_job_heartbeat
+from app.platform.jobs.heartbeat import (
+    claim_ingest_job_attempt,
+    maintain_ingest_job_heartbeat,
+    resolve_ingest_job_attempt,
+    stop_ingest_job_heartbeat,
+    update_ingest_job_for_attempt,
+)
 from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -38,6 +44,14 @@ _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 # ponytail: hardcoded ceiling; promote to persistent-config if operators hit it.
 MATERIALIZE_TIMEOUT = "300s"
 
+# The mid-task commit that makes the output table durable also ends the
+# transaction carrying MATERIALIZE_TIMEOUT — registration then runs full-scan
+# metadata extraction (COUNT + ST_Extent + the sample-values CTE) in a fresh
+# transaction, which would otherwise have no statement budget at all
+# (fix(#692)). Larger than the CTAS budget: those scans are cheap relative to
+# the build, but must never be unbounded.
+REGISTRATION_TIMEOUT = "600s"
+
 # Served by the worker's :8001 /metrics endpoint (default registry).
 # ponytail: analysis-only counter; generalize to all ingest job types when
 # another type needs it.
@@ -46,6 +60,102 @@ ANALYSIS_JOBS = Counter(
     "Materialize-analysis job outcomes",
     ["operation", "status"],
 )
+
+
+def _user_error_message(exc: Exception) -> str:
+    """Map a failure onto text safe to return from ``GET /jobs/{job_id}``.
+
+    SQLAlchemy stringifies DB errors with the full statement appended
+    (``[SQL: CREATE TABLE "data"."…" AS …]``), which would hand internal
+    schema and table names to the client (fix(#692)). Mirrors the sandbox's
+    ``_handle_execution_error`` categories; raw text stays in server logs.
+    """
+    if isinstance(exc, SQLAlchemyError):
+        exc_text = str(exc).lower()
+        if "querycancelederror" in exc_text or "statement timeout" in exc_text:
+            return (
+                "The analysis exceeded its processing time limit. "
+                "Try a smaller dataset or area."
+            )
+        if isinstance(exc, (DataError, InternalError)):
+            return "The analysis failed while processing this data"
+        return "The analysis failed due to a database error"
+    return str(exc)[:2000]
+
+
+async def _fail_cancelled_job(
+    *,
+    job_id: str,
+    attempt_id: uuid.UUID,
+    schema: str,
+    out_table: str | None,
+    operation: str,
+) -> None:
+    """Bookkeeping for a materialize cancelled mid-run, on a fresh session.
+
+    Fenced on the attempt token FIRST: a successful fence proves the row was
+    still 'running', so the final registration commit (which atomically
+    persists the dataset and flips the row to 'complete') has not happened,
+    and any committed output table is an unregistered orphan — safe to drop.
+    If the fence misses, the job already reached a terminal state and the
+    table must be left alone.
+    """
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        if not await update_ingest_job_for_attempt(
+            session,
+            uuid.UUID(job_id),
+            attempt_id,
+            values={
+                "status": "failed",
+                "error_message": (
+                    "The worker shut down before this analysis finished. Run it again."
+                ),
+            },
+        ):
+            await session.rollback()
+            return
+        await session.commit()
+        if out_table is not None:
+            try:
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
+                )
+                await session.commit()
+            except Exception:  # broad: best-effort cleanup of the partial table
+                await session.rollback()
+    ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
+
+
+async def _mark_job_failed(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    exc: Exception,
+    schema: str,
+    out_table: str | None,
+    operation: str,
+) -> None:
+    """Roll back, drop this job's own partial table, and record the failure."""
+    from app.platform.jobs.models import IngestJob
+
+    await session.rollback()
+    if out_table is not None:
+        try:
+            await session.execute(
+                text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
+            )
+            await session.commit()
+        except Exception:  # broad: best-effort cleanup of the partial table
+            await session.rollback()
+    failed_job = await session.get(IngestJob, uuid.UUID(job_id))
+    if failed_job is not None:
+        failed_job.status = "failed"
+        # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
+        failed_job.error_message = _user_error_message(exc)
+        await session.commit()
+    ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
 
 
 async def _list_carry_columns(
@@ -131,45 +241,34 @@ async def _materialize(
         if job is None:
             logger.warning("analysis.job_not_found", job_id=job_id)
             return
-        job.status = "running"
-        # Stamp the start time. Without it this row carries NO liveness signal
-        # at all, and the platform's stale-job recovery matches on
-        # `coalesce(heartbeat_at, started_at) < cutoff` — which is NULL for
-        # such a row, so a worker that dies mid-CTAS would strand the job in
-        # 'running' forever.
-        _now = datetime.now(timezone.utc)
-        job.started_at = _now
-        # ...and renew a lease from here on, or started_at alone would condemn
-        # a job that legitimately outlives JOB_TIMEOUT_SECONDS (fix(#682
-        # review)). statement_timeout bounds each STATEMENT, not the task: the
-        # CTAS, DELETE, EXISTS probe, two ALTERs, the primary key,
-        # add_4326_column and registration each get their own budget, so a
-        # large materialize can run long. Without a lease the sweep would mark
-        # a live job failed, the watcher would report a false failure, the
-        # per-user slot would reopen for a second CTAS, and this worker would
-        # later overwrite 'failed' with 'complete'.
+        # Fenced claim (fix(#692), the ingest_file pattern): pending → running
+        # succeeds at most once per attempt token, and stamps
+        # started_at/heartbeat_at — the liveness signals the stale-job sweep
+        # and the lease below depend on (fix(#682 review): statement_timeout
+        # bounds each STATEMENT, not the task, so a large materialize can
+        # legitimately run long and only the lease keeps it out of the sweep).
+        # Without the claim this worker would act on rows some other actor
+        # already moved to a terminal state — the pending-sweeper failing a
+        # backlogged job after an hour, or the defer orphan-guard failing the
+        # row after the queue INSERT committed — and resurrect them: the
+        # per-user cap admits a second CTAS, and a dataset appears for a job
+        # the user was told failed.
         #
-        # Reuse the token the row already carries (IngestJob.attempt_id
-        # defaults to uuid4 at creation) rather than minting a fresh one —
-        # rotating it here would invalidate the token the enqueue side
-        # recorded, and this task is retry=0 so there is no second delivery to
-        # fence against. The fallback covers rows predating that default.
-        attempt_id = job.attempt_id
-        if attempt_id is None:
-            attempt_id = uuid.uuid4()
-            job.attempt_id = attempt_id
-        job.heartbeat_at = _now
+        # The row's own attempt_id is the token (column-defaulted at
+        # creation; retry=0, so there is no second delivery to fence against).
+        # Rows predating that default are adopted atomically.
+        attempt_id = job.attempt_id or await resolve_ingest_job_attempt(job.id, None)
+        if attempt_id is None or not await claim_ingest_job_attempt(
+            session, job.id, attempt_id
+        ):
+            await session.rollback()
+            logger.warning("analysis.attempt_not_claimed", job_id=job_id)
+            return
         # current_step only, no numeric progress: the operation is a single
         # CTAS, so there is no intra-statement telemetry to report and a bar
         # parked at 10% for five minutes reads as "stuck" rather than "busy".
         job.current_step = "analyzing"
         await session.commit()
-
-        # Renews on its own session, so it never contends with the work below,
-        # and returns by itself once the row leaves 'running'.
-        heartbeat = asyncio.create_task(
-            maintain_ingest_job_heartbeat(job.id, attempt_id)
-        )
 
         _schema = tenant_data_schema(
             current_tenant_var.get() if is_multi_tenant() else None
@@ -180,7 +279,17 @@ async def _materialize(
         # generated name, an unconditional cleanup would destroy the winner's
         # table while its dataset registration stays live.
         out_table_created = False
+        # Created inside the try so the finally below always reaps it: a
+        # heartbeat left running after an exception here would renew a lease
+        # for a job nobody is executing, and the sweep can never fail a row
+        # with a fresh lease (fix(#692)).
+        heartbeat: asyncio.Task[None] | None = None
         try:
+            # Renews on its own session, so it never contends with the work
+            # below, and returns by itself once the row leaves 'running'.
+            heartbeat = asyncio.create_task(
+                maintain_ingest_job_heartbeat(job.id, attempt_id)
+            )
             port = get_processing_port()
             Dataset = port.get_dataset_orm_class()
             result = await session.execute(
@@ -232,17 +341,18 @@ async def _materialize(
             )
             await session.execute(text(f"CREATE TABLE {out_ref} AS {select_sql}"))
             out_table_created = True
-            if operation == "clip":
-                # Boundary-grazing rows survive ST_Intersects but extract to
-                # EMPTY (see analysis_sql.render_geometry_expr) — drop them.
-                await session.execute(
-                    text(f"DELETE FROM {out_ref} WHERE ST_IsEmpty(geom)")
-                )
+            # Rows with nothing to show are dropped for EVERY operation, not
+            # just clip (fix(#692)): buffer/centroid map NULL source
+            # geometries to NULL, dissolve unions an all-NULL group to NULL,
+            # and boundary-grazing clips survive ST_Intersects but extract to
+            # EMPTY (see analysis_sql.render_geometry_expr). The preview
+            # filters the same rows in SQL (fix(#680 review)) — the saved
+            # dataset must agree with the preview the user approved.
+            await session.execute(
+                text(f"DELETE FROM {out_ref} WHERE geom IS NULL OR ST_IsEmpty(geom)")
+            )
             has_features = await session.scalar(
-                text(
-                    f"SELECT EXISTS (SELECT 1 FROM {out_ref} "
-                    f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom))"
-                )
+                text(f"SELECT EXISTS (SELECT 1 FROM {out_ref})")
             )
             if not has_features:
                 # e.g. a clip matching nothing, or dissolving an empty
@@ -259,9 +369,22 @@ async def _materialize(
             )
             await session.execute(text(f"ALTER TABLE {out_ref} ADD PRIMARY KEY (gid)"))
             await add_4326_column(session, out_table, 4326, schema=_schema)
+            # In-transaction ANALYZE (fix(#692)): the table only becomes
+            # visible to autovacuum at the commit below, and the first tile
+            # queries land before its pass — without statistics the planner
+            # has no geometry selectivity for `&&` against the fresh GIST
+            # index and can seq-scan a large output.
+            await session.execute(text(f"ANALYZE {out_ref}"))
             job.current_step = "registering"
             await session.commit()
 
+            # The commit above ended the transaction and the SET LOCAL with
+            # it — give registration its own budget (fix(#692)). Set here
+            # rather than inside register_existing_table, which is shared
+            # with the upload path.
+            await session.execute(
+                text(f"SET LOCAL statement_timeout = '{REGISTRATION_TIMEOUT}'")
+            )
             # Identity is a structural Protocol; registration only reads .id.
             requester = SimpleNamespace(id=uuid.UUID(user_id))
             dataset = await register_existing_table(
@@ -275,28 +398,52 @@ async def _materialize(
             job.status = "complete"
             await session.commit()
             ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
-        except Exception as exc:  # broad: any failure must mark the job failed, not raise into the queue
-            logger.warning("analysis.materialize_failed", job_id=job_id, error=str(exc))
-            await session.rollback()
-            if out_table and out_table_created:
-                try:
-                    await session.execute(
-                        text(f'DROP TABLE IF EXISTS "{_schema}"."{out_table}"')
+        except asyncio.CancelledError:
+            # Graceful worker shutdown cancels this task after the drain
+            # window; `except Exception` cannot catch it, and retry=0 means no
+            # redelivery — without this branch the row would strand in
+            # 'running', holding the user's one analysis slot, until the
+            # 60-minute sweep (fix(#692)). Bookkeeping runs on a fresh session
+            # (this one may be mid-statement) and is shielded so the
+            # cancellation doesn't also cancel it; then re-raise so the queue
+            # records the abort.
+            try:
+                await asyncio.shield(
+                    asyncio.wait_for(
+                        _fail_cancelled_job(
+                            job_id=job_id,
+                            attempt_id=attempt_id,
+                            schema=_schema,
+                            out_table=out_table if out_table_created else None,
+                            operation=operation,
+                        ),
+                        timeout=15,
                     )
-                    await session.commit()
-                except Exception:  # broad: best-effort cleanup of the partial table
-                    await session.rollback()
-            failed_job = await session.get(IngestJob, uuid.UUID(job_id))
-            if failed_job is not None:
-                failed_job.status = "failed"
-                failed_job.error_message = str(exc)[:2000]
-                await session.commit()
-            ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
+                )
+            except BaseException:  # broad: best-effort cleanup during shutdown; the raise below preserves the abort
+                logger.warning("analysis.cancel_cleanup_failed", job_id=job_id)
+            raise
+        except Exception as exc:  # broad: any failure must mark the job failed, not raise into the queue
+            logger.warning(
+                "analysis.materialize_failed",
+                job_id=job_id,
+                error=str(exc),
+                exc_info=True,
+            )
+            await _mark_job_failed(
+                session,
+                job_id=job_id,
+                exc=exc,
+                schema=_schema,
+                out_table=out_table if out_table_created else None,
+                operation=operation,
+            )
         finally:
             # The row has left 'running' by now, so the loop would exit on its
-            # own at the next renewal — cancel so the task does not outlive the
-            # work by up to one heartbeat interval.
-            heartbeat.cancel()
+            # own at the next renewal — stop (cancel + await, the ingest
+            # convention) so the task neither outlives the work by a heartbeat
+            # interval nor leaks a pending task through worker shutdown.
+            await stop_ingest_job_heartbeat(heartbeat)
 
 
 @task_app.task(

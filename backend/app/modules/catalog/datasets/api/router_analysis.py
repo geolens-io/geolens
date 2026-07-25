@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.identity import Identity
-from app.modules.auth.dependencies import get_current_active_user
+from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.schemas import (
     AnalysisMaterializeRequest,
@@ -130,13 +130,18 @@ async def analysis_materialize_endpoint(
     dataset_id: uuid.UUID,
     body: AnalysisMaterializeRequest,
     request: Request,
-    user: Identity = Depends(get_current_active_user),
+    # fix(#692): materialize creates a dataset, so it carries the same
+    # permission as every ingest endpoint that creates one. Preview stays on
+    # the plain active-user dependency: it is read-only, persists nothing,
+    # and the chat tool's read-only surface depends on it.
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> AnalysisMaterializeResponse:
     """Materialize an analysis result as a new private dataset (async job).
 
-    Requires read visibility on the source dataset; the new dataset is owned
-    by the caller and counted against their dataset quota (the atomic slot
+    Requires the ``upload`` permission (this endpoint creates a dataset) and
+    read visibility on the source dataset; the new dataset is owned by the
+    caller and counted against their dataset quota (the atomic slot
     reservation runs at registration inside the worker). Poll
     ``GET /jobs/{job_id}`` for progress.
     """

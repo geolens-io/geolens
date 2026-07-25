@@ -57,9 +57,17 @@ def build_preview_sql(
     # (which pass ST_Intersects but extract to EMPTY) could consume the whole
     # preview budget along a shared boundary and hide real intersections with
     # higher gids, even reporting a false "no features".
+    #
+    # fix(#692): fence the subquery for clip only. Three outer references to
+    # geom_out would otherwise let the planner flatten _op and evaluate
+    # ST_Intersection three times per row — and clip's WHERE means every
+    # mask-matching row is evaluated before the LIMIT can stop anything.
+    # buffer/centroid must stay flattenable: the pull-up is what lets their
+    # ORDER BY gid ride the pkey index and halt at the row cap.
+    fence = " OFFSET 0" if request.operation == "clip" else ""
     return (
         f"{cte}SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
-        f" FROM (SELECT gid, {expr} AS geom_out FROM {table_ref}{where}) AS _op"
+        f" FROM (SELECT gid, {expr} AS geom_out FROM {table_ref}{where}{fence}) AS _op"
         f" WHERE geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
         f" ORDER BY gid"
     )

@@ -455,6 +455,26 @@ async def generate_table_name(
     )
     existing = {row[0] for row in result.all()}
 
+    # fix(#692): also collide against live relations. A worker killed between
+    # committing an output table and registering it leaves a physical table
+    # with no Dataset row; a catalog-only probe would hand out that name
+    # forever, failing every retry on CREATE TABLE. The retry self-heals to a
+    # _N suffix instead — deliberately NO auto-DROP of the orphan here.
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    _schema = tenant_data_schema(
+        current_tenant_var.get() if is_multi_tenant() else None
+    )
+    info_result = await session.execute(
+        text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = :schema AND table_name LIKE :pattern"
+        ).bindparams(schema=_schema, pattern=f"{base_slug}%")
+    )
+    existing |= {row[0] for row in info_result.all()}
+
     if slug in existing:
         suffix = 2
         while f"{base_slug}_{suffix}" in existing:
