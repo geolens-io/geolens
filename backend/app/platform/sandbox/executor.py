@@ -12,6 +12,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.tokens import TokenType
 from sqlalchemy import text
+from sqlalchemy.exc import DataError, InternalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
@@ -258,6 +259,16 @@ def _handle_execution_error(exc: Exception, sql: str) -> None:
         or "read only" in exc_str
     ):
         raise SandboxError("query_failed", "Query failed") from exc
+
+    # Data-driven failures: SQLAlchemy maps SQLSTATE class 22 (data
+    # exception) to DataError and XX-class (how GEOS/PostGIS topology errors
+    # surface) to InternalError. A distinct category lets server-built-SQL
+    # callers (analysis) report these as 4xx without also reclassifying
+    # infrastructure failures (connection loss, role binding) as user error.
+    if isinstance(exc, (DataError, InternalError)):
+        raise SandboxError(
+            "query_data_error", "The query failed while processing this data"
+        ) from exc
 
     # All other DB errors
     raise SandboxError("query_failed", "Query failed") from exc

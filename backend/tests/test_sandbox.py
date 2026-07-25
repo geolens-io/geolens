@@ -549,3 +549,29 @@ class TestValidateAndExecuteIntegration:
                 admin,
             )
         assert exc_info.value.category == "table_not_accessible"
+
+
+class TestExecutionErrorClassification:
+    """fix(#680 review): only data-driven failures may map to a 4xx category —
+    infrastructure failures must stay generic (callers report those as 500)."""
+
+    def test_data_and_internal_errors_classify_as_data_error(self):
+        from sqlalchemy.exc import DataError, InternalError
+
+        from app.platform.sandbox.executor import _handle_execution_error
+
+        for exc_cls in (DataError, InternalError):
+            exc = exc_cls("SELECT 1", None, Exception("GEOSIntersection error"))
+            with pytest.raises(SandboxError) as exc_info:
+                _handle_execution_error(exc, "SELECT 1")
+            assert exc_info.value.category == "query_data_error"
+
+    def test_operational_errors_stay_generic(self):
+        from sqlalchemy.exc import OperationalError
+
+        from app.platform.sandbox.executor import _handle_execution_error
+
+        exc = OperationalError("SELECT 1", None, Exception("connection refused"))
+        with pytest.raises(SandboxError) as exc_info:
+            _handle_execution_error(exc, "SELECT 1")
+        assert exc_info.value.category == "query_failed"

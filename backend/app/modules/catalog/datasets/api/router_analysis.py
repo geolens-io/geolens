@@ -38,13 +38,15 @@ router = APIRouter(
 _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # Sandbox error categories → HTTP status. Everything else is a sanitized 500.
-# query_failed is a 422 here (not 500): all SQL on this path is server-built
-# from validated params, so execution failures are data-driven (e.g. degenerate
-# geometries), not server faults.
+# query_data_error (SQLSTATE class 22 / GEOS internal errors) is a 422: all
+# SQL on this path is server-built from validated params, so those failures
+# are data-driven (e.g. degenerate geometries). Generic query_failed stays a
+# 500 — it also covers connection loss, tenant-context and role-binding
+# failures, which are server faults, not bad requests.
 _SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
-    "query_failed": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "query_data_error": status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
 
 

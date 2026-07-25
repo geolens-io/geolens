@@ -45,9 +45,16 @@ def build_preview_sql(table_ref: str, request: AnalysisPreviewRequest) -> str:
         distance_meters=request.distance_meters,
         mask=request.mask,
     )
+    # fix(#680 review): drop NULL/EMPTY results in SQL, not in Python — the
+    # sandbox applies its row cap to raw rows, so boundary-grazing clips
+    # (which pass ST_Intersects but extract to EMPTY) could consume the whole
+    # preview budget along a shared boundary and hide real intersections with
+    # higher gids, even reporting a false "no features".
     return (
-        f"SELECT gid, ST_AsGeoJSON({expr}, {_GEOJSON_PRECISION}) AS geometry_json"
-        f" FROM {table_ref}{where} ORDER BY gid"
+        f"SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
+        f" FROM (SELECT gid, {expr} AS geom_out FROM {table_ref}{where}) AS _op"
+        f" WHERE geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
+        f" ORDER BY gid"
     )
 
 

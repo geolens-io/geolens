@@ -416,6 +416,61 @@ class TestAnalysisPreviewEndpoint:
             )
             assert resp.status_code == 200, (stray, resp.text)
 
+    async def test_grazing_rows_do_not_consume_preview_cap(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#680 review): 550 low-gid rows only graze the mask boundary
+        (they pass ST_Intersects but extract to EMPTY). The empties must be
+        filtered inside the SQL row cap, or they exhaust the 500-row preview
+        budget and hide the one real intersection at gid 551."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  geom geometry(Polygon, 4326),"
+                f"  geom_4326 geometry(Polygon, 4326)"
+                f")"
+            )
+        )
+        # Grazers share the mask's right edge (x = 0.5) from outside.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) "
+                f"SELECT ST_MakeEnvelope(0.5, -0.4, 1.5, 0.4, 4326),"
+                f"       ST_MakeEnvelope(0.5, -0.4, 1.5, 0.4, 4326) "
+                f"FROM generate_series(1, 550)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "
+                f"(ST_MakeEnvelope(0, 0, 0.3, 0.3, 4326),"
+                f" ST_MakeEnvelope(0, 0, 0.3, 0.3, 4326))"
+            )
+        )
+        await test_db_session.commit()
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="POLYGON",
+            feature_count=551,
+        )
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask": CLIP_MASK},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["feature_count"] == 1
+        assert data["truncated"] is False
+
     async def test_invalid_source_geometry_repaired(
         self,
         client: AsyncClient,
