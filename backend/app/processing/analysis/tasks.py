@@ -198,19 +198,27 @@ async def _recheck_size_caps(
         )
 
 
-async def _enforce_output_size(session: AsyncSession, out_ref: str) -> None:
+async def _enforce_output_size(
+    session: AsyncSession, schema: str, table_name: str
+) -> None:
     """Fail the build when the output relation is over MAX_OUTPUT_BYTES.
 
     ``pg_total_relation_size`` counts heap, TOAST, and indexes, so the
     post-rewrite call measures what the registered dataset will actually
-    occupy.
+    occupy. Resolved via pg_class with the ``:schema`` bind rather than a
+    ``regclass`` cast (fix(#701 review)): the tenant statement hook only
+    recognizes schema references in SQL text or schema-named binds, and it
+    masks string literals — a schema hidden inside a generic bind would
+    skip the tenant role setup and fail the lookup in multi-tenant.
     """
     result = await session.execute(
-        text("SELECT pg_total_relation_size(CAST(:ref AS regclass))").bindparams(
-            ref=out_ref
-        )
+        text(
+            "SELECT pg_total_relation_size(c.oid) FROM pg_catalog.pg_class c"
+            " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = :schema AND c.relname = :table_name"
+        ).bindparams(schema=schema, table_name=table_name)
     )
-    size_bytes = result.scalar_one()
+    size_bytes = result.scalar_one_or_none()
     if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
         raise ValueError(
             f"The analysis output exceeded the "
@@ -450,7 +458,7 @@ async def _materialize(
             # Early exit only — a table already over the ceiling must not
             # hold the single worker slot through the rewrite phases. The
             # authoritative check runs after add_4326_column below.
-            await _enforce_output_size(session, out_ref)
+            await _enforce_output_size(session, _schema, out_table)
             # Rows with nothing to show are dropped for EVERY operation, not
             # just clip (fix(#692)): buffer/centroid map NULL source
             # geometries to NULL, dissolve unions an all-NULL group to NULL,
@@ -483,7 +491,7 @@ async def _materialize(
             # payload, rewrites every row, and adds the GIST index — the
             # post-CTAS probe undercounts the final footprint by a multiple,
             # so the ceiling is enforced here, on the finished relation.
-            await _enforce_output_size(session, out_ref)
+            await _enforce_output_size(session, _schema, out_table)
             # In-transaction ANALYZE (fix(#692)): the table only becomes
             # visible to autovacuum at the commit below, and the first tile
             # queries land before its pass — without statistics the planner
