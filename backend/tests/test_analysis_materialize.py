@@ -13,12 +13,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.core.db as core_db
 from app.modules.catalog.datasets.api import router_analysis
 from app.platform.jobs.models import IngestJob
-from app.processing.analysis.tasks import _materialize, _user_error_message
+from app.processing.analysis.tasks import (
+    _fail_cancelled_job,
+    _materialize,
+    _user_error_message,
+)
 
 from tests.factories import get_user_id
 from tests.test_analysis_preview import _create_mask_dataset, _create_polygon_dataset
@@ -565,6 +570,46 @@ class TestMaterializeWorker:
             run.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await run
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "worker shut down" in (job.error_message or "")
+
+    async def test_cancel_cleanup_releases_working_sessions_row_lock(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#700 review): a cancel can land while the working session's
+        open transaction still holds the job-row lock (e.g. mid-commit,
+        after flush). The cleanup must roll that session back before its
+        fenced update, or it blocks on its own lock until the shield
+        timeout and the row strands in 'running' after all."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "running"
+        await test_db_session.commit()
+
+        # Late-bound attribute access: conftest repoints app.core.db's
+        # session maker at the per-run test DB after import time.
+        async with core_db.async_session() as working_session:
+            # Uncommitted UPDATE → this transaction holds the row lock,
+            # exactly as a cancel landing mid-commit would leave it.
+            await working_session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job.id)
+                .values(current_step="registering")
+            )
+            await asyncio.wait_for(
+                _fail_cancelled_job(
+                    working_session,
+                    job_id=str(job.id),
+                    attempt_id=job.attempt_id,
+                    schema="data",
+                    out_table=None,
+                    operation="centroid",
+                ),
+                timeout=10,
+            )
 
         await test_db_session.refresh(job)
         assert job.status == "failed"

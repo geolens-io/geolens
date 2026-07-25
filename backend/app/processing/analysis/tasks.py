@@ -84,6 +84,7 @@ def _user_error_message(exc: Exception) -> str:
 
 
 async def _fail_cancelled_job(
+    working_session: AsyncSession,
     *,
     job_id: str,
     attempt_id: uuid.UUID,
@@ -101,6 +102,17 @@ async def _fail_cancelled_job(
     table must be left alone.
     """
     from app.core.db import async_session
+
+    # fix(#700 review): the cancel can land while `working_session`'s open
+    # transaction still holds the job-row lock (any flush since its last
+    # commit, e.g. mid-commit). Release it first — time-bounded so a wedged
+    # connection can't eat the whole shield window — or the fenced update
+    # below waits on our own lock until the shield timeout and the row
+    # strands in 'running' anyway.
+    try:
+        await asyncio.wait_for(working_session.rollback(), timeout=5)
+    except Exception:  # broad: cleanup must reach the fenced update regardless
+        logger.warning("analysis.cancel_rollback_failed", job_id=job_id)
 
     async with async_session() as session:
         if not await update_ingest_job_for_attempt(
@@ -411,6 +423,7 @@ async def _materialize(
                 await asyncio.shield(
                     asyncio.wait_for(
                         _fail_cancelled_job(
+                            session,
                             job_id=job_id,
                             attempt_id=attempt_id,
                             schema=_schema,
