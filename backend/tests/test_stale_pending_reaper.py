@@ -15,20 +15,39 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.router import PENDING_TIMEOUT_SECONDS, fail_stale_jobs
+from tests.factories import get_user_id
+from app.platform.jobs.router import (
+    PENDING_TIMEOUT_SECONDS,
+    fail_stale_jobs,
+    get_job_status,
+)
 
 pytestmark = pytest.mark.anyio
 
 
-async def _stale_pending_job(session: AsyncSession) -> IngestJob:
+def _request() -> SimpleNamespace:
+    """Minimal Request stand-in; only the owner branch is exercised here."""
+    return SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
+
+
+def _user(user_id: uuid.UUID) -> SimpleNamespace:
+    return SimpleNamespace(id=user_id)
+
+
+async def _stale_pending_job(
+    session: AsyncSession, created_by: uuid.UUID | None = None
+) -> IngestJob:
     """A pending job old enough for the reaper to consider it."""
-    job = IngestJob(source_filename="reaper-test", status="pending")
+    job = IngestJob(
+        source_filename="reaper-test", status="pending", created_by=created_by
+    )
     session.add(job)
     await session.flush()
     old = datetime.now(timezone.utc) - timedelta(seconds=PENDING_TIMEOUT_SECONDS + 600)
@@ -38,6 +57,12 @@ async def _stale_pending_job(session: AsyncSession) -> IngestJob:
         ).bindparams(old=old, id=job.id)
     )
     await session.commit()
+    # The session is expire_on_commit=False, so the instance still holds the
+    # created_at from flush. get_job_status() computes elapsed in PYTHON from
+    # that attribute (the sweeper compares in SQL), so without this refresh the
+    # poll-path tests silently exercise a job that is not stale at all — and
+    # pass for the wrong reason.
+    await session.refresh(job)
     return job
 
 
@@ -118,3 +143,36 @@ class TestStalePendingReaper:
 
         await test_db_session.refresh(job)
         assert job.status == "pending"
+
+
+class TestStatusPollDoesNotReapQueuedJobs:
+    """fix(#724 review): the poll path is the one that actually fires.
+
+    get_job_status() runs its own age-only pending auto-fail, and the frontend
+    polls it every 2s (useJobStatus / AnalysisJobWatcher). Fixing only the
+    periodic sweeper left the whole failure reachable: the first poll after the
+    one-hour mark still killed a correctly-queued job.
+    """
+
+    async def test_poll_spares_a_job_the_queue_still_holds(
+        self, test_db_session: AsyncSession
+    ):
+        owner = await get_user_id(test_db_session, "admin")
+        job = await _stale_pending_job(test_db_session, created_by=owner)
+        await _queue_procrastinate_job(test_db_session, job.id, "todo")
+
+        await get_job_status(job.id, _request(), _user(owner), test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "pending", job.error_message
+        assert job.error_message is None
+
+    async def test_poll_still_reaps_a_true_orphan(self, test_db_session: AsyncSession):
+        owner = await get_user_id(test_db_session, "admin")
+        job = await _stale_pending_job(test_db_session, created_by=owner)
+
+        await get_job_status(job.id, _request(), _user(owner), test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "without being processed" in (job.error_message or "")

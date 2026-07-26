@@ -47,6 +47,36 @@ JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
 
 
+def no_live_procrastinate_job():
+    """Predicate: this ``ingest_jobs`` row has no queued or running task.
+
+    fix(#724): age alone conflated two states. A job Procrastinate still holds
+    as 'todo' was queued correctly and is simply waiting — and since fix(#695)
+    deferred analysis to priority -10, waiting behind a steady upload stream is
+    by design, with no upper bound. Failing those at the one-hour mark is both
+    a lie and a loss: the analysis dies while its task sits in the queue, and
+    the worker later picks the task up against a row already marked failed.
+
+    A genuine orphan — committed, then the process died before defer landed a
+    row, the gap defer_with_orphan_guard structurally cannot cover — has no row
+    at all, so it is still reaped and the message is true by construction.
+
+    Correlated on args->>'job_id', which every task in this codebase passes.
+    Schema hard-coded to 'catalog', matching observability/metrics/jobs.py.
+
+    fix(#724 review): BOTH pending auto-fail paths must use this. The periodic
+    sweeper is the lesser one — get_job_status() runs the same age check on
+    every poll, and the frontend polls it every 2s via useJobStatus /
+    AnalysisJobWatcher, so the polling path is what actually kills a starved
+    job the moment it crosses an hour.
+    """
+    return text(
+        "NOT EXISTS (SELECT 1 FROM catalog.procrastinate_jobs pj"
+        " WHERE pj.args->>'job_id' = ingest_jobs.id::text"
+        " AND pj.status IN ('todo', 'doing'))"
+    )
+
+
 @dataclass(frozen=True)
 class StaleCleanupOutcome:
     """Complete result of one stale-job and retained-staging cleanup pass."""
@@ -301,36 +331,12 @@ async def fail_stale_jobs(
     now = datetime.now(timezone.utc)
     pending_cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
 
-    # fix(#724): only reap a pending job that really was never queued.
-    #
-    # The age test alone conflated two states. A job Procrastinate still holds
-    # as 'todo' has been queued correctly and is simply waiting — and since
-    # fix(#695) deferred analysis to priority -10, waiting behind a steady
-    # upload stream is by design, with no upper bound on the wait. Those jobs
-    # were failed at the one-hour mark with "never queued", which is both a
-    # lie and a loss: the user's analysis is killed while its task sits in the
-    # queue, and the worker later picks the task up against a job row that has
-    # already been marked failed.
-    #
-    # A genuine orphan — committed, then the defer died before the row landed
-    # (the case defer_with_orphan_guard cannot cover, e.g. the process is
-    # killed between the two) — has no Procrastinate row at all, so it still
-    # gets reaped, and now the message is true by construction.
-    #
-    # Correlated on args->>'job_id', which every task in this codebase passes.
-    # Schema is hard-coded 'catalog' to match observability/metrics/jobs.py.
-    no_live_procrastinate_job = text(
-        "NOT EXISTS (SELECT 1 FROM catalog.procrastinate_jobs pj"
-        " WHERE pj.args->>'job_id' = ingest_jobs.id::text"
-        " AND pj.status IN ('todo', 'doing'))"
-    )
-
     pending_result = await db.execute(
         update(IngestJob)
         .where(
             IngestJob.status == "pending",
             IngestJob.created_at < pending_cutoff,
-            no_live_procrastinate_job,
+            no_live_procrastinate_job(),
         )
         .values(
             status="failed",
@@ -739,7 +745,10 @@ async def get_job_status(
             await db.commit()
             await db.refresh(job)
 
-    # Auto-fail jobs stuck in "pending" beyond the timeout (orphaned / never queued)
+    # Auto-fail jobs stuck in "pending" beyond the timeout (orphaned / never
+    # queued). fix(#724 review): gated on the same live-queue predicate the
+    # sweeper uses — this is the path that actually fires, because the frontend
+    # polls this route every 2s for any job it is tracking.
     if job.status == "pending" and job.created_at is not None:
         elapsed = (now - job.created_at).total_seconds()
         if elapsed > PENDING_TIMEOUT_SECONDS:
@@ -751,6 +760,7 @@ async def get_job_status(
                     IngestJob.status == "pending",
                     IngestJob.created_at
                     < now - timedelta(seconds=PENDING_TIMEOUT_SECONDS),
+                    no_live_procrastinate_job(),
                 )
                 .values(
                     status="failed",
