@@ -23,6 +23,14 @@ and releases use semantic versioning.
   1.5–2.3× in like-for-like benchmarks. The backup image's `pg_dump` moves to
   18 in lockstep (a v17 `pg_dump` cannot dump a PG 18 server).
 
+- **Every backup verifies itself, and the RUNBOOK states the RPO.** Each cycle
+  now reads its dump back end-to-end and discards it if unreadable, so a
+  corrupt backup surfaces the night it happens rather than during a recovery.
+  RUNBOOK § 1 states the default recovery point objective (up to 24 hours)
+  outright instead of leaving it to be inferred from the cron schedule, and § 3
+  is explicit that point-in-time recovery is a different mechanism rather than
+  a finer setting — logical dumps cannot participate in WAL replay — including
+  the failure mode a hand-rolled `archive_command` introduces.
 - **`scripts/upgrade.sh` refuses to cross a PostgreSQL major version.** It now
   compares the running server's major against the one the target release
   bundles and stops **before** anything changes — no image pull, no version
@@ -48,6 +56,14 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **Backup integrity checks now catch a truncated dump.** Both the pre-restore
+  gate in `scripts/restore.sh` and the new per-cycle check validate the archive
+  with `pg_restore -f /dev/null` instead of `--list`. A `-Fc` archive keeps its
+  table of contents at the front, so `--list` accepts a dump truncated anywhere
+  after it — the exact shape a disk filling mid-dump produces. This mattered
+  most on restore, where the old check reported "validation passed" and then
+  ran `--clean --if-exists`, dropping the live database before failing partway
+  through repopulating it.
 - **OGC: an over-maximum `limit` is clamped on the records collection.**
   `/collections/datasets/items` returned 400 for a `limit` above the page-size
   ceiling; OGC API Features Core `/req/core/fc-limit-response-1(C)` requires

@@ -31,14 +31,25 @@ fi
 # Validate backup integrity before restore
 # chore(#704): read stdin by OMITTING the filename — the literal "-" alias was
 # never documented for pg_restore and PG 18 rejects it as a filename.
+#
+# `-f /dev/null`, NOT `--list`: the -Fc table of contents sits at the front of
+# the archive, so `--list` reports a truncated dump as valid (measured: a
+# 60%-truncated dump passes `--list`). That matters more here than anywhere
+# else — the restore below runs `--clean --if-exists`, which DROPS the existing
+# objects first. Passing a short dump through this gate means dropping a live
+# database and then failing partway through repopulating it. `-f /dev/null`
+# forces every data block to be read and decompressed. It costs one extra
+# stream of the dump into the container (~0.1s per 20 MB of archive), which is
+# cheap next to what it prevents.
 echo "Validating backup integrity..."
 if ! "${COMPOSE[@]}" exec -T db \
-    pg_restore --list < "$BACKUP_FILE" > /dev/null 2>&1; then
-    echo "ERROR: Backup file is corrupt or invalid: $BACKUP_FILE" >&2
-    echo "pg_restore --list validation failed. Aborting restore." >&2
+    pg_restore -f /dev/null < "$BACKUP_FILE" > /dev/null 2>&1; then
+    echo "ERROR: Backup file is corrupt, truncated, or invalid: $BACKUP_FILE" >&2
+    echo "pg_restore could not read the archive end-to-end. Aborting restore" >&2
+    echo "BEFORE dropping anything — the existing database is untouched." >&2
     exit 1
 fi
-echo "Backup validation passed."
+echo "Backup validation passed (archive read end-to-end)."
 echo ""
 
 # Configuration with defaults
@@ -200,5 +211,10 @@ fi
 #   Plus a volume mount for /wal_archive and a separate WAL shipping process.
 #   Consider pgBackRest for production WAL management.
 #
-# See: https://www.postgresql.org/docs/17/continuous-archiving.html
+#   WARNING: a failing archive_command makes PostgreSQL retain WAL until
+#   pg_wal fills the filesystem and the database stops accepting writes.
+#   Monitor archiver health before enabling this. See RUNBOOK.md section 3.
+#
+# chore(#704): docs pinned to the bundled major — move with db/Dockerfile.
+# See: https://www.postgresql.org/docs/18/continuous-archiving.html
 # ==============================================================================
