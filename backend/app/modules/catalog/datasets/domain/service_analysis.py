@@ -137,6 +137,7 @@ async def run_analysis_preview(
     user_id: uuid.UUID,
     *,
     mask_dataset: Dataset | None = None,
+    release_session: bool = False,
 ) -> AnalysisPreviewResponse:
     """Execute a preview operation and assemble a GeoJSON FeatureCollection.
 
@@ -147,6 +148,17 @@ async def run_analysis_preview(
     ``mask_dataset`` (clip only) sources the mask from another dataset's
     unioned geometries; the CALLER owns its visibility check, exactly as it
     owns the source dataset's.
+
+    ``release_session`` returns the caller's pooled connection before the
+    sandbox query (see below). OPT-IN, because the rollback that releases it
+    expires EVERY ORM instance on the session, not just ``dataset`` — including
+    the authenticated ``User``, whose next attribute read would then attempt a
+    sync refresh and raise ``MissingGreenlet`` (verified: after a rollback even
+    ``user.id`` raises). Only pass it from a caller that owns the session and
+    reads nothing off it afterwards. The REST endpoint qualifies — it evaluates
+    ``user.id`` before the call and touches no ORM state after, and no
+    middleware reads the ORM user post-handler. The AI chat tool does NOT: both
+    chat paths read ``user.id`` again after the tool returns.
     """
     table_ref = _safe_table_ref(dataset.table_name)
     mask_table_ref = (
@@ -165,7 +177,8 @@ async def run_analysis_preview(
     # → HTTP 500. `rollback()` returns the connection (measured: checkedout
     # 1 → 0), so a preview costs one slot instead of two.
     source_feature_count = dataset.feature_count
-    await db.rollback()
+    if release_session:
+        await db.rollback()
     result = await execute_safe(
         db,
         sql,

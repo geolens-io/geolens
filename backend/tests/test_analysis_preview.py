@@ -202,6 +202,39 @@ class TestAnalysisPreviewEndpoint:
         # source_feature_count — it has to be read off the Dataset beforehand.
         assert resp.json()["source_feature_count"] == 2
 
+    async def test_preview_does_not_release_the_session_by_default(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#716 review): the release must stay OPT-IN.
+
+        The rollback that returns the connection expires EVERY ORM instance on
+        the session, not just `dataset` — including the authenticated User.
+        A caller that reads `user.id` afterwards (both AI-chat paths do) would
+        get a sync refresh on an expired instance and raise MissingGreenlet.
+        So the default must leave the session alone, and callers opt in only
+        when they own it and need nothing from it after.
+        """
+        from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
+        from app.modules.catalog.datasets.domain.service import run_analysis_preview
+        from app.modules.auth.models import User
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        user = await test_db_session.get(User, admin_id)
+        assert user is not None
+
+        await run_analysis_preview(
+            test_db_session,
+            ds,
+            AnalysisPreviewRequest(operation="centroid"),
+            admin_id,
+        )
+
+        # Would raise MissingGreenlet if the session had been rolled back.
+        assert user.id == admin_id
+        assert user.username is not None
+
     async def test_buffer_preview(
         self,
         client: AsyncClient,

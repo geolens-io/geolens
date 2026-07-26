@@ -138,7 +138,14 @@ async def analysis_preview_endpoint(
     )
     try:
         return await run_analysis_preview(
-            db, dataset, body, user.id, mask_dataset=mask_dataset
+            db,
+            dataset,
+            body,
+            user.id,
+            mask_dataset=mask_dataset,
+            # fix(#716): safe here — `user.id` is evaluated above, and neither
+            # this handler nor any middleware reads ORM state afterwards.
+            release_session=True,
         )
     except ValueError as exc:
         raise HTTPException(
