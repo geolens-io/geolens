@@ -102,6 +102,18 @@ const pointLayer = {
   dataset_geometry_type: 'Point',
 } as unknown as MapLayerResponse;
 
+// ux(#720): an ordinary (non-DEM) raster layer. It carries a dataset_id, so the
+// old `!is_dem` filter offered it; rasters have no geometry_type and the server
+// 422s on them.
+const rasterLayer = {
+  id: 'l5',
+  dataset_id: 'ds5',
+  dataset_name: 'Sentinel-2 TCI',
+  display_name: null,
+  is_dem: false,
+  dataset_geometry_type: null,
+} as unknown as MapLayerResponse;
+
 function renderPanel(
   layers: MapLayerResponse[],
   props: Partial<React.ComponentProps<typeof AnalysisPanel>> = {},
@@ -122,6 +134,26 @@ beforeEach(() => {
 
 describe('AnalysisPanel', () => {
   beforeEach(() => useAnalysisJobStore.setState({ job: null }));
+
+  it('treats a raster-only map as having no analysable layers (#720)', () => {
+    renderPanel([rasterLayer, groupLayer]);
+    // Was: a fully enabled form with the raster pre-selected, whose Preview
+    // 422'd into a generic "The submitted values are invalid." toast.
+    expect(
+      screen.getByText('Add a dataset layer to use analysis tools'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Preview' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not offer a raster layer alongside vector ones (#720)', () => {
+    renderPanel([rasterLayer, datasetLayer]);
+    // The vector layer is selected rather than the raster that comes first.
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+    expect(screen.getByText('Parcels')).toBeInTheDocument();
+    expect(screen.queryByText('Sentinel-2 TCI')).not.toBeInTheDocument();
+  });
 
   it('hides the dataset-creation half without the upload permission (#700)', () => {
     mockCanUpload = false;
