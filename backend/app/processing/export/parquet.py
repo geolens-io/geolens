@@ -150,7 +150,7 @@ async def export_parquet(
     Returns (file_path, download_filename, media_type). The caller owns the
     returned file's parent directory (FileResponse background cleanup).
 
-    ponytail: builds the whole selection in memory before writing one Parquet
+    Builds the whole selection in memory before writing one Parquet
     file. Bounded by _MAX_EXPORT_FEATURES below; switch to a fixed-schema batched
     ParquetWriter if that ceiling ever needs raising.
     """
