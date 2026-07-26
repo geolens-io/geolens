@@ -936,7 +936,7 @@
     "opBuffer": "Puffer",
     "opCentroid": "Zentroide",
     "opClip": "Zuschneiden",
-    "distanceLabel": "Distanz (Meter)",
+    "distanceLabel": "Entfernung",
     "drawMask": "Zuschneidebereich zeichnen",
     "drawingHint": "Auf der Karte zeichnen; Doppelklick zum Abschließen",
     "cancelDrawing": "Abbrechen",
@@ -967,7 +967,16 @@
     "clipLayerNone": "Keine — auf der Karte zeichnen",
     "jobCompleteNamed": "„{{title}}“ ist fertig",
     "viewDataset": "Datensatz anzeigen",
-    "jobSaving": "Datensatz wird gespeichert…"
+    "jobSaving": "Datensatz wird gespeichert…",
+    "noLayerSelected": "Keine Ebene ausgewählt",
+    "jobQueued": "In der Warteschlange — wartet auf einen Worker…",
+    "truncatedCreateHint": "Verwenden Sie Datensatz erstellen, um die Operation auf alle Objekte anzuwenden.",
+    "distanceUnitLabel": "Entfernungseinheit",
+    "unitMeters": "Meter",
+    "unitKilometers": "Kilometer",
+    "unitFeet": "Fuß",
+    "unitMiles": "Meilen",
+    "drawMaskPointerHint": "Zeichnen erfordert einen Zeiger. Zum Zuschneiden ohne Zeiger wählen Sie unten eine Polygonebene."
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",

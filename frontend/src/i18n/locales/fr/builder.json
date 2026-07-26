@@ -936,7 +936,7 @@
     "opBuffer": "Zone tampon",
     "opCentroid": "Centroïdes",
     "opClip": "Découper",
-    "distanceLabel": "Distance (mètres)",
+    "distanceLabel": "Distance",
     "drawMask": "Dessiner la zone de découpe",
     "drawingHint": "Dessinez sur la carte ; double-cliquez pour terminer",
     "cancelDrawing": "Annuler",
@@ -967,7 +967,16 @@
     "clipLayerNone": "Aucune — dessiner sur la carte",
     "jobCompleteNamed": "« {{title}} » est prêt",
     "viewDataset": "Voir le jeu de données",
-    "jobSaving": "Enregistrement du jeu de données…"
+    "jobSaving": "Enregistrement du jeu de données…",
+    "noLayerSelected": "Aucune couche sélectionnée",
+    "jobQueued": "En file d'attente — en attente d'un worker…",
+    "truncatedCreateHint": "Utilisez Créer un jeu de données pour exécuter l’opération sur toutes les entités.",
+    "distanceUnitLabel": "Unité de distance",
+    "unitMeters": "mètres",
+    "unitKilometers": "kilomètres",
+    "unitFeet": "pieds",
+    "unitMiles": "milles",
+    "drawMaskPointerHint": "Le dessin nécessite un pointeur. Pour découper sans, choisissez une couche de polygones ci-dessous."
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

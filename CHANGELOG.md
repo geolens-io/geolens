@@ -34,6 +34,18 @@ and releases use semantic versioning.
   unaffected — the check is skipped, since the bundled image's version says
   nothing about the database those installs actually use.
 
+- **Analysis buffers accept feet, miles, and kilometres.** The buffer distance
+  gains a unit picker instead of being metres-only; the conversion happens in
+  the browser, so the API contract is unchanged.
+- **A queued analysis job says so.** Analysis jobs are stamped `queued` when
+  they are created, so a job waiting for a worker reads as queued instead of
+  looking indistinguishable from a broken one. This matters more now that
+  analysis is deliberately dispatched below uploads.
+- **Clip-to-layer offers only polygon layers.** The mask picker filters to
+  polygonal layers instead of letting the request fail server-side.
+- **A capped preview points at Create dataset.** The truncation notice names
+  the way to run the operation over every feature.
+
 ### Fixed
 
 - **OGC: an over-maximum `limit` is clamped on the records collection.**
@@ -44,6 +56,17 @@ and releases use semantic versioning.
   route and STAC item-search. `/search/datasets/`, which shares the same
   parameters and answered 422 for the same input, clamps identically — so
   clients no longer need per-route error handling.
+- **Retrying a failed analysis job gives analysis advice.** Failed analysis
+  jobs said "The source is no longer available. Start the import again" — copy
+  written for imports, on a job that never was one.
+- **Two analysis errors were untranslated.** A missing-layer error surfaced in
+  English regardless of locale, and the panel's failure line concatenated the
+  raw server message onto a translated prefix instead of using the existing
+  template. The new dataset name field also enforces the server's length limit
+  as you type rather than after submitting.
+- **Drawing a clip area names its keyboard alternative.** The draw tool is
+  pointer-only; the panel now points to clip-by-layer instead of leaving that
+  to be discovered.
 
 ## [1.4.13] - 2026-07-24
 

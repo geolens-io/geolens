@@ -4407,7 +4407,7 @@ export type JobStatusResponse = {
     /**
      * Current Step
      */
-    current_step?: 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
+    current_step?: 'queued' | 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | 'analyzing' | 'registering' | null;
     /**
      * Dataset Id
      */

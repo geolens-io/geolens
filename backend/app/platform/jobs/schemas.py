@@ -88,6 +88,10 @@ class JobStatusResponse(BaseModel):
     progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     current_step: (
         Literal[
+            # ux(#698): stamped at creation so a pending job reads as queued
+            # rather than as a job with nothing to say for itself. Applies to
+            # analysis today; any producer may set it.
+            "queued",
             "validating",
             "ogr2ogr",
             "finalize",

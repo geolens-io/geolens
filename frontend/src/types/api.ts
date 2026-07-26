@@ -603,6 +603,8 @@ export interface JobStatusResponse {
    */
   progress?: number | null;
   current_step?:
+    // ux(#698): stamped at creation, before any worker picks the job up.
+    | 'queued'
     | 'validating'
     | 'ogr2ogr'
     | 'finalize'

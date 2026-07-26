@@ -29,6 +29,14 @@ const MAX_BUFFER_METERS = 100_000;
 // shadcn Select items can't carry an empty value — sentinels for "none".
 const BY_FIELD_NONE = '__none__';
 const MASK_LAYER_NONE = '__none__';
+// ux(#698): mirrors _POLYGONAL_TYPES in
+// backend/app/modules/catalog/datasets/api/router_analysis.py — the server
+// rejects any other mask dataset with a 422.
+const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
+// ux(#686): buffer distances are metres on the wire; the picker converts so a
+// user thinking in feet or miles doesn't have to.
+const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
+type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
@@ -80,6 +88,8 @@ export function AnalysisPanel({
   const [distance, setDistance] = useState(
     prefill?.distanceMeters != null ? String(prefill.distanceMeters) : '500',
   );
+  // A chat handoff always carries metres, so the unit starts there regardless.
+  const [distanceUnit, setDistanceUnit] = useState<BufferUnit>('m');
   const [mask, setMask] = useState<GeoJSON.Polygon | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   // Layer-sourced clip mask; mutually exclusive with a drawn mask.
@@ -112,9 +122,14 @@ export function AnalysisPanel({
 
   const datasetLayers = layers.filter((l) => !!l.dataset_id && !l.is_dem);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
-  // Candidate clip-mask layers: any other dataset layer (the server rejects
-  // non-polygon mask datasets with a clear 422).
-  const maskLayerOptions = datasetLayers.filter((l) => l.id !== layerId);
+  // Candidate clip-mask layers. ux(#698): filtered to polygonal layers rather
+  // than deferring to the server's 422 — dataset_geometry_type is already here,
+  // so offering a point or line layer only buys the user a failed request.
+  const maskLayerOptions = datasetLayers.filter(
+    (l) =>
+      l.id !== layerId &&
+      POLYGONAL_GEOMETRY_TYPES.has((l.dataset_geometry_type ?? '').toUpperCase()),
+  );
   const maskLayer =
     maskLayerId !== MASK_LAYER_NONE
       ? maskLayerOptions.find((l) => l.id === maskLayerId)
@@ -178,7 +193,16 @@ export function AnalysisPanel({
     setIsDrawing(true);
   }, [mapInstanceRef, stopDrawing]);
 
-  const distanceValue = Number(distance);
+  // The API takes metres; the input is whatever unit the user picked.
+  const distanceValue = Number(distance) * BUFFER_UNIT_METERS[distanceUnit];
+  const distanceMaxInUnit = MAX_BUFFER_METERS / BUFFER_UNIT_METERS[distanceUnit];
+  // fix(#700 review): materialize requires the upload permission server-side
+  // (it creates a dataset); hide the creation half for viewer roles instead
+  // of letting them fill the form into a guaranteed 403. Preview stays.
+  // Read before the mutations so their callbacks can branch on it too.
+  const { can } = usePermissions();
+  const canCreateDataset = can('upload');
+
   const distanceValid =
     Number.isFinite(distanceValue) &&
     distanceValue > 0 &&
@@ -187,7 +211,12 @@ export function AnalysisPanel({
   const previewMutation = useMutation({
     mutationFn: async () => {
       const datasetId = selectedLayer?.dataset_id;
-      if (!datasetId) throw new Error('No layer selected');
+      // ux(#698): thrown messages reach the user verbatim via the onError
+      // `error.message || t(...)` fallback, so this one has to be translated.
+      if (!datasetId)
+        throw new Error(
+          t('analysisTools.noLayerSelected', { defaultValue: 'No layer selected' }),
+        );
       return previewAnalysis(datasetId, {
         // canRun blocks dissolve from the preview path.
         operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
@@ -237,6 +266,17 @@ export function AnalysisPanel({
                 defaultValue: 'Preview capped at {{count}} features',
                 count: result.feature_count,
               }),
+          // ux(#686): a capped preview is exactly what materialize is for, so
+          // name it here instead of leaving the user to infer it. Omitted for
+          // viewers, who have no Create dataset button to follow it to.
+          canCreateDataset
+            ? {
+                description: t('analysisTools.truncatedCreateHint', {
+                  defaultValue:
+                    'Use Create dataset to run the operation over every feature.',
+                }),
+              }
+            : undefined,
         );
       }
     },
@@ -251,7 +291,12 @@ export function AnalysisPanel({
   const materializeMutation = useMutation({
     mutationFn: async () => {
       const datasetId = selectedLayer?.dataset_id;
-      if (!datasetId) throw new Error('No layer selected');
+      // ux(#698): thrown messages reach the user verbatim via the onError
+      // `error.message || t(...)` fallback, so this one has to be translated.
+      if (!datasetId)
+        throw new Error(
+          t('analysisTools.noLayerSelected', { defaultValue: 'No layer selected' }),
+        );
       const title = outputTitle.trim();
       const result = await materializeAnalysis(datasetId, {
         operation,
@@ -280,12 +325,6 @@ export function AnalysisPanel({
       );
     },
   });
-
-  // fix(#700 review): materialize requires the upload permission server-side
-  // (it creates a dataset); hide the creation half for viewer roles instead
-  // of letting them fill the form into a guaranteed 403. Preview stays.
-  const { can } = usePermissions();
-  const canCreateDataset = can('upload');
 
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
@@ -430,20 +469,48 @@ export function AnalysisPanel({
       {operation === 'buffer' && (
         <div className="space-y-1.5">
           <Label className="text-xs" htmlFor="analysis-distance">
-            {t('analysisTools.distanceLabel', {
-              defaultValue: 'Distance (meters)',
-            })}
+            {t('analysisTools.distanceLabel', { defaultValue: 'Distance' })}
           </Label>
-          <Input
-            id="analysis-distance"
-            type="number"
-            min={1}
-            max={MAX_BUFFER_METERS}
-            step={50}
-            value={distance}
-            onChange={(e) => setDistance(e.target.value)}
-            aria-invalid={!distanceValid || undefined}
-          />
+          <div className="flex gap-2">
+            <Input
+              id="analysis-distance"
+              type="number"
+              min={0}
+              max={distanceMaxInUnit}
+              step={distanceUnit === 'm' ? 50 : 'any'}
+              value={distance}
+              onChange={(e) => setDistance(e.target.value)}
+              aria-invalid={!distanceValid || undefined}
+              className="flex-1"
+            />
+            <Select
+              value={distanceUnit}
+              onValueChange={(v) => setDistanceUnit(v as BufferUnit)}
+            >
+              <SelectTrigger
+                className="w-24"
+                aria-label={t('analysisTools.distanceUnitLabel', {
+                  defaultValue: 'Distance unit',
+                })}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="m">
+                  {t('analysisTools.unitMeters', { defaultValue: 'meters' })}
+                </SelectItem>
+                <SelectItem value="km">
+                  {t('analysisTools.unitKilometers', { defaultValue: 'kilometers' })}
+                </SelectItem>
+                <SelectItem value="ft">
+                  {t('analysisTools.unitFeet', { defaultValue: 'feet' })}
+                </SelectItem>
+                <SelectItem value="mi">
+                  {t('analysisTools.unitMiles', { defaultValue: 'miles' })}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 
@@ -490,15 +557,25 @@ export function AnalysisPanel({
               </Button>
             </div>
           ) : (
-            <Button
-              id="analysis-clip-action"
-              variant="outline"
-              size="sm"
-              onClick={startDrawing}
-              disabled={!mapInstanceRef?.current}
-            >
-              {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
-            </Button>
+            <div className="space-y-1.5">
+              <Button
+                id="analysis-clip-action"
+                variant="outline"
+                size="sm"
+                onClick={startDrawing}
+                disabled={!mapInstanceRef?.current}
+              >
+                {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
+              </Button>
+              {/* ux(#686): drawing is pointer-only. Name the keyboard-reachable
+                  alternative instead of leaving it to be discovered. */}
+              <p className="text-xs text-muted-foreground">
+                {t('analysisTools.drawMaskPointerHint', {
+                  defaultValue:
+                    'Drawing needs a pointer. To clip without one, pick a polygon layer below.',
+                })}
+              </p>
+            </div>
           )}
         </div>
       )}
@@ -567,6 +644,9 @@ export function AnalysisPanel({
               id="analysis-output-title"
               value={outputTitle}
               onChange={(e) => setOutputTitle(e.target.value)}
+              // ux(#698): matches the server's bound, so an over-long title is
+              // stopped at the keystroke instead of after clicking Create.
+              maxLength={500}
               placeholder={t('analysisTools.outputTitlePlaceholder', {
                 defaultValue: 'e.g. Parcels buffered 500 m',
               })}
@@ -591,17 +671,31 @@ export function AnalysisPanel({
             </Button>
             {job && (
               <p className="text-xs text-muted-foreground" role="status">
+                {/* ux(#698): reuse the watcher's jobFailedDetail template
+                    rather than concatenating the raw server error onto a
+                    translated prefix, which left half the sentence untranslated. */}
                 {job.status === 'failed'
-                  ? `${t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' })}${job.error_message ? `: ${job.error_message}` : ''}`
+                  ? job.error_message
+                    ? t('analysisTools.jobFailedDetail', {
+                        defaultValue: 'Analysis job failed: {{message}}',
+                        message: job.error_message,
+                      })
+                    : t('analysisTools.jobFailed', {
+                        defaultValue: 'Analysis job failed',
+                      })
                   : job.status === 'complete'
                     ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
                     : job.current_step === 'registering'
                       ? t('analysisTools.jobSaving', {
                           defaultValue: 'Saving the dataset…',
                         })
-                      : t('analysisTools.jobRunning', {
-                          defaultValue: 'Creating dataset…',
-                        })}
+                      : job.current_step === 'queued'
+                        ? t('analysisTools.jobQueued', {
+                            defaultValue: 'Queued — waiting for a worker…',
+                          })
+                        : t('analysisTools.jobRunning', {
+                            defaultValue: 'Creating dataset…',
+                          })}
               </p>
             )}
             {job?.status === 'complete' && !!job.dataset_id && layerActions && (

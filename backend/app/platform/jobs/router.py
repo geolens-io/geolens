@@ -753,6 +753,17 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
             False,
             "This service import requires fresh credentials. Start the import again to re-authenticate.",
         )
+    if (job.user_metadata or {}).get("analysis"):
+        # ux(#698): analysis jobs carry file_path="" and would otherwise fall
+        # through to the import copy below, telling the user their "source" is
+        # gone and to "start the import again" for something that was never an
+        # import. They are genuinely not replayable here either: the drawn clip
+        # mask is deliberately not persisted (router_analysis.py stores a
+        # marker, not the geometry), so a replay could not reconstruct the run.
+        return (
+            False,
+            "Analysis runs cannot be replayed as imports. Start the analysis again from the map builder.",
+        )
     if job.source_url and not job.file_path:
         return True, None
     if not job.file_path:
