@@ -117,8 +117,32 @@ pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" \
     -Fc --no-owner --no-acl -f "$DUMP_FILE"
 [ -s "$DUMP_FILE" ] || fail "dump file is empty"
 
-# Integrity check — same as restore.sh's pre-flight.
-pg_restore --list "$DUMP_FILE" >/dev/null || fail "pg_restore --list validation failed"
+# Integrity check — same as restore.sh's and backup-entrypoint.sh's pre-flight.
+pg_restore -f /dev/null < "$DUMP_FILE" >/dev/null 2>&1 \
+    || fail "pg_restore verification of a good dump failed"
+
+# Pin WHY that check is `-f /dev/null` and not the cheaper `--list`. In a -Fc
+# archive the table of contents is at the front, so `--list` happily accepts a
+# dump truncated after it — exactly the shape a disk-full mid-dump produces.
+# Both callers depend on truncation being caught: backup-entrypoint.sh discards
+# the dump, and restore.sh aborts BEFORE its --clean --if-exists drops the live
+# database. If someone swaps these back to `--list` to save a pass, this fails.
+TRUNC_FILE="${WORKDIR}/truncated.dump"
+DUMP_BYTES="$(wc -c < "$DUMP_FILE")"
+head -c "$(( DUMP_BYTES * 60 / 100 ))" "$DUMP_FILE" > "$TRUNC_FILE"
+if pg_restore -f /dev/null < "$TRUNC_FILE" >/dev/null 2>&1; then
+    fail "a 60%-truncated dump passed verification — the integrity gate is not catching truncation"
+fi
+# Whether --list ALSO catches it depends on dump size: this fixture is small
+# enough that 60% cuts into the TOC itself, while on a realistic dump 60% lands
+# well past it and --list passes (measured on a 21 MB dump). So the assertion
+# above is deliberately only on -f /dev/null; this is reporting, not a gate.
+if pg_restore --list "$TRUNC_FILE" >/dev/null 2>&1; then
+    echo "      truncation gate OK — rejected by -f /dev/null; --list missed it (the reason for the stricter check)."
+else
+    echo "      truncation gate OK — rejected by -f /dev/null; --list also caught it (fixture too small to clear the TOC)."
+fi
+rm -f "$TRUNC_FILE"
 
 createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$DST_DB"
 # Same flags restore.sh uses. --clean --if-exists emits expected warnings on a

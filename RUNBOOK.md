@@ -24,6 +24,16 @@ documentation.
 
 ## 1. Backup architecture
 
+> **Recovery point objective: up to 24 hours.** The bundled backup is a nightly
+> logical dump (`pg_dump`), so a failure restores to the last completed backup —
+> at the default 02:00 schedule, a loss at 01:59 discards a full day of uploads,
+> edits, and analysis outputs. There is no finer granularity available with this
+> tooling: logical dumps cannot participate in WAL replay, so point-in-time
+> recovery requires physical backup plus WAL archiving, which the bundled stack
+> does **not** configure (see [§ 3](#optional-point-in-time-recovery-pitr-with-wal-archiving)).
+> Shorten the exposure with a more frequent `BACKUP_SCHEDULE`, or use a managed
+> database, where the provider's native PITR applies.
+
 ### Automated backups are on by default
 
 Backup runs automatically on every `docker compose up` — no `--profile backup`
@@ -258,11 +268,34 @@ docker compose ps    # confirm api and worker are healthy
 
 ### Optional: point-in-time recovery (PITR) with WAL archiving
 
-For finer-grained recovery between backup snapshots, managed databases provide
-native PITR — enable it via the provider console (see provider links above). For
-self-hosted Docker deployments, WAL archiving requires `wal_level = replica` and
-`archive_command` in `postgresql.conf`; see the comments at the end of
-`scripts/restore.sh` for the configuration outline.
+PITR is a **different mechanism**, not a finer setting on the bundled backup.
+`pg_dump` produces a logical dump, which does not contain the information WAL
+replay needs — so no schedule change gets you recovery to an arbitrary moment.
+You either run physical backup plus continuous WAL archiving, or your recovery
+point is the last completed dump.
+
+**Managed databases (recommended):** providers offer native PITR — enable it in
+the provider console (see provider links above). Nothing changes in GeoLens.
+
+**Self-hosted Docker (advanced, unsupported):** requires `wal_level = replica`,
+`archive_mode = on`, a working `archive_command`, and a durable archive
+destination. `scripts/restore.sh` carries a configuration outline in its
+trailing comments, but this is a hand-rolled path we do not test or support.
+
+> **Understand the failure mode before enabling it.** If `archive_command`
+> starts failing — unreachable destination, full disk, bad permissions —
+> PostgreSQL retains WAL segments until `pg_wal` exhausts the filesystem, at
+> which point **the database stops accepting writes**. Continuous archiving
+> trades a bounded data-loss risk for an availability risk that needs
+> monitoring and alerting on archiver health. Do not enable it on an unattended
+> single-host deployment without that in place; a nightly dump fails far more
+> gracefully.
+
+For production WAL management, use a purpose-built tool
+([pgBackRest](https://pgbackrest.org/), [Barman](https://pgbarman.org/), or
+[WAL-G](https://github.com/wal-g/wal-g)) rather than a hand-written
+`archive_command`. See the PostgreSQL manual on
+[continuous archiving and PITR](https://www.postgresql.org/docs/18/continuous-archiving.html).
 
 ---
 
