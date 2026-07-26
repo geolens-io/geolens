@@ -68,15 +68,22 @@ if [ "$1" = "compose" ]; then
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
     exec)
-      # Two distinct in-container calls share `compose exec -T db`:
-      #   psql  -> the PG-major probe (Step 2.5); answer server_version_num.
-      #   pg_dump -> the backup path; emit non-empty dump bytes to stdout.
+      # Three distinct in-container calls share `compose exec -T db`:
+      #   psql       -> the PG-major probe (Step 2.5); answer server_version_num.
+      #   pg_dump    -> the backup path; emit non-empty dump bytes to stdout.
+      #   pg_restore -> the end-to-end read-back of that dump (fix(#714)).
       for a in "$@"; do
         if [ "$a" = "psql" ]; then
           echo "probe_pg" >> "$LOG"
           # "none" models a probe that answers nothing (external/managed
           # Postgres: there is no `db` service to exec into).
           [ "${DOCKER_PG_NUM:-170005}" = "none" ] || echo "${DOCKER_PG_NUM:-170005}"
+          exit 0
+        fi
+        if [ "$a" = "pg_restore" ]; then
+          echo "verify_backup" >> "$LOG"
+          cat > /dev/null
+          [ "${DOCKER_VERIFY_MODE:-ok}" = "fail" ] && exit 1
           exit 0
         fi
       done
@@ -160,6 +167,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   ( env "PATH=$SHIM:$PATH" GEOLENS_REPO_URL="file:///fake" \
       DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
       DOCKER_STOP_MODE="${STOP_MODE:-ok}" \
+      DOCKER_VERIFY_MODE="${VERIFY_MODE:-ok}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
@@ -203,13 +211,25 @@ else
   bad "success path did not print rollback recipe"
 fi
 
-# Full expected order: probe_pg, stop_app, backup, pull, migrate_up, app_up.
-# The PG-major probe runs first — it must decide before anything is changed.
+# Full expected order: probe_pg, stop_app, backup, verify_backup, pull,
+# migrate_up, app_up. The PG-major probe runs first — it must decide before
+# anything is changed.
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-if [ "$order" = "probe_pg,stop_app,backup,pull,migrate_up,app_up," ]; then
-  ok "full call order is probe pg major -> stop api/worker -> backup -> pull -> migrate -> app_up"
+if [ "$order" = "probe_pg,stop_app,backup,verify_backup,pull,migrate_up,app_up," ]; then
+  ok "full call order is probe pg major -> stop api/worker -> backup -> verify -> pull -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
+fi
+
+# fix(#714): the rollback dump is read back end-to-end BEFORE the first
+# irreversible step. A dump truncated by a full disk is non-empty and passes
+# `--list`, so `-s` alone would let the upgrade migrate the schema behind an
+# unrestorable rollback artifact.
+v="$(pos_of verify_backup)"
+if [ -n "$v" ] && [ -n "$b" ] && [ -n "$p" ] && [ "$b" -lt "$v" ] && [ "$v" -lt "$p" ]; then
+  ok "rollback dump verified between the dump and the first irreversible step ($b < $v < $p)"
+else
+  bad "backup not verified before the pull (backup=$b verify=$v pull=$p)"
 fi
 
 # Writers quiesced BEFORE the dump (so the snapshot loses no acknowledged writes on
@@ -334,6 +354,35 @@ if [ -n "$(pos_of app_up)" ]; then
   ok "failed quiesce restarts api/worker (restart_writers ran)"
 else
   bad "failed quiesce did not restart api/worker"
+fi
+
+# ============================================================================
+# CASE 6b — fix(#714): the dump is written but reads back corrupt. Abort before
+# the first irreversible step, discard the unusable artifact, restart writers.
+# ============================================================================
+seed_prod_env
+# Clear dumps left by earlier passing cases: the filename carries a
+# whole-second timestamp, so the "was it discarded?" check below would
+# otherwise pass or fail depending on whether CASE 1 happened to land in the
+# same second as this one.
+rm -rf "$FAKE/backups/pre-upgrade"
+VERIFY_MODE=fail
+run_upgrade ok 1.2.4
+VERIFY_MODE=ok
+if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -z "$(pos_of pull)" ]; then
+  ok "unreadable rollback dump aborts BEFORE the pull (nothing irreversible ran)"
+else
+  bad "corrupt dump did not abort before pull (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+fi
+if [ -z "$(find "$FAKE/backups/pre-upgrade" -name '*.dump' 2>/dev/null)" ]; then
+  ok "unreadable rollback dump is discarded, not left to look like a backup"
+else
+  bad "corrupt dump was left on disk: $(find "$FAKE/backups/pre-upgrade" -name '*.dump')"
+fi
+if [ -n "$(pos_of app_up)" ]; then
+  ok "failed verification restarts api/worker (app is not left down)"
+else
+  bad "failed verification did not restart api/worker"
 fi
 
 # ============================================================================
