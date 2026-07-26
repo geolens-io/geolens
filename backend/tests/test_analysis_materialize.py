@@ -1117,6 +1117,87 @@ class TestMaterializeWorker:
         ).all()
         assert rows == [("a", "POLYGON")]
 
+    async def test_clip_by_layer_multirow_mask_equals_union_clip(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719): the subdivided join must equal clipping against the
+        whole-layer union it replaced.
+
+        The old materialize shape unioned the mask layer into one geometry and
+        intersected every source row against it. This one subdivides the mask
+        and unions the per-piece intersections instead — 33.2s -> 3.4s on a
+        972-polygon mask over 22k source rows. Intersection distributes over
+        union so the two are equal in theory; this pins it in practice, on a
+        MULTI-row overlapping mask where the distinction actually bites (a
+        single-row mask subdivides to pieces that trivially reassemble).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        mask_wkts = (
+            "POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+            "POLYGON((0.25 0.25, 0.25 1.5, 1.5 1.5, 1.5 0.25, 0.25 0.25))",
+            "POLYGON((0.4 -0.2, 0.4 0.3, 0.9 0.3, 0.9 -0.2, 0.4 -0.2))",
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt=mask_wkts[0],
+            extra_wkts=mask_wkts[1:],
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Multirow clip {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+
+        # Ground truth: clip against the unioned mask, the pre-#719 semantics.
+        union_wkt = ", ".join(f"ST_GeomFromText('{w}', 4326)" for w in mask_wkts)
+        n_got, n_want, symdiff = (
+            await test_db_session.execute(
+                text(
+                    f"WITH truth AS ("  # noqa: S608
+                    f"  SELECT ST_CollectionExtract("
+                    f"    ST_Intersection(ST_MakeValid(s.geom_4326),"
+                    f"      ST_Union(ARRAY[{union_wkt}])),"
+                    f"    ST_Dimension(s.geom_4326) + 1) AS geom"
+                    f"  FROM data.{ds.table_name} AS s"
+                    f"), want AS ("
+                    f"  SELECT geom FROM truth"
+                    f"  WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)"
+                    f"), got AS (SELECT geom_4326 AS geom FROM data.{new_ds.table_name})"
+                    f" SELECT (SELECT count(*) FROM got),"
+                    f"        (SELECT count(*) FROM want),"
+                    f"        ST_Area(ST_SymDifference("
+                    f"          (SELECT ST_Union(geom) FROM got),"
+                    f"          (SELECT ST_Union(geom) FROM want)))"
+                )
+            )
+        ).one()
+        # Guard against a vacuous pass: 0 == 0 with a NULL symdiff would
+        # otherwise satisfy both assertions below.
+        assert n_got > 0, "clip produced nothing — the fixture no longer overlaps"
+        assert n_got == n_want, (
+            f"subdivided clip produced {n_got} rows, union clip {n_want}"
+        )
+        assert symdiff < 1e-12, (
+            f"subdivided clip diverged from the whole-layer union it replaced "
+            f"(symmetric-difference area {symdiff})"
+        )
+
     async def test_clip_by_layer_missing_mask_fails_job(
         self,
         test_db_session: AsyncSession,

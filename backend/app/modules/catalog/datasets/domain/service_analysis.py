@@ -29,7 +29,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewRequest,
     AnalysisPreviewResponse,
 )
-from app.platform.analysis_sql import render_clip_layer_preview, render_geometry_expr
+from app.platform.analysis_sql import render_clip_layer_join, render_geometry_expr
 from app.platform.sandbox.executor import execute_safe
 
 PREVIEW_FEATURE_CAP = 500
@@ -78,8 +78,8 @@ def build_preview_sql(
         # fix(#693): layer-sourced clip previews subdivide the mask once and
         # join it per row instead of unioning the whole layer per request;
         # the union CTE remains the materialize shape (see
-        # render_clip_layer_preview for the measured rationale).
-        cte, lateral, where = render_clip_layer_preview(mask_table_ref, src="_src")
+        # render_clip_layer_join for the measured rationale).
+        cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
         cte = f"{cte} "
     else:
         cte = ""
