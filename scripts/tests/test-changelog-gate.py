@@ -99,7 +99,11 @@ for name, text in CASES.items():
         bad(f"extraction differs ({name}): awk={from_awk!r} gate={from_gate!r}")
 
     # The gate must reject exactly the inputs that send release.yml to its
-    # git-log fallback ($NOTES empty after $(...) whitespace handling).
+    # git-log fallback. fix(#715 review): `$(...)` strips trailing newlines but
+    # KEEPS spaces and tabs, so a bare `[ -z "$NOTES" ]` was false for a
+    # whitespace-only section and published blank notes — a verdict the gate
+    # did not share. release.yml now strips whitespace before the test, which
+    # is what makes .strip() the right model here rather than a convenient one.
     awk_falls_back = from_awk.strip() == ""
     gate_rejects = section is None or not section.strip()
     if awk_falls_back == gate_rejects:
@@ -123,6 +127,13 @@ else:
     ok("bump_version.py still refuses prerelease suffixes (no RC changelog header)")
 
 release_text = RELEASE_YML.read_text()
+# The emptiness test itself, not just the extraction: a plain `[ -z "$NOTES" ]`
+# disagrees with this gate on whitespace-only sections.
+if """[ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]""" in release_text:
+    ok("release.yml strips whitespace before deciding the notes are empty")
+else:
+    bad("release.yml no longer whitespace-strips before its emptiness test")
+
 if 'CHANGELOG_VERSION="${VERSION%%-*}"' in release_text:
     ok("release.yml strips the prerelease suffix before the CHANGELOG lookup")
 else:

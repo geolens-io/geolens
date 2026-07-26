@@ -67,7 +67,12 @@ jobs:
           CHANGELOG_VERSION="${VERSION%%-*}"
           NOTES=$(awk "/^## \[${CHANGELOG_VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
 
-          if [ -z "$NOTES" ]; then
+          # fix(#715 review): strip whitespace before the emptiness test. `$(...)`
+          # removes trailing newlines but keeps spaces and tabs, so a section
+          # containing only whitespace made `[ -z ]` false and published
+          # effectively blank release notes — passing neither the fallback nor
+          # the version-coherence gate, which rejects exactly that input.
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
             # Fallback: generate from git log
             NOTES=$(git log --format="- %s" "${PREV}..${TAG}" --no-merges | grep -v "^- docs(" | grep -v "^- chore(" | head -30)
           fi
