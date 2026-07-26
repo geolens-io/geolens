@@ -7,6 +7,32 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Spatial analysis in the map builder: buffer, centroid, clip, and dissolve.**
+  A new Analysis panel runs an operation against any vector layer and draws the
+  result on the map as a preview, capped at 500 features so it stays
+  interactive. **Create dataset** re-runs the same operation over every feature
+  as a background job and registers the output as a new dataset, which then
+  behaves like any other layer — styleable, exportable, and served through the
+  OGC and STAC endpoints. Buffer distances accept metres, kilometres, feet, or
+  miles. Dissolve optionally groups by an attribute column.
+- **Clip against another layer, not just a drawn area.** `mask_dataset_id` on
+  the analysis endpoints clips a layer using the union of a polygon layer's
+  geometries. The picker offers only polygonal layers; both the source and the
+  mask dataset are access-checked independently.
+- **Ask the assistant to run an analysis.** The chat assistant gained a
+  `run_analysis` tool for buffer and centroid previews, so "buffer the fire
+  hydrants by 100 m" produces a preview on the map. The tool returns only a
+  summary to the model — counts and a bounding box, never geometry.
+- **The OGC items page-size ceiling is administrator-configurable.** Admin →
+  Settings → Network exposes **OGC Features Max Page Size**, the ceiling an
+  over-maximum `limit` is clamped to on the per-dataset items route.
+- **Analysis has blast-radius limits, and they explain themselves.** Dissolve
+  (250,000 features), buffer (500,000), and clip-against-a-layer masks (1,000)
+  are refused up front rather than accepted and left to exhaust the database.
+  The refusal names the limit so it can be filtered down to.
+
 ### Changed
 
 - **BREAKING (self-hosted): bundled database upgraded to PostgreSQL 18 +
@@ -53,6 +79,19 @@ and releases use semantic versioning.
   polygonal layers instead of letting the request fail server-side.
 - **A capped preview points at Create dataset.** The truncation notice names
   the way to run the operation over every feature.
+- **A wildcard CORS origin is now rejected at save time.** Responses carry
+  `Access-Control-Allow-Credentials: true`, so the spec forbids `*` as the
+  allow-origin value and the middleware treats a list containing `*` as "deny
+  everything" — including any explicit origins listed alongside it. Saving `*`
+  used to be accepted and then took the API down about 30 seconds later, once
+  the middleware's cache refreshed. It now fails immediately with a 422 naming
+  the correct form. **Upgrade note:** an existing stored value of `*` keeps
+  working until the next save, but Admin → Settings → Network will refuse to
+  save the page until it is replaced with explicit origins.
+- **TiTiler's glibc malloc arenas are capped.** `MALLOC_ARENA_MAX` defaults to
+  `2` for the `titiler` service, which slows resident-memory growth under
+  sustained tile load. Override with `TITILER_MALLOC_ARENA_MAX`. This bounds
+  arena-driven growth; it is not a fix for raster memory use in general.
 
 ### Fixed
 

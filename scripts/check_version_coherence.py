@@ -5,6 +5,13 @@ if any disagree, printing the offending site(s). This is the READ/verify side of
 the version contract; scripts/bump_version.py is the WRITE side — they enumerate
 the same set of sites.
 
+Also asserts CHANGELOG.md carries a `## [<version>]` section for the canonical
+version. .github/workflows/release.yml extracts the release body by matching
+that exact header and silently falls back to a raw `git log` list when it finds
+nothing — a fallback whose own filter drops every `docs(`/`chore(` subject, so a
+release whose headline change landed as `chore(db): upgrade ... PostgreSQL 18`
+would publish notes that never mention it. Nothing else in CI reads CHANGELOG.md.
+
 Sites checked:
   - backend/pyproject.toml                  [project].version (canonical)
   - backend/app/api/main.py                 _FALLBACK_APP_VERSION constant
@@ -46,6 +53,7 @@ MCP_PYPROJECT = REPO_ROOT / "mcp" / "pyproject.toml"
 PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 
 
 def _rel(p: Path) -> str:
@@ -106,9 +114,22 @@ def main() -> int:
             sys.stderr.write(f"  - {site}: {v!r} != {canonical!r}\n")
         return 1
 
+    # release.yml matches this header literally to build the release body.
+    header = rf"^## \[{re.escape(canonical)}\]"
+    if not re.search(header, CHANGELOG.read_text(), re.MULTILINE):
+        sys.stderr.write(
+            f"FAIL: {_rel(CHANGELOG)} has no '## [{canonical}]' section.\n"
+            f"release.yml extracts the release body by matching that exact header and\n"
+            f"silently falls back to a raw git-log list when it is missing. Rename the\n"
+            f"'## [Unreleased]' header to '## [{canonical}] - <date>' (keeping a fresh\n"
+            f"empty Unreleased above it) and add the matching link reference.\n"
+        )
+        return 1
+
     print(f"OK: all {len(sites)} version sites agree on {canonical}.")
     for site, v in sites.items():
         print(f"  {site}: {v}")
+    print(f"  {_rel(CHANGELOG)}: '## [{canonical}]' section present.")
     return 0
 
 
