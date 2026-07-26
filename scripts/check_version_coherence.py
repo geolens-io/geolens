@@ -74,7 +74,9 @@ def _openapi_version(path: Path) -> str:
 
 
 def _main_fallback_version(path: Path) -> str:
-    m = re.search(r'^_FALLBACK_APP_VERSION = "([^"]*)"$', path.read_text(), re.MULTILINE)
+    m = re.search(
+        r'^_FALLBACK_APP_VERSION = "([^"]*)"$', path.read_text(), re.MULTILINE
+    )
     if not m:
         sys.exit(f"ERROR: no _FALLBACK_APP_VERSION line in {_rel(path)}.")
     return m.group(1)
@@ -87,17 +89,52 @@ def _yaml_override_version(path: Path) -> str:
     return m.group(1).strip()
 
 
+def _changelog_section(version: str) -> str | None:
+    """The lines under `## [version]`, or None if that header is absent.
+
+    Deliberately the same extraction .github/workflows/release.yml performs:
+
+        awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found{print}"
+
+    The gate is only worth anything if it answers the question release.yml
+    actually asks, so the two must agree on where a section starts and ends.
+    """
+    out: list[str] = []
+    found = False
+    for line in CHANGELOG.read_text().splitlines():
+        if not found:
+            if re.match(rf"^## \[{re.escape(version)}\]", line):
+                found = True
+            continue
+        if line.startswith("## ["):
+            break
+        out.append(line)
+    return "\n".join(out) if found else None
+
+
 def main() -> int:
     sites: dict[str, str] = {}
-    sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"] = _pyproject_version(BACKEND_PYPROJECT)
+    sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"] = _pyproject_version(
+        BACKEND_PYPROJECT
+    )
     sites[f"{_rel(MAIN_PY)} (_FALLBACK_APP_VERSION)"] = _main_fallback_version(MAIN_PY)
     sites[f"{_rel(OPENAPI_PATH)} (info.version)"] = _openapi_version(OPENAPI_PATH)
-    sites[f"{_rel(FRONTEND_PACKAGE)} (.version)"] = _package_json_version(FRONTEND_PACKAGE)
+    sites[f"{_rel(FRONTEND_PACKAGE)} (.version)"] = _package_json_version(
+        FRONTEND_PACKAGE
+    )
     sites[f"{_rel(ROOT_PACKAGE)} (.version)"] = _package_json_version(ROOT_PACKAGE)
-    sites[f"{_rel(CLI_PYPROJECT)} ([project].version)"] = _pyproject_version(CLI_PYPROJECT)
-    sites[f"{_rel(MCP_PYPROJECT)} ([project].version)"] = _pyproject_version(MCP_PYPROJECT)
-    sites[f"{_rel(PY_SDK_PYPROJECT)} ([project].version)"] = _pyproject_version(PY_SDK_PYPROJECT)
-    sites[f"{_rel(PY_SDK_GEN_CONFIG)} (package_version_override)"] = _yaml_override_version(PY_SDK_GEN_CONFIG)
+    sites[f"{_rel(CLI_PYPROJECT)} ([project].version)"] = _pyproject_version(
+        CLI_PYPROJECT
+    )
+    sites[f"{_rel(MCP_PYPROJECT)} ([project].version)"] = _pyproject_version(
+        MCP_PYPROJECT
+    )
+    sites[f"{_rel(PY_SDK_PYPROJECT)} ([project].version)"] = _pyproject_version(
+        PY_SDK_PYPROJECT
+    )
+    sites[f"{_rel(PY_SDK_GEN_CONFIG)} (package_version_override)"] = (
+        _yaml_override_version(PY_SDK_GEN_CONFIG)
+    )
     sites[f"{_rel(TS_SDK_PACKAGE)} (.version)"] = _package_json_version(TS_SDK_PACKAGE)
 
     # Canonical = backend distribution version (what the app derives at runtime).
@@ -114,9 +151,12 @@ def main() -> int:
             sys.stderr.write(f"  - {site}: {v!r} != {canonical!r}\n")
         return 1
 
-    # release.yml matches this header literally to build the release body.
-    header = rf"^## \[{re.escape(canonical)}\]"
-    if not re.search(header, CHANGELOG.read_text(), re.MULTILINE):
+    # Mirror release.yml's awk: take the lines between this version's header and
+    # the next `## [` one. Matching the header alone is not enough — an empty
+    # section extracts to an empty body, and release.yml's `[ -z "$NOTES" ]`
+    # takes the same git-log fallback as a missing one.
+    body = _changelog_section(canonical)
+    if body is None:
         sys.stderr.write(
             f"FAIL: {_rel(CHANGELOG)} has no '## [{canonical}]' section.\n"
             f"release.yml extracts the release body by matching that exact header and\n"
@@ -125,11 +165,20 @@ def main() -> int:
             f"empty Unreleased above it) and add the matching link reference.\n"
         )
         return 1
+    if not body.strip():
+        sys.stderr.write(
+            f"FAIL: {_rel(CHANGELOG)}'s '## [{canonical}]' section is empty.\n"
+            f"release.yml treats an empty section exactly like a missing one and\n"
+            f"falls back to the raw git-log list. Write the release notes under that\n"
+            f"header before tagging.\n"
+        )
+        return 1
 
     print(f"OK: all {len(sites)} version sites agree on {canonical}.")
     for site, v in sites.items():
         print(f"  {site}: {v}")
-    print(f"  {_rel(CHANGELOG)}: '## [{canonical}]' section present.")
+    lines = len([ln for ln in body.strip().splitlines() if ln.strip()])
+    print(f"  {_rel(CHANGELOG)}: '## [{canonical}]' section present ({lines} lines).")
     return 0
 
 
