@@ -71,6 +71,7 @@ const datasetLayer = {
   dataset_name: 'Parcels',
   display_name: null,
   is_dem: false,
+  dataset_geometry_type: 'MultiPolygon',
 } as unknown as MapLayerResponse;
 
 const groupLayer = {
@@ -87,6 +88,18 @@ const datasetLayer2 = {
   dataset_name: 'Roads',
   display_name: null,
   is_dem: false,
+  // Polygonal so it stays eligible as a clip mask (ux(#698) filter).
+  dataset_geometry_type: 'MultiPolygon',
+} as unknown as MapLayerResponse;
+
+// ux(#698): a non-polygon layer the server would reject as a clip mask.
+const pointLayer = {
+  id: 'l4',
+  dataset_id: 'ds4',
+  dataset_name: 'Bus stops',
+  display_name: null,
+  is_dem: false,
+  dataset_geometry_type: 'Point',
 } as unknown as MapLayerResponse;
 
 function renderPanel(
@@ -152,7 +165,7 @@ describe('AnalysisPanel', () => {
 
   it('disables Preview when the buffer distance is invalid', () => {
     renderPanel([datasetLayer]);
-    fireEvent.change(screen.getByLabelText('Distance (meters)'), {
+    fireEvent.change(screen.getByLabelText('Distance'), {
       target: { value: '0' },
     });
     expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
@@ -262,6 +275,40 @@ describe('AnalysisPanel', () => {
     );
   });
 
+  it('offers only polygonal layers as a clip mask (#698)', async () => {
+    // The server rejects a non-polygon mask dataset with a 422; offering one
+    // here would only buy the user a failed request.
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2, pointLayer]);
+
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Clip' }));
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    expect(await screen.findByRole('option', { name: 'Roads' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
+  });
+
+  it('converts the buffer distance from the selected unit to meters (#686)', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '2' },
+    });
+    // Combobox order under buffer: layer, operation, distance unit.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'miles' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'buffer',
+        distance_meters: 2 * 1609.344,
+      }),
+    );
+  });
+
   it('sends by_field when a dissolve group column is chosen', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer]);
@@ -322,7 +369,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
     renderPanel([datasetLayer, datasetLayer2], {
       prefill: { layerId: 'l3', operation: 'buffer', distanceMeters: 750 },
     });
-    expect(screen.getByLabelText('Distance (meters)')).toHaveValue(750);
+    expect(screen.getByLabelText('Distance')).toHaveValue(750);
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await waitFor(() => {
@@ -337,7 +384,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
     renderPanel([datasetLayer], {
       prefill: { layerId: 'l1', operation: 'centroid' },
     });
-    expect(screen.queryByLabelText('Distance (meters)')).toBeNull();
+    expect(screen.queryByLabelText('Distance')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await waitFor(() => {
@@ -351,7 +398,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
     renderPanel([datasetLayer], {
       prefill: { layerId: 'gone', operation: 'buffer', distanceMeters: 250 },
     });
-    expect(screen.getByLabelText('Distance (meters)')).toHaveValue(250);
+    expect(screen.getByLabelText('Distance')).toHaveValue(250);
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await waitFor(() => {

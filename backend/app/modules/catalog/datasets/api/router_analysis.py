@@ -285,6 +285,12 @@ async def analysis_materialize_endpoint(
         if body.mask_dataset_id is not None:
             analysis_meta["mask_dataset_id"] = str(body.mask_dataset_id)
     job.user_metadata = {"analysis": analysis_meta}
+    # ux(#698): stamp a step so a pending job reads as "queued" rather than
+    # being indistinguishable from a broken one. This matters more since #703
+    # deliberately defers analysis below the default priority — a queued job
+    # now waits behind uploads by design, sometimes for minutes. The column is
+    # a free-form String(32).
+    job.current_step = "queued"
     await db.commit()
 
     rollback = make_ingest_job_failed_rollback(

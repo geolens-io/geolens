@@ -7405,6 +7405,7 @@
             "anyOf": [
               {
                 "enum": [
+                  "queued",
                   "validating",
                   "ogr2ogr",
                   "finalize",

@@ -936,7 +936,7 @@
     "opBuffer": "Buffer",
     "opCentroid": "Centroids",
     "opClip": "Clip",
-    "distanceLabel": "Distance (meters)",
+    "distanceLabel": "Distance",
     "drawMask": "Draw clip area",
     "drawingHint": "Draw on the map — double-click to finish",
     "cancelDrawing": "Cancel",
@@ -967,7 +967,16 @@
     "clipLayerNone": "None — draw on the map",
     "jobCompleteNamed": "“{{title}}” is ready",
     "viewDataset": "View dataset",
-    "jobSaving": "Saving the dataset…"
+    "jobSaving": "Saving the dataset…",
+    "noLayerSelected": "No layer selected",
+    "jobQueued": "Queued — waiting for a worker…",
+    "truncatedCreateHint": "Use Create dataset to run the operation over every feature.",
+    "distanceUnitLabel": "Distance unit",
+    "unitMeters": "meters",
+    "unitKilometers": "kilometers",
+    "unitFeet": "feet",
+    "unitMiles": "miles",
+    "drawMaskPointerHint": "Drawing needs a pointer. To clip without one, pick a polygon layer below."
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",
