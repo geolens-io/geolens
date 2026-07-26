@@ -10,13 +10,14 @@ and releases use semantic versioning.
 ### Added
 
 - **Spatial analysis in the map builder: buffer, centroid, clip, and dissolve.**
-  A new Analysis panel runs an operation against any vector layer and draws the
-  result on the map as a preview, capped at 500 features so it stays
-  interactive. **Create dataset** re-runs the same operation over every feature
-  as a background job and registers the output as a new dataset, which then
-  behaves like any other layer — styleable, exportable, and served through the
-  OGC and STAC endpoints. Buffer distances accept metres, kilometres, feet, or
-  miles. Dissolve optionally groups by an attribute column.
+  A new Analysis panel runs an operation against any vector layer. Buffer,
+  centroid, and clip draw the result on the map as a preview, capped at 500
+  features so it stays interactive; dissolve is materialize-only. **Create
+  dataset** re-runs the same operation over every feature as a background job
+  and registers the output as a new dataset, which then behaves like any other
+  layer — styleable, exportable, and served through the OGC API endpoints.
+  Buffer distances accept metres, kilometres, feet, or miles. Dissolve
+  optionally groups by an attribute column.
 - **Clip against another layer, not just a drawn area.** `mask_dataset_id` on
   the analysis endpoints clips a layer using the union of a polygon layer's
   geometries. The picker offers only polygonal layers; both the source and the
