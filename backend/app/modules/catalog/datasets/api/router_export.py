@@ -123,7 +123,7 @@ def _dcat_content_language(document: object) -> str | None:
 # so a large-catalog operator (e.g. a federal data.json harvester) can crawl the
 # whole feed instead of silently losing everything past the first 10k.
 #
-# ponytail: offset paging keeps the memory guard while unblocking >10k catalogs;
+# Offset paging keeps the memory guard while unblocking >10k catalogs;
 # a spec-correct single-document streaming data.json is the real fix if a
 # harvester that can't page ever needs >10k in one request.
 _DCAT_FEED_MAX_DATASETS = 10_000

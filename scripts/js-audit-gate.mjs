@@ -50,6 +50,22 @@ try {
 }
 const report = JSON.parse(raw);
 
+// Fail closed on anything that is not a real audit report. When the registry is
+// unreachable (outage, egress proxy, rate limit) npm still exits non-zero and
+// still writes JSON to stdout — but that JSON is `{"message": ..., "error": ...}`
+// with no `vulnerabilities` key. The scan loop below reads
+// `report.vulnerabilities ?? {}`, so it would iterate nothing, print the success
+// line, and exit 0 — reporting a clean supply chain on a scan that never ran.
+const noReport =
+  report.error || typeof report.vulnerabilities !== 'object' || report.vulnerabilities === null;
+if (noReport) {
+  console.error(
+    'npm audit did not produce a report:',
+    report.message ?? JSON.stringify(report.error ?? report).slice(0, 500),
+  );
+  process.exit(1);
+}
+
 const today = new Date().toISOString().slice(0, 10);
 const active = new Map(
   ALLOWLIST.filter((e) => e.expires >= today).map((e) => [e.id, e]),

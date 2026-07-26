@@ -583,6 +583,13 @@ jobs:
       - name: Check all version sites agree
         run: python scripts/check_version_coherence.py
 
+      # The CHANGELOG half of that gate only helps if it asks the same question
+      # release.yml asks. This asserts the two extractions agree case for case,
+      # including the empty-section and prerelease-tag paths that both fall back
+      # to a filtered git log (fix(#715)).
+      - name: Check the CHANGELOG gate tracks release.yml
+        run: python scripts/tests/test-changelog-gate.py
+
   # ---------- docs contract ----------
   # Enforce docs-contract.json: validates the contract against install.sh +
   # pyproject (so it can't drift from the binaries) and scans the READMEs for

@@ -48,8 +48,9 @@ _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 # by queue name — so a 300-second analysis CTAS enqueued first would
 # head-of-line block every upload on the shared single worker. Below-default
 # priority lets interactive ingest win the fetch whenever both are queued.
-# ponytail: a steady upload stream can starve queued analysis indefinitely —
-# acceptable for background work; a per-op budget knob is #696's scope.
+# Known tradeoff: a steady upload stream can starve queued analysis
+# indefinitely — acceptable for background work; a per-op budget knob is
+# #696's scope.
 ANALYSIS_JOB_PRIORITY = -10
 
 # Sandbox error categories → HTTP status. Everything else is a sanitized 500.
@@ -138,7 +139,14 @@ async def analysis_preview_endpoint(
     )
     try:
         return await run_analysis_preview(
-            db, dataset, body, user.id, mask_dataset=mask_dataset
+            db,
+            dataset,
+            body,
+            user.id,
+            mask_dataset=mask_dataset,
+            # fix(#716): safe here — `user.id` is evaluated above, and neither
+            # this handler nor any middleware reads ORM state afterwards.
+            release_session=True,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -227,8 +235,8 @@ async def analysis_materialize_endpoint(
     await check_upload_quota(db, user.id, 0, request)
 
     # One materialize at a time per user: each queued job is an unbounded-ish
-    # CTAS, so without a cap one user can stack N of them. ponytail: soft cap —
-    # a TOCTOU race can briefly admit two; add a DB-side partial unique index if
+    # CTAS, so without a cap one user can stack N of them. Soft cap: a TOCTOU
+    # race can briefly admit two; add a DB-side partial unique index if
     # operators need a hard guarantee.
     #
     # Any pending-or-running job blocks, with NO staleness window (fix(#682
