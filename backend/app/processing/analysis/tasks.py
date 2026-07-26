@@ -27,8 +27,9 @@ from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    NOT_EMPTY_PREDICATE,
+    render_clip_layer_join,
     render_geometry_expr,
-    render_mask_cte,
 )
 from app.platform.jobs.heartbeat import (
     claim_ingest_job_attempt,
@@ -46,7 +47,7 @@ _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
 # here is the only unbounded statement a user can queue, so cap it.
-# ponytail: hardcoded ceiling; promote to persistent-config if operators hit it.
+# Hardcoded ceiling; promote to persistent-config if operators hit it.
 MATERIALIZE_TIMEOUT = "300s"
 
 # The mid-task commit that makes the output table durable also ends the
@@ -64,7 +65,7 @@ REGISTRATION_TIMEOUT = "600s"
 MAX_OUTPUT_BYTES = 2 * 1024**3
 
 # Served by the worker's :8001 /metrics endpoint (default registry).
-# ponytail: analysis-only counter; generalize to all ingest job types when
+# Analysis-only counter; generalize to all ingest job types when
 # another type needs it.
 ANALYSIS_JOBS = Counter(
     "geolens_analysis_jobs_total",
@@ -301,15 +302,36 @@ def _build_materialize_select(
             f"SELECT 1 AS gid, COUNT(*)::integer AS source_count, "
             f"{union_expr} AS geom FROM {src_ref}"
         )
+    if operation == "clip" and mask_table_ref is not None:
+        # fix(#719): the same subdivided-mask join the preview uses. This used
+        # to render a single whole-layer ST_Union instead, so a clip whose
+        # preview came back in under a second could exhaust the 300s CTAS
+        # budget on "Create dataset" (see render_clip_layer_join for the
+        # measurements).
+        #
+        # The empty-result filter is applied HERE, not left to the post-CTAS
+        # DELETE (fix(#719 review)). The row filter admits a source row on a
+        # bounding-box overlap, so a wide or concave mask lets through rows
+        # whose geometries never actually intersect; their lateral yields
+        # geom_out = NULL. _enforce_output_size runs against the CTAS BEFORE
+        # that DELETE, so those rows could fail an analysis as oversized when
+        # the dataset it would have saved is small. Clip has no source-feature
+        # cap, so nothing else bounds how many of them there are.
+        cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
+        cols = "".join(f'_src."{c}", ' for c in carry_cols)
+        return (
+            f"{cte} SELECT _src.gid, {cols}_op.geom_out AS geom"
+            f" FROM {src_ref} AS _src"
+            f" CROSS JOIN LATERAL {lateral} AS _op"
+            f"{where} AND {NOT_EMPTY_PREDICATE}"
+        )
     expr, where = render_geometry_expr(
         operation,
         distance_meters=distance_meters,
         mask=mask,
-        layer_mask=mask_table_ref is not None,
     )
-    cte = f"{render_mask_cte(mask_table_ref)} " if mask_table_ref else ""
     cols = "".join(f'"{c}", ' for c in carry_cols)
-    return f"{cte}SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
+    return f"SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
 
 
 async def _materialize(

@@ -33,10 +33,42 @@ const MASK_LAYER_NONE = '__none__';
 // backend/app/modules/catalog/datasets/api/router_analysis.py — the server
 // rejects any other mask dataset with a 422.
 const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
+// ux(#720): analysis needs a VECTOR dataset. `!is_dem` alone let ordinary
+// raster layers (COG orthophotos, Sentinel scenes) through — they carry a
+// dataset_id, so the panel offered them and auto-selected the first one, and
+// every Preview 422'd.
+//
+// Keyed on dataset_record_type, NOT layer_type (fix(#720 review)). layer_type
+// selects a RENDERER and the API validates it against nothing — MapLayerInput
+// accepts any supported value and add_layer persists it, defaulting to
+// 'vector_geolens'. So a raster dataset can carry the vector default, which is
+// how getLayerCapabilities (which keys on layer_type) would misclassify it, and
+// a vector dataset overridden to the raster renderer would be hidden even
+// though the analysis endpoint accepts it. record_type is what the data IS.
+//
+// geometry_type is required on top of that: it is the precondition
+// _load_vector_dataset enforces server-side, so a vector dataset missing one
+// would 422 just the same. Testing it ALONE was the original bug — it happened
+// to work only because every raster dataset currently stores NULL there, an
+// incidental property of the ingest path rather than an invariant.
+const RASTER_RECORD_TYPES = new Set(['raster_dataset', 'vrt_dataset']);
+const isAnalysableLayer = (l: MapLayerResponse) =>
+  !!l.dataset_id &&
+  !l.is_dem &&
+  !RASTER_RECORD_TYPES.has((l.dataset_record_type ?? '').toLowerCase()) &&
+  !!l.dataset_geometry_type;
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
+// Suffixes of the existing analysisTools.unit* keys, so the range message can
+// name the unit in the user's language without a second set of strings.
+const UNIT_KEY: Record<BufferUnit, string> = {
+  m: 'Meters',
+  km: 'Kilometers',
+  ft: 'Feet',
+  mi: 'Miles',
+};
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
@@ -75,12 +107,11 @@ export function AnalysisPanel({
   onAnalysisJobChange,
 }: AnalysisPanelProps) {
   const { t, i18n } = useTranslation('builder');
-  const firstEligibleId =
-    layers.find((l) => !!l.dataset_id && !l.is_dem)?.id ?? '';
+  const firstEligibleId = layers.find(isAnalysableLayer)?.id ?? '';
   // feat(#675): a handoff layer that has since left the map (or lost its
   // dataset) falls back to the default selection instead of an empty select.
   const prefillLayerId =
-    prefill && layers.some((l) => l.id === prefill.layerId && !!l.dataset_id && !l.is_dem)
+    prefill && layers.some((l) => l.id === prefill.layerId && isAnalysableLayer(l))
       ? prefill.layerId
       : undefined;
   const [layerId, setLayerId] = useState(prefillLayerId ?? firstEligibleId);
@@ -120,7 +151,7 @@ export function AnalysisPanel({
   // is by definition still in flight.
   const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
 
-  const datasetLayers = layers.filter((l) => !!l.dataset_id && !l.is_dem);
+  const datasetLayers = layers.filter(isAnalysableLayer);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
   // Candidate clip-mask layers. ux(#698): filtered to polygonal layers rather
   // than deferring to the server's 422 — dataset_geometry_type is already here,
@@ -481,6 +512,7 @@ export function AnalysisPanel({
               value={distance}
               onChange={(e) => setDistance(e.target.value)}
               aria-invalid={!distanceValid || undefined}
+              aria-describedby={distanceValid ? undefined : 'analysis-distance-error'}
               className="flex-1"
             />
             <Select
@@ -511,6 +543,28 @@ export function AnalysisPanel({
               </SelectContent>
             </Select>
           </div>
+          {/* ux(#723): an out-of-range distance disabled both Preview and
+              Create dataset with nothing said. aria-invalid alone is not a
+              message — it marks the field for a screen reader without telling
+              anyone, sighted or not, what the accepted range is. */}
+          {!distanceValid && (
+            <p
+              id="analysis-distance-error"
+              role="alert"
+              className="text-xs text-destructive"
+            >
+              {t('analysisTools.distanceOutOfRange', {
+                defaultValue:
+                  'Enter a distance greater than 0 and no more than {{max}} {{unit}}.',
+                max: distanceMaxInUnit.toLocaleString(i18n.language, {
+                  maximumFractionDigits: 2,
+                }),
+                unit: t(`analysisTools.unit${UNIT_KEY[distanceUnit]}`, {
+                  defaultValue: distanceUnit,
+                }),
+              })}
+            </p>
+          )}
         </div>
       )}
 

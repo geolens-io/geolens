@@ -388,10 +388,32 @@ export function ChatPanel({
   // (vacuously true); the real ordering gate is messages.indexOf(msg) === length - 1.
   const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; supportsUndo: boolean } | null>(null);
 
-  // Persist chat history to sessionStorage
+  // Persist chat history to sessionStorage.
+  //
+  // ux(#723): strip action geojson first. A show_query_result action from
+  // query_data or run_analysis carries its whole FeatureCollection — up to the
+  // 500-feature preview cap — and 50 of those overflow the ~5 MB sessionStorage
+  // quota easily. The write then throws QuotaExceededError, which this catch
+  // swallows (warning in DEV only), so history silently stops persisting from
+  // the first big result onward and the user loses the whole conversation on
+  // reload with no indication why.
+  //
+  // The geometry is ephemeral anyway: it lives in the single-slot map overlay,
+  // which a reload clears regardless, and nothing rehydrates it from here. The
+  // metadata the card renders (row_count, truncated, operation, bbox) is small
+  // and kept.
   useEffect(() => {
     if (messages.length > 0) {
-      try { sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(messages.slice(-50))); } catch (e) { if (import.meta.env.DEV) console.warn('[ChatPanel] sessionStorage error:', e); }
+      try {
+        sessionStorage.setItem(
+          `geolens-chat-${mapId}`,
+          JSON.stringify(messages.slice(-50), (key, value) =>
+            key === 'geojson' ? undefined : value,
+          ),
+        );
+      } catch (e) {
+        if (import.meta.env.DEV) console.warn('[ChatPanel] sessionStorage error:', e);
+      }
     } else {
       try { sessionStorage.removeItem(`geolens-chat-${mapId}`); } catch { /* ignore */ }
     }

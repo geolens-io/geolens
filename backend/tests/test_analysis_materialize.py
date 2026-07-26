@@ -1117,6 +1117,397 @@ class TestMaterializeWorker:
         ).all()
         assert rows == [("a", "POLYGON")]
 
+    async def test_clip_by_layer_multirow_mask_equals_union_clip(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719): the subdivided join must equal clipping against the
+        whole-layer union it replaced.
+
+        The old materialize shape unioned the mask layer into one geometry and
+        intersected every source row against it. This one subdivides the mask
+        and unions the per-piece intersections instead — 33.2s -> 3.4s on a
+        972-polygon mask over 22k source rows. Intersection distributes over
+        union so the two are equal in theory; this pins it in practice, on a
+        MULTI-row overlapping mask where the distinction actually bites (a
+        single-row mask subdivides to pieces that trivially reassemble).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        mask_wkts = (
+            "POLYGON((-0.5 -0.5, -0.5 0.5, 0.5 0.5, 0.5 -0.5, -0.5 -0.5))",
+            "POLYGON((0.25 0.25, 0.25 1.5, 1.5 1.5, 1.5 0.25, 0.25 0.25))",
+            "POLYGON((0.4 -0.2, 0.4 0.3, 0.9 0.3, 0.9 -0.2, 0.4 -0.2))",
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt=mask_wkts[0],
+            extra_wkts=mask_wkts[1:],
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Multirow clip {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+
+        # Ground truth: clip against the unioned mask, the pre-#719 semantics.
+        union_wkt = ", ".join(f"ST_GeomFromText('{w}', 4326)" for w in mask_wkts)
+        n_got, n_want, symdiff = (
+            await test_db_session.execute(
+                text(
+                    f"WITH truth AS ("  # noqa: S608
+                    f"  SELECT ST_CollectionExtract("
+                    f"    ST_Intersection(ST_MakeValid(s.geom_4326),"
+                    f"      ST_Union(ARRAY[{union_wkt}])),"
+                    f"    ST_Dimension(s.geom_4326) + 1) AS geom"
+                    f"  FROM data.{ds.table_name} AS s"
+                    f"), want AS ("
+                    f"  SELECT geom FROM truth"
+                    f"  WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)"
+                    f"), got AS (SELECT geom_4326 AS geom FROM data.{new_ds.table_name})"
+                    f" SELECT (SELECT count(*) FROM got),"
+                    f"        (SELECT count(*) FROM want),"
+                    f"        ST_Area(ST_SymDifference("
+                    f"          (SELECT ST_Union(geom) FROM got),"
+                    f"          (SELECT ST_Union(geom) FROM want)))"
+                )
+            )
+        ).one()
+        # Guard against a vacuous pass: 0 == 0 with a NULL symdiff would
+        # otherwise satisfy both assertions below.
+        assert n_got > 0, "clip produced nothing — the fixture no longer overlaps"
+        assert n_got == n_want, (
+            f"subdivided clip produced {n_got} rows, union clip {n_want}"
+        )
+        assert symdiff < 1e-12, (
+            f"subdivided clip diverged from the whole-layer union it replaced "
+            f"(symmetric-difference area {symdiff})"
+        )
+
+    async def test_clip_by_layer_does_not_fragment_a_line_at_mask_seams(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719 review): ST_Union does not sew line segments.
+
+        The subdivided join intersects per mask piece and unions the results.
+        For polygons that reassembles exactly, but a LineString crossing a
+        seam between two touching mask polygons came back as an artificially
+        fragmented MultiLineString where the old whole-mask intersection
+        returned one continuous LineString — which changes the geometry type
+        the new dataset is registered with. ST_LineMerge on single-part
+        LineString sources restores it; a line with a REAL gap must stay
+        multi-part.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  geom geometry(LineString, 4326),"
+                f"  geom_4326 geometry(LineString, 4326))"
+            )
+        )
+        # gid 1 crosses the seam between the two touching mask polygons;
+        # gid 2 spans the real gap before the third, detached mask polygon.
+        for wkt in ("LINESTRING(1 5, 9 5)", "LINESTRING(1 6, 24 6)"):
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "  # noqa: S608
+                    f"(ST_GeomFromText('{wkt}', 4326),"
+                    f" ST_GeomFromText('{wkt}', 4326))"
+                )
+            )
+        await test_db_session.commit()
+        from tests.factories import create_dataset
+
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="LINESTRING",
+            feature_count=2,
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 0 10, 5 10, 5 0, 0 0))",
+            extra_wkts=(
+                "POLYGON((5 0, 5 10, 10 10, 10 0, 5 0))",
+                "POLYGON((20 0, 20 10, 25 10, 25 0, 20 0))",
+            ),
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Clipped lines {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT GeometryType(geom_4326), ST_NumGeometries(geom_4326) "  # noqa: S608
+                    f"FROM data.{new_ds.table_name} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert rows == [("LINESTRING", 1), ("MULTILINESTRING", 2)], rows
+
+    async def test_clip_by_layer_keeps_touching_multiline_parts_separate(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719 review): seam repair must not merge REAL components.
+
+        The seam fix above keys on ``GeometryType(...) = 'LINESTRING'``, not
+        ``ST_Dimension(...) = 1``. A MultiLineString whose components merely
+        touch at an endpoint is dimension 1 too, so a dimension test sews
+        those genuine components into one LineString — a change the mask never
+        asked for, and one the whole-mask intersection does not make. Measured
+        against the old shape: MULTILINESTRING/2 parts, both before and after.
+
+        Both components sit well inside a single mask polygon, so the mask
+        introduces no seam here at all; anything but a passthrough is wrong.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  geom geometry(MultiLineString, 4326),"
+                f"  geom_4326 geometry(MultiLineString, 4326))"
+            )
+        )
+        wkt = "MULTILINESTRING((1 2, 4 2), (4 2, 4 8))"
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "  # noqa: S608
+                f"(ST_GeomFromText('{wkt}', 4326),"
+                f" ST_GeomFromText('{wkt}', 4326))"
+            )
+        )
+        await test_db_session.commit()
+        from tests.factories import create_dataset
+
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="MULTILINESTRING",
+            feature_count=1,
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 0 10, 5 10, 5 0, 0 0))",
+            extra_wkts=("POLYGON((5 0, 5 10, 10 10, 10 0, 5 0))",),
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Clipped multilines {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT GeometryType(geom_4326), ST_NumGeometries(geom_4326) "  # noqa: S608
+                    f"FROM data.{new_ds.table_name} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert rows == [("MULTILINESTRING", 2)], rows
+
+    async def test_clip_by_layer_bbox_only_rows_do_not_count_toward_size_cap(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719 review): NULL rows must not be measured as output.
+
+        The row filter admits a source row on a bounding-box overlap, so a
+        concave mask lets through rows that never actually intersect it; their
+        lateral aggregates over zero pieces and yields geom_out = NULL.
+        ``_enforce_output_size`` runs against the CTAS BEFORE the NULL/EMPTY
+        cleanup, so those rows used to count toward the ceiling — and clip has
+        no source-feature cap bounding how many of them there are.
+
+        The mask is the lower-right triangle of a 0..40 box (hypotenuse along
+        y = x), so its bbox covers the whole box while its interior is only
+        y < x. Every decoy sits just above the hypotenuse: inside the bbox,
+        outside the polygon. Measured sizes for this shape — 1 row = 16 KB,
+        2025 rows = 270 KB — so the ceiling below passes the real feature and
+        fails the decoys by 4x.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  geom geometry(Point, 4326),"
+                f"  geom_4326 geometry(Point, 4326))"
+            )
+        )
+        # 2025 decoys clustered just above the hypotenuse near (1, 39):
+        # inside the mask's bbox, outside the triangle.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) "  # noqa: S608
+                f"SELECT ST_SetSRID(ST_MakePoint(1 + x * 0.001, 39 - y * 0.001), 4326),"
+                f"       ST_SetSRID(ST_MakePoint(1 + x * 0.001, 39 - y * 0.001), 4326)"
+                f"  FROM generate_series(1, 45) AS x,"
+                f"       generate_series(1, 45) AS y"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "  # noqa: S608
+                f"(ST_SetSRID(ST_MakePoint(30, 5), 4326),"
+                f" ST_SetSRID(ST_MakePoint(30, 5), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        from tests.factories import create_dataset
+
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="POINT",
+            feature_count=2026,
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 40 0, 40 40, 0 0))",
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        # 64 KB of headroom: the single real feature (16 KB) fits, the 2025
+        # bbox-only rows (270 KB) do not.
+        with patch("app.processing.analysis.tasks.MAX_OUTPUT_BYTES", 65536):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="clip",
+                title=f"Clipped points {uuid.uuid4().hex[:6]}",
+                mask_dataset_id=str(mask_ds.id),
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        kept = await test_db_session.scalar(
+            text(f"SELECT COUNT(*) FROM data.{new_ds.table_name}")  # noqa: S608
+        )
+        assert kept == 1, kept
+
+    async def test_clip_by_layer_survives_a_geom_out_attribute_column(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719 review): "geom_out" is a legal attribute name.
+
+        The CTAS selects the carry columns from _src alongside the lateral's
+        own geom_out, so an unqualified predicate is rejected outright:
+        `column reference "geom_out" is ambiguous`. The whole-mask shape this
+        PR replaced had no lateral and so no collision, making this a
+        regression on datasets that happen to use the name.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f'  "geom_out" TEXT,'
+                f"  geom geometry(Polygon, 4326),"
+                f"  geom_4326 geometry(Polygon, 4326))"
+            )
+        )
+        wkt = "POLYGON((1 1, 4 1, 4 4, 1 4, 1 1))"
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO data.{table_name} ("geom_out", geom, geom_4326)'  # noqa: S608
+                f" VALUES ('an ordinary attribute',"
+                f" ST_GeomFromText('{wkt}', 4326),"
+                f" ST_GeomFromText('{wkt}', 4326))"
+            )
+        )
+        await test_db_session.commit()
+        from tests.factories import create_dataset
+
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="POLYGON",
+            feature_count=1,
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 0 10, 5 10, 5 0, 0 0))",
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Clipped with attr {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
     async def test_clip_by_layer_missing_mask_fails_job(
         self,
         test_db_session: AsyncSession,

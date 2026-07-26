@@ -152,6 +152,89 @@ def _preview_url(dataset_id) -> str:
 
 
 class TestAnalysisPreviewEndpoint:
+    async def test_preview_releases_request_session_before_sandbox_query(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """fix(#716): a preview must cost ONE pool connection, not two.
+
+        `execute_safe` opens its own connection (it needs READ ONLY + SET LOCAL
+        ROLE, which it cannot get on the caller's session). If the handler still
+        holds the request session's connection when that happens, each in-flight
+        preview pins two of the pool's 13 slots, and ~7 concurrent previews
+        stall every endpoint on the worker for the 30s pool_timeout.
+
+        Asserts on `in_transaction()` rather than `pool.checkedout()`: the test
+        engine uses NullPool, so checkout counts here say nothing about the
+        production QueuePool. An open transaction is what pins the connection,
+        so it is the pool-independent form of the same invariant.
+        """
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        seen: list[bool] = []
+        real = service_analysis.execute_safe
+
+        async def _recording_execute_safe(db, sql, **kwargs):
+            seen.append(db.in_transaction())
+            return await real(db, sql, **kwargs)
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _recording_execute_safe)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "buffer", "distance_meters": 1000},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert seen, "execute_safe was never called"
+        assert seen[0] is False, (
+            "the request session was still in a transaction when the sandbox "
+            "query started, so it was holding a second pooled connection; "
+            "release it before calling execute_safe"
+        )
+        # The release expires the ORM objects, so the response must still carry
+        # source_feature_count — it has to be read off the Dataset beforehand.
+        assert resp.json()["source_feature_count"] == 2
+
+    async def test_preview_does_not_release_the_session_by_default(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#716 review): the release must stay OPT-IN.
+
+        The rollback that returns the connection expires EVERY ORM instance on
+        the session, not just `dataset` — including the authenticated User.
+        A caller that reads `user.id` afterwards (both AI-chat paths do) would
+        get a sync refresh on an expired instance and raise MissingGreenlet.
+        So the default must leave the session alone, and callers opt in only
+        when they own it and need nothing from it after.
+        """
+        from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
+        from app.modules.catalog.datasets.domain.service import run_analysis_preview
+        from app.modules.auth.models import User
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        user = await test_db_session.get(User, admin_id)
+        assert user is not None
+
+        await run_analysis_preview(
+            test_db_session,
+            ds,
+            AnalysisPreviewRequest(operation="centroid"),
+            admin_id,
+        )
+
+        # Would raise MissingGreenlet if the session had been rolled back.
+        assert user.id == admin_id
+        assert user.username is not None
+
     async def test_buffer_preview(
         self,
         client: AsyncClient,

@@ -1667,3 +1667,65 @@ describe('ChatPanel — recoverable error banner (Phase 1135 AI-03)', () => {
     expect(errorMessage).toBeInTheDocument();
   });
 });
+
+describe('ChatPanel — sessionStorage persistence (#723)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it('does not persist result geojson, so a big result cannot blow the quota', async () => {
+    // A 500-feature FeatureCollection, the size the preview cap allows.
+    const features = Array.from({ length: 500 }, (_, i) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [
+          Array.from({ length: 40 }, (_, k) => [
+            -74 + k * 0.0001 + i * 0.001,
+            40 + k * 0.0001,
+          ]),
+        ],
+      },
+      properties: { gid: i, name: `parcel ${i}` },
+    }));
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              geojson: { type: 'FeatureCollection', features },
+              bbox: [-74, 40, -73, 41],
+              row_count: 500,
+              truncated: true,
+              operation: 'buffer',
+              layer_id: 'layer-1',
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Buffered the parcels' } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'buffer the parcels by 500m');
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem('geolens-chat-map-1')).toBeTruthy();
+    });
+
+    const raw = sessionStorage.getItem('geolens-chat-map-1') as string;
+    expect(raw).not.toContain('FeatureCollection');
+    expect(raw).not.toContain('coordinates');
+    // Well under the ~5 MB budget; the unstripped payload is megabytes.
+    expect(raw.length).toBeLessThan(50_000);
+    // The metadata the inline card renders survives.
+    expect(raw).toContain('show_query_result');
+    expect(raw).toContain('row_count');
+    expect(raw).toContain('Buffered the parcels');
+  });
+});
