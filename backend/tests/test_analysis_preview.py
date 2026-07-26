@@ -152,6 +152,56 @@ def _preview_url(dataset_id) -> str:
 
 
 class TestAnalysisPreviewEndpoint:
+    async def test_preview_releases_request_session_before_sandbox_query(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """fix(#716): a preview must cost ONE pool connection, not two.
+
+        `execute_safe` opens its own connection (it needs READ ONLY + SET LOCAL
+        ROLE, which it cannot get on the caller's session). If the handler still
+        holds the request session's connection when that happens, each in-flight
+        preview pins two of the pool's 13 slots, and ~7 concurrent previews
+        stall every endpoint on the worker for the 30s pool_timeout.
+
+        Asserts on `in_transaction()` rather than `pool.checkedout()`: the test
+        engine uses NullPool, so checkout counts here say nothing about the
+        production QueuePool. An open transaction is what pins the connection,
+        so it is the pool-independent form of the same invariant.
+        """
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        seen: list[bool] = []
+        real = service_analysis.execute_safe
+
+        async def _recording_execute_safe(db, sql, **kwargs):
+            seen.append(db.in_transaction())
+            return await real(db, sql, **kwargs)
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _recording_execute_safe)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "buffer", "distance_meters": 1000},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert seen, "execute_safe was never called"
+        assert seen[0] is False, (
+            "the request session was still in a transaction when the sandbox "
+            "query started, so it was holding a second pooled connection; "
+            "release it before calling execute_safe"
+        )
+        # The release expires the ORM objects, so the response must still carry
+        # source_feature_count — it has to be read off the Dataset beforehand.
+        assert resp.json()["source_feature_count"] == 2
+
     async def test_buffer_preview(
         self,
         client: AsyncClient,
