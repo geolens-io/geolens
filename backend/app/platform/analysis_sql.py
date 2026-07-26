@@ -52,13 +52,24 @@ MAX_SOURCE_FEATURES = {
 
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
 
+# Alias both callers give the lateral subquery. Qualifying against it is not
+# cosmetic: a source dataset is free to carry an ordinary attribute column
+# named "geom_out", and the materialize CTAS selects the carry columns from
+# _src alongside the lateral's output, so an unqualified reference is a
+# planner-level "column reference \"geom_out\" is ambiguous" error that fails
+# the whole clip (fix(#719 review)). The preview selects no carry columns but
+# still joins _src, so it had the same latent fault.
+LATERAL_ALIAS = "_op"
+
 # Rows an analysis produced nothing for. Both consumers of the lateral shape
 # must filter on this: the preview because the sandbox row cap counts raw rows
 # (fix(#680 review)), the materialize worker because the output-size ceiling is
 # checked against the CTAS before the NULL/EMPTY cleanup runs (fix(#719
 # review)). Naming it once keeps the saved dataset and the approved preview
 # from drifting apart.
-NOT_EMPTY_PREDICATE = "geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
+NOT_EMPTY_PREDICATE = (
+    f"{LATERAL_ALIAS}.geom_out IS NOT NULL AND NOT ST_IsEmpty({LATERAL_ALIAS}.geom_out)"
+)
 
 
 # Vertex ceiling per mask piece in the preview shape below. 256 is the

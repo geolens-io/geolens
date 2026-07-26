@@ -111,7 +111,8 @@ def build_preview_sql(
         else f" WHERE {NOT_EMPTY_PREDICATE}"
     )
     return (
-        f"{cte}SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
+        f"{cte}SELECT gid,"
+        f" ST_AsGeoJSON(_op.geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
         f" FROM {table_ref} AS _src"
         f" CROSS JOIN LATERAL {lateral} AS _op"
         f"{filters}"

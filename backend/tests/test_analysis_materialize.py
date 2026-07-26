@@ -1447,6 +1447,67 @@ class TestMaterializeWorker:
         )
         assert kept == 1, kept
 
+    async def test_clip_by_layer_survives_a_geom_out_attribute_column(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719 review): "geom_out" is a legal attribute name.
+
+        The CTAS selects the carry columns from _src alongside the lateral's
+        own geom_out, so an unqualified predicate is rejected outright:
+        `column reference "geom_out" is ambiguous`. The whole-mask shape this
+        PR replaced had no lateral and so no collision, making this a
+        regression on datasets that happen to use the name.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f'  "geom_out" TEXT,'
+                f"  geom geometry(Polygon, 4326),"
+                f"  geom_4326 geometry(Polygon, 4326))"
+            )
+        )
+        wkt = "POLYGON((1 1, 4 1, 4 4, 1 4, 1 1))"
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO data.{table_name} ("geom_out", geom, geom_4326)'  # noqa: S608
+                f" VALUES ('an ordinary attribute',"
+                f" ST_GeomFromText('{wkt}', 4326),"
+                f" ST_GeomFromText('{wkt}', 4326))"
+            )
+        )
+        await test_db_session.commit()
+        from tests.factories import create_dataset
+
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="POLYGON",
+            feature_count=1,
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 0 10, 5 10, 5 0, 0 0))",
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Clipped with attr {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
     async def test_clip_by_layer_missing_mask_fails_job(
         self,
         test_db_session: AsyncSession,
