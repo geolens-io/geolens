@@ -937,6 +937,7 @@
     "opCentroid": "Zentroide",
     "opClip": "Zuschneiden",
     "distanceLabel": "Entfernung",
+    "distanceOutOfRange": "Geben Sie eine Entfernung zwischen 0 und {{max}} {{unit}} ein.",
     "drawMask": "Zuschneidebereich zeichnen",
     "drawingHint": "Auf der Karte zeichnen; Doppelklick zum Abschließen",
     "cancelDrawing": "Abbrechen",

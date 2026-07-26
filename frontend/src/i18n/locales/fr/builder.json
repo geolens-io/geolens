@@ -937,6 +937,7 @@
     "opCentroid": "Centroïdes",
     "opClip": "Découper",
     "distanceLabel": "Distance",
+    "distanceOutOfRange": "Saisissez une distance comprise entre 0 et {{max}} {{unit}}.",
     "drawMask": "Dessiner la zone de découpe",
     "drawingHint": "Dessinez sur la carte ; double-cliquez pour terminer",
     "cancelDrawing": "Annuler",

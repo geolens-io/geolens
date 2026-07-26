@@ -37,6 +37,14 @@ const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
+// Suffixes of the existing analysisTools.unit* keys, so the range message can
+// name the unit in the user's language without a second set of strings.
+const UNIT_KEY: Record<BufferUnit, string> = {
+  m: 'Meters',
+  km: 'Kilometers',
+  ft: 'Feet',
+  mi: 'Miles',
+};
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
@@ -481,6 +489,7 @@ export function AnalysisPanel({
               value={distance}
               onChange={(e) => setDistance(e.target.value)}
               aria-invalid={!distanceValid || undefined}
+              aria-describedby={distanceValid ? undefined : 'analysis-distance-error'}
               className="flex-1"
             />
             <Select
@@ -511,6 +520,27 @@ export function AnalysisPanel({
               </SelectContent>
             </Select>
           </div>
+          {/* ux(#723): an out-of-range distance disabled both Preview and
+              Create dataset with nothing said. aria-invalid alone is not a
+              message — it marks the field for a screen reader without telling
+              anyone, sighted or not, what the accepted range is. */}
+          {!distanceValid && (
+            <p
+              id="analysis-distance-error"
+              role="alert"
+              className="text-xs text-destructive"
+            >
+              {t('analysisTools.distanceOutOfRange', {
+                defaultValue: 'Enter a distance between 0 and {{max}} {{unit}}.',
+                max: distanceMaxInUnit.toLocaleString(i18n.language, {
+                  maximumFractionDigits: 2,
+                }),
+                unit: t(`analysisTools.unit${UNIT_KEY[distanceUnit]}`, {
+                  defaultValue: distanceUnit,
+                }),
+              })}
+            </p>
+          )}
         </div>
       )}
 
