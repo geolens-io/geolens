@@ -16,7 +16,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
@@ -39,19 +38,24 @@ const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
 // dataset_id, so the panel offered them and auto-selected the first one, and
 // every Preview 422'd.
 //
-// Two conditions, because neither covers the other (fix(#720 review)):
-//   - getLayerCapabilities is the canonical raster/vrt classifier, keyed on
-//     layer_type + dataset_record_type. Testing geometry_type alone happened
-//     to work only because every raster dataset currently stores NULL there —
-//     an incidental property, not an invariant, and LayerLegend already has a
-//     fixture where a raster reports 'POINT'.
-//   - geometry_type is still required on top of it: it is the precondition
-//     _load_vector_dataset enforces server-side, so a vector dataset missing
-//     it would 422 just the same.
+// Keyed on dataset_record_type, NOT layer_type (fix(#720 review)). layer_type
+// selects a RENDERER and the API validates it against nothing — MapLayerInput
+// accepts any supported value and add_layer persists it, defaulting to
+// 'vector_geolens'. So a raster dataset can carry the vector default, which is
+// how getLayerCapabilities (which keys on layer_type) would misclassify it, and
+// a vector dataset overridden to the raster renderer would be hidden even
+// though the analysis endpoint accepts it. record_type is what the data IS.
+//
+// geometry_type is required on top of that: it is the precondition
+// _load_vector_dataset enforces server-side, so a vector dataset missing one
+// would 422 just the same. Testing it ALONE was the original bug — it happened
+// to work only because every raster dataset currently stores NULL there, an
+// incidental property of the ingest path rather than an invariant.
+const RASTER_RECORD_TYPES = new Set(['raster_dataset', 'vrt_dataset']);
 const isAnalysableLayer = (l: MapLayerResponse) =>
   !!l.dataset_id &&
   !l.is_dem &&
-  getLayerCapabilities(l).kind === 'vector' &&
+  !RASTER_RECORD_TYPES.has((l.dataset_record_type ?? '').toLowerCase()) &&
   !!l.dataset_geometry_type;
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.

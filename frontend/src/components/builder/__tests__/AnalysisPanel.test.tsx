@@ -118,13 +118,38 @@ const rasterLayer = {
 // fix(#720 review): the same raster, but reporting a geometry type. Every
 // raster dataset stores NULL there today, which is what made a geometry-only
 // test appear to work — but nothing enforces it, and LayerLegend already has a
-// fixture where a raster reports 'POINT'. layer_type is the classifier.
+// fixture where a raster reports 'POINT'.
 const rasterLayerWithGeometryType = {
   ...rasterLayer,
   id: 'l6',
   dataset_id: 'ds6',
   dataset_name: 'Ortho tile with stale geometry_type',
   dataset_geometry_type: 'POINT',
+} as unknown as MapLayerResponse;
+
+// fix(#720 review): layer_type picks a RENDERER and the API validates it
+// against nothing — add_layer defaults it to 'vector_geolens' whatever the
+// dataset is. A classifier keyed on layer_type calls this vector.
+const rasterLayerWithVectorLayerType = {
+  ...rasterLayerWithGeometryType,
+  id: 'l7',
+  dataset_id: 'ds7',
+  dataset_name: 'Raster with the default layer_type',
+  layer_type: 'vector_geolens',
+} as unknown as MapLayerResponse;
+
+// The mirror case: a genuine vector dataset whose layer_type was overridden to
+// the raster renderer. The analysis endpoint accepts it, so hiding it would be
+// a false negative.
+const vectorLayerWithRasterLayerType = {
+  id: 'l8',
+  dataset_id: 'ds8',
+  dataset_name: 'Parcels rendered oddly',
+  display_name: null,
+  is_dem: false,
+  layer_type: 'raster_geolens',
+  dataset_record_type: 'vector_dataset',
+  dataset_geometry_type: 'MultiPolygon',
 } as unknown as MapLayerResponse;
 
 function renderPanel(
@@ -176,6 +201,21 @@ describe('AnalysisPanel', () => {
     expect(
       screen.queryByRole('button', { name: 'Preview' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('excludes a raster carrying the default vector layer_type (#720 review)', () => {
+    renderPanel([rasterLayerWithVectorLayerType, groupLayer]);
+    expect(
+      screen.getByText('Add a dataset layer to use analysis tools'),
+    ).toBeInTheDocument();
+  });
+
+  it('still offers a vector dataset rendered as raster (#720 review)', () => {
+    renderPanel([vectorLayerWithRasterLayerType]);
+    // The analysis endpoint accepts this, so hiding it would be a false
+    // negative — the failure mode of classifying by renderer instead of source.
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+    expect(screen.getByText('Parcels rendered oddly')).toBeInTheDocument();
   });
 
   it('hides the dataset-creation half without the upload permission (#700)', () => {
