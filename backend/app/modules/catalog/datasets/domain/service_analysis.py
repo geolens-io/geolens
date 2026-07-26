@@ -29,7 +29,11 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewRequest,
     AnalysisPreviewResponse,
 )
-from app.platform.analysis_sql import render_clip_layer_preview, render_geometry_expr
+from app.platform.analysis_sql import (
+    NOT_EMPTY_PREDICATE,
+    render_clip_layer_join,
+    render_geometry_expr,
+)
 from app.platform.sandbox.executor import execute_safe
 
 PREVIEW_FEATURE_CAP = 500
@@ -78,8 +82,8 @@ def build_preview_sql(
         # fix(#693): layer-sourced clip previews subdivide the mask once and
         # join it per row instead of unioning the whole layer per request;
         # the union CTE remains the materialize shape (see
-        # render_clip_layer_preview for the measured rationale).
-        cte, lateral, where = render_clip_layer_preview(mask_table_ref, src="_src")
+        # render_clip_layer_join for the measured rationale).
+        cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
         cte = f"{cte} "
     else:
         cte = ""
@@ -101,10 +105,14 @@ def build_preview_sql(
     # times per row. Unlike fencing the whole row source, the join shape
     # keeps ORDER BY gid able to ride the pkey index, so the sandbox row cap
     # can still stop the scan early instead of evaluating every mask match.
-    not_empty = "geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
-    filters = f"{where} AND {not_empty}" if where else f" WHERE {not_empty}"
+    filters = (
+        f"{where} AND {NOT_EMPTY_PREDICATE}"
+        if where
+        else f" WHERE {NOT_EMPTY_PREDICATE}"
+    )
     return (
-        f"{cte}SELECT gid, ST_AsGeoJSON(geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
+        f"{cte}SELECT gid,"
+        f" ST_AsGeoJSON(_op.geom_out, {_GEOJSON_PRECISION}) AS geometry_json"
         f" FROM {table_ref} AS _src"
         f" CROSS JOIN LATERAL {lateral} AS _op"
         f"{filters}"
