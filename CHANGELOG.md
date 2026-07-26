@@ -85,9 +85,12 @@ and releases use semantic versioning.
   everything" — including any explicit origins listed alongside it. Saving `*`
   used to be accepted and then took the API down about 30 seconds later, once
   the middleware's cache refreshed. It now fails immediately with a 422 naming
-  the correct form. **Upgrade note:** an existing stored value of `*` keeps
-  working until the next save, but Admin → Settings → Network will refuse to
-  save the page until it is replaced with explicit origins.
+  the correct form. **Upgrade note:** if `*` is already stored, cross-origin
+  requests are *already* being denied — the new validator guards the write
+  path, not the middleware, which has always turned an allowlist containing
+  `*` into an empty set. Replace it with explicit origins to restore
+  cross-origin access; Admin → Settings → Network will refuse to save the page
+  until you do.
 - **TiTiler's glibc malloc arenas are capped.** `MALLOC_ARENA_MAX` defaults to
   `2` for the `titiler` service, which slows resident-memory growth under
   sustained tile load. Override with `TITILER_MALLOC_ARENA_MAX`. This bounds
