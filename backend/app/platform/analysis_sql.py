@@ -96,6 +96,16 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
       row (aggregate subqueries cannot be pulled up, so the fix(#700)
       property needs no OFFSET 0 fence here; the inner OFFSET 0 only pins
       the extract/makevalid pass to once per mask row).
+      ``ST_LineMerge`` on 1-dimensional sources ONLY (fix(#719 review)):
+      ``ST_Union`` dissolves adjacent polygons back into one, but it does not
+      sew line segments, so a LineString crossing a piece or mask-row seam
+      came back as an artificially fragmented MultiLineString where the
+      whole-mask intersection returned one continuous LineString — changing
+      the registered geometry type. Measured on a line crossing two touching
+      mask polygons: union LINESTRING/1 part, this shape without the merge
+      MULTILINESTRING/2 parts, with the merge LINESTRING/1 part. Genuinely
+      disconnected components survive as a MultiLineString, which is correct;
+      polygons and points cannot fragment this way and are left alone.
     - The EXISTS row filter probes the RAW mask table, not the CTE: it stays
       index-drivable with real join statistics in either direction (the
       union CTE reached the outer query as an InitPlan Param, blinding the
@@ -111,12 +121,14 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
         f" WHERE NOT ST_IsEmpty(geom))"
     )
     lateral = (
-        f"(SELECT ST_Union(ST_CollectionExtract("
+        f"(SELECT CASE WHEN ST_Dimension({src}.geom_4326) = 1"
+        f" THEN ST_LineMerge(_agg.geom) ELSE _agg.geom END AS geom_out"
+        f" FROM (SELECT ST_Union(ST_CollectionExtract("
         f"ST_Intersection(ST_MakeValid({src}.geom_4326), _m.geom),"
-        f" ST_Dimension({src}.geom_4326) + 1)) AS geom_out"
+        f" ST_Dimension({src}.geom_4326) + 1)) AS geom"
         f" FROM _mask_pieces AS _m"
         f" WHERE _m.geom && {src}.geom_4326"
-        f" AND ST_Intersects(_m.geom, ST_MakeValid({src}.geom_4326)))"
+        f" AND ST_Intersects(_m.geom, ST_MakeValid({src}.geom_4326))) AS _agg)"
     )
     where = (
         f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref}"

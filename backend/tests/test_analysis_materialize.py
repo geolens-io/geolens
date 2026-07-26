@@ -1198,6 +1198,87 @@ class TestMaterializeWorker:
             f"(symmetric-difference area {symdiff})"
         )
 
+    async def test_clip_by_layer_does_not_fragment_a_line_at_mask_seams(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#719 review): ST_Union does not sew line segments.
+
+        The subdivided join intersects per mask piece and unions the results.
+        For polygons that reassembles exactly, but a LineString crossing a
+        seam between two touching mask polygons came back as an artificially
+        fragmented MultiLineString where the old whole-mask intersection
+        returned one continuous LineString — which changes the geometry type
+        the new dataset is registered with. ST_LineMerge on 1-dimensional
+        sources restores it; a line with a REAL gap must stay multi-part.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  geom geometry(LineString, 4326),"
+                f"  geom_4326 geometry(LineString, 4326))"
+            )
+        )
+        # gid 1 crosses the seam between the two touching mask polygons;
+        # gid 2 spans the real gap before the third, detached mask polygon.
+        for wkt in ("LINESTRING(1 5, 9 5)", "LINESTRING(1 6, 24 6)"):
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (geom, geom_4326) VALUES "  # noqa: S608
+                    f"(ST_GeomFromText('{wkt}', 4326),"
+                    f" ST_GeomFromText('{wkt}', 4326))"
+                )
+            )
+        await test_db_session.commit()
+        from tests.factories import create_dataset
+
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+            geometry_type="LINESTRING",
+            feature_count=2,
+        )
+        mask_ds = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((0 0, 0 10, 5 10, 5 0, 0 0))",
+            extra_wkts=(
+                "POLYGON((5 0, 5 10, 10 10, 10 0, 5 0))",
+                "POLYGON((20 0, 20 10, 25 10, 25 0, 20 0))",
+            ),
+        )
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="clip",
+            title=f"Clipped lines {uuid.uuid4().hex[:6]}",
+            mask_dataset_id=str(mask_ds.id),
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT GeometryType(geom_4326), ST_NumGeometries(geom_4326) "  # noqa: S608
+                    f"FROM data.{new_ds.table_name} ORDER BY gid"
+                )
+            )
+        ).all()
+        assert rows == [("LINESTRING", 1), ("MULTILINESTRING", 2)], rows
+
     async def test_clip_by_layer_missing_mask_fails_job(
         self,
         test_db_session: AsyncSession,
