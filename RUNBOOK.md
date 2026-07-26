@@ -536,9 +536,10 @@ docker compose exec db psql -U geolens -c 'select version();'
 curl -fsS http://localhost:8080/api/health
 ```
 
-Multi-tenant deployments: after the fresh-cluster restore, rebuild the
-tenant data-plane roles exactly as documented in
-[section 2 → Multi-tenant role reconstruction](#multi-tenant-role-reconstruction-after-a-fresh-cluster-restore).
+Deployments with tenant isolation enabled: after the fresh-cluster restore,
+rebuild the tenant data-plane roles exactly as documented in the
+role-reconstruction subsection of section 2 before starting API, worker, or
+tile traffic.
 
 ### Managed / external Postgres mode
 
