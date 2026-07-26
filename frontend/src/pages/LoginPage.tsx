@@ -91,7 +91,7 @@ function nearArcPath(samples: [number, number][], cosT: number, sinT: number) {
  *  parallels are spin-invariant, so the graticule + dots visibly stream across
  *  the face like a turning globe. Honors prefers-reduced-motion — those users
  *  get a fixed earth-like pose.
- *  ponytail: a tiny rAF + analytic projection beats pulling in a 3D lib for a
+ *  A tiny rAF + analytic projection beats pulling in a 3D lib for a
  *  decorative backdrop; one-line motion gate, no dependency. */
 function BrandMapBackdrop() {
   const { W, H, cx, cy, R } = GLOBE;

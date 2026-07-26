@@ -54,11 +54,25 @@ jobs:
         run: |
           PREV="${{ steps.prev.outputs.tag }}"
 
-          # Extract section from CHANGELOG.md for this version
+          # Extract section from CHANGELOG.md for this version.
+          #
+          # fix(#715): strip any prerelease suffix first. A prerelease tag has no
+          # CHANGELOG section of its own and never will — bump_version.py's
+          # SEMVER_RE only accepts plain X.Y.Z, so `make bump` cannot create a
+          # `## [1.5.0-rc.1]` header, and check_version_coherence.py only ever
+          # validates the canonical version. Without this, every RC published the
+          # git-log fallback below, whose filter drops every docs(/chore( subject.
+          # An RC's notes are the notes for the release it is a candidate for.
           VERSION="${TAG#v}"
-          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+          CHANGELOG_VERSION="${VERSION%%-*}"
+          NOTES=$(awk "/^## \[${CHANGELOG_VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
 
-          if [ -z "$NOTES" ]; then
+          # fix(#715 review): strip whitespace before the emptiness test. `$(...)`
+          # removes trailing newlines but keeps spaces and tabs, so a section
+          # containing only whitespace made `[ -z ]` false and published
+          # effectively blank release notes — passing neither the fallback nor
+          # the version-coherence gate, which rejects exactly that input.
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
             # Fallback: generate from git log
             NOTES=$(git log --format="- %s" "${PREV}..${TAG}" --no-merges | grep -v "^- docs(" | grep -v "^- chore(" | head -30)
           fi

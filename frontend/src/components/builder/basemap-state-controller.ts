@@ -334,7 +334,7 @@ export function resetBasemapAppearance(): BuilderBasemapPatch {
 // stripped before comparing because the normalizer includes optional keys
 // (e.g. sublayer_overrides: null) only when present on the input, and null
 // means "default" for every appearance field.
-// ponytail: an empty-but-present sublayer_overrides ({}) still reads as
+// Known gap: an empty-but-present sublayer_overrides ({}) still reads as
 // custom — fails safe (Reset stays enabled), refine if it ever matters.
 export function hasCustomBasemapAppearance(
   basemapConfig: MapBasemapConfig | null | undefined,

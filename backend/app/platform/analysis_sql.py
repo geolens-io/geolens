@@ -50,33 +50,26 @@ MAX_SOURCE_FEATURES = {
     "buffer": 500_000,
 }
 
-# CTE name for layer-sourced clip masks. The union is computed ONCE in a
-# MATERIALIZED CTE; referencing it from the expression and both WHERE terms
-# as a scalar subquery would otherwise evaluate the union three times.
-MASK_CTE_NAME = "_mask"
-
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
 
+# Alias both callers give the lateral subquery. Qualifying against it is not
+# cosmetic: a source dataset is free to carry an ordinary attribute column
+# named "geom_out", and the materialize CTAS selects the carry columns from
+# _src alongside the lateral's output, so an unqualified reference is a
+# planner-level "column reference \"geom_out\" is ambiguous" error that fails
+# the whole clip (fix(#719 review)). The preview selects no carry columns but
+# still joins _src, so it had the same latent fault.
+LATERAL_ALIAS = "_op"
 
-def render_mask_cte(mask_table_ref: str) -> str:
-    """Render the CTE that unions a mask layer's geometries into one mask.
-
-    ``mask_table_ref`` must come from ``_safe_table_ref`` / regex-validated
-    names, same contract as the source table. NULL geometries are excluded;
-    a mask layer with no usable geometry unions to NULL, which intersects
-    nothing — callers surface that as an empty result.
-
-    Only polygonal components enter the union (fix(#682): the catalog's
-    geometry_type is classified from the first feature, so a "POLYGON" mask
-    layer can still hold point/line rows, and ST_MakeValid can shed line
-    remnants from degenerate polygons — either would let point/line source
-    features outside every polygon survive the clip).
-    """
-    return (
-        f"WITH {MASK_CTE_NAME} AS MATERIALIZED ("
-        f"SELECT ST_Union(ST_CollectionExtract(ST_MakeValid(geom_4326), 3)) AS geom "
-        f"FROM {mask_table_ref} WHERE geom_4326 IS NOT NULL)"
-    )
+# Rows an analysis produced nothing for. Both consumers of the lateral shape
+# must filter on this: the preview because the sandbox row cap counts raw rows
+# (fix(#680 review)), the materialize worker because the output-size ceiling is
+# checked against the CTAS before the NULL/EMPTY cleanup runs (fix(#719
+# review)). Naming it once keeps the saved dataset and the approved preview
+# from drifting apart.
+NOT_EMPTY_PREDICATE = (
+    f"{LATERAL_ALIAS}.geom_out IS NOT NULL AND NOT ST_IsEmpty({LATERAL_ALIAS}.geom_out)"
+)
 
 
 # Vertex ceiling per mask piece in the preview shape below. 256 is the
@@ -85,17 +78,22 @@ def render_mask_cte(mask_table_ref: str) -> str:
 MASK_SUBDIVIDE_MAX_VERTICES = 256
 
 
-def render_clip_layer_preview(mask_table_ref: str, *, src: str) -> tuple[str, str, str]:
-    """Clip against a mask LAYER — the PREVIEW shape (fix(#693)).
+def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, str]:
+    """Clip against a mask LAYER (fix(#693)); used by preview AND materialize.
 
     Returns ``(cte, lateral_subquery, where_clause)`` for a source table
-    aliased ``src``. The materialize worker keeps ``render_mask_cte``'s
-    single whole-layer union: right for a batch job, where one union
-    amortizes over every row — but a preview pays it per click inside a
-    10-second sandbox budget, and per-row ST_Intersection against one giant
-    union geometry is what made realistic mask layers time out (measured,
-    first 500 rows of a 100k-row source: 1,000 x 257-vertex mask >120s;
-    single 100k-vertex mask 87.9s).
+    aliased ``src``.
+
+    fix(#719): materialize used to keep a single whole-layer ``ST_Union``
+    instead, on the theory that one union amortizes over every row in a batch
+    job. Measured, that is backwards — per-row ``ST_Intersection`` against one
+    giant union geometry is superlinear in mask complexity, so the union shape
+    loses at every size. Against 22,324 Manhattan building polygons with a
+    972-polygon / 249,804-vertex mask (just under ``MAX_MASK_LAYER_FEATURES``):
+    union 33.2s, this shape 3.4s, both yielding the same 12,291 rows. At the
+    union shape's rate a ~250k-row source exceeds the 300s CTAS budget, which
+    is how a clip whose preview renders in under a second could fail on
+    "Create dataset".
 
     Three cooperating parts (each choice benchmarked on those same masks):
 
@@ -105,11 +103,41 @@ def render_clip_layer_preview(mask_table_ref: str, *, src: str) -> tuple[str, st
       100k-vertex mask drops 87.9s -> 0.36s. Intersection distributes over
       union, so unioning the per-piece intersections equals clipping against
       the unioned mask.
+      Only POLYGONAL components enter it (fix(#682): the catalog's
+      geometry_type is classified from the first feature, so a "POLYGON" mask
+      layer can still hold point/line rows, and ST_MakeValid can shed line
+      remnants from degenerate polygons — either would let point/line source
+      features outside every polygon survive the clip). A mask layer with no
+      usable polygonal geometry yields no pieces, so nothing intersects and
+      callers surface an empty result.
     - The lateral aggregates those piece intersections per source row: one
       output row per gid however many mask rows touch it, evaluated once per
       row (aggregate subqueries cannot be pulled up, so the fix(#700)
       property needs no OFFSET 0 fence here; the inner OFFSET 0 only pins
       the extract/makevalid pass to once per mask row).
+      ``ST_LineMerge`` on single-part LineString sources ONLY (fix(#719
+      review)): ``ST_Union`` dissolves adjacent polygons back into one, but it
+      does not sew line segments, so a LineString crossing a piece or
+      mask-row seam came back as an artificially fragmented MultiLineString
+      where the whole-mask intersection returned one continuous LineString —
+      changing the registered geometry type.
+
+      The test is ``GeometryType(...) = 'LINESTRING'``, NOT
+      ``ST_Dimension(...) = 1``. Measured against the whole-mask shape over
+      two touching mask polygons (so their union has an interior seam):
+
+        source                      whole-mask   dimension=1   GeometryType
+        LineString across seam      LINESTRING/1  LINESTRING/1  LINESTRING/1
+        MultiLineString, parts      MULTILINE/2   LINESTRING/1  MULTILINE/2
+          touching at a point                     ^^ wrong
+        MultiLineString, disjoint   MULTILINE/2   MULTILINE/2   MULTILINE/2
+        Polygon across seam         POLYGON/1     POLYGON/1     POLYGON/1
+        Point                       POINT/1       POINT/1       POINT/1
+
+      A dimension test merges a multi-part source whose components merely
+      touch at an endpoint into one line — a change the mask never asked for,
+      and one the whole-mask intersection does not make. Polygons and points
+      cannot fragment this way and are left alone either way.
     - The EXISTS row filter probes the RAW mask table, not the CTE: it stays
       index-drivable with real join statistics in either direction (the
       union CTE reached the outer query as an InitPlan Param, blinding the
@@ -125,12 +153,14 @@ def render_clip_layer_preview(mask_table_ref: str, *, src: str) -> tuple[str, st
         f" WHERE NOT ST_IsEmpty(geom))"
     )
     lateral = (
-        f"(SELECT ST_Union(ST_CollectionExtract("
+        f"(SELECT CASE WHEN GeometryType({src}.geom_4326) = 'LINESTRING'"
+        f" THEN ST_LineMerge(_agg.geom) ELSE _agg.geom END AS geom_out"
+        f" FROM (SELECT ST_Union(ST_CollectionExtract("
         f"ST_Intersection(ST_MakeValid({src}.geom_4326), _m.geom),"
-        f" ST_Dimension({src}.geom_4326) + 1)) AS geom_out"
+        f" ST_Dimension({src}.geom_4326) + 1)) AS geom"
         f" FROM _mask_pieces AS _m"
         f" WHERE _m.geom && {src}.geom_4326"
-        f" AND ST_Intersects(_m.geom, ST_MakeValid({src}.geom_4326)))"
+        f" AND ST_Intersects(_m.geom, ST_MakeValid({src}.geom_4326))) AS _agg)"
     )
     where = (
         f" WHERE EXISTS (SELECT 1 FROM {mask_table_ref}"
@@ -177,7 +207,6 @@ def render_geometry_expr(
     *,
     distance_meters: float | None = None,
     mask: dict[str, Any] | None = None,
-    layer_mask: bool = False,
 ) -> tuple[str, str]:
     """Return ``(geometry expression, WHERE clause)`` for a per-row operation.
 
@@ -185,10 +214,9 @@ def render_geometry_expr(
     ``dissolve`` operation has a different query shape and is rendered by the
     materialize worker, not here.
 
-    ``layer_mask=True`` renders clip against the ``MASK_CTE_NAME`` CTE (see
-    ``render_mask_cte``, which the caller must prepend) instead of an inline
-    GeoJSON mask — the materialize shape; previews use
-    ``render_clip_layer_preview``.
+    ``clip`` here is the INLINE drawn-mask shape. Clipping against a mask
+    LAYER is a join, not an expression — see ``render_clip_layer_join``, which
+    both the preview and the materialize worker use.
     """
     if operation == "buffer":
         if distance_meters is None:
@@ -205,10 +233,7 @@ def render_geometry_expr(
     if operation == "centroid":
         return "ST_Centroid(ST_MakeValid(geom_4326))", ""
     if operation == "clip":
-        if layer_mask:
-            mask_expr = f"(SELECT geom FROM {MASK_CTE_NAME})"
-        else:
-            mask_expr = render_mask_expr(mask or {})
+        mask_expr = render_mask_expr(mask or {})
         # A clip that only grazes a boundary intersects at a lower dimension
         # (polygon ∩ polygon edge → LineString). Extract only components
         # matching the source geometry's dimension (type code = dimension + 1)
