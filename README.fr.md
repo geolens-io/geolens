@@ -120,8 +120,8 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 ### Analyse
 
 - **Zone tampon** (mètres, kilomètres, pieds ou milles), **centroïde**, **découpage** par une zone dessinée ou par une autre couche de polygones, et **fusion** avec colonne de regroupement facultative
-- Les résultats s’affichent en aperçu sur la carte, limités à 500 entités ; **Créer un jeu de données** exécute ensuite l’opération sur toutes les entités sous forme de tâche en arrière-plan
-- La sortie est un jeu de données ordinaire : stylisable, exportable et servi via les points de terminaison OGC et STAC comme n’importe quel autre
+- La zone tampon, le centroïde et le découpage s’affichent en aperçu sur la carte, limités à 500 entités ; la fusion n’existe qu’en création de jeu de données. **Créer un jeu de données** exécute ensuite l’une des quatre opérations sur toutes les entités sous forme de tâche en arrière-plan
+- La sortie est un jeu de données vectoriel ordinaire : stylisable, exportable et servi via les points de terminaison de l’API OGC comme n’importe quel autre
 - L’assistant de discussion peut générer des aperçus de zone tampon et de centroïde à la demande
 
 ### Normes et interopérabilité

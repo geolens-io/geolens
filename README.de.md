@@ -120,8 +120,8 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 ### Analyse
 
 - **Puffer** (Meter, Kilometer, Fuß oder Meilen), **Zentroid**, **Zuschneiden** anhand einer gezeichneten Fläche oder eines anderen Polygon-Layers sowie **Auflösen** mit optionaler Gruppierungsspalte
-- Ergebnisse werden auf der Karte als Vorschau angezeigt, begrenzt auf 500 Objekte; **Datensatz erstellen** führt die Operation anschließend als Hintergrundjob über alle Objekte aus
-- Das Ergebnis ist ein gewöhnlicher Datensatz — gestaltbar, exportierbar und wie jeder andere über die OGC- und STAC-Endpunkte verfügbar
+- Puffer, Zentroid und Zuschneiden werden auf der Karte als Vorschau angezeigt, begrenzt auf 500 Objekte; Auflösen gibt es nur als Datensatz. **Datensatz erstellen** führt anschließend jede der vier Operationen als Hintergrundjob über alle Objekte aus
+- Das Ergebnis ist ein gewöhnlicher Vektordatensatz — gestaltbar, exportierbar und wie jeder andere über die OGC-API-Endpunkte verfügbar
 - Der Chat-Assistent kann auf Anfrage Puffer- und Zentroid-Vorschauen erzeugen
 
 ### Standards und Interoperabilität

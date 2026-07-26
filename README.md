@@ -121,8 +121,8 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 ### Analysis
 
 - **Buffer** (metres, kilometres, feet, or miles), **centroid**, **clip** by a drawn area or by another polygon layer, and **dissolve** with an optional group-by column
-- Results preview on the map, capped at 500 features; **Create dataset** then runs the operation over every feature as a background job
-- The output is an ordinary dataset — styleable, exportable, and served through the OGC and STAC endpoints like any other
+- Buffer, centroid, and clip preview on the map, capped at 500 features; dissolve is materialize-only. **Create dataset** then runs any of the four over every feature as a background job
+- The output is an ordinary vector dataset — styleable, exportable, and served through the OGC API endpoints like any other
 - The chat assistant can run buffer and centroid previews on request
 
 ### Standards and interop

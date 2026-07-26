@@ -121,8 +121,8 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 ### Análisis
 
 - **Área de influencia** (metros, kilómetros, pies o millas), **centroide**, **recorte** por un área dibujada o por otra capa de polígonos, y **disolución** con columna de agrupación opcional
-- Los resultados se previsualizan en el mapa, con un límite de 500 entidades; **Crear conjunto de datos** ejecuta después la operación sobre todas las entidades como trabajo en segundo plano
-- La salida es un conjunto de datos normal: se puede estilizar, exportar y servir a través de los endpoints OGC y STAC como cualquier otro
+- El área de influencia, el centroide y el recorte se previsualizan en el mapa, con un límite de 500 entidades; la disolución solo se puede materializar. **Crear conjunto de datos** ejecuta después cualquiera de las cuatro sobre todas las entidades como trabajo en segundo plano
+- La salida es un conjunto de datos vectorial normal: se puede estilizar, exportar y servir a través de los endpoints de la API OGC como cualquier otro
 - El asistente de chat puede generar previsualizaciones de área de influencia y centroide cuando se le pide
 
 ### Estándares e interoperabilidad
