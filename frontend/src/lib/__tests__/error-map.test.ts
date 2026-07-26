@@ -91,6 +91,55 @@ describe('API error localization boundary', () => {
     expect(rendered).not.toContain('[');
   });
 
+  // The analysis size gates and the CORS guard are only useful if the limit and
+  // the way out survive the localization boundary; before this mapping existed
+  // every one of them rendered as "The submitted values are invalid."
+  it.each([
+    [
+      'This dataset is too large for dissolve (the limit is 250,000 features). Filter it to a smaller dataset first.',
+      '250,000',
+    ],
+    [
+      'This dataset is too large for buffer (the limit is 500,000 features). Filter it to a smaller dataset first.',
+      '500,000',
+    ],
+  ])('keeps the source-size limit out of the generic 422 bucket', (detail, limit) => {
+    const rendered = translateApiErrorDetail(detail, 422);
+
+    expect(rendered).not.toBe('The submitted values are invalid.');
+    expect(rendered).toContain(limit);
+    expect(rendered).toContain('Filter it to a smaller dataset first.');
+  });
+
+  it('keeps the mask-layer cap and both of its escape hatches', () => {
+    const rendered = translateApiErrorDetail(
+      'The mask layer has too many features to clip with (limit 1,000). Choose a smaller mask layer or draw the mask on the map.',
+      422,
+    );
+
+    expect(rendered).toContain('1,000');
+    expect(rendered).toContain('smaller mask layer');
+    expect(rendered).toContain('draw the mask on the map');
+  });
+
+  it('explains the CORS wildcard rejection instead of blaming the input', () => {
+    const rendered = translateApiErrorDetail(
+      "Validation error for 'cors_allowed_origins': Wildcard '*' is not accepted " +
+        'because credentialed CORS requires explicit origins. List each origin ' +
+        'in full, e.g. https://example.com, https://app.example.com',
+      422,
+    );
+
+    expect(rendered).not.toBe('The submitted values are invalid.');
+    expect(rendered).toContain('Credentialed requests');
+  });
+
+  it('still falls back for an unmapped analysis-shaped message', () => {
+    expect(
+      translateApiErrorDetail('This dataset is too large for everything', 422),
+    ).toBe('The submitted values are invalid.');
+  });
+
   it('retains unknown layer names through localized structured validation', () => {
     expect(
       translateApiErrorDetail(
