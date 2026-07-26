@@ -118,6 +118,13 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 - **Exportación:** GeoJSON, Shapefile, GeoPackage y CSV, con reproyección del CRS
 - Seguimiento de procedencia y edición de metadatos
 
+### Análisis
+
+- **Área de influencia** (metros, kilómetros, pies o millas), **centroide**, **recorte** por un área dibujada o por otra capa de polígonos, y **disolución** con columna de agrupación opcional
+- El área de influencia, el centroide y el recorte se previsualizan en el mapa, con un límite de 500 entidades; la disolución solo se puede materializar. **Crear conjunto de datos** ejecuta después cualquiera de las cuatro sobre todas las entidades como trabajo en segundo plano, dentro de los límites por operación (250k entidades para disolución, 500k para área de influencia)
+- La salida es un conjunto de datos vectorial normal: se puede estilizar, exportar y servir a través de los endpoints de la API OGC como cualquier otro
+- El asistente de chat puede generar previsualizaciones de área de influencia y centroide cuando se le pide
+
 ### Estándares e interoperabilidad
 
 - OGC API - Features y OGC API - Records; endpoint de catálogo STAC API 1.0; catálogos JSON-LD DCAT 3, DCAT-US 3.0 y GeoDCAT-AP
