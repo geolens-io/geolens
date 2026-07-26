@@ -937,6 +937,7 @@
     "opCentroid": "Centroids",
     "opClip": "Clip",
     "distanceLabel": "Distance",
+    "distanceOutOfRange": "Enter a distance greater than 0 and no more than {{max}} {{unit}}.",
     "drawMask": "Draw clip area",
     "drawingHint": "Draw on the map — double-click to finish",
     "cancelDrawing": "Cancel",

@@ -266,6 +266,35 @@ describe('AnalysisPanel', () => {
     expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
   });
 
+  it('says why an out-of-range distance disabled the buttons (#723)', () => {
+    renderPanel([datasetLayer]);
+    const input = screen.getByLabelText('Distance');
+
+    // Over the 100 km ceiling, in metres.
+    fireEvent.change(input, { target: { value: '250000' } });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Enter a distance greater than 0 and no more than {{max}} {{unit}}.',
+    );
+    // The field points at the message, so a screen reader reads it on focus
+    // rather than announcing a bare "invalid".
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', alert.id);
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    // fix(#723 review): exactly 0 is rejected by distanceValid (> 0), so the
+    // message must not describe it as accepted.
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('greater than 0');
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    // Back in range: message gone, describedby dropped, buttons live again.
+    fireEvent.change(input, { target: { value: '500' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(input).not.toHaveAttribute('aria-describedby');
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+  });
+
   it('shows Clear preview only when a preview is active', () => {
     const onClearPreview = vi.fn();
     renderPanel([datasetLayer], { hasPreview: true, onClearPreview });
