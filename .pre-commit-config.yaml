@@ -98,7 +98,7 @@ repos:
           bash -c '
           rc=0;
           for f in "$@"; do
-            if grep -nEi "(^|[[:space:]#/*])ponytail:" "$f"; then
+            if grep -nFi "ponytail:" "$f"; then
               echo "FAIL: $f has an unscoped finding marker (see above).";
               echo "  Use fix(#<issue>): <context>, or remove the tag.";
               echo "  See AGENTS.md > Inline review-comment convention.";
