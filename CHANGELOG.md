@@ -23,6 +23,28 @@ and releases use semantic versioning.
   1.5–2.3× in like-for-like benchmarks. The backup image's `pg_dump` moves to
   18 in lockstep (a v17 `pg_dump` cannot dump a PG 18 server).
 
+- **`scripts/upgrade.sh` refuses to cross a PostgreSQL major version.** It now
+  compares the running server's major against the one the target release
+  bundles and stops **before** anything changes — no image pull, no version
+  pin, no database write — printing the RUNBOOK § 6 procedure instead. This
+  closes the gap where the one-command upgrade would otherwise leave an
+  install silently on the old major, or crash-loop `db` against an
+  incompatible data directory the moment that image was rebuilt.
+  Deployments using an external database (`DATABASE_URL_OVERRIDE`) are
+  unaffected — the check is skipped, since the bundled image's version says
+  nothing about the database those installs actually use.
+
+### Fixed
+
+- **OGC: an over-maximum `limit` is clamped on the records collection.**
+  `/collections/datasets/items` returned 400 for a `limit` above the page-size
+  ceiling; OGC API Features Core `/req/core/fc-limit-response-1(C)` requires
+  the server to use its maximum instead of erroring. It now clamps to 200 and
+  echoes the applied value in the `self` link, matching the per-dataset items
+  route and STAC item-search. `/search/datasets/`, which shares the same
+  parameters and answered 422 for the same input, clamps identically — so
+  clients no longer need per-route error handling.
+
 ## [1.4.13] - 2026-07-24
 
 STAC conformance hardening: the STAC API now passes stac-api-validator for

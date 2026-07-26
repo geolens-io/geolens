@@ -11,6 +11,8 @@ set -eu
 #      If this is a source-build install (not the prod compose), print the
 #      source-build upgrade instructions and exit 0 — this tool targets prebuilt.
 #   2. Determine the TARGET version (arg $1, else newest remote release tag).
+#   2.5 Refuse to cross a PostgreSQL major (chore(#704)) — abort before any
+#      change with a pointer to RUNBOOK section 6.
 #   3. PRE-UPGRADE BACKUP — pg_dump -Fc to a timestamped file. Abort if it is
 #      missing/empty. (Backup BEFORE we touch images or schema.)
 #   4. Bump GEOLENS_VERSION (export + persist via update_env_value).
@@ -108,11 +110,71 @@ fi
 say "Upgrading GeoLens: ${CURRENT_VERSION:-unknown} -> ${TARGET_VERSION}"
 say ""
 
-# --- Step 3: pre-upgrade backup ---------------------------------------------
 POSTGRES_USER="$(get_env_value POSTGRES_USER)"
 POSTGRES_DB="$(get_env_value POSTGRES_DB)"
 [ -n "$POSTGRES_USER" ] || POSTGRES_USER="geolens"
 [ -n "$POSTGRES_DB" ] || POSTGRES_DB="geolens"
+
+TARGET_TAG="v${TARGET_VERSION}"
+
+# --- Step 2.5: refuse to cross a PostgreSQL major (chore(#704)) --------------
+# A PG N data volume cannot be opened by a PG N+1 server ("database files are
+# incompatible with server"), and this script has no path that migrates one.
+# Left undetected, an upgrade that crosses the boundary either leaves the
+# operator silently on the OLD major (compose does not rebuild the locally-built
+# db image on its own) or crash-loops `db` at the health gate the moment
+# anything does rebuild it. Compare the RUNNING server's major against the
+# target release's bundled db image and stop here, before anything has changed,
+# with a pointer to the dump -> fresh volume -> restore procedure.
+#
+# Best-effort on both sides: a Docker-only host (no git) cannot read the target
+# major, and an unreadable value on either side warns and continues rather than
+# blocking an otherwise valid upgrade.
+#
+# Codex #707: skipped entirely when DATABASE_URL_OVERRIDE is set. The prod
+# compose still defines and starts `db` in that mode, but the app does not use
+# it — so probing that container compares the target's bundled major against a
+# stale local container and would refuse an upgrade for an operator whose
+# provider is already on the new major. The bundled-volume incompatibility this
+# guard exists to prevent cannot occur when the data lives outside the bundle;
+# RUNBOOK section 6's managed-mode path covers those deployments.
+DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
+target_pg_major=""
+current_pg_major=""
+if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ]; then
+  say "External database configured (DATABASE_URL_OVERRIDE) — skipping the bundled PostgreSQL major check."
+else
+  if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
+      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null || true
+    target_pg_major="$(git show "${TARGET_TAG}:db/Dockerfile" 2>/dev/null \
+      | sed -n 's|^FROM .*postgis/postgis:\([0-9][0-9]*\)-.*|\1|p' | head -n 1)"
+  fi
+  # server_version_num is major*10000 + minor for every version we support (>= 13).
+  current_pg_num="$(compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -tAc 'SHOW server_version_num' 2>/dev/null | tr -cd '0-9')"
+  if [ -n "$current_pg_num" ]; then
+    current_pg_major="$((current_pg_num / 10000))"
+  fi
+fi
+
+if [ -n "$target_pg_major" ] && [ -n "$current_pg_major" ] \
+   && [ "$target_pg_major" != "$current_pg_major" ]; then
+  say "GeoLens ${TARGET_VERSION} bundles PostgreSQL ${target_pg_major}; this install runs PostgreSQL ${current_pg_major}."
+  say ""
+  say "A PostgreSQL ${current_pg_major} data directory cannot be opened by a PostgreSQL"
+  say "${target_pg_major} server, so this one-command upgrade cannot cross the boundary."
+  say "The supported path is dump -> fresh volume -> restore:"
+  say ""
+  say "  RUNBOOK.md section 6 - Major PostgreSQL version upgrade"
+  say "  https://github.com/geolens-io/geolens/blob/${TARGET_TAG}/RUNBOOK.md"
+  say ""
+  say "Nothing was changed. Your database is untouched and still on PostgreSQL ${current_pg_major}."
+  fail "Refusing to upgrade across a PostgreSQL major version."
+fi
+say ""
+
+# --- Step 3: pre-upgrade backup ---------------------------------------------
 
 BACKUP_DIR="$PROJECT_ROOT/backups/pre-upgrade"
 mkdir -p "$BACKUP_DIR"
@@ -197,7 +259,6 @@ say ""
 # (gitignored). Best-effort: a non-git install or any git failure warns and
 # continues with the current files (the pre-v1043 pull-only behaviour) rather than
 # aborting the upgrade. Local edits to the tracked files above are replaced.
-TARGET_TAG="v${TARGET_VERSION}"
 say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \

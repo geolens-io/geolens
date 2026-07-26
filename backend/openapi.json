@@ -27097,7 +27097,6 @@
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 200,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
@@ -49077,7 +49076,6 @@
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 200,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
