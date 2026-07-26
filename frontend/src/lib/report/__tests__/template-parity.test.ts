@@ -22,7 +22,7 @@ const template = readFileSync(
   'utf8',
 );
 
-// ponytail: line-based extraction, not a YAML parser — no yaml dep exists in
+// Line-based extraction, not a YAML parser: no yaml dep exists in
 // package.json, and the template's shape is stable enough that a shape change
 // failing this test IS the alert we want.
 function extractFieldIds(yml: string): string[] {

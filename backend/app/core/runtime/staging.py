@@ -39,7 +39,7 @@ def sweep_orphaned_exports(
     the staging volume (`docker-compose.prod.yml` runs two). Both the API and the
     worker now call this one age-aware sweeper.
 
-    ponytail: no cross-process advisory lock. The sweep is idempotent and tolerates
+    No cross-process advisory lock. The sweep is idempotent and tolerates
     losing a race (``ignore_errors``/``missing_ok``/``FileNotFoundError``), and the
     age threshold — not mutual exclusion — is what protects in-flight exports. Add a
     lock only if a sweeper ever grows a non-idempotent step.

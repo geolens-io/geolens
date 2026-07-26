@@ -81,6 +81,35 @@ repos:
         types: [python]
         files: '^backend/app/(modules/catalog|standards)/.*\.py$'
 
+      - id: no-unscoped-finding-markers
+        name: "AGENTS.md — no bare, unscoped finding markers in source comments"
+        description: >
+          AGENTS.md ("Inline review-comment convention") requires a comment that
+          references a review finding to carry a lookup-able anchor — a PR or
+          issue number — not a bare tag that resolves only in someone's private
+          context. 14 `ponytail:` markers reached main before anyone noticed;
+          they read as a defined term and are not one.
+
+          Write `fix(#1234): <one line>`, or just drop the tag and let the
+          sentence stand — a note about a deliberate limitation does not need a
+          prefix to be understood.
+        language: system
+        entry: >-
+          bash -c '
+          rc=0;
+          for f in "$@"; do
+            if grep -nEi "(^|[[:space:]#/*])ponytail:" "$f"; then
+              echo "FAIL: $f has an unscoped finding marker (see above).";
+              echo "  Use fix(#<issue>): <context>, or remove the tag.";
+              echo "  See AGENTS.md > Inline review-comment convention.";
+              rc=1;
+            fi;
+          done;
+          exit $rc;
+          ' --
+        types_or: [python, ts, tsx, javascript, shell]
+        exclude: '^(sdks/|frontend/node_modules/)'
+
       # --- Lint + format (shift-left; CI backend-lint also enforces these) ---
       - id: ruff-check
         name: "ruff check (backend)"
