@@ -118,6 +118,13 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - **Export:** GeoJSON, Shapefile, GeoPackage, CSV, with CRS reprojection
 - Provenance tracking and metadata editing
 
+### Analysis
+
+- **Buffer** (metres, kilometres, feet, or miles), **centroid**, **clip** by a drawn area or by another polygon layer, and **dissolve** with an optional group-by column
+- Results preview on the map, capped at 500 features; **Create dataset** then runs the operation over every feature as a background job
+- The output is an ordinary dataset — styleable, exportable, and served through the OGC and STAC endpoints like any other
+- The chat assistant can run buffer and centroid previews on request
+
 ### Standards and interop
 
 - OGC API - Features and OGC API - Records; STAC API 1.0 catalog endpoint

@@ -117,6 +117,13 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 - **Export:** GeoJSON, Shapefile, GeoPackage, CSV, mit CRS-Reprojektion
 - Herkunftsverfolgung und Metadatenbearbeitung
 
+### Analyse
+
+- **Puffer** (Meter, Kilometer, Fuß oder Meilen), **Zentroid**, **Zuschneiden** anhand einer gezeichneten Fläche oder eines anderen Polygon-Layers sowie **Auflösen** mit optionaler Gruppierungsspalte
+- Ergebnisse werden auf der Karte als Vorschau angezeigt, begrenzt auf 500 Objekte; **Datensatz erstellen** führt die Operation anschließend als Hintergrundjob über alle Objekte aus
+- Das Ergebnis ist ein gewöhnlicher Datensatz — gestaltbar, exportierbar und wie jeder andere über die OGC- und STAC-Endpunkte verfügbar
+- Der Chat-Assistent kann auf Anfrage Puffer- und Zentroid-Vorschauen erzeugen
+
 ### Standards und Interoperabilität
 
 - OGC API - Features und OGC API - Records; STAC API 1.0-Katalogendpunkt; JSON-LD-Kataloge nach DCAT 3, DCAT-US 3.0 und GeoDCAT-AP
