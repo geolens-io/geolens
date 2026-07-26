@@ -147,7 +147,7 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // the generic 422 string, so the user is told their input is invalid with no
   // hint that size is the problem. The limits arrive comma-grouped from
   // Python's `{n:,}`, so strip that before re-formatting for the active locale.
-  // ponytail: the operation name in the source-size message is deliberately
+  // fix(#718): the operation name in the source-size message is deliberately
   // dropped rather than interpolated — translating it would mean reaching into
   // the builder namespace from here, and the user just picked the operation.
   const sourceTooLarge = message.match(
