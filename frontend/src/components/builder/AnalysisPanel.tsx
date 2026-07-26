@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
@@ -36,11 +37,22 @@ const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
 // ux(#720): analysis needs a VECTOR dataset. `!is_dem` alone let ordinary
 // raster layers (COG orthophotos, Sentinel scenes) through — they carry a
 // dataset_id, so the panel offered them and auto-selected the first one, and
-// every Preview 422'd. Rasters have no geometry_type, which is exactly the
-// precondition _load_vector_dataset enforces server-side, so keying on it
-// matches the server rather than guessing at layer flags.
+// every Preview 422'd.
+//
+// Two conditions, because neither covers the other (fix(#720 review)):
+//   - getLayerCapabilities is the canonical raster/vrt classifier, keyed on
+//     layer_type + dataset_record_type. Testing geometry_type alone happened
+//     to work only because every raster dataset currently stores NULL there —
+//     an incidental property, not an invariant, and LayerLegend already has a
+//     fixture where a raster reports 'POINT'.
+//   - geometry_type is still required on top of it: it is the precondition
+//     _load_vector_dataset enforces server-side, so a vector dataset missing
+//     it would 422 just the same.
 const isAnalysableLayer = (l: MapLayerResponse) =>
-  !!l.dataset_id && !l.is_dem && !!l.dataset_geometry_type;
+  !!l.dataset_id &&
+  !l.is_dem &&
+  getLayerCapabilities(l).kind === 'vector' &&
+  !!l.dataset_geometry_type;
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;

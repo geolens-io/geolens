@@ -103,15 +103,28 @@ const pointLayer = {
 } as unknown as MapLayerResponse;
 
 // ux(#720): an ordinary (non-DEM) raster layer. It carries a dataset_id, so the
-// old `!is_dem` filter offered it; rasters have no geometry_type and the server
-// 422s on them.
+// old `!is_dem` filter offered it, and the server 422s on it.
 const rasterLayer = {
   id: 'l5',
   dataset_id: 'ds5',
   dataset_name: 'Sentinel-2 TCI',
   display_name: null,
   is_dem: false,
+  layer_type: 'raster_geolens',
+  dataset_record_type: 'raster_dataset',
   dataset_geometry_type: null,
+} as unknown as MapLayerResponse;
+
+// fix(#720 review): the same raster, but reporting a geometry type. Every
+// raster dataset stores NULL there today, which is what made a geometry-only
+// test appear to work — but nothing enforces it, and LayerLegend already has a
+// fixture where a raster reports 'POINT'. layer_type is the classifier.
+const rasterLayerWithGeometryType = {
+  ...rasterLayer,
+  id: 'l6',
+  dataset_id: 'ds6',
+  dataset_name: 'Ortho tile with stale geometry_type',
+  dataset_geometry_type: 'POINT',
 } as unknown as MapLayerResponse;
 
 function renderPanel(
@@ -153,6 +166,16 @@ describe('AnalysisPanel', () => {
     expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
     expect(screen.getByText('Parcels')).toBeInTheDocument();
     expect(screen.queryByText('Sentinel-2 TCI')).not.toBeInTheDocument();
+  });
+
+  it('excludes a raster that reports a geometry type (#720 review)', () => {
+    renderPanel([rasterLayerWithGeometryType, groupLayer]);
+    expect(
+      screen.getByText('Add a dataset layer to use analysis tools'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Preview' }),
+    ).not.toBeInTheDocument();
   });
 
   it('hides the dataset-creation half without the upload permission (#700)', () => {
