@@ -523,7 +523,10 @@ docker volume rm <project>_pgdata
 #    REQUIRED before the restore: migrations create the app roles (e.g.
 #    geolens_readonly) that the dump's GRANT statements reference — restoring
 #    onto an unmigrated cluster spews "role ... does not exist" errors.
-docker compose pull   # or: docker compose build db, if you build locally
+docker compose pull   # or: docker compose build, if you build locally.
+                      # Rebuild EVERYTHING, not just db: the backup image's
+                      # pg_dump major must match the new server, or every
+                      # backup cycle fails with "server version mismatch".
 docker compose up -d --wait
 
 # 4. Restore the dump (canonical entry point: validates the file, stops
