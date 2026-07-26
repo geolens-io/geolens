@@ -47,7 +47,7 @@ _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
 # here is the only unbounded statement a user can queue, so cap it.
-# ponytail: hardcoded ceiling; promote to persistent-config if operators hit it.
+# Hardcoded ceiling; promote to persistent-config if operators hit it.
 MATERIALIZE_TIMEOUT = "300s"
 
 # The mid-task commit that makes the output table durable also ends the
@@ -65,7 +65,7 @@ REGISTRATION_TIMEOUT = "600s"
 MAX_OUTPUT_BYTES = 2 * 1024**3
 
 # Served by the worker's :8001 /metrics endpoint (default registry).
-# ponytail: analysis-only counter; generalize to all ingest job types when
+# Analysis-only counter; generalize to all ingest job types when
 # another type needs it.
 ANALYSIS_JOBS = Counter(
     "geolens_analysis_jobs_total",

@@ -339,7 +339,7 @@ async def load_parquet_to_postgis(
     loads attribute columns only (non-spatial parquet, or a user geometry
     override where geometry is constructed post-load).
 
-    ponytail: executemany inserts, not COPY — fine up to a few million rows;
+    Uses executemany inserts, not COPY — fine up to a few million rows;
     switch to asyncpg copy_records_to_table if load time ever matters.
     """
     from app.core.db import async_session

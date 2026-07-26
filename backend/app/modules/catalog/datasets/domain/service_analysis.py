@@ -145,6 +145,7 @@ async def run_analysis_preview(
     user_id: uuid.UUID,
     *,
     mask_dataset: Dataset | None = None,
+    release_session: bool = False,
 ) -> AnalysisPreviewResponse:
     """Execute a preview operation and assemble a GeoJSON FeatureCollection.
 
@@ -155,12 +156,37 @@ async def run_analysis_preview(
     ``mask_dataset`` (clip only) sources the mask from another dataset's
     unioned geometries; the CALLER owns its visibility check, exactly as it
     owns the source dataset's.
+
+    ``release_session`` returns the caller's pooled connection before the
+    sandbox query (see below). OPT-IN, because the rollback that releases it
+    expires EVERY ORM instance on the session, not just ``dataset`` — including
+    the authenticated ``User``, whose next attribute read would then attempt a
+    sync refresh and raise ``MissingGreenlet`` (verified: after a rollback even
+    ``user.id`` raises). Only pass it from a caller that owns the session and
+    reads nothing off it afterwards. The REST endpoint qualifies — it evaluates
+    ``user.id`` before the call and touches no ORM state after, and no
+    middleware reads the ORM user post-handler. The AI chat tool does NOT: both
+    chat paths read ``user.id`` again after the tool returns.
     """
     table_ref = _safe_table_ref(dataset.table_name)
     mask_table_ref = (
         _safe_table_ref(mask_dataset.table_name) if mask_dataset is not None else None
     )
     sql = build_preview_sql(table_ref, request, mask_table_ref)
+    # fix(#716): read everything off the ORM objects BEFORE releasing the
+    # session, then release it. `execute_safe` opens its own connection from the
+    # same engine (it needs READ ONLY + SET LOCAL ROLE, which it cannot get on
+    # the caller's session), so without this the handler holds two of the
+    # pool's 13 slots for the whole sandbox query — the request session, pinned
+    # since `get_dataset`, plus the sandbox connection. At 7 concurrent previews
+    # demand exceeds the pool and every endpoint on the worker, not just
+    # analysis, blocks for the 30s `pool_timeout`; the waiter then raises
+    # SQLAlchemy TimeoutError, which the sandbox classifies as `query_failed`
+    # → HTTP 500. `rollback()` returns the connection (measured: checkedout
+    # 1 → 0), so a preview costs one slot instead of two.
+    source_feature_count = dataset.feature_count
+    if release_session:
+        await db.rollback()
     result = await execute_safe(
         db,
         sql,
@@ -189,6 +215,6 @@ async def run_analysis_preview(
         # output total and lets clients render "500 of N" on truncation.
         # clip filters rows, so its total is unknowable without a second scan.
         source_feature_count=(
-            dataset.feature_count if request.operation != "clip" else None
+            source_feature_count if request.operation != "clip" else None
         ),
     )

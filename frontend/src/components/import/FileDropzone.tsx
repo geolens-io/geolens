@@ -57,7 +57,7 @@ function groupByKind(extensions: string[]): { kind: DataKind; ext: string }[] {
 export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota }: FileDropzoneProps) {
   const { t } = useTranslation('import');
 
-  // ponytail: client-side UX guard only; the cap is enforced server-side at
+  // Client-side UX guard only; the cap is enforced server-side at
   // upload. Atomic batch enforcement is a deferred worker-side concern.
   const effectiveMaxFiles = effectiveBatchLimit(remainingQuota);
 

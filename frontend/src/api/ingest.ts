@@ -29,7 +29,8 @@ export type UploadProgress = (fraction: number) => void;
  * XHR-based POST so we can report upload-byte progress — `fetch()` cannot.
  * Mirrors authenticatedRawFetch's proactive-refresh + single 401 retry so a
  * first-after-idle upload doesn't hard-fail on a stale JWT.
- * ponytail: a 401 retry re-sends the whole body — acceptable, refresh makes it rare.
+ * A 401 retry re-sends the whole body — acceptable, since the proactive refresh
+ * makes it rare.
  */
 async function xhrUpload<T>(
   path: string,
@@ -207,8 +208,8 @@ export async function uploadPresigned(
   );
 
   if (urls.length === 1 && !upload_id) {
-    // Simple PUT upload. ponytail: single-PUT is only used for small files —
-    // coarse 0→1 instead of an extra XHR-with-progress path.
+    // Simple PUT upload. Single-PUT is only used for small files, so progress
+    // is a coarse 0→1 instead of an extra XHR-with-progress path.
     onProgress?.(0);
     const resp = await fetch(urls[0], { method: 'PUT', body: file });
     if (!resp.ok) {

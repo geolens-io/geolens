@@ -141,6 +141,41 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // The analysis blast-radius refusals (#693 mask cap, #694/#701 source caps)
+  // and the CORS wildcard guard (#689) put the whole point of those changes in
+  // the server's prose: the limit, and the way out. Unmapped they collapse to
+  // the generic 422 string, so the user is told their input is invalid with no
+  // hint that size is the problem. The limits arrive comma-grouped from
+  // Python's `{n:,}`, so strip that before re-formatting for the active locale.
+  // fix(#718): the operation name in the source-size message is deliberately
+  // dropped rather than interpolated — translating it would mean reaching into
+  // the builder namespace from here, and the user just picked the operation.
+  const sourceTooLarge = message.match(
+    /^This dataset is too large for \w+ \(the limit is ([\d,]+) features?\)/i,
+  );
+  if (sourceTooLarge) {
+    return {
+      key: 'errors.analysisSourceTooLarge',
+      values: { limit: formatInteger(sourceTooLarge[1].replace(/,/g, '')) },
+    };
+  }
+
+  const maskTooLarge = message.match(
+    /^The mask layer has too many features to clip with \(limit ([\d,]+)\)/i,
+  );
+  if (maskTooLarge) {
+    return {
+      key: 'errors.analysisMaskTooLarge',
+      values: { limit: formatInteger(maskTooLarge[1].replace(/,/g, '')) },
+    };
+  }
+
+  // Anchored on the setting name and the first clause only: the server's
+  // example origins are prose that may well be reworded.
+  if (/^Validation error for 'cors_allowed_origins': Wildcard/i.test(message)) {
+    return { key: 'errors.corsWildcardNotAllowed' };
+  }
+
   return fallbackDescriptor(status);
 }
 
