@@ -215,6 +215,18 @@ if [ ! -s "$BACKUP_FILE" ]; then
   restart_writers
   fail "Pre-upgrade backup is empty. Aborting before any changes were made."
 fi
+# Read the archive back end-to-end before trusting it as the rollback artifact
+# (fix(#714), same check backup.sh got in #710). A dump truncated by a disk that
+# filled mid-write is non-empty and still passes `--list`, because the -Fc table
+# of contents sits at the front — the damage is only visible once every data
+# block is read. Do it here, while the pre-upgrade cluster is still intact and
+# a re-dump is free; the next steps migrate the schema, after which this file is
+# the only way back.
+if ! compose exec -T db pg_restore -f /dev/null < "$BACKUP_FILE" >/dev/null 2>&1; then
+  rm -f "$BACKUP_FILE"
+  restart_writers
+  fail "Pre-upgrade backup did not read back cleanly (truncated or corrupt). Aborting before any changes were made."
+fi
 say "  backup OK ($(du -h "$BACKUP_FILE" 2>/dev/null | cut -f1) ) — restore with: scripts/restore.sh \"$BACKUP_FILE\""
 say ""
 

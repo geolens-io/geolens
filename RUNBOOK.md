@@ -567,16 +567,33 @@ docker compose stop api worker
 #    The connection variables are read INSIDE the backup container (they are
 #    set there); `-T` is required so Docker does not allocate a TTY and corrupt
 #    the binary stream.
+#
+#    Dump to `.partial` and rename only after the read-back succeeds, so
+#    `pre_pg18.dump` exists if and only if a verified dump exists. Step 2 tests
+#    for exactly that file. The leading `rm -f` matters: an already-verified
+#    dump from an earlier attempt would otherwise green-light step 2 after a
+#    re-dump failed, and that older dump predates the step-0 quiesce.
 mkdir -p ./backups/pre-upgrade
+rm -f ./backups/pre-upgrade/pre_pg18.dump
 docker compose exec -T backup sh -c \
   'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB"' \
-  > ./backups/pre-upgrade/pre_pg18.dump
-docker compose exec -T backup pg_restore -f /dev/null \
-  < ./backups/pre-upgrade/pre_pg18.dump && echo "pre-upgrade dump OK"
+  > ./backups/pre-upgrade/pre_pg18.partial \
+  && docker compose exec -T backup pg_restore -f /dev/null \
+       < ./backups/pre-upgrade/pre_pg18.partial \
+  && mv ./backups/pre-upgrade/pre_pg18.partial ./backups/pre-upgrade/pre_pg18.dump \
+  && echo "pre-upgrade dump verified"
 
 # 2. Stop the stack and remove ONLY the database volume.
-docker compose down
-docker volume rm <project>_pgdata
+#
+#    Gated on step 1's verified dump, and chained with `&&`, because this block
+#    is meant to be pasted: a failed pg_dump (disk full, version mismatch, a
+#    typo'd volume name) otherwise only suppresses step 1's echo, and the shell
+#    runs straight on into `docker volume rm`. Past that point there is no dump
+#    and no cluster. If the guard stops you here, the PG 17 volume is still
+#    intact — fix the dump and re-run step 1.
+test -f ./backups/pre-upgrade/pre_pg18.dump \
+  && docker compose down \
+  && docker volume rm <project>_pgdata
 
 # 3. Pull/build the new images and start the WHOLE stack once — a fresh PG 18
 #    cluster initializes (scripts/init-db.sh provisions extensions + base
