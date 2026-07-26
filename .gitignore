@@ -39,6 +39,14 @@ coverage/
 build/
 dist/
 
+# Database dumps. `scripts/upgrade.sh` writes its pre-upgrade dump to
+# backups/pre-upgrade/, and RUNBOOK section 6 stages a dump in ./restore before
+# a major-version upgrade — both land inside the operator's checkout, and a
+# dump carries the full contents of their database.
+backups/
+restore/
+*.dump
+
 # Playwright
 playwright/.auth/
 playwright-report/

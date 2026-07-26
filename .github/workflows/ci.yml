@@ -98,13 +98,18 @@ jobs:
               - 'db/**'
             installer:
               - 'scripts/install.sh'
+              - 'scripts/upgrade.sh'
+              - 'scripts/lib/common.sh'
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
+              - 'scripts/tests/test-upgrade-order.sh'
+              - 'scripts/tests/test-upgrading-doc-consistency.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
               - 'scripts/check_env_doc_drift.py'
               - '.env.example'
+              - 'UPGRADING.md'
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
             backup:
@@ -224,6 +229,14 @@ jobs:
 
       - name: Installer main() wrapper regression test
         run: sh scripts/tests/test-install-main-wrapper.sh
+
+      # Both upgrade suites shipped without CI wiring; the order test now also
+      # covers the PG-major refusal (chore(#704)), so it has to actually run.
+      - name: Upgrade order + PG-major guard regression test
+        run: sh scripts/tests/test-upgrade-order.sh
+
+      - name: UPGRADING.md consistency test
+        run: sh scripts/tests/test-upgrading-doc-consistency.sh
 
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh

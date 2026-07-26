@@ -18,7 +18,10 @@ fails, you re-pin the old version and restore the pre-upgrade dump.
 > are incompatible with server"). Follow
 > [RUNBOOK.md § 6 — Major PostgreSQL version upgrade](RUNBOOK.md#6-major-postgresql-version-upgrade-17--18)
 > instead (dump → fresh volume → restore, with rollback notes). The release
-> notes call out every release this applies to.
+> notes call out every release this applies to. You do not have to catch this
+> yourself: `scripts/upgrade.sh` compares the running server's major against the
+> target release's bundled one and stops before changing anything, pointing here,
+> when they differ.
 
 ---
 

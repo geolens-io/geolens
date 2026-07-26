@@ -424,3 +424,59 @@ async def test_items_limit_clamped_to_configured_ceiling(
         assert _find_link(data["links"], "next") is not None
     finally:
         await _cleanup_table(test_db_session, dataset.table_name)
+
+
+# ---------------------------------------------------------------------------
+# Offset-paged routes fed by SearchQueryParams: same clamp contract (#687)
+# ---------------------------------------------------------------------------
+#
+# `/collections/datasets/items` is the first entry in `/collections` and is
+# advertised as `ogcapi-records-1`, so it is the collection a spec-following
+# client meets first — and it used to answer 400 for an over-cap limit while
+# every sibling route clamped. `/search/datasets/` shares the same dependency
+# and answered Pydantic's 422 for the same input, which made client-side error
+# handling route-dependent. Both now clamp to the same ceiling.
+from app.modules.catalog.search.query_params import _MAX_PAGE_SIZE  # noqa: E402
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/collections/datasets/items", "/search/datasets/"])
+async def test_offset_routes_limit_at_ceiling_accepted(client: AsyncClient, path: str):
+    """A limit exactly at the ceiling is accepted and echoed unchanged."""
+    resp = await client.get(path, params={"limit": _MAX_PAGE_SIZE})
+    assert resp.status_code == 200
+    assert _self_limit(resp.json()) == _MAX_PAGE_SIZE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/collections/datasets/items", "/search/datasets/"])
+async def test_offset_routes_limit_above_ceiling_clamped_not_rejected(
+    client: AsyncClient, path: str
+):
+    """A limit above the ceiling clamps to it instead of 400/422 (#687).
+
+    OGC API Features Core /req/core/fc-limit-response-1(C): an over-maximum
+    limit SHALL NOT result in an error.
+    """
+    resp = await client.get(path, params={"limit": _MAX_PAGE_SIZE * 5})
+    assert resp.status_code == 200
+    data = resp.json()
+    # The echoed self link carries the clamped ceiling, not the requested value.
+    assert _self_limit(data) == _MAX_PAGE_SIZE
+    assert data["numberReturned"] <= _MAX_PAGE_SIZE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/collections/datasets/items", "/search/datasets/"])
+async def test_offset_routes_limit_below_minimum_still_rejected(
+    client: AsyncClient, path: str
+):
+    """Clamping is one-sided: `limit=0` is still invalid, not silently raised.
+
+    The two routes still differ on which 4xx they use below the minimum (the
+    OGC router renders RFC 7807 400s, the search router Pydantic's 422). That
+    split is pre-existing and out of scope for #687, which is about the
+    over-maximum case the spec requires to succeed.
+    """
+    resp = await client.get(path, params={"limit": 0})
+    assert resp.status_code in (400, 422)

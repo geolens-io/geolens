@@ -68,8 +68,18 @@ if [ "$1" = "compose" ]; then
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
     exec)
-      # docker compose exec -T db pg_dump ...  -> the backup path; the real
-      # pg_dump runs in-container, so emit a non-empty dump to stdout and log it.
+      # Two distinct in-container calls share `compose exec -T db`:
+      #   psql  -> the PG-major probe (Step 2.5); answer server_version_num.
+      #   pg_dump -> the backup path; emit non-empty dump bytes to stdout.
+      for a in "$@"; do
+        if [ "$a" = "psql" ]; then
+          echo "probe_pg" >> "$LOG"
+          # "none" models a probe that answers nothing (external/managed
+          # Postgres: there is no `db` service to exec into).
+          [ "${DOCKER_PG_NUM:-170005}" = "none" ] || echo "${DOCKER_PG_NUM:-170005}"
+          exit 0
+        fi
+      done
       echo "backup" >> "$LOG"
       printf 'PGDMP-fake-custom-format-dump-bytes\n'
       exit 0 ;;
@@ -122,6 +132,9 @@ case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
   fetch)     echo "fetch" >> "$GLOG" ;;
   checkout)  echo "checkout" >> "$GLOG" ;;
+  # `git show <tag>:db/Dockerfile` -> the target release's bundled db base
+  # image, which the Step 2.5 PG-major guard parses.
+  show)      printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
   *)         exit 0 ;;
 esac
 GIT
@@ -147,6 +160,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   ( env "PATH=$SHIM:$PATH" GEOLENS_REPO_URL="file:///fake" \
       DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
       DOCKER_STOP_MODE="${STOP_MODE:-ok}" \
+      DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -189,10 +203,11 @@ else
   bad "success path did not print rollback recipe"
 fi
 
-# Full expected order recorded: stop_app, backup, pull, migrate_up, app_up
+# Full expected order: probe_pg, stop_app, backup, pull, migrate_up, app_up.
+# The PG-major probe runs first — it must decide before anything is changed.
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-if [ "$order" = "stop_app,backup,pull,migrate_up,app_up," ]; then
-  ok "full call order is stop api/worker -> backup -> pull -> migrate -> app_up"
+if [ "$order" = "probe_pg,stop_app,backup,pull,migrate_up,app_up," ]; then
+  ok "full call order is probe pg major -> stop api/worker -> backup -> pull -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
 fi
@@ -319,6 +334,59 @@ if [ -n "$(pos_of app_up)" ]; then
   ok "failed quiesce restarts api/worker (restart_writers ran)"
 else
   bad "failed quiesce did not restart api/worker"
+fi
+
+# ============================================================================
+# CASE 7 — chore(#704): a target release bundling a DIFFERENT PostgreSQL major
+# is refused before ANY change (no stop, no dump, no pull), with a RUNBOOK
+# pointer. A PG N volume cannot be opened by a PG N+1 server.
+# ============================================================================
+seed_prod_env
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ]; then
+  ok "PG major mismatch refuses the upgrade (non-zero exit)"
+else
+  bad "PG major mismatch did NOT refuse the upgrade"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of stop_app)" ] && [ -z "$(pos_of backup)" ] && [ -z "$(pos_of pull)" ]; then
+  ok "PG major mismatch aborts before any change (no stop/backup/pull)"
+else
+  bad "PG major mismatch touched the stack: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if grep -q 'RUNBOOK' "$WORK/out.txt" && grep -q 'PostgreSQL 18' "$WORK/out.txt"; then
+  ok "PG major mismatch points at the RUNBOOK major-upgrade procedure"
+else
+  bad "PG major mismatch did not print the RUNBOOK pointer"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+# The .env pin must NOT have moved — the operator is still on their old version.
+if grep -q '^GEOLENS_VERSION=1.2.3$' "$FAKE/.env"; then
+  ok "PG major mismatch leaves GEOLENS_VERSION unchanged"
+else
+  bad "PG major mismatch moved the version pin: $(grep GEOLENS_VERSION "$FAKE/.env")"
+fi
+
+# Matching majors must NOT be blocked (guard is a boundary check, not a gate).
+seed_prod_env
+PG_NUM=180004 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "matching PG major upgrades normally"
+else
+  bad "matching PG major was blocked (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# Fail-open: an unreadable server version (external/managed Postgres has no `db`
+# service to exec into) must NOT block an otherwise valid upgrade. Guards the
+# `set -eu` edge where an empty probe could abort the script outright.
+seed_prod_env
+PG_NUM=none TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "unreadable server version fails open (upgrade proceeds)"
+else
+  bad "unreadable server version blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
 fi
 
 echo "1..$((PASS + FAIL))"
