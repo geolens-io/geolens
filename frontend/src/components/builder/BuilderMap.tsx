@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
 import { usePluginStore } from '@/stores/map-plugin-store';
+import { useMapDrawStore } from '@/stores/map-draw-store';
 import { isPluginIdAvailable } from '@/components/map-plugins';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
@@ -577,6 +578,22 @@ export const BuilderMap = memo(function BuilderMap({
     });
   }, [enabledPluginIds]);
 
+  // fix(#726): a draw mode (the analysis clip mask) owns the pointer while it
+  // runs, so feature clicks must not resolve underneath it. Same ref-and-
+  // subscribe shape as measurement above: the handlers below read a ref rather
+  // than a hook value so toggling does not re-register them on the map.
+  const drawActiveRef = useRef(false);
+
+  useEffect(() => {
+    drawActiveRef.current = useMapDrawStore.getState().drawActive;
+    return useMapDrawStore.subscribe((state) => {
+      drawActiveRef.current = state.drawActive;
+      // Drop a popup that is already open when drawing starts, or it stays
+      // parked over the area being drawn for the rest of the session.
+      if (state.drawActive) setPopupInfo(null);
+    });
+  }, []);
+
   const invalidateTileTokens = useInvalidateTileTokens();
   // fix(#621): shared tile-auth recovery — a vector tile 401/403 that the
   // cached-token re-sign can't cure kicks one throttled token re-mint; the
@@ -921,7 +938,7 @@ export const BuilderMap = memo(function BuilderMap({
 
     const handleClick = (e: MapMouseEvent) => {
       if (!map.isStyleLoaded()) return;
-      if (measureActiveRef.current) return;
+      if (measureActiveRef.current || drawActiveRef.current) return;
       const queryLayers = queryLayerIdsRef.current;
 
       if (queryLayers.length === 0) {
@@ -971,7 +988,7 @@ export const BuilderMap = memo(function BuilderMap({
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (!map.isStyleLoaded()) return;
-        if (measureActiveRef.current) return;
+        if (measureActiveRef.current || drawActiveRef.current) return;
         const queryLayers = queryLayerIdsRef.current;
 
         let canvas;
@@ -1001,7 +1018,7 @@ export const BuilderMap = memo(function BuilderMap({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
-      if (measureActiveRef.current) return;
+      if (measureActiveRef.current || drawActiveRef.current) return;
       const queryLayers = queryLayerIdsRef.current;
       if (queryLayers.length === 0) return;
       let canvas: HTMLCanvasElement | null = null;
