@@ -377,9 +377,28 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 
-# Fail-open: an unreadable server version (external/managed Postgres has no `db`
-# service to exec into) must NOT block an otherwise valid upgrade. Guards the
-# `set -eu` edge where an empty probe could abort the script outright.
+# Codex #707: with DATABASE_URL_OVERRIDE set the app uses an external database,
+# but the prod compose still starts the bundled `db`. Probing that stale local
+# container would refuse an upgrade for an operator whose provider is already on
+# the new major, so the check is skipped entirely in that mode.
+seed_prod_env
+printf 'DATABASE_URL_OVERRIDE=postgresql://u:p@managed.example.com:5432/geolens\n' >> "$FAKE/.env"
+PG_NUM=170005 TARGET_PG=18 run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "external database (DATABASE_URL_OVERRIDE) skips the bundled PG major check"
+else
+  bad "external database was blocked by the bundled check (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of probe_pg)" ]; then
+  ok "external database mode does not probe the bundled db container"
+else
+  bad "external database mode still probed the bundled db"
+fi
+
+# Fail-open: an unreadable server version (a bundled db that cannot be reached)
+# must NOT block an otherwise valid upgrade. Guards the `set -eu` edge where an
+# empty probe could abort the script outright.
 seed_prod_env
 PG_NUM=none TARGET_PG=18 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then

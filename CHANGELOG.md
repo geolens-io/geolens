@@ -30,6 +30,9 @@ and releases use semantic versioning.
   closes the gap where the one-command upgrade would otherwise leave an
   install silently on the old major, or crash-loop `db` against an
   incompatible data directory the moment that image was rebuilt.
+  Deployments using an external database (`DATABASE_URL_OVERRIDE`) are
+  unaffected — the check is skipped, since the bundled image's version says
+  nothing about the database those installs actually use.
 
 ### Fixed
 

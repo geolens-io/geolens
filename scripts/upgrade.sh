@@ -127,22 +127,35 @@ TARGET_TAG="v${TARGET_VERSION}"
 # target release's bundled db image and stop here, before anything has changed,
 # with a pointer to the dump -> fresh volume -> restore procedure.
 #
-# Best-effort on both sides: a Docker-only host (no git) or an external/managed
-# Postgres (no `db` service) cannot be checked, and an unreadable value warns
-# and continues rather than blocking an otherwise valid upgrade.
+# Best-effort on both sides: a Docker-only host (no git) cannot read the target
+# major, and an unreadable value on either side warns and continues rather than
+# blocking an otherwise valid upgrade.
+#
+# Codex #707: skipped entirely when DATABASE_URL_OVERRIDE is set. The prod
+# compose still defines and starts `db` in that mode, but the app does not use
+# it — so probing that container compares the target's bundled major against a
+# stale local container and would refuse an upgrade for an operator whose
+# provider is already on the new major. The bundled-volume incompatibility this
+# guard exists to prevent cannot occur when the data lives outside the bundle;
+# RUNBOOK section 6's managed-mode path covers those deployments.
+DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
 target_pg_major=""
-if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-  git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
-    || git fetch --tags --quiet "$REPO_URL" 2>/dev/null || true
-  target_pg_major="$(git show "${TARGET_TAG}:db/Dockerfile" 2>/dev/null \
-    | sed -n 's|^FROM .*postgis/postgis:\([0-9][0-9]*\)-.*|\1|p' | head -n 1)"
-fi
-# server_version_num is major*10000 + minor for every version we support (>= 13).
-current_pg_num="$(compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -tAc 'SHOW server_version_num' 2>/dev/null | tr -cd '0-9')"
 current_pg_major=""
-if [ -n "$current_pg_num" ]; then
-  current_pg_major="$((current_pg_num / 10000))"
+if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ]; then
+  say "External database configured (DATABASE_URL_OVERRIDE) — skipping the bundled PostgreSQL major check."
+else
+  if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
+      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null || true
+    target_pg_major="$(git show "${TARGET_TAG}:db/Dockerfile" 2>/dev/null \
+      | sed -n 's|^FROM .*postgis/postgis:\([0-9][0-9]*\)-.*|\1|p' | head -n 1)"
+  fi
+  # server_version_num is major*10000 + minor for every version we support (>= 13).
+  current_pg_num="$(compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -tAc 'SHOW server_version_num' 2>/dev/null | tr -cd '0-9')"
+  if [ -n "$current_pg_num" ]; then
+    current_pg_major="$((current_pg_num / 10000))"
+  fi
 fi
 
 if [ -n "$target_pg_major" ] && [ -n "$current_pg_major" ] \
@@ -155,9 +168,6 @@ if [ -n "$target_pg_major" ] && [ -n "$current_pg_major" ] \
   say ""
   say "  RUNBOOK.md section 6 - Major PostgreSQL version upgrade"
   say "  https://github.com/geolens-io/geolens/blob/${TARGET_TAG}/RUNBOOK.md"
-  say ""
-  say "Managed/external Postgres: run your provider's major upgrade first, then"
-  say "re-run this command."
   say ""
   say "Nothing was changed. Your database is untouched and still on PostgreSQL ${current_pg_major}."
   fail "Refusing to upgrade across a PostgreSQL major version."
