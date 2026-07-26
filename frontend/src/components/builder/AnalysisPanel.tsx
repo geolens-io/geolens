@@ -531,7 +531,8 @@ export function AnalysisPanel({
               className="text-xs text-destructive"
             >
               {t('analysisTools.distanceOutOfRange', {
-                defaultValue: 'Enter a distance between 0 and {{max}} {{unit}}.',
+                defaultValue:
+                  'Enter a distance greater than 0 and no more than {{max}} {{unit}}.',
                 max: distanceMaxInUnit.toLocaleString(i18n.language, {
                   maximumFractionDigits: 2,
                 }),

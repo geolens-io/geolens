@@ -179,12 +179,18 @@ describe('AnalysisPanel', () => {
     fireEvent.change(input, { target: { value: '250000' } });
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(
-      'Enter a distance between 0 and {{max}} {{unit}}.',
+      'Enter a distance greater than 0 and no more than {{max}} {{unit}}.',
     );
     // The field points at the message, so a screen reader reads it on focus
     // rather than announcing a bare "invalid".
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAttribute('aria-describedby', alert.id);
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+
+    // fix(#723 review): exactly 0 is rejected by distanceValid (> 0), so the
+    // message must not describe it as accepted.
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('greater than 0');
     expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
 
     // Back in range: message gone, describedby dropped, buttons live again.
