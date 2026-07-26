@@ -115,7 +115,9 @@ self-hosted Docker Compose deployment).
 
 `scripts/restore.sh` is the **canonical operator-facing restore entry point**. It:
 
-1. Validates the dump with `pg_restore --list` — aborts if the file is corrupt.
+1. Validates the dump with `pg_restore -f /dev/null` — reads every data block
+   and aborts if the file is corrupt or truncated. (`--list` would only read the
+   table of contents, which a truncated archive still passes.)
 2. Creates required extensions and schemas in the database.
 3. Stops `api` and `worker` to prevent write conflicts.
 4. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
@@ -197,9 +199,12 @@ output rather than hand-editing it.
 docker run --rm -v <project>_backup_data:/backups:ro alpine \
   ls -lt /backups/daily
 
-# Validate a specific dump after copying it out of the volume (step 0 above)
+# Validate a specific dump after copying it out of the volume (step 0 above).
+# Omit the filename to read stdin — the literal `-` alias was never documented
+# for pg_restore and PG 18 rejects it with `could not open input file "-"`,
+# which reads like a corrupt backup when the dump is fine (chore(#704)).
 docker compose exec -T db \
-  pg_restore --list - < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
+  pg_restore --list < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
 ```
 
 ---
@@ -457,9 +462,14 @@ docker run --rm \
   alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
                 cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; ls -lh /out'
 
-# Validate the candidate dump before restoring
+# Validate the candidate dump before restoring. Omit the filename to read
+# stdin: PG 18 rejects the literal `-` with `could not open input file "-"`,
+# which reads like a corrupt backup when the dump is fine (chore(#704)).
+# `-f /dev/null` reads every data block; `--list` alone would pass a dump
+# truncated after its table of contents.
 docker compose exec -T db \
-  pg_restore --list - < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
+  pg_restore -f /dev/null < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump \
+  && echo "candidate dump reads end-to-end"
 ```
 
 If the daily dump is corrupt, fall back to a weekly backup under
@@ -533,12 +543,18 @@ set of server binaries.
 
 ```bash
 # 0. Take a fresh pre-upgrade dump WITH THE OLD STACK STILL RUNNING, then
-#    verify it exists. (The scheduled backup service works too — this just
-#    guarantees a dump from the moment of the upgrade.)
+#    verify it reads back end-to-end. (The scheduled backup service works too —
+#    this just guarantees a dump from the moment of the upgrade.)
 docker compose exec backup sh -c \
   'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB" \
    > /backups/daily/pre_pg18_manual.dump'
-docker compose exec backup sh -c 'ls -l /backups/daily/pre_pg18_manual.dump'
+#    `-f /dev/null`, NOT `ls -l` and NOT `--list`: this dump is the only
+#    rollback artifact once step 2 removes the volume, and a truncated archive
+#    both looks fine to `ls` and passes `--list` (the -Fc table of contents sits
+#    at the front). Read every data block now, while the old cluster still
+#    exists to re-dump from.
+docker compose exec backup sh -c \
+  'pg_restore -f /dev/null /backups/daily/pre_pg18_manual.dump && echo "pre-upgrade dump OK"'
 
 # 1. Copy the dump out of the backup volume to the host (survives volume ops).
 #    Replace <project> with your Compose project name (see `docker volume ls`).
@@ -560,14 +576,24 @@ docker compose pull   # or: docker compose build, if you build locally.
                       # Rebuild EVERYTHING, not just db: the backup image's
                       # pg_dump major must match the new server, or every
                       # backup cycle fails with "server version mismatch".
-docker compose up -d --wait
+#    `--scale backup=0` keeps the backup service DOWN for this step. It runs an
+#    initial dump the moment it starts, so starting it here would capture the
+#    freshly migrated but still EMPTY cluster, write it to /backups/daily as the
+#    newest dump, and prune one real generation to stay inside
+#    BACKUP_RETENTION_DAILY (7). Every retry of steps 2-3 would replace another
+#    generation of real history with an empty-cluster dump — and section 5 tells
+#    an incident responder to restore the newest dump, which would then be the
+#    empty one. Nothing depends_on backup, so scaling it to 0 is safe.
+docker compose up -d --wait --scale backup=0
 
 # 4. Restore the dump (canonical entry point: validates the file, stops
 #    api/worker, restores over the freshly migrated schema via
 #    --clean --if-exists, and restarts api/worker when done).
 ./scripts/restore.sh ./restore/pre_pg18_manual.dump
 
-# 5. Verify.
+# 5. Bring the backup service up now that the cluster holds real data, and
+#    verify.
+docker compose up -d --wait
 docker compose exec db psql -U geolens -c 'select version();'
 curl -fsS http://localhost:8080/api/health
 ```
