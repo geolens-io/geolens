@@ -27,6 +27,7 @@ from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
 )
@@ -306,15 +307,23 @@ def _build_materialize_select(
         # to render a single whole-layer ST_Union instead, so a clip whose
         # preview came back in under a second could exhaust the 300s CTAS
         # budget on "Create dataset" (see render_clip_layer_join for the
-        # measurements). Rows whose intersection is NULL or EMPTY fall out in
-        # the post-CTAS DELETE below, exactly as they did before.
+        # measurements).
+        #
+        # The empty-result filter is applied HERE, not left to the post-CTAS
+        # DELETE (fix(#719 review)). The row filter admits a source row on a
+        # bounding-box overlap, so a wide or concave mask lets through rows
+        # whose geometries never actually intersect; their lateral yields
+        # geom_out = NULL. _enforce_output_size runs against the CTAS BEFORE
+        # that DELETE, so those rows could fail an analysis as oversized when
+        # the dataset it would have saved is small. Clip has no source-feature
+        # cap, so nothing else bounds how many of them there are.
         cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
         cols = "".join(f'_src."{c}", ' for c in carry_cols)
         return (
             f"{cte} SELECT _src.gid, {cols}_op.geom_out AS geom"
             f" FROM {src_ref} AS _src"
             f" CROSS JOIN LATERAL {lateral} AS _op"
-            f"{where}"
+            f"{where} AND {NOT_EMPTY_PREDICATE}"
         )
     expr, where = render_geometry_expr(
         operation,

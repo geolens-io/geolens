@@ -52,6 +52,14 @@ MAX_SOURCE_FEATURES = {
 
 _CLIP_MASK_TYPES = ("Polygon", "MultiPolygon")
 
+# Rows an analysis produced nothing for. Both consumers of the lateral shape
+# must filter on this: the preview because the sandbox row cap counts raw rows
+# (fix(#680 review)), the materialize worker because the output-size ceiling is
+# checked against the CTAS before the NULL/EMPTY cleanup runs (fix(#719
+# review)). Naming it once keeps the saved dataset and the approved preview
+# from drifting apart.
+NOT_EMPTY_PREDICATE = "geom_out IS NOT NULL AND NOT ST_IsEmpty(geom_out)"
+
 
 # Vertex ceiling per mask piece in the preview shape below. 256 is the
 # PostGIS-documented sweet spot where per-piece index rebuild overhead and
@@ -96,16 +104,29 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
       row (aggregate subqueries cannot be pulled up, so the fix(#700)
       property needs no OFFSET 0 fence here; the inner OFFSET 0 only pins
       the extract/makevalid pass to once per mask row).
-      ``ST_LineMerge`` on 1-dimensional sources ONLY (fix(#719 review)):
-      ``ST_Union`` dissolves adjacent polygons back into one, but it does not
-      sew line segments, so a LineString crossing a piece or mask-row seam
-      came back as an artificially fragmented MultiLineString where the
-      whole-mask intersection returned one continuous LineString — changing
-      the registered geometry type. Measured on a line crossing two touching
-      mask polygons: union LINESTRING/1 part, this shape without the merge
-      MULTILINESTRING/2 parts, with the merge LINESTRING/1 part. Genuinely
-      disconnected components survive as a MultiLineString, which is correct;
-      polygons and points cannot fragment this way and are left alone.
+      ``ST_LineMerge`` on single-part LineString sources ONLY (fix(#719
+      review)): ``ST_Union`` dissolves adjacent polygons back into one, but it
+      does not sew line segments, so a LineString crossing a piece or
+      mask-row seam came back as an artificially fragmented MultiLineString
+      where the whole-mask intersection returned one continuous LineString —
+      changing the registered geometry type.
+
+      The test is ``GeometryType(...) = 'LINESTRING'``, NOT
+      ``ST_Dimension(...) = 1``. Measured against the whole-mask shape over
+      two touching mask polygons (so their union has an interior seam):
+
+        source                      whole-mask   dimension=1   GeometryType
+        LineString across seam      LINESTRING/1  LINESTRING/1  LINESTRING/1
+        MultiLineString, parts      MULTILINE/2   LINESTRING/1  MULTILINE/2
+          touching at a point                     ^^ wrong
+        MultiLineString, disjoint   MULTILINE/2   MULTILINE/2   MULTILINE/2
+        Polygon across seam         POLYGON/1     POLYGON/1     POLYGON/1
+        Point                       POINT/1       POINT/1       POINT/1
+
+      A dimension test merges a multi-part source whose components merely
+      touch at an endpoint into one line — a change the mask never asked for,
+      and one the whole-mask intersection does not make. Polygons and points
+      cannot fragment this way and are left alone either way.
     - The EXISTS row filter probes the RAW mask table, not the CTE: it stays
       index-drivable with real join statistics in either direction (the
       union CTE reached the outer query as an InitPlan Param, blinding the
@@ -121,7 +142,7 @@ def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, 
         f" WHERE NOT ST_IsEmpty(geom))"
     )
     lateral = (
-        f"(SELECT CASE WHEN ST_Dimension({src}.geom_4326) = 1"
+        f"(SELECT CASE WHEN GeometryType({src}.geom_4326) = 'LINESTRING'"
         f" THEN ST_LineMerge(_agg.geom) ELSE _agg.geom END AS geom_out"
         f" FROM (SELECT ST_Union(ST_CollectionExtract("
         f"ST_Intersection(ST_MakeValid({src}.geom_4326), _m.geom),"
