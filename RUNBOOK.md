@@ -542,25 +542,37 @@ set of server binaries.
 ### Bundled Postgres mode (default Compose deployment)
 
 ```bash
-# 0. Take a fresh pre-upgrade dump WITH THE OLD STACK STILL RUNNING, then
-#    verify it reads back end-to-end. (The scheduled backup service works too —
-#    this just guarantees a dump from the moment of the upgrade.)
-docker compose exec backup sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB" \
-   > /backups/daily/pre_pg18_manual.dump'
-#    `-f /dev/null`, NOT `ls -l` and NOT `--list`: this dump is the only
-#    rollback artifact once step 2 removes the volume, and a truncated archive
-#    both looks fine to `ls` and passes `--list` (the -Fc table of contents sits
-#    at the front). Read every data block now, while the old cluster still
-#    exists to re-dump from.
-docker compose exec backup sh -c \
-  'pg_restore -f /dev/null /backups/daily/pre_pg18_manual.dump && echo "pre-upgrade dump OK"'
+# 0. Quiesce the app's DB writers before dumping. pg_dump snapshots the moment
+#    it BEGINS and does not block writers, so a write acknowledged after it
+#    starts would be missing from the rollback dump. db stays up — the dump
+#    needs it.
+docker compose stop api worker
 
-# 1. Copy the dump out of the backup volume to the host (survives volume ops).
-#    Replace <project> with your Compose project name (see `docker volume ls`).
-mkdir -p ./restore
-docker run --rm -v <project>_backup_data:/backups -v "$PWD/restore":/out alpine \
-  cp /backups/daily/pre_pg18_manual.dump /out/
+# 1. Take the pre-upgrade dump straight to the HOST, then verify it reads back
+#    end-to-end. Streaming via `exec -T` (same technique as scripts/upgrade.sh)
+#    lands it outside the container, so there is no volume copy to make later
+#    and no <project> volume name to look up.
+#
+#    NOT into /backups/daily: that directory is under retention. An extra file
+#    there occupies a retention slot, so the next `prune_old_backups` pass —
+#    which keeps BACKUP_RETENTION_DAILY (7) `*.dump` files by mtime — deletes
+#    one more generation of real history than it otherwise would. ./backups/
+#    is gitignored and `backups/pre-upgrade/` is where scripts/upgrade.sh
+#    already puts its rollback dump.
+#
+#    `-f /dev/null` to verify, NOT `ls -l` and NOT `--list`: a truncated archive
+#    looks fine to `ls` and still passes `--list`, because the -Fc table of
+#    contents sits at the front. Read every data block now, while the old
+#    cluster is still there to re-dump from.
+#    The connection variables are read INSIDE the backup container (they are
+#    set there); `-T` is required so Docker does not allocate a TTY and corrupt
+#    the binary stream.
+mkdir -p ./backups/pre-upgrade
+docker compose exec -T backup sh -c \
+  'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  > ./backups/pre-upgrade/pre_pg18.dump
+docker compose exec -T backup pg_restore -f /dev/null \
+  < ./backups/pre-upgrade/pre_pg18.dump && echo "pre-upgrade dump OK"
 
 # 2. Stop the stack and remove ONLY the database volume.
 docker compose down
@@ -589,7 +601,7 @@ docker compose up -d --wait --scale backup=0
 # 4. Restore the dump (canonical entry point: validates the file, stops
 #    api/worker, restores over the freshly migrated schema via
 #    --clean --if-exists, and restarts api/worker when done).
-./scripts/restore.sh ./restore/pre_pg18_manual.dump
+./scripts/restore.sh ./backups/pre-upgrade/pre_pg18.dump
 
 # 5. Bring the backup service up now that the cluster holds real data, and
 #    verify.
