@@ -8,7 +8,7 @@ from typing import Literal, cast, overload
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -287,7 +287,8 @@ async def fail_stale_jobs(
     endpoint and its audit event.
 
     Stale rules:
-      - status='pending' and created_at older than PENDING_TIMEOUT_SECONDS (orphan, never queued)
+      - status='pending', created_at older than PENDING_TIMEOUT_SECONDS, AND no
+        live Procrastinate job (a true orphan that was never queued)
       - status='running' and heartbeat_at/started_at older than JOB_TIMEOUT_SECONDS
         (worker lease expired)
 
@@ -300,11 +301,36 @@ async def fail_stale_jobs(
     now = datetime.now(timezone.utc)
     pending_cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
 
+    # fix(#724): only reap a pending job that really was never queued.
+    #
+    # The age test alone conflated two states. A job Procrastinate still holds
+    # as 'todo' has been queued correctly and is simply waiting — and since
+    # fix(#695) deferred analysis to priority -10, waiting behind a steady
+    # upload stream is by design, with no upper bound on the wait. Those jobs
+    # were failed at the one-hour mark with "never queued", which is both a
+    # lie and a loss: the user's analysis is killed while its task sits in the
+    # queue, and the worker later picks the task up against a job row that has
+    # already been marked failed.
+    #
+    # A genuine orphan — committed, then the defer died before the row landed
+    # (the case defer_with_orphan_guard cannot cover, e.g. the process is
+    # killed between the two) — has no Procrastinate row at all, so it still
+    # gets reaped, and now the message is true by construction.
+    #
+    # Correlated on args->>'job_id', which every task in this codebase passes.
+    # Schema is hard-coded 'catalog' to match observability/metrics/jobs.py.
+    no_live_procrastinate_job = text(
+        "NOT EXISTS (SELECT 1 FROM catalog.procrastinate_jobs pj"
+        " WHERE pj.args->>'job_id' = ingest_jobs.id::text"
+        " AND pj.status IN ('todo', 'doing'))"
+    )
+
     pending_result = await db.execute(
         update(IngestJob)
         .where(
             IngestJob.status == "pending",
             IngestJob.created_at < pending_cutoff,
+            no_live_procrastinate_job,
         )
         .values(
             status="failed",
