@@ -102,6 +102,56 @@ const pointLayer = {
   dataset_geometry_type: 'Point',
 } as unknown as MapLayerResponse;
 
+// ux(#720): an ordinary (non-DEM) raster layer. It carries a dataset_id, so the
+// old `!is_dem` filter offered it, and the server 422s on it.
+const rasterLayer = {
+  id: 'l5',
+  dataset_id: 'ds5',
+  dataset_name: 'Sentinel-2 TCI',
+  display_name: null,
+  is_dem: false,
+  layer_type: 'raster_geolens',
+  dataset_record_type: 'raster_dataset',
+  dataset_geometry_type: null,
+} as unknown as MapLayerResponse;
+
+// fix(#720 review): the same raster, but reporting a geometry type. Every
+// raster dataset stores NULL there today, which is what made a geometry-only
+// test appear to work — but nothing enforces it, and LayerLegend already has a
+// fixture where a raster reports 'POINT'.
+const rasterLayerWithGeometryType = {
+  ...rasterLayer,
+  id: 'l6',
+  dataset_id: 'ds6',
+  dataset_name: 'Ortho tile with stale geometry_type',
+  dataset_geometry_type: 'POINT',
+} as unknown as MapLayerResponse;
+
+// fix(#720 review): layer_type picks a RENDERER and the API validates it
+// against nothing — add_layer defaults it to 'vector_geolens' whatever the
+// dataset is. A classifier keyed on layer_type calls this vector.
+const rasterLayerWithVectorLayerType = {
+  ...rasterLayerWithGeometryType,
+  id: 'l7',
+  dataset_id: 'ds7',
+  dataset_name: 'Raster with the default layer_type',
+  layer_type: 'vector_geolens',
+} as unknown as MapLayerResponse;
+
+// The mirror case: a genuine vector dataset whose layer_type was overridden to
+// the raster renderer. The analysis endpoint accepts it, so hiding it would be
+// a false negative.
+const vectorLayerWithRasterLayerType = {
+  id: 'l8',
+  dataset_id: 'ds8',
+  dataset_name: 'Parcels rendered oddly',
+  display_name: null,
+  is_dem: false,
+  layer_type: 'raster_geolens',
+  dataset_record_type: 'vector_dataset',
+  dataset_geometry_type: 'MultiPolygon',
+} as unknown as MapLayerResponse;
+
 function renderPanel(
   layers: MapLayerResponse[],
   props: Partial<React.ComponentProps<typeof AnalysisPanel>> = {},
@@ -122,6 +172,51 @@ beforeEach(() => {
 
 describe('AnalysisPanel', () => {
   beforeEach(() => useAnalysisJobStore.setState({ job: null }));
+
+  it('treats a raster-only map as having no analysable layers (#720)', () => {
+    renderPanel([rasterLayer, groupLayer]);
+    // Was: a fully enabled form with the raster pre-selected, whose Preview
+    // 422'd into a generic "The submitted values are invalid." toast.
+    expect(
+      screen.getByText('Add a dataset layer to use analysis tools'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Preview' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not offer a raster layer alongside vector ones (#720)', () => {
+    renderPanel([rasterLayer, datasetLayer]);
+    // The vector layer is selected rather than the raster that comes first.
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+    expect(screen.getByText('Parcels')).toBeInTheDocument();
+    expect(screen.queryByText('Sentinel-2 TCI')).not.toBeInTheDocument();
+  });
+
+  it('excludes a raster that reports a geometry type (#720 review)', () => {
+    renderPanel([rasterLayerWithGeometryType, groupLayer]);
+    expect(
+      screen.getByText('Add a dataset layer to use analysis tools'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Preview' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('excludes a raster carrying the default vector layer_type (#720 review)', () => {
+    renderPanel([rasterLayerWithVectorLayerType, groupLayer]);
+    expect(
+      screen.getByText('Add a dataset layer to use analysis tools'),
+    ).toBeInTheDocument();
+  });
+
+  it('still offers a vector dataset rendered as raster (#720 review)', () => {
+    renderPanel([vectorLayerWithRasterLayerType]);
+    // The analysis endpoint accepts this, so hiding it would be a false
+    // negative — the failure mode of classifying by renderer instead of source.
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+    expect(screen.getByText('Parcels rendered oddly')).toBeInTheDocument();
+  });
 
   it('hides the dataset-creation half without the upload permission (#700)', () => {
     mockCanUpload = false;
