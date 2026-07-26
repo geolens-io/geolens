@@ -568,20 +568,30 @@ docker compose stop api worker
 #    set there); `-T` is required so Docker does not allocate a TTY and corrupt
 #    the binary stream.
 #
-#    Dump to `.partial` and rename only after the read-back succeeds, so
-#    `pre_pg18.dump` exists if and only if a verified dump exists. Step 2 tests
-#    for exactly that file. The leading `rm -f` matters: an already-verified
-#    dump from an earlier attempt would otherwise green-light step 2 after a
-#    re-dump failed, and that older dump predates the step-0 quiesce.
+#    Dump to `.partial` and rename only after the read-back succeeds, so the
+#    final filename exists if and only if a verified dump exists. Step 2 gates
+#    on exactly that.
+#
+#    The name carries a timestamp and this attempt's file is remembered in
+#    $DUMP, so a retry NEVER deletes or overwrites an earlier verified dump.
+#    That matters most in the worst case: if you got past step 2 and something
+#    later failed, the PG 17 volume is already gone and that earlier dump is
+#    the only copy of your data left. A fixed filename would have it deleted
+#    at the top of the retry — and then, because the fresh PG 18 cluster is up
+#    and answering, the re-dump SUCCEEDS, verifies, and step 2 destroys the
+#    volume again. You would end up with a perfectly valid dump of an empty
+#    database and nothing else.
+#
+#    $DUMP also scopes the gate to THIS attempt, so an older verified dump
+#    cannot green-light step 2 after a re-dump fails.
 mkdir -p ./backups/pre-upgrade
-rm -f ./backups/pre-upgrade/pre_pg18.dump
+DUMP="./backups/pre-upgrade/pre_pg18_$(date +%Y%m%d_%H%M%S).dump"
 docker compose exec -T backup sh -c \
   'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB"' \
-  > ./backups/pre-upgrade/pre_pg18.partial \
-  && docker compose exec -T backup pg_restore -f /dev/null \
-       < ./backups/pre-upgrade/pre_pg18.partial \
-  && mv ./backups/pre-upgrade/pre_pg18.partial ./backups/pre-upgrade/pre_pg18.dump \
-  && echo "pre-upgrade dump verified"
+  > "$DUMP.partial" \
+  && docker compose exec -T backup pg_restore -f /dev/null < "$DUMP.partial" \
+  && mv "$DUMP.partial" "$DUMP" \
+  && echo "pre-upgrade dump verified: $DUMP"
 
 # 2. Stop the stack and remove ONLY the database volume.
 #
@@ -591,7 +601,12 @@ docker compose exec -T backup sh -c \
 #    runs straight on into `docker volume rm`. Past that point there is no dump
 #    and no cluster. If the guard stops you here, the PG 17 volume is still
 #    intact — fix the dump and re-run step 1.
-test -f ./backups/pre-upgrade/pre_pg18.dump \
+#
+#    $DUMP is deliberately required, not just any file in the directory: in a
+#    NEW shell it is unset and this refuses to run. That is the safe answer —
+#    re-run step 1 so the dump you are about to bet the cluster on is one you
+#    just verified, in this session, against the cluster still standing.
+test -n "${DUMP:-}" && test -f "$DUMP" \
   && docker compose down \
   && docker volume rm <project>_pgdata
 
@@ -618,7 +633,10 @@ docker compose up -d --wait --scale backup=0
 # 4. Restore the dump (canonical entry point: validates the file, stops
 #    api/worker, restores over the freshly migrated schema via
 #    --clean --if-exists, and restarts api/worker when done).
-./scripts/restore.sh ./backups/pre-upgrade/pre_pg18.dump
+#    If the shell that ran step 1 is gone, $DUMP is unset — pick the newest
+#    verified dump explicitly:
+#      ls -t ./backups/pre-upgrade/*.dump | head -1
+./scripts/restore.sh "$DUMP"
 
 # 5. Bring the backup service up now that the cluster holds real data, and
 #    verify.
@@ -646,3 +664,8 @@ upgrade — most providers carry extensions across, but verify with
 The pre-upgrade dump restores onto a PG 17 stack the same way (step 2-5 with
 the previous image tags). A dump taken FROM PG 18 does NOT restore onto 17 —
 keep the pre-upgrade dump until you are satisfied with the upgrade.
+
+Pre-upgrade dumps are timestamped and accumulate in `./backups/pre-upgrade/`;
+nothing prunes that directory, deliberately, so a retry can never destroy the
+copy an earlier attempt verified. Delete them by hand once the upgrade has
+been accepted.
