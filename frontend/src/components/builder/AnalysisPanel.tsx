@@ -21,6 +21,7 @@ import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAnalysisJobStore } from '@/stores/analysis-job-store';
+import { useMapDrawStore } from '@/stores/map-draw-store';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
@@ -182,6 +183,17 @@ export function AnalysisPanel({
 
   // Stop any active draw when the panel unmounts.
   useEffect(() => stopDrawing, [stopDrawing]);
+
+  // fix(#726): tell BuilderMap a draw mode owns the pointer, so a vertex click
+  // stops falling through and opening the clicked feature's popup. Mirrored
+  // from isDrawing in one place rather than set alongside each transition —
+  // the 'finish' handler drops to static mode without going through
+  // stopDrawing, so per-call-site updates would drift.
+  useEffect(() => {
+    const { setDrawActive } = useMapDrawStore.getState();
+    setDrawActive(isDrawing);
+    return () => setDrawActive(false);
+  }, [isDrawing]);
 
   const startDrawing = useCallback(() => {
     const map = mapInstanceRef?.current;

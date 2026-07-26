@@ -126,6 +126,12 @@ and releases use semantic versioning.
 - **Drawing a clip area names its keyboard alternative.** The draw tool is
   pointer-only; the panel now points to clip-by-layer instead of leaving that
   to be discovered.
+- **Drawing a clip area no longer opens a popup at every vertex.** Each click
+  placed its vertex and then fell through to the map's own click handler, so
+  drawing a mask over a layer with popups enabled left one popup behind per
+  corner, the last of them sitting on top of the result. A draw mode now owns
+  the pointer for as long as it runs, and any popup already open is dismissed
+  when drawing starts.
 
 ## [1.4.13] - 2026-07-24
 
