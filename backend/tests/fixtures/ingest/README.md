@@ -21,20 +21,24 @@ Run from `backend/` with `uv run python`:
 ```python
 import struct, zipfile, io
 
+
 def write_shapefile_to_zip(zip_path, fields, records, points):
     # ... (see test_ingest_column_preservation.py or the original generator in
     # the 260410-d7k task's creation script for the full implementation)
     pass
 
+
 fields = [
-    ('population_2020', 'N', 10, 0),
-    ('population_2021', 'N', 10, 0),
-    ('region', 'C', 20, 0),
+    ("population_2020", "N", 10, 0),
+    ("population_2021", "N", 10, 0),
+    ("region", "C", 20, 0),
 ]
 records = [
-    {'population_2020': 1000000, 'population_2021': 1050000, 'region': 'North'},
-    {'population_2020': 2000000, 'population_2021': 2100000, 'region': 'South'},
+    {"population_2020": 1000000, "population_2021": 1050000, "region": "North"},
+    {"population_2020": 2000000, "population_2021": 2100000, "region": "South"},
 ]
 points = [(2.3522, 48.8566), (-0.1278, 51.5074)]
-write_shapefile_to_zip('tests/fixtures/ingest/dbf_collision.zip', fields, records, points)
+write_shapefile_to_zip(
+    "tests/fixtures/ingest/dbf_collision.zip", fields, records, points
+)
 ```

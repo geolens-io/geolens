@@ -75,9 +75,7 @@ actually released between the two steps:
 
 ```python
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE catalog.<t> ADD CONSTRAINT <name> CHECK (<expr>) NOT VALID"
-    )
+    op.execute("ALTER TABLE catalog.<t> ADD CONSTRAINT <name> CHECK (<expr>) NOT VALID")
     with op.get_context().autocommit_block():
         op.execute("ALTER TABLE catalog.<t> VALIDATE CONSTRAINT <name>")
 ```
