@@ -133,7 +133,7 @@ x-hardened-base: &hardened-base
 # Services
 # ==============================================================================
 # Services at a glance:
-#   db        — PostgreSQL 17 + PostGIS 3.5 (catalog data, pgvector, pg_trgm)
+#   db        — PostgreSQL 18 + PostGIS 3.6 (catalog data, pgvector, pg_trgm)
 #   migrate   — one-shot alembic upgrade heads, exits when done
 #   api       — FastAPI REST + OGC API + Records (host :8001 -> container :8000)
 #   worker    — Procrastinate job queue (GDAL ingest, embeddings, exports)
@@ -164,7 +164,10 @@ services:
       # Host-port fallback (5434 from .env, 5432 bare).
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # chore(#704): PG 18+ images take a single mount at /var/lib/postgresql
+      # (PGDATA lives at <major>/docker inside it); mounting the legacy
+      # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
+      - pgdata:/var/lib/postgresql
       # GAP-021: :ro mirrors the sibling conf mount and every repo-file mount on
       # the api service — the init script is read+exec inside the container, never
       # written, so a compromised db container cannot rewrite this host file (it
@@ -581,7 +584,7 @@ services:
     restart: unless-stopped
     # D03 (docker-audit-20260604): backup-entrypoint.sh runs as root throughout
     # (pg_dump/cp/tar/awscli/sleep on files it owns under /backups; the
-    # postgres:17 base ships no cron, so it runs the built-in sleep-loop
+    # postgres:18 base ships no cron, so it runs the built-in sleep-loop
     # scheduler). It never drops privilege or chowns across uids, so it needs NO
     # added capabilities — cap_drop ALL just removes the unused kernel surface.
     # init:true reaps the sleep loop. No read_only — the entrypoint writes under
@@ -595,7 +598,7 @@ services:
     # tmpfs because this image only runs pg_dump; otherwise Docker creates an
     # unused anonymous volume for every backup container.
     tmpfs:
-      - /var/lib/postgresql/data:size=1m,mode=0700
+      - /var/lib/postgresql:size=1m,mode=0700
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
@@ -623,7 +626,7 @@ services:
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
-      # The entrypoint runs the built-in sleep-loop scheduler (postgres:17 has no
+      # The entrypoint runs the built-in sleep-loop scheduler (postgres:18 has no
       # cron); the probe just verifies that process is alive.
       test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
       interval: 30s

@@ -15,7 +15,7 @@ GeoLens es un catálogo y constructor de mapas de código abierto y autohospedad
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)](https://www.python.org/)
-[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![PostgreSQL 18 + PostGIS 3.6](https://img.shields.io/badge/PostGIS_3.6-PostgreSQL_18-336791.svg)](https://postgis.net/)
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
@@ -184,7 +184,7 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 
 ## Inicio rápido
 
-**Requisitos previos:** Docker Engine 24+ y Docker Compose v2. El entorno incluido incorpora PostgreSQL 17. Si conectas GeoLens a una base de datos administrada externamente, debe ser **PostgreSQL 13+** (para `gen_random_uuid()`) con **pgvector 0.5+** (para índices HNSW de búsqueda semántica), además de PostGIS, pg_trgm y unaccent. La API y el worker se ejecutan en contenedores (se incluye Python 3.14; no hace falta Python en el host). La CLI opcional se ejecuta en el host y requiere Python 3.11+; el SDK de Python y los scripts de datos iniciales requieren Python 3.10+.
+**Requisitos previos:** Docker Engine 24+ y Docker Compose v2. El entorno incluido incorpora PostgreSQL 18. Si conectas GeoLens a una base de datos administrada externamente, debe ser **PostgreSQL 13+** (para `gen_random_uuid()`) con **pgvector 0.5+** (para índices HNSW de búsqueda semántica), además de PostGIS, pg_trgm y unaccent. La API y el worker se ejecutan en contenedores (se incluye Python 3.14; no hace falta Python en el host). La CLI opcional se ejecuta en el host y requiere Python 3.11+; el SDK de Python y los scripts de datos iniciales requieren Python 3.10+.
 
 La instalación en una línea descarga las imágenes precompiladas y fijadas a una versión e inicia el entorno:
 
@@ -283,7 +283,7 @@ flowchart TB
     end
 
     subgraph store [Data and storage]
-      PG[("PostgreSQL 17<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
+      PG[("PostgreSQL 18<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
       OBJ[("Object storage<br/>local files or S3/MinIO")]
       CACHE[("Valkey cache")]
     end
@@ -308,7 +308,7 @@ flowchart TB
 | Teselas ráster | Titiler (servidor de teselas COG) |
 | Almacenamiento de objetos | MinIO (compatible con S3, desarrollo local) o cualquier proveedor S3 |
 | Caché | Valkey (caché de teselas y consultas) |
-| Base de datos | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm (mínimo: PostgreSQL 13, pgvector 0.5) |
+| Base de datos | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (mínimo: PostgreSQL 13, pgvector 0.5) |
 | Proxy inverso | Nginx (producción) / proxy de desarrollo Vite (desarrollo) |
 
 ## Configuración

@@ -29,9 +29,11 @@ if [ ! -f "$BACKUP_FILE" ]; then
 fi
 
 # Validate backup integrity before restore
+# chore(#704): read stdin by OMITTING the filename — the literal "-" alias was
+# never documented for pg_restore and PG 18 rejects it as a filename.
 echo "Validating backup integrity..."
 if ! "${COMPOSE[@]}" exec -T db \
-    pg_restore --list - < "$BACKUP_FILE" > /dev/null 2>&1; then
+    pg_restore --list < "$BACKUP_FILE" > /dev/null 2>&1; then
     echo "ERROR: Backup file is corrupt or invalid: $BACKUP_FILE" >&2
     echo "pg_restore --list validation failed. Aborting restore." >&2
     exit 1

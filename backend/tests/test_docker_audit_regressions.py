@@ -32,7 +32,7 @@ def test_backup_base_is_digest_pinned():
     text = DOCKERFILE.read_text()
 
     assert re.search(
-        r"^FROM postgres:17@sha256:[0-9a-f]{64} AS backup$", text, re.MULTILINE
+        r"^FROM postgres:18@sha256:[0-9a-f]{64} AS backup$", text, re.MULTILINE
     )
 
 
@@ -61,11 +61,14 @@ def test_production_database_init_script_is_read_only():
 
 
 def test_backup_services_override_inherited_postgres_data_volume():
+    # chore(#704): postgres 18+ bases declare VOLUME /var/lib/postgresql
+    # (PGDATA moved to <major>/docker inside it) — the tmpfs override must
+    # target the new path or the anonymous volume comes back.
     for compose_path in (DEV_COMPOSE, PROD_COMPOSE):
         backup = _load_compose(compose_path)["services"]["backup"]
         tmpfs_paths = [mount.split(":", 1)[0] for mount in backup["tmpfs"]]
 
-        assert "/var/lib/postgresql/data" in tmpfs_paths, compose_path.name
+        assert "/var/lib/postgresql" in tmpfs_paths, compose_path.name
 
 
 def test_production_frontend_has_only_explicit_writable_mounts():

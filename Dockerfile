@@ -189,13 +189,15 @@ ENTRYPOINT ["/app/scripts/worker-entrypoint.sh"]
 CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 
 # ==============================================================================
-# Stage: backup — pg_dump 17 + SigV4-capable S3 client; self-contained backup
+# Stage: backup — pg_dump 18 + SigV4-capable S3 client; self-contained backup
 # ==============================================================================
-# Base: official postgres:17 (Debian Bookworm, multi-arch: amd64 + arm64),
-# pinned by digest. Dependabot tracks Docker digest updates for this file.
-# db/Dockerfile uses postgis/postgis:17-3.5 which is amd64-ONLY — this stage
-# uses the digest-pinned postgres:17 base so publish.yml can build both arches
+# Base: official postgres:18 (multi-arch: amd64 + arm64), pinned by digest.
+# Dependabot tracks Docker digest updates for this file.
+# db/Dockerfile uses postgis/postgis:18-3.6 which is amd64-ONLY — this stage
+# uses the digest-pinned postgres:18 base so publish.yml can build both arches
 # (BKP-01).
+# chore(#704): must match the db server major — pg_dump refuses to dump a
+# server NEWER than itself, so this stage bumps in lockstep with db/Dockerfile.
 # PostGIS is NOT needed client-side: pg_dump streams the raw catalog over the
 # wire and custom-format dumps preserve PostGIS types without PostGIS libs.
 #
@@ -204,7 +206,7 @@ CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 # app image (frontend), never this postgres-based backup tool. Every image is
 # built with an explicit `target:` (publish.yml + docker-compose*.yml), so stage
 # order only governs that unqualified-build default — keep `backup` non-final.
-FROM postgres:17@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d AS backup
+FROM postgres:18@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a AS backup
 
 LABEL org.opencontainers.image.title="geolens-backup"
 LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
@@ -213,7 +215,7 @@ LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
 # awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path; procps for the
 # compose healthcheck (`pgrep -f backup-entrypoint || pgrep -f sleep`) — pgrep is
-# present in the postgres:17 base today but is installed explicitly so the
+# present in the postgres base today but is installed explicitly so the
 # default-on healthcheck's pgrep dependency survives a base-image change.
 # Installed from Debian apt only — no pip/PyPI (T-1247-SC mitigation).
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \

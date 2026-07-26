@@ -15,7 +15,7 @@ GeoLens ist ein quelloffener, selbst gehosteter Katalog und Karteneditor für GI
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python: backend 3.13+ / SDK 3.10+](https://img.shields.io/badge/python-3.13%2B_backend_%7C_3.10%2B_SDK-blue.svg)](https://www.python.org/)
-[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![PostgreSQL 18 + PostGIS 3.6](https://img.shields.io/badge/PostGIS_3.6-PostgreSQL_18-336791.svg)](https://postgis.net/)
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
@@ -183,7 +183,7 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 
 ## Schnellstart
 
-**Voraussetzungen:** Docker Engine 24+ und Docker Compose v2. Der enthaltene Stack liefert PostgreSQL 17. Für eine extern verwaltete Datenbank ist **PostgreSQL 13+** (für `gen_random_uuid()`) mit **pgvector 0.5+** (für HNSW-Indizes der semantischen Suche) sowie PostGIS, pg_trgm und unaccent erforderlich. API und Worker laufen in Containern (Python 3.14 enthalten, kein Python auf dem Host nötig). Die optionale CLI läuft auf dem Host und benötigt Python 3.11+; Python-SDK und Seed-Skripte benötigen Python 3.10+.
+**Voraussetzungen:** Docker Engine 24+ und Docker Compose v2. Der enthaltene Stack liefert PostgreSQL 18. Für eine extern verwaltete Datenbank ist **PostgreSQL 13+** (für `gen_random_uuid()`) mit **pgvector 0.5+** (für HNSW-Indizes der semantischen Suche) sowie PostGIS, pg_trgm und unaccent erforderlich. API und Worker laufen in Containern (Python 3.14 enthalten, kein Python auf dem Host nötig). Die optionale CLI läuft auf dem Host und benötigt Python 3.11+; Python-SDK und Seed-Skripte benötigen Python 3.10+.
 
 Die Einzeileninstallation lädt vorgefertigte, versionsgebundene Images und startet den Stack:
 
@@ -282,7 +282,7 @@ flowchart TB
     end
 
     subgraph store [Data and storage]
-      PG[("PostgreSQL 17<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
+      PG[("PostgreSQL 18<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
       OBJ[("Object storage<br/>local files or S3/MinIO")]
       CACHE[("Valkey cache")]
     end
@@ -307,7 +307,7 @@ flowchart TB
 | Rasterkacheln | Titiler (COG-Kachelserver) |
 | Objektspeicher | MinIO (S3-kompatibel, lokale Entwicklung) oder beliebiger S3-Anbieter |
 | Cache | Valkey (Kachel- und Abfragecache) |
-| Datenbank | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm (Minimum: PostgreSQL 13, pgvector 0.5) |
+| Datenbank | PostgreSQL 18 + PostGIS 3.6 + pgvector + pg_trgm (Minimum: PostgreSQL 13, pgvector 0.5) |
 | Reverse Proxy | Nginx (Produktion) / Vite-Entwicklungsproxy (Entwicklung) |
 
 ## Konfiguration

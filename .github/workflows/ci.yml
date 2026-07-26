@@ -271,7 +271,7 @@ jobs:
       S3_SECRET_ACCESS_KEY: minioadmin
     services:
       postgres:
-        image: postgis/postgis:17-3.5
+        image: postgis/postgis:18-3.6
         env:
           POSTGRES_USER: geolens
           POSTGRES_PASSWORD: geolens_test
@@ -320,10 +320,10 @@ jobs:
 
       - name: Install postgresql-client + tooling
         run: |
-          # The postgres service for this job is postgis/postgis:17-3.5 (PG17).
+          # The postgres service for this job is postgis/postgis:18-3.6 (PG18).
           # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
           # refuses to dump a newer server ("aborting because of server version
-          # mismatch"), so add the PGDG apt repo and install the matching v17
+          # mismatch"), so add the PGDG apt repo and install the matching v18
           # client (pg_dump/pg_restore/psql/createdb/dropdb).
           #
           # awscli is intentionally NOT installed from apt (dropped from noble).
@@ -336,7 +336,7 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-17 curl
+          sudo apt-get install -y --no-install-recommends postgresql-client-18 curl
 
       - name: Local round-trip (bundled + managed modes, no S3)
         env:
@@ -626,9 +626,9 @@ jobs:
         working-directory: .
         run: |
           docker build -t geolens-cli-test-db -f - . <<'DOCKERFILE'
-          FROM postgis/postgis:17-3.5
+          FROM postgis/postgis:18-3.6
           RUN apt-get update \
-              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && apt-get install -y --no-install-recommends postgresql-18-pgvector \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
           docker run -d --name cli-test-postgres \
@@ -779,9 +779,9 @@ jobs:
         working-directory: .
         run: |
           docker build -t geolens-test-db -f - . <<'DOCKERFILE'
-          FROM postgis/postgis:17-3.5
+          FROM postgis/postgis:18-3.6
           RUN apt-get update \
-              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && apt-get install -y --no-install-recommends postgresql-18-pgvector \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
           docker run -d --name test-postgres \
@@ -1314,9 +1314,9 @@ jobs:
         working-directory: .
         run: |
           docker build -t geolens-test-db -f - . <<'DOCKERFILE'
-          FROM postgis/postgis:17-3.5
+          FROM postgis/postgis:18-3.6
           RUN apt-get update \
-              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && apt-get install -y --no-install-recommends postgresql-18-pgvector \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
           docker run -d --name test-postgres \

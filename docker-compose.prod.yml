@@ -164,7 +164,10 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # chore(#704): PG 18+ images take a single mount at /var/lib/postgresql
+      # (PGDATA lives at <major>/docker inside it); mounting the legacy
+      # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
+      - pgdata:/var/lib/postgresql
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
@@ -499,7 +502,7 @@ services:
     # tmpfs because this image only runs pg_dump; otherwise Docker creates an
     # unused anonymous volume for every backup container.
     tmpfs:
-      - /var/lib/postgresql/data:size=1m,mode=0700
+      - /var/lib/postgresql:size=1m,mode=0700
     volumes:
       # No ./scripts bind-mount in prod: the published geolens-backup image bakes
       # /scripts/backup-entrypoint.sh + restore.sh (BKP-01), so the prebuilt-prod
