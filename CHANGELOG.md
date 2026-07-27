@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-26
+
 ### Added
 
 - **Spatial analysis in the map builder: buffer, centroid, clip, and dissolve.**
@@ -1141,7 +1143,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.13...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/geolens-io/geolens/compare/v1.4.13...v1.5.0
 [1.4.13]: https://github.com/geolens-io/geolens/compare/v1.4.12...v1.4.13
 [1.4.12]: https://github.com/geolens-io/geolens/compare/v1.4.11...v1.4.12
 [1.4.11]: https://github.com/geolens-io/geolens/compare/v1.4.10...v1.4.11
