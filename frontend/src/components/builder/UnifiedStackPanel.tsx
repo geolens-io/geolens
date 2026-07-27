@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DragOverlay,
@@ -26,6 +26,10 @@ import { BulkActionBar } from '@/components/builder/BulkActionBar';
 // builder-audit #338 STACK-01: use the single typed helper instead of a local
 // `as unknown as` re-implementation.
 import { getParentGroupId } from '@/components/builder/folder-groups';
+// fix(#771): single source of truth for which rows the stack renders — the
+// same helper MapBuilderPage uses to derive selectableRowIds, so range
+// selection can never disagree with what is on screen.
+import { computeSelectableRowIds } from '@/components/builder/selection-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
@@ -122,6 +126,13 @@ interface UnifiedStackPanelProps {
   selectedIds?: Set<string>;
   isMultiSelectionActive?: boolean;
   selectableRowIds?: string[];
+  /** fix(#771): controlled layer-search query. When provided (with
+   *  onLayerSearchChange), MapBuilderPage owns the query so it can derive
+   *  selectableRowIds from the RENDERED row set via computeSelectableRowIds —
+   *  range selection must never sweep rows the search has hidden. Omit both
+   *  to keep the panel's internal search state (standalone/test usage). */
+  layerSearch?: string;
+  onLayerSearchChange?: (query: string) => void;
   onCmdClick?: (id: string) => void;
   onShiftClick?: (id: string) => void;
   onCheckboxClick?: (id: string) => void;
@@ -330,6 +341,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   selectedIds = new Set(),
   isMultiSelectionActive = false,
   selectableRowIds = [],
+  layerSearch: layerSearchProp,
+  onLayerSearchChange,
   onCmdClick,
   onShiftClick,
   onCheckboxClick,
@@ -349,7 +362,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // and preserves drag/reorder. A non-empty query narrows visible rows to those
   // whose display name contains the query (case-insensitive substring) and
   // disables drag so reordering a filtered subset cannot corrupt sort_order.
-  const [layerSearch, setLayerSearch] = useState('');
+  // fix(#771): hybrid controlled — when the layerSearch prop is provided the
+  // parent owns the query (so it can derive selectableRowIds from the rendered
+  // row set); the internal state remains for standalone usage.
+  const [localLayerSearch, setLocalLayerSearch] = useState('');
+  const layerSearch = layerSearchProp ?? localLayerSearch;
+  const handleLayerSearchChange = (query: string) => {
+    setLocalLayerSearch(query);
+    onLayerSearchChange?.(query);
+  };
 
   // Phase 1040 Plan 04: read the active drag item from the lifted DndContext so the
   // DragOverlay can branch between an intra-stack StackRow ghost and a catalog drag pill.
@@ -522,16 +543,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // the filtered count) to avoid confusion — the filtered view is transient.
   const isSearchActive = layerSearch.trim() !== '';
 
-  // Case-insensitive substring match on display_name falling back to dataset_name.
-  // An empty (or whitespace-only) query always returns true.
-  const matchesSearch = useCallback(
-    (layer: MapLayerResponse): boolean => {
-      const q = layerSearch.trim();
-      if (q === '') return true;
-      const name = (layer.display_name ?? layer.dataset_name ?? '').toLowerCase();
-      return name.includes(q.toLowerCase());
-    },
-    [layerSearch],
+  // fix(#771): the row-skip decisions below consume the SAME helper that
+  // MapBuilderPage uses to derive selectableRowIds, so what is rendered and
+  // what is range-selectable cannot drift (search matching + group collapse
+  // + child filtering all live in computeSelectableRowIds).
+  const renderedRowIds = useMemo(
+    () => new Set(computeSelectableRowIds(visibleStackLayers, groupMeta, layerSearch)),
+    [visibleStackLayers, groupMeta, layerSearch],
   );
 
   // ---------------------------------------------------------------------------
@@ -664,7 +682,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             aria-label={t('unifiedStack.searchAriaLabel', { defaultValue: 'Filter layers by name' })}
             placeholder={t('unifiedStack.searchPlaceholder', { defaultValue: 'Filter layers…' })}
             value={layerSearch}
-            onChange={(e) => setLayerSearch(e.target.value)}
+            onChange={(e) => handleLayerSearchChange(e.target.value)}
             className={cn(
               'w-full h-7 rounded-sm border border-[var(--border)] bg-[var(--surface-1,var(--background))]',
               'ps-7 pe-2 text-xs text-foreground placeholder:text-muted-foreground',
@@ -725,9 +743,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   // matches the query OR any of its children match.
                   const expanded = groupMeta[layer.id]?.expanded ?? false;
                   const children = childrenByGroup[layer.id] ?? [];
-                  const groupNameMatches = matchesSearch(layer);
-                  const anyChildMatches = children.some((c) => matchesSearch(c));
-                  if (isSearchActive && !groupNameMatches && !anyChildMatches) return null;
+                  // fix(#771): the skip decision comes from the shared
+                  // rendered-row set so selection can never target a row the
+                  // search has hidden.
+                  if (!renderedRowIds.has(layer.id)) return null;
 
                   // fix(#394) LM-04: the group eye reflects the children
                   // AGGREGATE (on while ANY child is visible) — the synthetic
@@ -765,9 +784,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                           role="list"
                         >
                           {children.map((child) => {
-                            // Phase 1201-02: when the group itself matches, show all
-                            // its children; otherwise filter children by name.
-                            if (isSearchActive && !groupNameMatches && !matchesSearch(child)) return null;
+                            // fix(#771): child visibility under search comes
+                            // from the shared rendered-row set (a group-name
+                            // match still shows every child).
+                            if (!renderedRowIds.has(child.id)) return null;
                             return (
                               <SortableStackRow
                                 key={child.id}
@@ -812,8 +832,9 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   );
                 }
 
-                // Phase 1201-02 (ENH-07): skip loose layers that don't match the query.
-                if (isSearchActive && !matchesSearch(layer)) return null;
+                // fix(#771): loose-row visibility under search comes from the
+                // shared rendered-row set.
+                if (!renderedRowIds.has(layer.id)) return null;
 
                 // Loose layer
                 return (

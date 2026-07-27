@@ -448,7 +448,12 @@ export function buildLayerDiff(
   currentLayers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): LayerDiffResult {
-  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers);
+  // fix(#805): prepare BOTH sides with the same groupMeta. The baseline used to
+  // be prepared without it, so baseline children lacked the folderGroupExpanded
+  // marker while current children carried it — every save of a grouped map then
+  // emitted a spurious per-child style_config PATCH, silently persisting
+  // collapse state that is deliberately non-dirtying (see handleToggleGroupExpand).
+  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers, groupMeta);
   const currentPersistedLayers = prepareLayersForPersistence(currentLayers, groupMeta);
   const baselineById = new Map(baselinePersistedLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
   const currentById = new Map(currentPersistedLayers.map((layer) => [layer.id, layer]));
@@ -1009,10 +1014,17 @@ export function useBuilderSave(state: SaveState) {
         // EASY-02 (Phase 1138-01): no-op when any Radix dialog/sheet is open so
         // typing Cmd+S inside the Share dialog or Add Dataset modal does not race
         // a layer mutation against open-modal context. Radix sets
-        // data-state="open" on its content element; we check both the role-dialog
-        // selector (covers Dialog, AlertDialog) and the Sheet-specific data-slot
-        // selector (covers Sheet, which uses role="dialog" but also data-slot="sheet-content").
-        const dialogOpen = document.querySelector('[role="dialog"][data-state="open"]');
+        // data-state="open" on its content element; we check the role-dialog
+        // selector (covers Dialog and, via role="dialog", Sheet — which also
+        // carries data-slot="sheet-content").
+        // ux(#777): Radix AlertDialog content renders role="alertdialog", NOT
+        // role="dialog" — matched explicitly so the unsaved-changes leave
+        // dialog (now an AlertDialog) still suppresses Cmd+S. The builder's
+        // inline row confirms also use role="alertdialog" but have no
+        // data-state attribute, so they intentionally do not match.
+        const dialogOpen = document.querySelector(
+          '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+        );
         if (dialogOpen) return;
         if (updateMap.isPending || patchMapLayers.isPending) return;
         handleSaveRef.current();

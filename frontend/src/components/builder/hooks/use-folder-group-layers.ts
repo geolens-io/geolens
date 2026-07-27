@@ -4,7 +4,11 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import { applyLayerVisibilityToMap } from '@/components/builder/hooks/use-layer-map-sync';
 import { removePerLayerCompanions } from '@/components/builder/hooks/builder-layer-mutations';
-import { type GroupedLayer, clearPersistedFolderGroup } from '@/components/builder/folder-groups';
+import {
+  type GroupedLayer,
+  clearPersistedFolderGroup,
+  pruneEmptyFolderGroups,
+} from '@/components/builder/folder-groups';
 
 // STATE-02: folder-group handlers, relocated verbatim out of the useBuilderLayers
 // god-hook. PURE RELOCATION — handler bodies are unchanged; the shared layers
@@ -188,7 +192,9 @@ export function useFolderGroupLayers({
         : (groupIdx >= 0 ? groupIdx + 1 : without.length);
       const next = [...without];
       next.splice(insertIdx, 0, updatedLayer as MapLayerResponse);
-      return next.map((l, i) => ({ ...l, sort_order: i }));
+      // fix(#767): defensive — should the moved layer have been the last child
+      // of ANOTHER group, prune that emptied group row in the same write.
+      return pruneEmptyFolderGroups(next).map((l, i) => ({ ...l, sort_order: i }));
     });
     setGroupMeta((prev) => {
       if (prev[groupId]?.expanded) return prev;
@@ -218,7 +224,10 @@ export function useFolderGroupLayers({
       const next = prev.filter((l) => l.id !== layerId) as MapLayerResponse[];
       const insertAt = groupIdx >= 0 ? groupIdx + 1 : next.length;
       next.splice(insertAt, 0, updatedLayer as MapLayerResponse);
-      return next.map((l, i) => ({ ...l, sort_order: i }));
+      // fix(#767): moving the LAST child out empties the group — prune its row
+      // (an empty group has no persisted carrier and vanishes on save+reload).
+      // The moved-out layer then takes the pruned group's stack position.
+      return pruneEmptyFolderGroups(next).map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
   }, [setLocalLayers, setHasUnsavedChanges]);

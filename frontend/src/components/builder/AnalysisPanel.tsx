@@ -347,55 +347,91 @@ export function AnalysisPanel({
   // the panel said "Clip area set" over an empty map. Recreate the
   // kept-static overlay exactly as the finish handler leaves it. Best
   // effort: if TerraDraw rejects the feature, the mask still applies (the
-  // pre-fix behavior), just without the outline.
+  // pre-fix behavior), just without the outline. Shared by the mount
+  // restore below and the fix(#775) style.load re-add.
+  const addStaticMaskOverlay = useCallback(
+    (map: MaplibreMap, maskGeometry: GeoJSON.Polygon) => {
+      // fix(#793 review): held locally so the catch can reach a PARTIALLY
+      // started instance — drawRef is only assigned on full success, so
+      // stopping drawRef there stopped nothing while the failed instance kept
+      // its map layers and handlers attached.
+      let td: TerraDraw | null = null;
+      try {
+        td = new TerraDraw({
+          adapter: new TerraDrawMapLibreGLAdapter({ map }),
+          modes: [
+            new TerraDrawPolygonMode({
+              styles: {
+                fillColor: MAP_COLORS.default.fill,
+                fillOpacity: MAP_COLORS.default.fillOpacity,
+                outlineColor: MAP_COLORS.default.stroke,
+                outlineWidth: MAP_COLORS.default.strokeWidth,
+              },
+            }),
+          ],
+        });
+        td.start();
+        td.addFeatures([
+          {
+            id: crypto.randomUUID(),
+            type: 'Feature',
+            geometry: maskGeometry,
+            properties: { mode: 'polygon' },
+          },
+        ]);
+        td.setMode('static');
+        drawRef.current = td;
+      } catch {
+        try {
+          td?.stop();
+        } catch {
+          // stop() on a partially initialized instance may itself throw.
+        }
+        drawRef.current = null;
+      }
+    },
+    [],
+  );
   const restoredMaskDrawnRef = useRef(false);
   useEffect(() => {
     if (restoredMaskDrawnRef.current) return;
     const map = mapInstanceRef?.current;
     if (!mask || !map || drawRef.current) return;
     restoredMaskDrawnRef.current = true;
-    // fix(#793 review): held locally so the catch can reach a PARTIALLY
-    // started instance — drawRef is only assigned on full success, so
-    // stopping drawRef there stopped nothing while the failed instance kept
-    // its map layers and handlers attached.
-    let td: TerraDraw | null = null;
-    try {
-      td = new TerraDraw({
-        adapter: new TerraDrawMapLibreGLAdapter({ map }),
-        modes: [
-          new TerraDrawPolygonMode({
-            styles: {
-              fillColor: MAP_COLORS.default.fill,
-              fillOpacity: MAP_COLORS.default.fillOpacity,
-              outlineColor: MAP_COLORS.default.stroke,
-              outlineWidth: MAP_COLORS.default.strokeWidth,
-            },
-          }),
-        ],
-      });
-      td.start();
-      td.addFeatures([
-        {
-          id: crypto.randomUUID(),
-          type: 'Feature',
-          geometry: mask,
-          properties: { mode: 'polygon' },
-        },
-      ]);
-      td.setMode('static');
-      drawRef.current = td;
-    } catch {
-      try {
-        td?.stop();
-      } catch {
-        // stop() on a partially initialized instance may itself throw.
-      }
-      drawRef.current = null;
-    }
+    addStaticMaskOverlay(map, mask);
     // No dep array (fix(#793 review)): the map arrives by REF assignment —
     // no dep ever changes — but the lazy BuilderMap's load re-renders the
     // parent, so retrying every commit reaches the moment the map exists;
     // restoredMaskDrawnRef then latches this to a no-op.
+  });
+  // fix(#775): a basemap switch calls setStyle, which wipes every
+  // imperatively added source/layer — TerraDraw's static overlay included
+  // (the 1.4.x adapter has no style-reload handling) — while `mask` and
+  // drawRef survive, so the panel claimed "Clip area set" over a map with no
+  // visible mask and no re-add path. Mirror use-ephemeral-layers' fix(#394)
+  // pattern: subscribe for the lifetime of the mask and rebuild the overlay
+  // on every style.load. Stopping the orphaned instance first can throw over
+  // the already-wiped layers (the adapter's unregister removes them
+  // unguarded), hence the try/catch. No dep array for the same
+  // ref-assignment reason as above; the cleanup keeps exactly one live
+  // subscription and drops it when the mask clears or the panel unmounts.
+  useEffect(() => {
+    const map = mapInstanceRef?.current;
+    if (!mask || !map) return;
+    const readdMask = () => {
+      try {
+        drawRef.current?.stop();
+      } catch {
+        // The new style already removed the adapter's layers; stop() may
+        // throw tearing down what no longer exists.
+      }
+      drawRef.current = null;
+      addStaticMaskOverlay(map, mask);
+    };
+    map.on('style.load', readdMask);
+    return () => {
+      map.off('style.load', readdMask);
+    };
   });
   // Shares its TanStack query with the page-level tracker (same key), so
   // there is exactly one 2s poll loop however many components watch the job.

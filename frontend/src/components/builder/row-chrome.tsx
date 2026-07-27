@@ -149,6 +149,11 @@ export function DragGripButton({
 // box, small buttons, cancel autofocused per AUD-09 so Enter dismisses rather
 // than destroys). BulkActionBar keeps its horizontal single-line variant — its
 // confirm lives INSIDE the fixed-height toolbar, not below a row.
+// ux(#777): the builder-wide destructive-confirm order is safe action first
+// (left), destructive action last (right) — the same Cancel-then-Action order
+// every ui/alert-dialog footer in the app renders. The DEM editor footer,
+// basemap-sublayer reset, and render-as confirms mount this component (with a
+// container-specific className) instead of hand-rolling their own.
 interface InlineDeleteConfirmProps {
   /** ids the aria-labelledby / message paragraph; must be unique per row. */
   confirmId: string;
@@ -157,6 +162,8 @@ interface InlineDeleteConfirmProps {
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Container-specific spacing overrides (tailwind-merged onto the defaults). */
+  className?: string;
 }
 
 export function InlineDeleteConfirm({
@@ -166,22 +173,20 @@ export function InlineDeleteConfirm({
   cancelLabel,
   onConfirm,
   onCancel,
+  className,
 }: InlineDeleteConfirmProps) {
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <div
       role="alertdialog"
       aria-labelledby={confirmId}
-      className="mx-2 mb-2 flex flex-col gap-2 p-3 bg-destructive/10 rounded-md"
+      className={cn('mx-2 mb-2 flex flex-col gap-2 p-3 bg-destructive/10 rounded-md', className)}
       onClick={(e) => e.stopPropagation()}
     >
       <p id={confirmId} className="text-sm text-destructive">
         {message}
       </p>
       <div className="flex gap-2">
-        <Button size="sm" variant="destructive" onClick={onConfirm}>
-          {confirmLabel}
-        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -190,6 +195,9 @@ export function InlineDeleteConfirm({
           autoFocus
         >
           {cancelLabel}
+        </Button>
+        <Button size="sm" variant="destructive" onClick={onConfirm}>
+          {confirmLabel}
         </Button>
       </div>
     </div>
