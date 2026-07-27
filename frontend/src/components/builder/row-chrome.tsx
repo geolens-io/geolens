@@ -154,6 +154,12 @@ export function DragGripButton({
 // every ui/alert-dialog footer in the app renders. The DEM editor footer,
 // basemap-sublayer reset, and render-as confirms mount this component (with a
 // container-specific className) instead of hand-rolling their own.
+//
+// fix(#788): NOT an alertdialog — it is inline and non-modal (no aria-modal, no
+// focus trap), so claiming the role promised dismissal semantics it didn't
+// have. role="group" + role="alert" on the message announces the confirm when
+// it appears, and Escape cancels it here (consumed, so it cannot bubble on to
+// ancestor Escape handlers while the confirm is pending).
 interface InlineDeleteConfirmProps {
   /** ids the aria-labelledby / message paragraph; must be unique per row. */
   confirmId: string;
@@ -176,14 +182,21 @@ export function InlineDeleteConfirm({
   className,
 }: InlineDeleteConfirmProps) {
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- click stops row-select propagation; keydown is the Escape-cancel guard
     <div
-      role="alertdialog"
+      role="group"
       aria-labelledby={confirmId}
       className={cn('mx-2 mb-2 flex flex-col gap-2 p-3 bg-destructive/10 rounded-md', className)}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
     >
-      <p id={confirmId} className="text-sm text-destructive">
+      <p id={confirmId} role="alert" className="text-sm text-destructive">
         {message}
       </p>
       <div className="flex gap-2">

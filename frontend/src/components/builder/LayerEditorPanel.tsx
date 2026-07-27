@@ -293,11 +293,16 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     if (pendingRenderAs) {
       handlers.onRenderModeChange?.(layer.id, pendingRenderAs);
       setPendingRenderAs(null);
+      // fix(#788): the confirm held focus (autofocused button); hand it to the
+      // pill that just became active instead of dropping to <body>.
+      document.getElementById(`renderas-${layer.id}-${pendingRenderAs}`)?.focus();
     }
   }
 
   function cancelRenderAsSwitch() {
     setPendingRenderAs(null);
+    // fix(#788): return focus to the still-active pill instead of <body>.
+    document.getElementById(`renderas-${layer.id}-${currentRenderAs}`)?.focus();
   }
 
   return (
@@ -451,9 +456,22 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 >
                   {/* Render-as pill row — destructive switch with inline confirm */}
                   {renderAsOptions.length > 0 && (
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- keydown is an Escape-cancel guard for the pending confirm, not an interaction affordance
                     <section
                       aria-labelledby={`section-renderas-${layer.id}`}
                       className="rounded-md border bg-muted/25 p-3"
+                      // fix(#788): Escape with the render-as confirm pending
+                      // cancels the pending switch (consumed) — previously it
+                      // bubbled to the editor <aside> and closed the whole
+                      // panel with the confirm still open. Section-level so it
+                      // also covers focus resting on the pills.
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape' && pendingRenderAs) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          cancelRenderAsSwitch();
+                        }
+                      }}
                     >
                       <p
                         id={`section-renderas-${layer.id}`}
@@ -467,6 +485,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                           return (
                             <button
                               key={option.id}
+                              // fix(#788): stable id so confirm/cancel can
+                              // restore keyboard focus to the pill.
+                              id={`renderas-${layer.id}-${option.id}`}
                               type="button"
                               data-active={isActive ? 'true' : 'false'}
                               onClick={() => handleRenderAsClick(option.id)}
@@ -485,6 +506,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       {pendingRenderAs && (
                         // ux(#777): shared builder-wide inline confirm — safe
                         // action left, destructive right, cancel autofocused.
+                        // fix(#788): the shared component supplies the
+                        // group+alert semantics and Escape-to-cancel; onCancel
+                        // (cancelRenderAsSwitch) restores focus to the pill.
                         <InlineDeleteConfirm
                           confirmId={`confirm-render-as-${layer.id}`}
                           message={t('layerEditor.confirmRenderAs.message', {
