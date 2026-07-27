@@ -1080,6 +1080,7 @@
     "reorderMovedUp": "{{name}} se movió hacia arriba.",
     "reorderMovedDown": "{{name}} se movió hacia abajo.",
     "reorderDropped": "{{name}} soltado.",
+    "reorderArmed": "Modo de reordenación activado para {{name}}. Las flechas mueven la capa; Intro, Espacio o Escape finaliza.",
     "basemapPositionChanged": "Mapa base movido a {{position}}",
     "shortcuts": {
       "title": "Atajos de teclado",

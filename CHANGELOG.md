@@ -14,7 +14,7 @@ and releases use semantic versioning.
   destroyed the keyboard drag activator on all rows — folder groups and the
   basemap group, which have no fallback, were pointer-only. The handlers are
   now composed, the row-level reorder mode exposes its armed state via
-  `aria-pressed`, and arming, each move, dropping, and cancelling are
+  `aria-pressed`, and arming, each successful move, and finishing are
   announced to screen readers like the pointer drag path already was. (#759)
 - **A stale tracked analysis job no longer logs anonymous visitors out.** The
   job-status poll is now gated on having an auth token, so a persisted job id

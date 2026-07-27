@@ -184,15 +184,18 @@ export const StackRow = memo(function StackRow({
       e.stopPropagation();
       // fix(#759): mirror the pointer path's pickup/drop announcements — this
       // mode was completely silent while the shortcuts sheet advertised it.
+      // codex(#794 round 2): NOT the shared dragPickup string — its "Escape
+      // to cancel" describes the real drag path, where Escape reverts. Here
+      // every arrow applies immediately and Escape only exits the mode.
       onAnnounce?.(
         keyboardReorderActive
           ? t('a11y.reorderDropped', {
               defaultValue: '{{name}} dropped.',
               name: displayName,
             })
-          : t('a11y.dragPickup', {
+          : t('a11y.reorderArmed', {
               defaultValue:
-                'Picked up {{name}}. Use arrow keys to choose a position, Enter to drop, Escape to cancel.',
+                'Reorder mode on for {{name}}. Arrow keys move the layer; Enter, Space, or Escape finishes.',
               name: displayName,
             }),
       );
@@ -203,7 +206,15 @@ export const StackRow = memo(function StackRow({
     if (e.key === 'Escape' && keyboardReorderActive) {
       e.preventDefault();
       e.stopPropagation();
-      onAnnounce?.(t('a11y.dragCancelled', { defaultValue: 'Drop cancelled.' }));
+      // codex(#794 round 2): arrows have already applied their moves, so
+      // "Drop cancelled" would falsely promise a revert — Escape only exits
+      // the mode, exactly like Enter/Space.
+      onAnnounce?.(
+        t('a11y.reorderDropped', {
+          defaultValue: '{{name}} dropped.',
+          name: displayName,
+        }),
+      );
       setKeyboardReorderActive(false);
       return;
     }

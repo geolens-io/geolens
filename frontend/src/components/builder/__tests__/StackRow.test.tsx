@@ -109,7 +109,7 @@ describe('StackRow', () => {
       fireEvent.keyDown(handle, { key: ' ' });
       expect(handle).toHaveAttribute('aria-pressed', 'true');
       expect(onAnnounce).toHaveBeenCalledWith(
-        expect.stringContaining('Picked up Population'),
+        expect.stringContaining('Reorder mode on for Population'),
       );
 
       fireEvent.keyDown(handle, { key: 'ArrowUp' });
@@ -139,13 +139,16 @@ describe('StackRow', () => {
       ).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('announces a cancel on Escape', () => {
+    it('announces the exit on Escape without promising a revert (codex #794)', () => {
       const onAnnounce = vi.fn();
       render(<StackRow {...defaultProps({ onAnnounce })} />);
       const handle = screen.getByRole('button', { name: gripName });
       fireEvent.keyDown(handle, { key: ' ' });
       fireEvent.keyDown(handle, { key: 'Escape' });
-      expect(onAnnounce).toHaveBeenCalledWith('Drop cancelled.');
+      // Moves apply immediately in this mode, so Escape must not announce
+      // "Drop cancelled" — nothing is reverted.
+      expect(onAnnounce).toHaveBeenCalledWith('Population dropped.');
+      expect(onAnnounce).not.toHaveBeenCalledWith('Drop cancelled.');
       expect(handle).toHaveAttribute('aria-pressed', 'false');
     });
 
