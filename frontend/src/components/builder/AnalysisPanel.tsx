@@ -243,8 +243,11 @@ export function AnalysisPanel({
   // (it creates a dataset); hide the creation half for viewer roles instead
   // of letting them fill the form into a guaranteed 403. Preview stays.
   // Read before the mutations so their callbacks can branch on it too.
+  // The endpoint also requires `export` (the output carries the source's
+  // attributes, matching the download endpoints), so the gate mirrors both —
+  // an upload-only role must not fill the form into a guaranteed 403.
   const { can } = usePermissions();
-  const canCreateDataset = can('upload');
+  const canCreateDataset = can('upload') && can('export');
 
   const distanceValid =
     Number.isFinite(distanceValue) &&

@@ -44,6 +44,12 @@ router = APIRouter(
 
 _SAFE_COLUMN_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# fix(#766): PostgreSQL has no equality operator for these types, so a
+# dissolve GROUP BY on such a column fails the CTAS with an opaque 42883
+# after the queue wait. GDAL maps nested GeoJSON objects to `json`, so
+# real uploads hit this. Rejected at enqueue with the column named.
+_NON_GROUPABLE_TYPES = {"json", "xml"}
+
 # fix(#695): Procrastinate ranks by per-job priority (DESC, default 0), not
 # by queue name — so a 300-second analysis CTAS enqueued first would
 # head-of-line block every upload on the shared single worker. Below-default
@@ -161,6 +167,34 @@ async def analysis_preview_endpoint(
         ) from exc
 
 
+def _validate_dissolve_by_field(dataset, by_field: str) -> None:
+    """422 on an unknown, generated-name-conflicting, or non-groupable column."""
+    known_columns = {col.get("name"): col for col in (dataset.column_info or []) if col}
+    if not _SAFE_COLUMN_RE.match(by_field) or by_field not in known_columns:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown dissolve column: {by_field!r}",
+        )
+    if by_field == "source_count":
+        # The dissolve output already emits a generated source_count
+        # column; carrying a same-named group key would fail the CTAS
+        # with an opaque "column specified more than once".
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="by_field conflicts with the generated 'source_count' column",
+        )
+    by_field_type = str(known_columns[by_field].get("type") or "").lower()
+    if by_field_type in _NON_GROUPABLE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Column {by_field!r} has type '{by_field_type}' "
+                "and can't be used to group features. Choose a column "
+                "with comparable values."
+            ),
+        )
+
+
 @router.post(
     "/{dataset_id}/analysis/materialize/",
     response_model=AnalysisMaterializeResponse,
@@ -170,16 +204,21 @@ async def analysis_materialize_endpoint(
     body: AnalysisMaterializeRequest,
     request: Request,
     # fix(#692): materialize creates a dataset, so it carries the same
-    # permission as every ingest endpoint that creates one. Preview stays on
-    # the plain active-user dependency: it is read-only, persists nothing,
-    # and the chat tool's read-only surface depends on it.
-    user: Identity = Depends(require_permission("upload")),
+    # permission as every ingest endpoint that creates one. It also hands the
+    # caller a durable, caller-owned copy of the source attributes (a
+    # centroid materialize preserves every column), which is the outcome the
+    # download endpoints gate on `export` — so it requires that capability
+    # too, keeping the two paths consistent under a customized role matrix.
+    # Preview stays on the plain active-user dependency: it is read-only,
+    # persists nothing, and the chat tool's read-only surface depends on it.
+    user: Identity = Depends(require_permission("upload", "export")),
     db: AsyncSession = Depends(get_db),
 ) -> AnalysisMaterializeResponse:
     """Materialize an analysis result as a new private dataset (async job).
 
-    Requires the ``upload`` permission (this endpoint creates a dataset) and
-    read visibility on the source dataset; the new dataset is owned by the
+    Requires the ``upload`` and ``export`` permissions (this endpoint
+    creates a dataset that carries the source's attributes) and read
+    visibility on the source dataset; the new dataset is owned by the
     caller and counted against their dataset quota (the atomic slot
     reservation runs at registration inside the worker). Poll
     ``GET /jobs/{job_id}`` for progress.
@@ -212,23 +251,7 @@ async def analysis_materialize_endpoint(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
     if body.operation == "dissolve" and body.by_field is not None:
-        known_columns = {col.get("name") for col in (dataset.column_info or []) if col}
-        if (
-            not _SAFE_COLUMN_RE.match(body.by_field)
-            or body.by_field not in known_columns
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Unknown dissolve column: {body.by_field!r}",
-            )
-        if body.by_field == "source_count":
-            # The dissolve output already emits a generated source_count
-            # column; carrying a same-named group key would fail the CTAS
-            # with an opaque "column specified more than once".
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="by_field conflicts with the generated 'source_count' column",
-            )
+        _validate_dissolve_by_field(dataset, body.by_field)
 
     # Best-effort dataset-count pre-check; the authoritative atomic
     # reservation happens at registration time in the worker.

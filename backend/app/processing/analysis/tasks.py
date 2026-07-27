@@ -18,7 +18,12 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 from sqlalchemy import select, text
-from sqlalchemy.exc import DataError, InternalError, SQLAlchemyError
+from sqlalchemy.exc import (
+    DataError,
+    InternalError,
+    ProgrammingError,
+    SQLAlchemyError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema
@@ -38,6 +43,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
+from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -91,6 +97,20 @@ def _user_error_message(exc: Exception) -> str:
             )
         if isinstance(exc, (DataError, InternalError)):
             return "The analysis failed while processing this data"
+        # fix(#766): only the SQLSTATEs that mean "this column/type
+        # combination can't do this operation": 42883 undefined_function
+        # (e.g. no equality operator for `json` in a dissolve GROUP BY),
+        # 42803 grouping_error, 42804 datatype_mismatch. Deliberately NOT
+        # the whole class 42 — 42501 (privilege), 42P01 (missing table),
+        # and 42601 (syntax) are server or configuration faults and must
+        # keep reporting as the generic database error.
+        if isinstance(exc, ProgrammingError) and str(
+            getattr(exc.orig, "sqlstate", "") or ""
+        ) in ("42883", "42803", "42804"):
+            return (
+                "A column in this dataset can't be used for this "
+                "operation. Try a different column."
+            )
         return "The analysis failed due to a database error"
     return str(exc)[:2000]
 
@@ -261,7 +281,15 @@ async def _mark_job_failed(
 async def _list_carry_columns(
     session: AsyncSession, schema: str, table_name: str
 ) -> list[str]:
-    """Attribute columns to carry into 1:1 op output (skip system/geom cols)."""
+    """Attribute columns to carry into 1:1 op output (skip system/geom cols).
+
+    fix(#763): every name is carried — GDAL launders only case/`-`/`#`, so
+    ingested tables legitimately hold columns like ``Área`` or ``2020_pop``;
+    filtering to identifier-shaped names silently dropped them from every
+    analysis output. Rendering quotes via ``_sql_quote_ident``, whose
+    colon escape also keeps Socrata-style ``:id`` columns from being parsed
+    as bind parameters by ``text()``.
+    """
     rows = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
@@ -270,7 +298,7 @@ async def _list_carry_columns(
             "ORDER BY ordinal_position"
         ).bindparams(schema=schema, table_name=table_name)
     )
-    return [row[0] for row in rows if _SAFE_IDENT.match(row[0])]
+    return [row[0] for row in rows]
 
 
 def _build_materialize_select(
@@ -318,7 +346,7 @@ def _build_materialize_select(
         # the dataset it would have saved is small. Clip has no source-feature
         # cap, so nothing else bounds how many of them there are.
         cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
-        cols = "".join(f'_src."{c}", ' for c in carry_cols)
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
         return (
             f"{cte} SELECT _src.gid, {cols}_op.geom_out AS geom"
             f" FROM {src_ref} AS _src"
@@ -330,7 +358,7 @@ def _build_materialize_select(
         distance_meters=distance_meters,
         mask=mask,
     )
-    cols = "".join(f'"{c}", ' for c in carry_cols)
+    cols = "".join(f"{_sql_quote_ident(c)}, " for c in carry_cols)
     return f"SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
 
 
