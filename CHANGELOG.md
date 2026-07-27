@@ -9,6 +9,17 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **Keyboard reorder works again on every stack row.** The shared drag grip
+  set a key handler after spreading the dnd-kit listeners, which silently
+  destroyed the keyboard drag activator on all rows — folder groups and the
+  basemap group, which have no fallback, were pointer-only. The handlers are
+  now composed, the row-level reorder mode exposes its armed state via
+  `aria-pressed`, and arming, each successful move, and finishing are
+  announced to screen readers like the pointer drag path already was. (#759)
+- **A stale tracked analysis job no longer logs anonymous visitors out.** The
+  job-status poll is now gated on having an auth token, so a persisted job id
+  can't make a public page fire an authenticated request whose 401 ended the
+  session. (#762)
 - **Edits made while a save is in flight are no longer silently discarded.**
   Changing a layer, name, basemap, plugin, or any other map property during
   the save's network round-trip used to be absorbed into the saved baseline,

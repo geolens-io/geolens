@@ -79,7 +79,23 @@ describe('useUploadFile', () => {
 });
 
 describe('useJobStatus', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // fix(#762): the hook now gates on an auth token; these tests run as an
+    // authenticated user unless they say otherwise.
+    useAuthStore.setState({ token: 'jwt-token', refreshToken: null, expiresAt: null, user: null });
+  });
+
+  it('does not poll a persisted analysis job for anonymous visitors (fix #762)', () => {
+    // AnalysisJobWatcher mounts in RootLayout with a persist-backed job id; a
+    // stale one used to make an anonymous session fire an authenticated-only
+    // poll whose 401 logged the visitor out of public pages.
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    const { result } = renderHook(() => useJobStatus('j-stale'));
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockGetJobStatus).not.toHaveBeenCalled();
+  });
 
   it('fetches job status when jobId is provided', async () => {
     const status = { job_id: 'j-1', status: 'complete', filename: 'test.geojson' };

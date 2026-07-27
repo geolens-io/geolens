@@ -20,6 +20,7 @@ import {
   shouldClearTerrainOnDelete,
 } from '@/components/builder/hooks/builder-layer-mutations';
 import {
+  getParentGroupId,
   hydrateFolderGroupLayers,
   type GroupedLayer,
 } from '@/components/builder/folder-groups';
@@ -285,20 +286,34 @@ export function useBuilderLayers(
   // `layersRef.current` instead of `localLayers` to keep their dep lists
   // stable (KISS-2 / PERF-N2).
 
-  const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
+  // codex(#794): reports whether a move actually happened, so the keyboard
+  // reorder announcement can stay silent at the stack boundaries instead of
+  // confirming a move that did not occur.
+  const handleMove = useCallback((layerId: string, direction: 'up' | 'down'): boolean => {
     const currentLayers = layersRef.current;
     // fix(HT-03): the stack no longer suppresses terrain-mode DEM rows, so the
     // rendered order IS the full layer order again (the #394 LM-05 filter is
     // obsolete — an arrow-move can never swap with an invisible row).
-    const rendered = currentLayers;
-    const renderedIdx = rendered.findIndex((l) => l.id === layerId);
-    if (direction === 'up' && renderedIdx <= 0) return;
-    if (direction === 'down' && (renderedIdx < 0 || renderedIdx >= rendered.length - 1)) return;
-    const neighborId = rendered[direction === 'up' ? renderedIdx - 1 : renderedIdx + 1].id;
-
     const idx = currentLayers.findIndex((l) => l.id === layerId);
-    const swapIdx = currentLayers.findIndex((l) => l.id === neighborId);
-    if (idx < 0 || swapIdx < 0) return;
+    if (idx < 0) return false;
+    // codex(#794 round 3): the row's visible neighbor is its adjacent sibling
+    // in the SAME container — the top level skips grouped children, and a
+    // folder box lists only its own children — so the raw flat-array neighbor
+    // can belong to another container. Swapping with that entry moves nothing
+    // the user can see (while still dirtying the saved order) yet would be
+    // announced as a move. Skip to the nearest same-container sibling; at the
+    // container edge there is none, and that is a boundary, not a move.
+    const container = getParentGroupId(currentLayers[idx]);
+    const step = direction === 'up' ? -1 : 1;
+    let swapIdx = idx + step;
+    while (
+      swapIdx >= 0 &&
+      swapIdx < currentLayers.length &&
+      getParentGroupId(currentLayers[swapIdx]) !== container
+    ) {
+      swapIdx += step;
+    }
+    if (swapIdx < 0 || swapIdx >= currentLayers.length) return false;
 
     const next = [...currentLayers];
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
@@ -312,6 +327,7 @@ export function useBuilderLayers(
     }
 
     setHasUnsavedChanges(true);
+    return true;
   }, [mapInstanceRef]);
 
   const handleMoveUp = useCallback((layerId: string) => handleMove(layerId, 'up'), [handleMove]);

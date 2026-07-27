@@ -1077,6 +1077,10 @@
     "dragPosition": "Position actuelle : {{n}} sur {{total}}",
     "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
     "dragCancelled": "Dépôt annulé.",
+    "reorderMovedUp": "{{name}} déplacé vers le haut.",
+    "reorderMovedDown": "{{name}} déplacé vers le bas.",
+    "reorderDropped": "{{name}} déposé.",
+    "reorderArmed": "Mode de réorganisation activé pour {{name}}. Les flèches déplacent la couche ; Entrée, Espace ou Échap termine.",
     "basemapPositionChanged": "Fond de carte déplacé vers {{position}}",
     "shortcuts": {
       "title": "Raccourcis clavier",

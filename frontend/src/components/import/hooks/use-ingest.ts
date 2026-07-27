@@ -13,10 +13,16 @@ export function useUploadFile() {
 }
 
 export function useJobStatus(jobId: string | null) {
+  // fix(#762): AnalysisJobWatcher mounts in RootLayout with a persist-backed
+  // job id, so without this gate a stale tracked job made an anonymous
+  // visitor on a public page fire an authenticated-only poll — whose 401
+  // logged them out. Sibling useDatasetJobStatus gates identically; once a
+  // token appears the poll resumes and the watcher resolves the stale job.
+  const hasToken = useAuthStore((s) => !!s.token);
   return useQuery({
     queryKey: queryKeys.ingest.jobStatus(jobId),
     queryFn: () => getJobStatus(jobId!),
-    enabled: !!jobId,
+    enabled: !!jobId && hasToken,
     staleTime: 2000,
     refetchInterval: (query) => {
       const status = query.state.data?.status;

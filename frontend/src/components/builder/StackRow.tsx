@@ -73,7 +73,13 @@ interface StackRowProps {
   onCreateGroupWithLayer?: (layerId: string) => void;
   /** Called when user selects "Move out of group" (layer is already in a group) */
   onMoveLayerOutOfGroup?: (layerId: string) => void;
-  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  /** Returns whether the move happened, so boundary no-ops stay silent
+   *  (codex(#794)); void is treated as moved for older callers. */
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
+  /** fix(#759): routes reorder-mode announcements into the builder's shared
+   *  aria-live region — the pointer drag path announces pickup/position/drop
+   *  while this mode used to be completely silent. */
+  onAnnounce?: (text: string) => void;
   /** When non-null, the layer is inside a group — "Move out of group" replaces the sub-flow */
   parentGroupId?: string | null;
   // Phase 1041: multi-selection props (POL-06, POL-07)
@@ -127,6 +133,7 @@ export const StackRow = memo(function StackRow({
   onCreateGroupWithLayer,
   onMoveLayerOutOfGroup,
   onKeyboardReorder,
+  onAnnounce,
   parentGroupId = null,
   isMultiSelected = false,
   isMultiSelectionActive = false,
@@ -175,13 +182,39 @@ export const StackRow = memo(function StackRow({
     if (isToggleKey) {
       e.preventDefault();
       e.stopPropagation();
-      setKeyboardReorderActive((active) => !active);
+      // fix(#759): mirror the pointer path's pickup/drop announcements — this
+      // mode was completely silent while the shortcuts sheet advertised it.
+      // codex(#794 round 2): NOT the shared dragPickup string — its "Escape
+      // to cancel" describes the real drag path, where Escape reverts. Here
+      // every arrow applies immediately and Escape only exits the mode.
+      onAnnounce?.(
+        keyboardReorderActive
+          ? t('a11y.reorderDropped', {
+              defaultValue: '{{name}} dropped.',
+              name: displayName,
+            })
+          : t('a11y.reorderArmed', {
+              defaultValue:
+                'Reorder mode on for {{name}}. Arrow keys move the layer; Enter, Space, or Escape finishes.',
+              name: displayName,
+            }),
+      );
+      setKeyboardReorderActive(!keyboardReorderActive);
       return;
     }
 
     if (e.key === 'Escape' && keyboardReorderActive) {
       e.preventDefault();
       e.stopPropagation();
+      // codex(#794 round 2): arrows have already applied their moves, so
+      // "Drop cancelled" would falsely promise a revert — Escape only exits
+      // the mode, exactly like Enter/Space.
+      onAnnounce?.(
+        t('a11y.reorderDropped', {
+          defaultValue: '{{name}} dropped.',
+          name: displayName,
+        }),
+      );
       setKeyboardReorderActive(false);
       return;
     }
@@ -189,7 +222,19 @@ export const StackRow = memo(function StackRow({
     if (!keyboardReorderActive || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     e.stopPropagation();
-    onKeyboardReorder?.(layer.id, e.key === 'ArrowUp' ? 'up' : 'down');
+    const direction = e.key === 'ArrowUp' ? 'up' : 'down';
+    const moved = onKeyboardReorder?.(layer.id, direction);
+    // codex(#794): a boundary ArrowUp/Down is a no-op — announcing a move
+    // there gives screen-reader users false confirmation.
+    if (moved !== false) {
+      onAnnounce?.(
+        t(direction === 'up' ? 'a11y.reorderMovedUp' : 'a11y.reorderMovedDown', {
+          defaultValue:
+            direction === 'up' ? '{{name}} moved up.' : '{{name}} moved down.',
+          name: displayName,
+        }),
+      );
+    }
   }
 
   // Phase 1041: modifier-aware click handler (POL-06)
@@ -270,6 +315,10 @@ export const StackRow = memo(function StackRow({
           name: displayName,
         })}
         touchReveal
+        // codex(#794): dnd-kit drives aria-pressed=true through `attributes`
+        // while its sortable is active; the explicit prop must not report
+        // unpressed during a real pointer drag.
+        ariaPressed={keyboardReorderActive || isDragging}
         onKeyDown={handleDragHandleKeyDown}
         onBlur={() => setKeyboardReorderActive(false)}
       />

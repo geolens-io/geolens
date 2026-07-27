@@ -70,6 +70,9 @@ interface DragGripButtonProps {
   touchReveal?: boolean;
   testId?: string;
   className?: string;
+  /** fix(#759): reflects a row-level keyboard-reorder mode on the grip, so
+   *  screen readers hear the armed/disarmed state of the toggle. */
+  ariaPressed?: boolean;
   onClick?: (e: MouseEvent<HTMLButtonElement>) => void;
   onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void;
   onBlur?: (e: FocusEvent<HTMLButtonElement>) => void;
@@ -85,6 +88,7 @@ export function DragGripButton({
   touchReveal = false,
   testId,
   className,
+  ariaPressed,
   onClick,
   onKeyDown,
   onBlur,
@@ -96,6 +100,10 @@ export function DragGripButton({
       {...dragHandleProps.attributes}
       {...(listenersSuppressed ? {} : dragHandleProps.listeners)}
       aria-label={ariaLabel}
+      // Only override when the row drives a reorder mode — an unconditional
+      // undefined would erase the aria-pressed dnd-kit manages in
+      // `attributes` (the same later-prop-wins trap this file just fixed).
+      {...(ariaPressed !== undefined ? { 'aria-pressed': ariaPressed } : {})}
       data-testid={testId}
       {...(touchReveal ? { 'data-touch-reveal': '' } : {})}
       className={cn(
@@ -109,7 +117,25 @@ export function DragGripButton({
       // pointer drag entirely. onClick stopPropagation alone suppresses row selection on
       // grip click; pointer events do not trigger onClick handlers.
       onClick={onClick ?? ((e) => e.stopPropagation())}
-      onKeyDown={onKeyDown}
+      // fix(#759): second occurrence of the props-after-listeners-spread trap
+      // (first: #525). A later JSX prop wins even when undefined, so an
+      // unconditional onKeyDown here destroyed the dnd-kit KeyboardSensor
+      // activator on EVERY row — folder and basemap groups, which pass no
+      // custom handler, were left pointer-only. Compose instead: the row's
+      // handler runs first, and the sensor only sees keys the row didn't
+      // claim (StackRow's fallback mode preventDefaults the keys it owns).
+      // codex(#794 round 3): a CLAIMED key must also stop bubbling — both the
+      // sensor's activator and the custom handlers preventDefault when they
+      // take a key, and the enclosing rows (folder multi-select, basemap
+      // select) handle the same Space/Enter without checking defaultPrevented,
+      // so a keyboard drag would simultaneously fire a conflicting row action.
+      onKeyDown={(e) => {
+        onKeyDown?.(e);
+        if (!e.defaultPrevented && !listenersSuppressed) {
+          dragHandleProps.listeners?.onKeyDown?.(e);
+        }
+        if (e.defaultPrevented) e.stopPropagation();
+      }}
       onBlur={onBlur}
     >
       <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />

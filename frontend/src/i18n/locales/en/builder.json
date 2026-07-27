@@ -1081,6 +1081,10 @@
     "dragPosition": "Current position: {{n}} of {{total}}",
     "dragDropped": "Dropped. {{name}} added at position {{n}}.",
     "dragCancelled": "Drop cancelled.",
+    "reorderMovedUp": "{{name}} moved up.",
+    "reorderMovedDown": "{{name}} moved down.",
+    "reorderDropped": "{{name}} dropped.",
+    "reorderArmed": "Reorder mode on for {{name}}. Arrow keys move the layer; Enter, Space, or Escape finishes.",
     "basemapPositionChanged": "Basemap moved to {{position}}",
     "shortcuts": {
       "title": "Keyboard shortcuts",

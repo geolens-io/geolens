@@ -19,7 +19,9 @@ interface SortableStackRowProps {
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
-  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
+  /** fix(#759): shared aria-live announcer for the keyboard reorder mode. */
+  onAnnounce?: (text: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
   parentGroupId?: string | null;
   onAddToGroup?: (layerId: string, groupId: string) => void;
@@ -58,6 +60,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   onPasteStyle,
   canPasteStyle,
   onKeyboardReorder,
+  onAnnounce,
   existingFolderGroups,
   parentGroupId,
   onAddToGroup,
@@ -112,6 +115,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         onPasteStyle={onPasteStyle}
         canPasteStyle={canPasteStyle}
         onKeyboardReorder={onKeyboardReorder}
+        onAnnounce={onAnnounce}
         existingFolderGroups={existingFolderGroups}
         parentGroupId={parentGroupId}
         onAddToGroup={onAddToGroup}
