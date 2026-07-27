@@ -148,6 +148,58 @@ describe('useBuilderLayers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  it('handleMove stops a grouped child at its folder edge (codex #794)', () => {
+    const groupLayer = {
+      ...makeMockLayer({ id: 'group-1', sort_order: 0 }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const child = {
+      ...makeMockLayer({ id: 'child-1', sort_order: 1 }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+    const loose = makeMockLayer({ id: 'loose-1', sort_order: 2 });
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, child, loose]));
+
+    let moved = true;
+    act(() => {
+      moved = result.current.handleMoveDown('child-1');
+    });
+
+    // The folder box lists only its own children — 'loose-1' is not a visible
+    // sibling, and swapping with it would move nothing the user can see.
+    expect(moved).toBe(false);
+    expect(result.current.localLayers.map((l) => l.id)).toEqual([
+      'group-1',
+      'child-1',
+      'loose-1',
+    ]);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('handleMove swaps same-container siblings across an interleaved child (codex #794)', () => {
+    const looseA = makeMockLayer({ id: 'loose-a', sort_order: 0 });
+    const child = {
+      ...makeMockLayer({ id: 'child-1', sort_order: 1 }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+    const looseB = makeMockLayer({ id: 'loose-b', sort_order: 2 });
+    const { result } = renderBuilderLayers(makeMapData([looseA, child, looseB]));
+
+    let moved = false;
+    act(() => {
+      moved = result.current.handleMoveDown('loose-a');
+    });
+
+    // Top level renders [loose-a, loose-b]; the move swaps exactly those two
+    // and leaves the grouped child's own container order untouched.
+    expect(moved).toBe(true);
+    expect(result.current.localLayers.map((l) => l.id)).toEqual([
+      'loose-b',
+      'child-1',
+      'loose-a',
+    ]);
+  });
+
   it('handleFilterChange updates filter in local state and marks dirty', () => {
     const layer = makeMockLayer();
     const mapData = makeMapData([layer]);

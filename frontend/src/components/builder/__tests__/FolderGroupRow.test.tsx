@@ -90,6 +90,25 @@ describe('FolderGroupRow', () => {
     expect(dndKeyDown).toHaveBeenCalledTimes(1);
   });
 
+  it('a key claimed by the keyboard activator does not also trigger the row (codex #794)', () => {
+    const props = defaultProps({ onCmdClick: vi.fn() });
+    props.dragHandleProps.listeners = {
+      // The real KeyboardSensor activator preventDefaults the start key.
+      onKeyDown: vi.fn((e: React.KeyboardEvent) => e.preventDefault()),
+    } as unknown as DraggableSyntheticListeners;
+    render(<FolderGroupRow {...props} />);
+
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: 'Drag to reorder My Group' }),
+      { key: ' ' },
+    );
+    // Starting a keyboard drag must not simultaneously toggle the row's
+    // multi-selection (Space) or selection (Enter) — the row handlers don't
+    // check defaultPrevented, so the grip stops the claimed key's bubble.
+    expect(props.onCmdClick).not.toHaveBeenCalled();
+    expect(props.onSelectGroup).not.toHaveBeenCalled();
+  });
+
   it('Test 1: Renders the ▸ glyph in the type-icon cell using the folder-group token', () => {
     render(<FolderGroupRow {...defaultProps()} />);
 

@@ -124,10 +124,17 @@ export function DragGripButton({
       // custom handler, were left pointer-only. Compose instead: the row's
       // handler runs first, and the sensor only sees keys the row didn't
       // claim (StackRow's fallback mode preventDefaults the keys it owns).
+      // codex(#794 round 3): a CLAIMED key must also stop bubbling — both the
+      // sensor's activator and the custom handlers preventDefault when they
+      // take a key, and the enclosing rows (folder multi-select, basemap
+      // select) handle the same Space/Enter without checking defaultPrevented,
+      // so a keyboard drag would simultaneously fire a conflicting row action.
       onKeyDown={(e) => {
         onKeyDown?.(e);
-        if (e.defaultPrevented || listenersSuppressed) return;
-        dragHandleProps.listeners?.onKeyDown?.(e);
+        if (!e.defaultPrevented && !listenersSuppressed) {
+          dragHandleProps.listeners?.onKeyDown?.(e);
+        }
+        if (e.defaultPrevented) e.stopPropagation();
       }}
       onBlur={onBlur}
     >
