@@ -584,8 +584,16 @@ export function useBuilderSave(state: SaveState) {
     latestStateRef.current = state;
   });
 
-  function editedDuringSave(sent: SaveState): boolean {
+  function editedDuringSave(
+    sent: SaveState,
+    sentPluginSet: ReadonlySet<string>,
+  ): boolean {
     const latest = latestStateRef.current;
+    // codex(#792): the plugins payload reads usePluginStore directly, not
+    // SaveState, so a mid-save plugin toggle changes none of the fields
+    // below — compare the store's Set identity too (every toggle produces
+    // a new Set).
+    if (usePluginStore.getState().activePlugins !== sentPluginSet) return true;
     return SAVE_SNAPSHOT_FIELDS.some((field) => sent[field] !== latest[field]);
   }
 
@@ -620,6 +628,9 @@ export function useBuilderSave(state: SaveState) {
     } = state;
     if (!id) return;
     setLastSaveFailed(false);
+    // codex(#792): snapshot the plugin set the payload below will serialize,
+    // so the post-await comparison can tell a mid-save plugin toggle apart.
+    const sentPluginSet = usePluginStore.getState().activePlugins;
 
     // Block save if any layer's popup expression references unknown columns.
     // Server-side validation is shape-only (per CONTEXT.md / RESEARCH §4),
@@ -707,7 +718,7 @@ export function useBuilderSave(state: SaveState) {
             // fix(#756): the baseline above is the SENT snapshot; only clear
             // the dirty flag when nothing was edited during the await, so a
             // mid-save edit stays diffable and guarded.
-            if (!editedDuringSave(state)) {
+            if (!editedDuringSave(state, sentPluginSet)) {
               state.setHasUnsavedChanges(false);
             }
             if (map && id) captureThumbnail(map, id, queryClient, localLayers);
@@ -723,7 +734,7 @@ export function useBuilderSave(state: SaveState) {
       // dirty flag when nothing was edited during the network await —
       // otherwise the baseline effect would absorb the mid-save edit and the
       // query-invalidation resync would overwrite it on screen.
-      if (!editedDuringSave(state)) {
+      if (!editedDuringSave(state, sentPluginSet)) {
         state.setHasUnsavedChanges(false);
       }
 

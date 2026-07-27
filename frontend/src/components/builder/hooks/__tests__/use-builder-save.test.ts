@@ -482,6 +482,38 @@ describe('useBuilderSave', () => {
     expect(setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
   });
 
+  it('codex(#792): keeps the dirty flag when a plugin toggles while the save is in flight', async () => {
+    let resolvePatch!: (v: unknown) => void;
+    mockPatchMapLayersMutateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePatch = resolve; }),
+    );
+    const setHasUnsavedChanges = vi.fn();
+    const state = makeSaveState({
+      localLayers: [makeLayer()],
+      hasUnsavedChanges: true,
+      setHasUnsavedChanges,
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.handleSave();
+    });
+
+    // The plugins payload reads usePluginStore directly, not SaveState — a
+    // mid-save toggle must keep the map dirty or the toggle never persists.
+    act(() => {
+      usePluginStore.getState().toggle('legend');
+    });
+
+    await act(async () => {
+      resolvePatch({});
+      await savePromise;
+    });
+
+    expect(setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
+  });
+
   it('fix(#756): still clears the dirty flag when nothing changed during the save', async () => {
     const setHasUnsavedChanges = vi.fn();
     const state = makeSaveState({
