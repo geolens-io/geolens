@@ -10,7 +10,7 @@ FROM python:3.14.6-slim AS backend-builder
 
 # uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
 # Aligned uv installer pin across builder + runtime stages.
-COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -120,7 +120,7 @@ FROM python:3.14.6-slim AS backend-base
 
 # uv kept for `uv run --no-dev` launch pattern (entrypoints + CMD).
 # Aligned uv installer pin across builder + runtime stages.
-COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 # Runtime apt deps — clean install on a fresh layer (no apt cache from builder).
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
