@@ -478,6 +478,23 @@ describe('AnalysisPanel', () => {
     expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
   });
 
+  it('clip action buttons keep their own accessible names (#754)', async () => {
+    // The section label used htmlFor pointed at the state-dependent action
+    // buttons, and a <label for> aimed at a button OVERRIDES the button's own
+    // text — Cancel and Clear were both announced as "Draw clip area".
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Clip' }));
+
+    const label = screen.getByText('Draw clip area', { selector: 'label' });
+    expect(label).not.toHaveAttribute('for');
+    // The draw button is named by its own text, not by the label element.
+    const drawButton = screen.getByRole('button', { name: 'Draw clip area' });
+    expect(drawButton).not.toHaveAttribute('id');
+  });
+
   it('converts the buffer distance from the selected unit to meters (#686)', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer]);
@@ -775,6 +792,23 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       await new Promise((r) => setTimeout(r, 0));
       // The superseded response must not resurrect the run state either.
       expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
+    });
+
+    it('renders the job status in a persistent role="status" region (#784)', async () => {
+      mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+      renderPanel([datasetLayer]);
+
+      // Mounted EMPTY with the form — a live region that mounts already
+      // populated is not announced, so the first message must arrive as a
+      // mutation inside an existing region.
+      const region = screen.getByRole('status');
+      expect(region).toBeEmptyDOMElement();
+
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Walkshed' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() => expect(region).toHaveTextContent('Dataset created'));
     });
 
     it('clears the typed name once the run completes (#793 review)', async () => {

@@ -1079,6 +1079,7 @@
     "dragPosition": "Position actuelle : {{n}} sur {{total}}",
     "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
     "dragCancelled": "Dépôt annulé.",
+    "dragInstructions": "Pour réorganiser une couche, appuyez sur Entrée ou Espace sur sa poignée de déplacement, utilisez les flèches pour la déplacer, puis appuyez sur Entrée, Espace ou Échap pour terminer.",
     "reorderMovedUp": "{{name}} déplacé vers le haut.",
     "reorderMovedDown": "{{name}} déplacé vers le bas.",
     "reorderDropped": "{{name}} déposé.",
@@ -1194,6 +1195,7 @@
   },
   "rail": {
     "aiDisabled": "IA désactivée par l'administrateur",
+    "toolsLabel": "Outils de l'éditeur",
     "aiUnavailable": "IA indisponible",
     "aiUnavailableTitle": "L'IA est indisponible",
     "aiUnavailableDescription": "Un administrateur doit activer un fournisseur d'IA avant d'utiliser Demander à l'IA dans ce builder.",
@@ -1254,6 +1256,8 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Retour au groupe de fond de carte",
+    "breadcrumb": "Fond de carte · {{name}} ›",
+    "breadcrumbUntitled": "Sans titre",
     "casingColor": "Couleur du contour",
     "casingLabel": "CONTOUR",
     "casingWidth": "Largeur",

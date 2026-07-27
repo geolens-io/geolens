@@ -13,7 +13,14 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
+import type {
+  Active,
+  Announcements,
+  DragEndEvent,
+  DragOverEvent,
+  DragStartEvent,
+  ScreenReaderInstructions,
+} from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 // PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
@@ -1151,6 +1158,61 @@ export function MapBuilderPage() {
     announce(t('a11y.dragPosition', { n: index + 1, total: layers.localLayers.length }));
   }, [layers.localLayers, announce, t]);
 
+  // fix(#785): dnd-kit's DEFAULT announcements are hardcoded English built
+  // from the draggable id — every drag emitted "Picked up draggable item
+  // <uuid>…" into dnd-kit's own live region, in English regardless of locale,
+  // competing with the app's localized announce() region. Announce translated,
+  // human layer names instead. Catalog drags return undefined: their pickup /
+  // position / drop already flow through announce() above (the drop
+  // deliberately fires only AFTER the add-dataset mutation resolves — see
+  // handleDragEnd — which dnd-kit's synchronous onDragEnd cannot honor).
+  const dndAccessibility = useMemo(() => {
+    const isCatalogDrag = (active: Active) =>
+      (active.data.current as { source?: string } | undefined)?.source === 'catalog';
+    const itemName = (active: Active): string => {
+      const data = active.data.current as { name?: string } | undefined;
+      if (data?.name) return data.name;
+      if (basemapGroup && String(active.id) === basemapGroup.id) {
+        return basemapGroup.presetName;
+      }
+      const layer = layers.localLayers.find((l) => l.id === String(active.id));
+      return layer ? (layer.display_name ?? layer.dataset_name) : String(active.id);
+    };
+    const overPosition = (over: { id: string | number } | null): number | null => {
+      if (!over) return null;
+      const index = layers.localLayers.findIndex((l) => l.id === String(over.id));
+      return index >= 0 ? index + 1 : null;
+    };
+    const announcements: Announcements = {
+      onDragStart({ active }) {
+        if (isCatalogDrag(active)) return undefined;
+        return t('a11y.dragPickup', { name: itemName(active) });
+      },
+      onDragOver({ active, over }) {
+        if (isCatalogDrag(active)) return undefined;
+        const n = overPosition(over);
+        if (n == null) return undefined;
+        return t('a11y.dragPosition', { n, total: layers.localLayers.length });
+      },
+      onDragEnd({ active, over }) {
+        if (isCatalogDrag(active)) return undefined;
+        if (!over) return t('a11y.dragCancelled');
+        return t('a11y.dragDropped', { name: itemName(active), n: overPosition(over) ?? 1 });
+      },
+      onDragCancel({ active }) {
+        if (isCatalogDrag(active)) return undefined;
+        return t('a11y.dragCancelled');
+      },
+    };
+    const screenReaderInstructions: ScreenReaderInstructions = {
+      draggable: t('a11y.dragInstructions', {
+        defaultValue:
+          'To reorder a layer, press Enter or Space on its drag handle, use the arrow keys to move it, then press Enter, Space, or Escape to finish.',
+      }),
+    };
+    return { announcements, screenReaderInstructions };
+  }, [layers.localLayers, basemapGroup, t]);
+
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
@@ -1555,6 +1617,7 @@ export function MapBuilderPage() {
           at MapBuilderPage level so identity is stable across renders. */}
       <DndContext
         sensors={dndSensors}
+        accessibility={dndAccessibility}
         collisionDetection={(args) =>
           pointerWithin(args).length > 0 ? pointerWithin(args) : closestCenter(args)
         }

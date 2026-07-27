@@ -139,9 +139,38 @@ describe('MapTitleBar', () => {
 
     // SP-06: testid now lives on the Save button itself
     const saveBtn = screen.getByTestId('builder-save-status');
-    expect(saveBtn).toHaveTextContent('Save failed');
     expect(saveBtn).toHaveAttribute('data-save-status', 'failed');
-    expect(screen.getByRole('button', { name: 'Retry save' })).toHaveTextContent('Retry');
+    // fix(#782): the status text moved OUT of the button (its aria-label
+    // overrode the old inner sr-only span) into the adjacent status region;
+    // the aria-label folds the status in ("Retry save, Save failed").
+    expect(screen.getByRole('status')).toHaveTextContent('Save failed');
+    expect(screen.getByRole('button', { name: /^Retry save/ })).toHaveTextContent('Retry');
+  });
+
+  // fix(#782): the button's aria-label used to override the sr-only status
+  // span inside it (aria-label wins over element contents in the
+  // accessible-name computation), so the save state never reached AT.
+  it('folds the save status into the Save button name and mirrors it in a role="status" region', () => {
+    const { rerender } = render(
+      <MapTitleBar {...defaultProps({ hasUnsavedChanges: true })} />,
+    );
+
+    // Accessible name carries both the action and the status.
+    expect(
+      screen.getByRole('button', { name: /^Save \(.*\), Unsaved changes$/ }),
+    ).toBeInTheDocument();
+
+    // Persistent live region announces status CHANGES without focus.
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('Unsaved changes');
+
+    rerender(
+      <MapTitleBar {...defaultProps({ hasUnsavedChanges: true, isSaving: true })} />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Saving...');
+
+    rerender(<MapTitleBar {...defaultProps({ hasUnsavedChanges: false })} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Saved');
   });
 
   it('clicking the save button fires onSave', () => {

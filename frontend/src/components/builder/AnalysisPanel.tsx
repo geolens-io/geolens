@@ -978,9 +978,11 @@ export function AnalysisPanel({
 
       {operation === 'clip' && maskLayer == null && (
         <div className="space-y-1.5">
-          {/* Exactly one of the three buttons below renders at a time, so
-              they can share the id this label points at. */}
-          <Label className="text-xs" htmlFor="analysis-clip-action">
+          {/* fix(#754): no htmlFor here — a <label for> pointed at a button
+              OVERRIDES the button's own text in the accessible-name
+              computation, so Cancel and Clear were both announced as "Draw
+              clip area". The buttons below are self-labeling. */}
+          <Label className="text-xs">
             {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
           </Label>
           {isDrawing ? (
@@ -991,7 +993,6 @@ export function AnalysisPanel({
                 })}
               </p>
               <Button
-                id="analysis-clip-action"
                 variant="outline"
                 size="sm"
                 onClick={stopDrawing}
@@ -1005,7 +1006,6 @@ export function AnalysisPanel({
                 {t('analysisTools.maskSet', { defaultValue: 'Clip area set' })}
               </span>
               <Button
-                id="analysis-clip-action"
                 variant="ghost"
                 size="sm"
                 onClick={() => {
@@ -1022,7 +1022,6 @@ export function AnalysisPanel({
           ) : (
             <div className="space-y-1.5">
               <Button
-                id="analysis-clip-action"
                 variant="outline"
                 size="sm"
                 onClick={startDrawing}
@@ -1152,46 +1151,49 @@ export function AnalysisPanel({
                 ? t('analysisTools.saving', { defaultValue: 'Creating…' })
                 : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
             </Button>
-            {/* fix(#760): the one-job-per-user cap disables the button — say
-                so instead of leaving a disabled primary control unexplained
-                (covers a job started before a reload or from another panel). */}
-            {analysisJobRunning && !job && (
-              <p className="text-xs text-muted-foreground" role="status">
-                {t('analysisTools.anotherJobRunning', {
-                  defaultValue:
-                    'Another analysis is still running — wait for it to finish.',
-                })}
-              </p>
-            )}
-            {job && (
-              <p className="text-xs text-muted-foreground" role="status">
-                {/* ux(#698): reuse the watcher's jobFailedDetail template
-                    rather than concatenating the raw server error onto a
-                    translated prefix, which left half the sentence untranslated. */}
-                {job.status === 'failed'
-                  ? job.error_message
-                    ? t('analysisTools.jobFailedDetail', {
-                        defaultValue: 'Analysis job failed: {{message}}',
-                        message: job.error_message,
-                      })
-                    : t('analysisTools.jobFailed', {
-                        defaultValue: 'Analysis job failed',
-                      })
-                  : job.status === 'complete'
-                    ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                    : job.current_step === 'registering'
-                      ? t('analysisTools.jobSaving', {
-                          defaultValue: 'Saving the dataset…',
+            {/* fix(#784): one PERSISTENT status region, mounted empty with the
+                form — a live region that mounts already populated is not
+                announced, so the previous conditionally-rendered <p>s kept the
+                first message ("Creating dataset…") silent for AT. Every
+                message now arrives as a mutation inside an existing region.
+                fix(#760): the one-job-per-user cap disables the button — the
+                "another analysis" branch says so instead of leaving a disabled
+                primary control unexplained (covers a job started before a
+                reload or from another panel). */}
+            <p className="text-xs text-muted-foreground" role="status">
+              {analysisJobRunning && !job
+                ? t('analysisTools.anotherJobRunning', {
+                    defaultValue:
+                      'Another analysis is still running — wait for it to finish.',
+                  })
+                : job
+                  ? // ux(#698): reuse the watcher's jobFailedDetail template
+                    // rather than concatenating the raw server error onto a
+                    // translated prefix, which left half the sentence untranslated.
+                    job.status === 'failed'
+                    ? job.error_message
+                      ? t('analysisTools.jobFailedDetail', {
+                          defaultValue: 'Analysis job failed: {{message}}',
+                          message: job.error_message,
                         })
-                      : job.current_step === 'queued'
-                        ? t('analysisTools.jobQueued', {
-                            defaultValue: 'Queued — waiting for a worker…',
+                      : t('analysisTools.jobFailed', {
+                          defaultValue: 'Analysis job failed',
+                        })
+                    : job.status === 'complete'
+                      ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
+                      : job.current_step === 'registering'
+                        ? t('analysisTools.jobSaving', {
+                            defaultValue: 'Saving the dataset…',
                           })
-                        : t('analysisTools.jobRunning', {
-                            defaultValue: 'Creating dataset…',
-                          })}
-              </p>
-            )}
+                        : job.current_step === 'queued'
+                          ? t('analysisTools.jobQueued', {
+                              defaultValue: 'Queued — waiting for a worker…',
+                            })
+                          : t('analysisTools.jobRunning', {
+                              defaultValue: 'Creating dataset…',
+                            })
+                  : null}
+            </p>
             {job?.status === 'complete' && !!job.dataset_id && layerActions && (
               <Button
                 variant="outline"
