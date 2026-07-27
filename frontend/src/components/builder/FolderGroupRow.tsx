@@ -128,6 +128,15 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           e.preventDefault();
           onCmdClick?.(groupId); // Space = Cmd-click (toggles multi-selection)
         }
+        // fix(#788): Escape with the delete confirm pending dismisses the
+        // confirm (consumed) instead of falling through to ancestor Escape
+        // handlers. The confirm handles its own Escape when focus is inside it;
+        // this covers focus resting on the row.
+        if (e.key === 'Escape' && confirmingDelete) {
+          e.preventDefault();
+          e.stopPropagation();
+          setConfirmingDelete(false);
+        }
       }}
     >
       {/* Row grid — builder-audit #338 STACK-04: shared grid template + state classes. */}
@@ -319,7 +328,12 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             onDeleteGroup(groupId);
             setConfirmingDelete(false);
           }}
-          onCancel={() => setConfirmingDelete(false)}
+          onCancel={() => {
+            setConfirmingDelete(false);
+            // fix(#788): the confirm owned focus (autofocused Cancel button), so
+            // dismissing it must hand focus back to the row instead of <body>.
+            document.getElementById(`stack-row-${groupId}`)?.focus();
+          }}
         />
       )}
     </div>

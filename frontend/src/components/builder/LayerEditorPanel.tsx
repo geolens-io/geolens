@@ -6,7 +6,7 @@ import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
 import { PopupConfigEditor } from './PopupConfigEditor';
 import { RasterLayerControls } from './RasterLayerControls';
-import { Button } from '@/components/ui/button';
+import { InlineDeleteConfirm } from './row-chrome';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { getRenderAsOptions, getCurrentRenderAs, hasCustomizedRenderAsStyle, type RenderAsId } from './renderAs';
@@ -293,11 +293,16 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     if (pendingRenderAs) {
       handlers.onRenderModeChange?.(layer.id, pendingRenderAs);
       setPendingRenderAs(null);
+      // fix(#788): the confirm held focus (autofocused button); hand it to the
+      // pill that just became active instead of dropping to <body>.
+      document.getElementById(`renderas-${layer.id}-${pendingRenderAs}`)?.focus();
     }
   }
 
   function cancelRenderAsSwitch() {
     setPendingRenderAs(null);
+    // fix(#788): return focus to the still-active pill instead of <body>.
+    document.getElementById(`renderas-${layer.id}-${currentRenderAs}`)?.focus();
   }
 
   return (
@@ -322,7 +327,15 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               onClick={onBreadcrumbClick}
               className="block text-mini leading-tight tracking-[0.04em] text-muted-foreground hover:text-foreground hover:underline"
             >
-              Basemap · {breadcrumbPresetName ?? 'Untitled'} ›
+              {/* fix(#788 item 1): translated — the visible text was a
+                  hardcoded English literal while the aria-label above is
+                  translated, so the two disagreed in non-English locales. */}
+              {t('basemapSublayer.breadcrumb', {
+                defaultValue: 'Basemap · {{name}} ›',
+                name:
+                  breadcrumbPresetName ??
+                  t('basemapSublayer.breadcrumbUntitled', { defaultValue: 'Untitled' }),
+              })}
             </button>
           </div>
         )}
@@ -443,9 +456,22 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 >
                   {/* Render-as pill row — destructive switch with inline confirm */}
                   {renderAsOptions.length > 0 && (
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- keydown is an Escape-cancel guard for the pending confirm, not an interaction affordance
                     <section
                       aria-labelledby={`section-renderas-${layer.id}`}
                       className="rounded-md border bg-muted/25 p-3"
+                      // fix(#788): Escape with the render-as confirm pending
+                      // cancels the pending switch (consumed) — previously it
+                      // bubbled to the editor <aside> and closed the whole
+                      // panel with the confirm still open. Section-level so it
+                      // also covers focus resting on the pills.
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape' && pendingRenderAs) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          cancelRenderAsSwitch();
+                        }
+                      }}
                     >
                       <p
                         id={`section-renderas-${layer.id}`}
@@ -459,6 +485,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                           return (
                             <button
                               key={option.id}
+                              // fix(#788): stable id so confirm/cancel can
+                              // restore keyboard focus to the pill.
+                              id={`renderas-${layer.id}-${option.id}`}
                               type="button"
                               data-active={isActive ? 'true' : 'false'}
                               onClick={() => handleRenderAsClick(option.id)}
@@ -475,42 +504,22 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                         })}
                       </div>
                       {pendingRenderAs && (
-                        <div
-                          role="alertdialog"
-                          aria-labelledby={`confirm-render-as-${layer.id}`}
-                          className="mt-3 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2"
-                        >
-                          <p
-                            id={`confirm-render-as-${layer.id}`}
-                            className="text-xs text-foreground"
-                          >
-                            {t('layerEditor.confirmRenderAs.message', {
-                              defaultValue: 'Compatible style is carried over; only mode-specific settings will reset. Continue?',
-                            })}
-                          </p>
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="flex-1"
-                              onClick={confirmRenderAsSwitch}
-                            >
-                              {t('layerEditor.confirmRenderAs.confirm', { defaultValue: 'Switch mode' })}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="flex-1"
-                              onClick={cancelRenderAsSwitch}
-                              // eslint-disable-next-line jsx-a11y/no-autofocus -- safe action so Enter dismisses, not destroys
-                              autoFocus
-                            >
-                              {t('layerEditor.confirmRenderAs.cancel', { defaultValue: 'Keep style' })}
-                            </Button>
-                          </div>
-                        </div>
+                        // ux(#777): shared builder-wide inline confirm — safe
+                        // action left, destructive right, cancel autofocused.
+                        // fix(#788): the shared component supplies the
+                        // group+alert semantics and Escape-to-cancel; onCancel
+                        // (cancelRenderAsSwitch) restores focus to the pill.
+                        <InlineDeleteConfirm
+                          confirmId={`confirm-render-as-${layer.id}`}
+                          message={t('layerEditor.confirmRenderAs.message', {
+                            defaultValue: 'Compatible style is carried over; only mode-specific settings will reset. Continue?',
+                          })}
+                          confirmLabel={t('layerEditor.confirmRenderAs.confirm', { defaultValue: 'Switch mode' })}
+                          cancelLabel={t('layerEditor.confirmRenderAs.cancel', { defaultValue: 'Keep style' })}
+                          onConfirm={confirmRenderAsSwitch}
+                          onCancel={cancelRenderAsSwitch}
+                          className="mx-0 mt-3 mb-0"
+                        />
                       )}
                     </section>
                   )}

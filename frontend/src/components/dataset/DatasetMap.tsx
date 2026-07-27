@@ -38,6 +38,7 @@ import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
 import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { logUnhandledMapError } from '@/lib/map-error-log';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -813,6 +814,10 @@ export const DatasetMap = memo(function DatasetMap({
         interactive
         scrollZoom={isFullscreen}
         onLoad={handleLoad}
+        // fix(#755): claim the wrapper's `error` fallback so a handled
+        // tile-auth 401/403 (#621 re-mint in handleLoad's error handler)
+        // stops double-logging a red AJAXError console row.
+        onError={logUnhandledMapError}
       >
         <NavigationControl position="top-right" />
 

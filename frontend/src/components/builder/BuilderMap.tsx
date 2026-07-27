@@ -13,6 +13,7 @@ import {
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { logUnhandledMapError } from '@/lib/map-error-log';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
@@ -1347,6 +1348,10 @@ export const BuilderMap = memo(function BuilderMap({
         style={{ width: '100%', height: '100%' }}
         minZoom={1}
         onLoad={handleLoad}
+        // fix(#755): claim the wrapper's `error` fallback so a handled
+        // tile-auth 401/403 (GUARD-03 re-sign / #621 re-mint in handleLoad's
+        // error handler) stops double-logging a red AJAXError console row.
+        onError={logUnhandledMapError}
         aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       >
         {/* RESP-01 (Phase 1051): NavigationControl anchored top-left so it does not

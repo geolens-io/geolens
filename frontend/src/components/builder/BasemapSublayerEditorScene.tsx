@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
+import { InlineDeleteConfirm } from '@/components/builder/row-chrome';
 import { formatNumber } from '@/lib/format';
 
 // Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip REMAINS REMOVED.
@@ -303,38 +304,23 @@ export function BasemapSublayerEditorScene({
                 {t('basemapSublayer.resetAction', { defaultValue: 'Reset to default' })}
               </Button>
             ) : (
-              <div role="alertdialog" aria-labelledby="confirm-reset-title" className="space-y-2">
-                <p id="confirm-reset-title" className="text-sm text-destructive text-center">
-                  {t('basemapSublayer.resetConfirmMessage', {
-                    sublayer: sublayerName,
-                    defaultValue: 'This will remove all custom appearance for {{sublayer}}.',
-                  })}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => {
-                      onResetSublayer();
-                      setConfirmingReset(false);
-                    }}
-                  >
-                    {t('basemapSublayer.resetConfirmAction', { defaultValue: 'Reset' })}
-                  </Button>
-                  {/* autoFocus on the safe choice — "Keep customization" */}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="flex-1"
-                    // eslint-disable-next-line jsx-a11y/no-autofocus
-                    autoFocus
-                    onClick={() => setConfirmingReset(false)}
-                  >
-                    {t('basemapSublayer.resetConfirmCancel', { defaultValue: 'Keep customization' })}
-                  </Button>
-                </div>
-              </div>
+              // ux(#777): shared builder-wide inline confirm — safe action left,
+              // destructive right, cancel autofocused.
+              <InlineDeleteConfirm
+                confirmId="confirm-reset-title"
+                message={t('basemapSublayer.resetConfirmMessage', {
+                  sublayer: sublayerName,
+                  defaultValue: 'This will remove all custom appearance for {{sublayer}}.',
+                })}
+                confirmLabel={t('basemapSublayer.resetConfirmAction', { defaultValue: 'Reset' })}
+                cancelLabel={t('basemapSublayer.resetConfirmCancel', { defaultValue: 'Keep customization' })}
+                onConfirm={() => {
+                  onResetSublayer();
+                  setConfirmingReset(false);
+                }}
+                onCancel={() => setConfirmingReset(false)}
+                className="mx-0 mb-0"
+              />
             )}
           </div>
         </CollapsibleContent>

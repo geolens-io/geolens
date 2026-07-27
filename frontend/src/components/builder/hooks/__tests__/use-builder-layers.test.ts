@@ -231,6 +231,67 @@ describe('useBuilderLayers', () => {
     ]);
   });
 
+  // fix(#768, closed by #794): the stack renders children under their header by
+  // parent_group_id while reorderDataLayers feeds the flat array to MapLibre
+  // moveLayer — if a keyboard move ever interleaves a foreign row between two
+  // group children, stack order and draw order silently desync (and the
+  // divergence survives save + reload). Property: after ANY sequence of
+  // keyboard moves, each folder group's children occupy a contiguous run.
+  it('keyboard moves keep every folder group\'s children a contiguous run (#768)', () => {
+    const asGroup = (id: string, sort: number) => ({
+      ...makeMockLayer({ id, sort_order: sort }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse);
+    const asChild = (id: string, sort: number, group: string) => ({
+      ...makeMockLayer({ id, sort_order: sort }),
+      parent_group_id: group,
+    } as unknown as MapLayerResponse);
+
+    const stack = [
+      asGroup('group-1', 0),
+      asChild('child-a', 1, 'group-1'),
+      asChild('child-b', 2, 'group-1'),
+      makeMockLayer({ id: 'loose-1', sort_order: 3 }),
+      asGroup('group-2', 4),
+      asChild('child-c', 5, 'group-2'),
+      asChild('child-d', 6, 'group-2'),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(stack));
+
+    const groupRunIsContiguous = (layers: MapLayerResponse[], groupId: string) => {
+      const indices = layers
+        .map((l, i) => ((l as { parent_group_id?: string | null }).parent_group_id === groupId ? i : -1))
+        .filter((i) => i >= 0);
+      return indices.every((idx, k) => k === 0 || idx === indices[k - 1] + 1);
+    };
+
+    // Exhaustive cumulative sweep: arrow every row in both directions, twice,
+    // so moves compound on already-moved state (boundary refusals included).
+    for (let pass = 0; pass < 2; pass++) {
+      for (const { id } of stack) {
+        for (const move of [result.current.handleMoveUp, result.current.handleMoveDown]) {
+          act(() => {
+            move(id);
+          });
+          const order = result.current.localLayers.map((l) => l.id).join(', ');
+          expect(
+            groupRunIsContiguous(result.current.localLayers, 'group-1'),
+            `group-1 children fragmented after moving ${id}: [${order}]`,
+          ).toBe(true);
+          expect(
+            groupRunIsContiguous(result.current.localLayers, 'group-2'),
+            `group-2 children fragmented after moving ${id}: [${order}]`,
+          ).toBe(true);
+        }
+      }
+    }
+
+    // The sweep must also never lose or duplicate a row.
+    expect([...result.current.localLayers.map((l) => l.id)].sort()).toEqual(
+      stack.map((l) => l.id).sort(),
+    );
+  });
+
   it('handleFilterChange updates filter in local state and marks dirty', () => {
     const layer = makeMockLayer();
     const mapData = makeMapData([layer]);

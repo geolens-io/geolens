@@ -115,6 +115,23 @@ export function getPersistedFolderGroup(layer: MapLayerResponse): PersistedFolde
   };
 }
 
+// fix(#767): group identity is persisted only on children (the builder.folderGroup*
+// markers written by prepareLayersForPersistence below), so a group row with no
+// children has no carrier and cannot survive save+reload — it kept rendering,
+// accepting drops, and dirtying the map, then silently vanished (with any rename)
+// on the next hydrate. Prune the row the moment it empties so the UI and the
+// persisted state agree. Callers renumber sort_order; returns the input array
+// unchanged (same identity) when there is nothing to prune.
+export function pruneEmptyFolderGroups(layers: MapLayerResponse[]): MapLayerResponse[] {
+  const parentIds = new Set<string>();
+  for (const layer of layers) {
+    const parentId = getParentGroupId(layer);
+    if (parentId) parentIds.add(parentId);
+  }
+  const pruned = layers.filter((layer) => !isFolderGroupLayer(layer) || parentIds.has(layer.id));
+  return pruned.length === layers.length ? layers : pruned;
+}
+
 export function hydrateFolderGroupLayers(
   layers: MapLayerResponse[],
 ): { layers: MapLayerResponse[]; groupMeta: Record<string, FolderGroupMeta> } {

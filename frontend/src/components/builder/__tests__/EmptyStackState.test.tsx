@@ -90,7 +90,9 @@ describe('EmptyStackState', () => {
     render(<EmptyStackState {...defaultProps()} />);
 
     expect(screen.getByText('Add your first layer')).toBeInTheDocument();
-    expect(screen.getByText('Search the catalog or pick a starter dataset below.')).toBeInTheDocument();
+    // fix(#780): the body copy must not point at a starter list stock installs
+    // (SUGGESTED_DATASETS=[]) never render.
+    expect(screen.getByText('Search the catalog to find datasets for your map.')).toBeInTheDocument();
   });
 
   it('Test 2: renders inline search input with correct role and placeholder', async () => {

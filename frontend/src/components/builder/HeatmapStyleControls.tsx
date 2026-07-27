@@ -154,11 +154,16 @@ function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string 
 
 /** Shared slider row component used by heatmap controls and style editor. */
 export function SliderRow({ label, value, min, max, step, display, format, onChange }: SliderRowProps) {
+  const displayValue = display ?? formatValue(value, format);
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground w-20">{label}</span>
       <Slider
         aria-label={label}
+        // fix(#788 item 3): announce the formatted value ("80%"), matching
+        // RasterSliderRow and the DEM/basemap scenes — without it AT read the
+        // raw number ("0.8") while the screen showed the formatted one.
+        aria-valuetext={displayValue}
         value={[value]}
         min={min}
         max={max}
@@ -167,7 +172,7 @@ export function SliderRow({ label, value, min, max, step, display, format, onCha
         className="flex-1"
       />
       <span className="text-xs text-muted-foreground w-10 text-end">
-        {display ?? formatValue(value, format)}
+        {displayValue}
       </span>
     </div>
   );

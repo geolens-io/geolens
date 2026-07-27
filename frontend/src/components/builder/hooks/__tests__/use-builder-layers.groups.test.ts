@@ -334,6 +334,74 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  // fix(#767): a group whose last child leaves has no persisted carrier — it
+  // rendered, accepted drops, and dirtied the map, then silently vanished
+  // (with any rename) on save+reload. The row is pruned the moment it empties.
+  it('handleMoveLayerOutOfGroup prunes the group row when its last child moves out (fix #767)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = { ...makeMockLayer({ id: 'child-1' }), parent_group_id: 'group-1' } as unknown as MapLayerResponse;
+    const looseLayer = makeMockLayer({ id: 'loose-1', sort_order: 2 });
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer, looseLayer]));
+
+    act(() => {
+      result.current.handleMoveLayerOutOfGroup('child-1');
+    });
+
+    // The emptied group row is gone; the moved-out child takes its position.
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['child-1', 'loose-1']);
+    expect(result.current.localLayers.map((l) => l.sort_order)).toEqual([0, 1]);
+  });
+
+  it('handleMoveLayerOutOfGroup keeps the group row while other children remain', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childA = { ...makeMockLayer({ id: 'child-a' }), parent_group_id: 'group-1' } as unknown as MapLayerResponse;
+    const childB = { ...makeMockLayer({ id: 'child-b', sort_order: 2 }), parent_group_id: 'group-1' } as unknown as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childA, childB]));
+
+    act(() => {
+      result.current.handleMoveLayerOutOfGroup('child-a');
+    });
+
+    expect(result.current.localLayers.map((l) => l.id)).toContain('group-1');
+    expect(result.current.localLayers.map((l) => l.id)).toContain('child-b');
+  });
+
+  // fix(#767): the drag-out path — MapBuilderPage's handleDragEnd dispatches a
+  // reorder_layers action with the child's membership cleared; handleReorder
+  // must prune the group row the drag emptied.
+  it('handleReorder prunes a group row emptied by a drag-out (fix #767)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = { ...makeMockLayer({ id: 'child-1', sort_order: 1 }), parent_group_id: 'group-1' } as unknown as MapLayerResponse;
+    const looseLayer = makeMockLayer({ id: 'loose-1', sort_order: 2 });
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer, looseLayer]));
+
+    // Simulate handleDragEnd's output: child dragged below the loose row and
+    // out of the group (parent_group_id cleared by resolveDropGroupMembership).
+    const [group, child, loose] = result.current.localLayers;
+    const draggedOut = { ...child, parent_group_id: null } as unknown as MapLayerResponse;
+
+    act(() => {
+      result.current.handleReorder([group, loose, draggedOut]);
+    });
+
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['loose-1', 'child-1']);
+  });
+
+  // fix(#767): the single-delete path — removing a group's only child prunes
+  // the group row in the same optimistic write.
+  it('handleRemove of the last group child prunes the group row (fix #767)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = { ...makeMockLayer({ id: 'child-1', sort_order: 1 }), parent_group_id: 'group-1' } as unknown as MapLayerResponse;
+    const looseLayer = makeMockLayer({ id: 'loose-1', sort_order: 2 });
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer, looseLayer]));
+
+    act(() => {
+      result.current.handleRemove('child-1');
+    });
+
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['loose-1']);
+  });
+
   // fix(#392): handleMoveLayerOutOfGroup must clear the PERSISTED
   // style_config.builder.folderGroupId too — same rationale as Test 8b above. (audit CR-01)
   it('handleMoveLayerOutOfGroup clears style_config.builder.folderGroupId from the target layer (CR-01)', () => {

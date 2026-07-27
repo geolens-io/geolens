@@ -92,7 +92,7 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.queryByRole('button', { name: /Reset to default/i })).not.toBeInTheDocument();
   });
 
-  it('Test 10: clicking Reset button triggers inline alertdialog with correct message and buttons', () => {
+  it('Test 10: clicking Reset button triggers the inline confirm with correct message and buttons', () => {
     render(
       <BasemapSublayerEditorScene {...defaultProps({ sublayerName: 'Roads' })} />,
     );
@@ -108,10 +108,11 @@ describe('BasemapSublayerEditorScene', () => {
     // Click to show confirm
     fireEvent.click(resetBtn);
 
-    // alertdialog should appear
-    const alertDialog = screen.getByRole('alertdialog');
-    expect(alertDialog).toBeInTheDocument();
-    expect(screen.getByText(/This will remove all custom appearance for Roads/)).toBeInTheDocument();
+    // fix(#788): the shared inline confirm is a role="group" (non-modal),
+    // labelled by its role="alert" message — no longer an alertdialog.
+    const confirm = screen.getByRole('group', { name: /This will remove all custom appearance for Roads/ });
+    expect(confirm).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/This will remove all custom appearance for Roads/);
 
     // Both buttons — use getAllByRole to handle any ambiguity
     const allButtons = screen.getAllByRole('button');
@@ -133,14 +134,14 @@ describe('BasemapSublayerEditorScene', () => {
     const resetBtn = screen.getByRole('button', { name: /Reset to default/i });
     fireEvent.click(resetBtn);
 
-    // Check alert dialog is shown
-    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    // Check the inline confirm is shown (fix(#788): role="group", not alertdialog)
+    expect(screen.getByRole('group', { name: /This will remove all custom appearance/ })).toBeInTheDocument();
 
     // Click "Keep customization" — cancels
     const keepBtn = screen.getByRole('button', { name: /Keep customization/i });
     fireEvent.click(keepBtn);
     expect(onResetSublayer).not.toHaveBeenCalled();
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /This will remove all custom appearance/ })).not.toBeInTheDocument();
 
     // Show confirm again, then click "Reset"
     // Re-query the "Reset to default" button after cancellation (DOM may have re-rendered)
