@@ -561,3 +561,64 @@ describe('BulkActionBar — isDeleting prop (PERF-03)', () => {
     expect((busyBtn as HTMLButtonElement)?.disabled).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// BulkActionBar — deletable count excludes group rows (fix #771)
+// ---------------------------------------------------------------------------
+
+describe('BulkActionBar — deletable count excludes group rows (fix #771)', () => {
+  function openOverflowMenu() {
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+  }
+
+  it('the delete confirmation counts only deletable rows in a mixed selection', () => {
+    // 2 data layers + 1 group row selected → the handler will delete 2 rows,
+    // so the confirm must promise 2, not 3.
+    render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b', 'g1']) })} />);
+
+    openOverflowMenu();
+    fireEvent.click(screen.getByTestId('bulk-action-delete'));
+
+    const confirmDialog = screen.getByRole('alertdialog');
+    // Mocked t() renders count-bearing keys as "<key> <count>".
+    expect(confirmDialog.textContent).toContain('bulkActions.deleteConfirmLabel 2');
+    expect(
+      screen.getByRole('button', { name: /bulkActions.deleteConfirmAction 2/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('the Delete item is disabled with a hint when only group rows are selected', () => {
+    const g2 = makeLayer({ id: 'g2', dataset_name: 'Other Group', sort_order: 5, layer_type: 'group:folder' });
+    render(
+      <BulkActionBar
+        {...makeProps({
+          selectedIds: new Set(['g1', 'g2']),
+          layers: [...allLayers, g2],
+        })}
+      />,
+    );
+
+    openOverflowMenu();
+    const deleteItem = screen.getByTestId('bulk-action-delete');
+    expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
+    // The inline hint states why (disabled menu items show no tooltip).
+    expect(deleteItem.textContent).toContain('Group rows are deleted from their row menu');
+
+    // Clicking the disabled item must NOT enter the confirmation state.
+    fireEvent.click(deleteItem);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('the deleting state announces the deletable count, not the selection size', () => {
+    // 2 data layers + 1 group row; the batch actually deleting is 2.
+    const { container } = render(
+      <BulkActionBar
+        {...makeProps({ selectedIds: new Set(['a', 'b', 'g1']) })}
+        isDeleting={true}
+      />,
+    );
+
+    const liveRegion = container.querySelector('[aria-live="polite"]');
+    expect(liveRegion?.textContent).toContain('bulkActions.deletingLayers 2');
+  });
+});

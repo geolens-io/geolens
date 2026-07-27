@@ -22,6 +22,7 @@ import {
 import {
   getParentGroupId,
   hydrateFolderGroupLayers,
+  pruneEmptyFolderGroups,
   type GroupedLayer,
 } from '@/components/builder/folder-groups';
 // STATE-02: cohesive handler clusters extracted into focused hooks. This hook
@@ -365,7 +366,11 @@ export function useBuilderLayers(
   const handleMoveDown = useCallback((layerId: string) => handleMove(layerId, 'down'), [handleMove]);
 
   const handleReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
-    const nextLayers = reorderedLayers.map((l, i) => ({ ...l, sort_order: i }));
+    // fix(#767): dragging the last child out of a folder group empties it —
+    // prune the childless group row so it does not linger in the UI only to
+    // vanish on save+reload (it has no persisted carrier without children).
+    const nextLayers = pruneEmptyFolderGroups(reorderedLayers)
+      .map((l, i) => ({ ...l, sort_order: i }));
     setLocalLayers(nextLayers);
 
     // Imperatively reorder MapLibre layers so the visual change is immediate
@@ -475,9 +480,11 @@ export function useBuilderLayers(
     // during the builder editing flow. The sidebar row then stays visible
     // until a full page reload.
     const previousLayers = layersRef.current;
+    // fix(#767): removing a group's last child prunes the now-empty group row
+    // in the same write; the error rollback below restores previousLayers, so
+    // a failed delete brings the group back with its child.
     setLocalLayers((prev) =>
-      prev
-        .filter((l) => l.id !== layerId)
+      pruneEmptyFolderGroups(prev.filter((l) => l.id !== layerId))
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
@@ -696,7 +703,9 @@ export function useBuilderLayers(
   // a deduped `source-data-${dataset_table_name}` in place while sibling
   // layers still reference it.
   const handleAiRemoveLayer = useCallback((layerId: string) => {
-    setLocalLayers((prev) => prev.filter((l) => l.id !== layerId));
+    // fix(#767): prune a group row emptied by this draft removal (same rule as
+    // handleRemove — an empty group cannot survive save+reload).
+    setLocalLayers((prev) => pruneEmptyFolderGroups(prev.filter((l) => l.id !== layerId)));
     // Clean up MapLibre per-layer companions imperatively. WR-01 (Phase
     // 1050-rev) factored this into removePerLayerCompanions so handleRemove
     // and handleBulkDelete now use the same helper. Sources are NOT

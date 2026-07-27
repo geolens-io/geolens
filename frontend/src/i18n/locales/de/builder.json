@@ -886,7 +886,8 @@
     "bulkStyleSkipped": "{{count}} Ebenen übersprungen (inkompatible Geometrie)",
     "bulkGroupNeedTwo": "Wähle mindestens 2 lose Ebenen aus, um sie zu gruppieren",
     "bulkGroupSkipped": "Einige ausgewählte Ebenen sind bereits gruppiert und können nicht erneut gruppiert werden",
-    "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut"
+    "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut",
+    "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile"
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -1147,6 +1148,7 @@
     "ungroupHint": "Wähle zum Aufheben der Gruppierung nur Gruppenzeilen aus",
     "ungroupDisabledTooltip": "Nur Gruppen zum Aufheben der Gruppierung auswählen",
     "delete": "Löschen",
+    "deleteHint": "Gruppen werden über das Menü ihrer Zeile gelöscht",
     "deleteAriaLabel": "{{count}} ausgewählte Layer löschen",
     "deleteConfirmLabel": "{{count}} Layer löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
     "deleteConfirmAction": "{{count}} Layer löschen",
