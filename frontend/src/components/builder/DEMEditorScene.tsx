@@ -9,6 +9,7 @@ import { StyleColorPicker } from './StyleColorPicker';
 import { ColorRampPicker } from './ColorRampPicker';
 import { SunCompass } from './SunCompass';
 import { getNumberPaint, getStringPaint } from './paint-accessors';
+import { InlineDeleteConfirm } from './row-chrome';
 import {
   HILLSHADE_EXAGGERATION_MAX,
   HILLSHADE_EXAGGERATION_MIN,
@@ -514,35 +515,20 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             {t('layerEditor.deleteLayer', { defaultValue: 'Delete layer' })}
           </Button>
         ) : (
-          <div role="alertdialog" aria-labelledby="dem-delete-confirm-title" className="space-y-2">
-            <p id="dem-delete-confirm-title" className="text-sm text-destructive text-center">
-              {t('layerEditor.deleteLayerConfirmMessage', { defaultValue: 'Delete this layer? This cannot be undone.' })}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="destructive"
-                className="flex-1"
-                onClick={() => {
-                  onRemove(layer.id);
-                  setConfirmDelete(false);
-                }}
-              >
-                {t('layerEditor.deleteLayerConfirmAction', { defaultValue: 'Delete' })}
-              </Button>
-              {/* autoFocus on the safe choice */}
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
-                onClick={() => setConfirmDelete(false)}
-              >
-                {t('layerEditor.deleteLayerConfirmCancel', { defaultValue: 'Keep layer' })}
-              </Button>
-            </div>
-          </div>
+          // ux(#777): shared builder-wide inline confirm — safe action left,
+          // destructive right, cancel autofocused.
+          <InlineDeleteConfirm
+            confirmId="dem-delete-confirm-title"
+            message={t('layerEditor.deleteLayerConfirmMessage', { defaultValue: 'Delete this layer? This cannot be undone.' })}
+            confirmLabel={t('layerEditor.deleteLayerConfirmAction', { defaultValue: 'Delete' })}
+            cancelLabel={t('layerEditor.deleteLayerConfirmCancel', { defaultValue: 'Keep layer' })}
+            onConfirm={() => {
+              onRemove(layer.id);
+              setConfirmDelete(false);
+            }}
+            onCancel={() => setConfirmDelete(false)}
+            className="mx-0 mb-0"
+          />
         )}
       </footer>
     </div>
