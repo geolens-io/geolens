@@ -335,15 +335,34 @@ describe('StackRow', () => {
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole('menuitem', { name: /Delete layer/i }));
 
-    // The kebab item now opens an inline alertdialog confirm (StackRow.tsx:357-389)
-    // — `onRemove` is invoked only when the destructive `Delete` button inside
-    // the alertdialog is clicked. Drive through the confirm step.
-    const dialog = screen.getByRole('alertdialog');
-    expect(dialog).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Delete$/ }));
+    // The kebab item opens an inline confirm — `onRemove` is invoked only when
+    // the destructive `Delete` button inside it is clicked. fix(#788): the
+    // confirm is a role="group" (non-modal), labelled by its role="alert"
+    // message, no longer an alertdialog it couldn't honor.
+    const confirm = screen.getByRole('group', { name: 'Are you sure? This cannot be undone.' });
+    expect(within(confirm).getByRole('alert')).toHaveTextContent('Are you sure? This cannot be undone.');
+    fireEvent.click(within(confirm).getByRole('button', { name: /^Delete$/ }));
 
     expect(onRemove).toHaveBeenCalledOnce();
     expect(onRemove).toHaveBeenCalledWith('delete-layer');
+  });
+
+  // fix(#788): Escape dismisses the pending confirm (consumed, so it cannot
+  // trigger ancestor Escape behavior) and hands focus back to the row.
+  it('Escape inside the delete confirm cancels it without calling onRemove and refocuses the row', () => {
+    const onRemove = vi.fn();
+    const layer = makeLayer({ id: 'esc-layer' });
+    render(<StackRow {...defaultProps({ layer, onRemove })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete layer/i }));
+
+    const confirm = screen.getByRole('group', { name: 'Are you sure? This cannot be undone.' });
+    fireEvent.keyDown(within(confirm).getByRole('button', { name: /Keep layer/i }), { key: 'Escape' });
+
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.queryByRole('group', { name: 'Are you sure? This cannot be undone.' })).not.toBeInTheDocument();
+    expect(document.activeElement?.id).toBe('stack-row-esc-layer');
   });
 
   it('clicking "Duplicate" calls onDuplicate(layer.id)', () => {
@@ -370,6 +389,42 @@ describe('StackRow', () => {
     expect(link).toHaveAttribute('href', '/datasets/ds-42');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  // ux(#772): kebab entry into the Analysis panel, prefilled with this layer.
+  it('kebab "Analyze this layer" calls onAnalyzeLayer for an analysable layer', () => {
+    const onAnalyzeLayer = vi.fn();
+    const layer = makeLayer({ id: 'analyzable-layer' });
+    render(<StackRow {...defaultProps({ layer, onAnalyzeLayer })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByTestId('kebab-analyze-layer'));
+
+    expect(onAnalyzeLayer).toHaveBeenCalledOnce();
+    expect(onAnalyzeLayer).toHaveBeenCalledWith('analyzable-layer');
+  });
+
+  it('hides "Analyze this layer" for a layer the panel would not offer (ux #772)', () => {
+    const layer = makeLayer({
+      id: 'raster-layer',
+      dataset_record_type: 'raster_dataset',
+      dataset_geometry_type: null,
+    });
+    render(<StackRow {...defaultProps({ layer, onAnalyzeLayer: vi.fn() })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    // The menu is open (its siblings render) but the analysis entry is gated
+    // on the panel's own eligibility predicate.
+    expect(screen.getByTestId('kebab-zoom-to-layer')).toBeInTheDocument();
+    expect(screen.queryByTestId('kebab-analyze-layer')).toBeNull();
+  });
+
+  it('hides "Analyze this layer" when no handler is wired (ux #772)', () => {
+    render(<StackRow {...defaultProps()} />);
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    expect(screen.getByTestId('kebab-zoom-to-layer')).toBeInTheDocument();
+    expect(screen.queryByTestId('kebab-analyze-layer')).toBeNull();
   });
 
   it('"Add to group…" submenu exposes "New group…" when no existing groups (#585)', () => {

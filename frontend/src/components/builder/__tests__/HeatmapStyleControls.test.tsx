@@ -76,4 +76,17 @@ describe('HeatmapStyleControls', () => {
 
     expect(screen.getByTestId('color-ramp-picker')).toHaveTextContent('Blues');
   });
+
+  // fix(#788 item 3): SliderRow omitted aria-valuetext, so AT read the raw
+  // number ("0.8") while the screen showed the formatted value ("80%").
+  it('exposes the formatted value to AT via aria-valuetext on each slider', () => {
+    render(<HeatmapStyleControls layer={baseLayer} onPaintChange={vi.fn()} />);
+
+    // Radius, intensity, opacity — in render order. The attribute must sit on
+    // the role="slider" element (the thumb), not a wrapper span.
+    const valuetexts = screen
+      .getAllByRole('slider')
+      .map((thumb) => thumb.getAttribute('aria-valuetext'));
+    expect(valuetexts).toEqual(['30px', '1.0', '80%']);
+  });
 });

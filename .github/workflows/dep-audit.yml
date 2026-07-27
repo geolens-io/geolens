@@ -24,7 +24,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
         with:
           version: "0.11.11"
@@ -57,7 +57,7 @@ jobs:
       matrix:
         directory: [".", "frontend", "sdks/typescript"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
           node-version: "24" # CI tooling runner (LTS); build image is node 26
@@ -109,7 +109,7 @@ jobs:
           - image: "postgis/postgis:18-3.6"
             enforce: "0"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # Scope is CRITICAL (not HIGH): these scan UPSTREAM base images, whose HIGH
       # OS-CVE count churns with every Debian/Alpine disclosure independent of our
       # code — gating on HIGH would red the build on upstream timing. The built
@@ -135,7 +135,7 @@ jobs:
     name: IaC config scan (Trivy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # Enforcing gate: Trivy config mode auto-detects Dockerfiles,
       # docker-compose*.yml, and nginx config at the repo root; fails the job on
       # any CRITICAL or HIGH misconfiguration finding. ignore-unfixed is inert for

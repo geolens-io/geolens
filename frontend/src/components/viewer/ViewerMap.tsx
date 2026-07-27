@@ -13,6 +13,7 @@ import {
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, isMvtSourceLayerConfigReady, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { logUnhandledMapError } from '@/lib/map-error-log';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
@@ -1047,6 +1048,11 @@ export const ViewerMap = memo(function ViewerMap({
         attributionControl={false}
         minZoom={1}
         onLoad={handleLoad}
+        // fix(#755): claim the wrapper's `error` fallback so a handled
+        // tile-auth 401/403 (#621 re-mint / embed-expired toast in
+        // handleLoad's error handler) stops double-logging a red AJAXError
+        // console row.
+        onError={logUnhandledMapError}
         aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
       >
         <NavigationControl position="top-right" />

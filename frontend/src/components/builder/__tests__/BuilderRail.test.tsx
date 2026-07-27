@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { render } from '@/test/test-utils';
 import { BuilderRail, type RailPanel } from '../BuilderRail';
 import * as availabilityModule from '@/hooks/use-ai-availability';
@@ -167,6 +167,47 @@ describe('BuilderRail', () => {
     expect(panel?.className).toContain('min-h-0');
     expect(textarea.className).toContain('flex-1');
     expect(textarea.className).toContain('min-h-[18rem]');
+  });
+});
+
+describe('fix(#783) — focus restoration on panel close', () => {
+  it('returns focus to the rail button when the close button dismisses the panel', async () => {
+    render(<RailHarness />);
+    const historyButton = screen.getByRole('button', { name: 'History' });
+    fireEvent.click(historyButton);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+
+    expect(screen.queryByTestId('history-panel')).toBeNull();
+    await waitFor(() => expect(historyButton).toHaveFocus());
+  });
+
+  it('returns focus to the rail button when Escape dismisses the panel', async () => {
+    render(<RailHarness />);
+    const notesButton = screen.getByRole('button', { name: 'Notes' });
+    fireEvent.click(notesButton);
+
+    const textarea = screen.getByRole('textbox');
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+
+    expect(screen.queryByRole('textbox')).toBeNull();
+    await waitFor(() => expect(notesButton).toHaveFocus());
+  });
+});
+
+describe('fix(#788 item 5) — named aside landmarks', () => {
+  it('names the icon rail and the expanded panel', () => {
+    render(<RailHarness />);
+    expect(
+      screen.getByRole('complementary', { name: 'Builder tools' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    // The panel aside takes its accessible name from its own title.
+    expect(
+      screen.getByRole('complementary', { name: 'History' }),
+    ).toBeInTheDocument();
   });
 });
 

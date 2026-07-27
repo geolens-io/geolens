@@ -296,6 +296,73 @@ describe('buildLayerDiff', () => {
     ]);
   });
 
+  // fix(#805): the baseline used to be prepared WITHOUT groupMeta, so baseline
+  // children lacked the folderGroupExpanded marker while current children
+  // carried it — every save of an unchanged grouped map emitted a spurious
+  // per-child style_config PATCH.
+  it('emits an empty diff for an unchanged grouped map (no spurious per-child style_config patch)', () => {
+    const group = {
+      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const child = {
+      ...makeLayer({
+        id: 'layer-1',
+        sort_order: 1,
+        style_config: {
+          builder: {
+            folderGroupId: 'group-1',
+            folderGroupName: 'Field layers',
+            folderGroupExpanded: true,
+          },
+        } as MapLayerResponse['style_config'],
+      }),
+      parent_group_id: 'group-1',
+    } as MapLayerResponse;
+
+    const result = buildLayerDiff(
+      [group, child],
+      [group, child],
+      { 'group-1': { expanded: true } },
+    );
+
+    expect(result.diff).toEqual({});
+  });
+
+  // fix(#805): collapse/expand is deliberately non-dirtying (see
+  // handleToggleGroupExpand) — a collapse-state-only change between the
+  // persisted marker and the live groupMeta must not produce a patch either.
+  it('a collapse-state-only change stays out of the diff (non-dirtying by design)', () => {
+    const group = {
+      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const child = {
+      ...makeLayer({
+        id: 'layer-1',
+        sort_order: 1,
+        style_config: {
+          builder: {
+            folderGroupId: 'group-1',
+            folderGroupName: 'Field layers',
+            folderGroupExpanded: true,
+          },
+        } as MapLayerResponse['style_config'],
+      }),
+      parent_group_id: 'group-1',
+    } as MapLayerResponse;
+
+    // The user collapsed the group after the last save: persisted marker says
+    // expanded=true, live groupMeta says false. Nothing else changed.
+    const result = buildLayerDiff(
+      [group, child],
+      [group, child],
+      { 'group-1': { expanded: false } },
+    );
+
+    expect(result.diff).toEqual({});
+  });
+
   it('returns an empty diff for no-op layers', () => {
     const baseline = makeLayer({ id: 'layer-1' });
     const current = makeLayer({ id: 'layer-1' });
@@ -1964,6 +2031,42 @@ describe('SHARE-09 export PNG composition', () => {
     expect(calls.some((text) => text === 'Streets')).toBe(true);
     // Color swatch fill rect for the qualifying layer
     expect(fillRectSpy).toHaveBeenCalled();
+  });
+
+  // fix(#769): the synthetic group:folder row is built by spreading the group's
+  // first child, so it inherits visible/show_in_legend — the export filter must
+  // exclude it or the PNG ships a phantom legend row labeled with the group name.
+  it('excludes folder-group rows from the exported legend (#769)', () => {
+    const mockMap = makeExportMap();
+    const streetsLayer = makeLayer({
+      id: 'layer-streets',
+      display_name: 'Streets',
+      visible: true,
+      show_in_legend: true,
+    });
+    const groupRow = {
+      ...makeLayer({
+        id: 'group-1',
+        display_name: 'Transit group',
+        visible: true,
+        show_in_legend: true,
+      }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [groupRow, streetsLayer],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(calls.some((text) => text === 'Streets')).toBe(true);
+    expect(calls.some((text) => text === 'Transit group')).toBe(false);
   });
 
   it('swatch border uses the layer stroke color for hollow-circle styles', () => {
