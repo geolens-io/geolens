@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   AlertCircle,
   Check,
@@ -73,10 +74,13 @@ function typeMeta(record: OGCRecordResponse) {
   return 'Vector';
 }
 
-function featureMeta(record: OGCRecordResponse) {
+// fix(#788): "1 features" — the counts were hardcoded English with no plural
+// handling (the catalog search card pluralizes via t()). {{count, number}} in
+// the locale strings keeps the locale grouping formatNumber provided.
+function featureMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   const props = record.properties;
-  if (props.feature_count != null) return `${formatNumber(props.feature_count)} features`;
-  if (props.row_count != null) return `${formatNumber(props.row_count)} rows`;
+  if (props.feature_count != null) return t('search.featureCount', { count: props.feature_count });
+  if (props.row_count != null) return t('search.rowCount', { count: props.row_count });
   if (props.width != null && props.height != null) {
     return `${formatNumber(props.width)} x ${formatNumber(props.height)} px`;
   }
@@ -140,7 +144,7 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
   const rows = [
     [t('search.metadata.type', { defaultValue: 'Type' }), typeMeta(record)],
     [t('search.metadata.source', { defaultValue: 'Source' }), props.source_organization],
-    [t('search.metadata.count', { defaultValue: 'Count' }), featureMeta(record)],
+    [t('search.metadata.count', { defaultValue: 'Count' }), featureMeta(record, t)],
     [t('search.metadata.crs', { defaultValue: 'CRS' }), props.epsg ? `EPSG:${props.epsg}` : props.crs],
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
@@ -178,7 +182,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
   const props = record.properties;
   const rowId = `dataset:${record.id}`;
   const recordType = props.record_type ?? 'vector_dataset';
-  const meta = featureMeta(record);
+  const meta = featureMeta(record, t);
 
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, isDragging } = useDraggable({
     id: `catalog:${record.id}`,
