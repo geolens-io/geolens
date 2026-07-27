@@ -363,15 +363,37 @@ targets just need network reach to `api:8000` and `worker:8001`.
 
 ### Backup service healthcheck
 
-The `backup` service exposes a Docker healthcheck:
+The `backup` service exposes a Docker **freshness** healthcheck:
 
 ```bash
 docker compose ps backup    # Status column: healthy / unhealthy / starting
 docker inspect --format '{{.State.Health.Status}}' $(docker compose ps -q backup)
 ```
 
-The check (`pgrep -f backup-entrypoint || pgrep -f sleep`) confirms the entrypoint
-process is running. `start_period` is 30 s; the check runs every 30 s.
+`healthy` means a backup cycle **fully succeeded recently** — it is not a
+liveness probe. The entrypoint touches `/backups/.last-success` only after
+`pg_dump`, end-to-end verification (`pg_restore -f /dev/null`), and the S3
+upload (when `BACKUP_S3_ENABLED=true`) all succeed. The healthcheck fails when
+that marker is missing or older than `BACKUP_MAX_AGE_MINUTES` (default `1560`
+minutes = 26 hours, the default daily schedule plus slack). A container whose
+backups quietly stop succeeding therefore turns `unhealthy` roughly one missed
+cycle later, and `docker compose ps` shows it — no monitoring stack required.
+
+Tuning and edge behavior:
+
+- **Non-daily schedule?** Set `BACKUP_MAX_AGE_MINUTES` in `.env` to ~1.5× your
+  `BACKUP_SCHEDULE` interval (e.g. every 12 h → `1080`), then re-create the
+  service: `docker compose up -d backup`.
+- **First install / new volume:** no marker exists yet, so the service reports
+  `starting` until the initial on-startup backup succeeds — seconds on a fresh
+  database. If no backup succeeds within the 10-minute `start_period`, it turns
+  `unhealthy` after three further failed probes (~90 s more).
+- **Very large database:** an initial on-startup dump that outlasts
+  `start_period` shows a transient `unhealthy`; it clears on the first probe
+  after the cycle completes.
+- An `unhealthy` backup service does not stop or restart anything — it is a
+  signal. Read `docker compose logs backup` (log markers below) to find which
+  step failed.
 
 ### Log markers
 
