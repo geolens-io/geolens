@@ -9,6 +9,19 @@ and releases use semantic versioning.
 
 ## [1.5.1] - 2026-07-27
 
+### Security
+
+- **Creating a dataset from an analysis now requires the `export`
+  capability in addition to `upload`** — advisory `GHSA-8gvc-94m7-m462`
+  (moderate): analysis materialize bypassed the export capability, enabling
+  durable dataset copies that survive grant revocation. The download
+  endpoints already enforced `export`; a materialized result is a
+  caller-owned copy of the source's attributes, so the two paths now agree.
+  Installations on the default role matrix are unaffected (editor and admin
+  hold both capabilities); deployments that withhold `export` from a role
+  should upgrade. Details:
+  <https://github.com/geolens-io/geolens/security/advisories/GHSA-8gvc-94m7-m462>
+
 ### Fixed
 
 - **Keyboard reorder works again on every stack row.** The shared drag grip
@@ -58,11 +71,6 @@ and releases use semantic versioning.
 
 ### Changed
 
-- **Creating a dataset from an analysis now requires the `export`
-  capability in addition to `upload`,** matching the download endpoints —
-  the result is a caller-owned copy of the source's attributes, so the two
-  paths now agree under a customized role matrix. Installations using the
-  default role matrix are unaffected (editor and admin hold both).
 - **The Analysis panel no longer loses its form to a panel switch.** Clicking
   Notes, History, or Ask AI (or crossing the mobile breakpoint) used to
   silently discard every field — including a hand-drawn clip mask and a typed
