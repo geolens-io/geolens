@@ -26,6 +26,24 @@ and releases use semantic versioning.
   was a dead end whose hint named an invisible button. The clip mask picker
   also says "No polygon layers on this map" instead of showing a lone "None"
   entry. (#779)
+- **Analysis outputs now keep every attribute column.** Columns whose names
+  are not identifier-shaped (`Área`, `2020_pop`, `my field`) were silently
+  dropped from buffer, centroid, and clip outputs; they are now carried
+  through intact. (#763)
+- **Dissolving by a non-groupable column is refused up front.** A `json`
+  column (how nested GeoJSON attributes ingest) used to enqueue, wait out
+  the queue, and fail with a generic database error; the request is now
+  rejected immediately with the column named, and schema-shaped failures
+  that do reach the worker report "a column can't be used for this
+  operation" instead of "database error". (#766)
+
+### Changed
+
+- **Creating a dataset from an analysis now requires the `export`
+  capability in addition to `upload`,** matching the download endpoints —
+  the result is a caller-owned copy of the source's attributes, so the two
+  paths now agree under a customized role matrix. Installations using the
+  default role matrix are unaffected (editor and admin hold both).
 
 ## [1.5.0] - 2026-07-26
 

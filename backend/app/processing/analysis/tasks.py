@@ -18,7 +18,12 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 from sqlalchemy import select, text
-from sqlalchemy.exc import DataError, InternalError, SQLAlchemyError
+from sqlalchemy.exc import (
+    DataError,
+    InternalError,
+    ProgrammingError,
+    SQLAlchemyError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema
@@ -91,6 +96,16 @@ def _user_error_message(exc: Exception) -> str:
             )
         if isinstance(exc, (DataError, InternalError)):
             return "The analysis failed while processing this data"
+        # fix(#766): SQLSTATE class 42 is a schema-shaped failure (e.g.
+        # 42883 "no equality operator for type json" on a dissolve GROUP
+        # BY) — the parameters, not the data, are the problem.
+        if isinstance(exc, ProgrammingError) and str(
+            getattr(exc.orig, "sqlstate", "") or ""
+        ).startswith("42"):
+            return (
+                "A column in this dataset can't be used for this "
+                "operation. Try a different column."
+            )
         return "The analysis failed due to a database error"
     return str(exc)[:2000]
 
@@ -258,10 +273,25 @@ async def _mark_job_failed(
     ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
 
 
+def _quote_ident(name: str) -> str:
+    """Render a PostgreSQL quoted identifier.
+
+    Names come from ``information_schema``, never the request, so doubling
+    embedded double quotes is the only escaping identifiers need.
+    """
+    return '"' + name.replace('"', '""') + '"'
+
+
 async def _list_carry_columns(
     session: AsyncSession, schema: str, table_name: str
 ) -> list[str]:
-    """Attribute columns to carry into 1:1 op output (skip system/geom cols)."""
+    """Attribute columns to carry into 1:1 op output (skip system/geom cols).
+
+    fix(#763): every name is carried — GDAL launders only case/`-`/`#`, so
+    ingested tables legitimately hold columns like ``Área`` or ``2020_pop``;
+    filtering to identifier-shaped names silently dropped them from every
+    analysis output. Rendering quotes via ``_quote_ident`` instead.
+    """
     rows = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
@@ -270,7 +300,7 @@ async def _list_carry_columns(
             "ORDER BY ordinal_position"
         ).bindparams(schema=schema, table_name=table_name)
     )
-    return [row[0] for row in rows if _SAFE_IDENT.match(row[0])]
+    return [row[0] for row in rows]
 
 
 def _build_materialize_select(
@@ -318,7 +348,7 @@ def _build_materialize_select(
         # the dataset it would have saved is small. Clip has no source-feature
         # cap, so nothing else bounds how many of them there are.
         cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
-        cols = "".join(f'_src."{c}", ' for c in carry_cols)
+        cols = "".join(f"_src.{_quote_ident(c)}, " for c in carry_cols)
         return (
             f"{cte} SELECT _src.gid, {cols}_op.geom_out AS geom"
             f" FROM {src_ref} AS _src"
@@ -330,7 +360,7 @@ def _build_materialize_select(
         distance_meters=distance_meters,
         mask=mask,
     )
-    cols = "".join(f'"{c}", ' for c in carry_cols)
+    cols = "".join(f"{_quote_ident(c)}, " for c in carry_cols)
     return f"SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
 
 

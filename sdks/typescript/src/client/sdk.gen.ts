@@ -1856,8 +1856,9 @@ export const updateDatasetMetadataDatasetsDatasetIdPatch = <ThrowOnError extends
  *
  * Materialize an analysis result as a new private dataset (async job).
  *
- * Requires the ``upload`` permission (this endpoint creates a dataset) and
- * read visibility on the source dataset; the new dataset is owned by the
+ * Requires the ``upload`` and ``export`` permissions (this endpoint
+ * creates a dataset that carries the source's attributes) and read
+ * visibility on the source dataset; the new dataset is owned by the
  * caller and counted against their dataset quota (the atomic slot
  * reservation runs at registration inside the worker). Poll
  * ``GET /jobs/{job_id}`` for progress.

@@ -25,8 +25,13 @@ from app.processing.analysis.tasks import (
     _user_error_message,
 )
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 from tests.test_analysis_preview import _create_mask_dataset, _create_polygon_dataset
+from tests.test_export_hardening import (
+    _DEFAULT_PERMISSION_MATRIX,
+    _put_permission_matrix,
+    _reset_permission_matrix,
+)
 
 
 def _materialize_url(dataset_id) -> str:
@@ -285,6 +290,35 @@ class TestMaterializeEndpoint:
         )
         assert resp.status_code == 404
 
+    async def test_materialize_private_mask_hidden(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """test(#761): Rule 1 applies to the MASK dataset on the write path
+        too. The preview suite pins this; the materialize branch sits between
+        two size gates that were each rewritten twice in two weeks (#693,
+        #701) and had no test of its own."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        private_mask = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            wkt="POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))",
+            visibility="private",
+        )
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={
+                "operation": "clip",
+                "mask_dataset_id": str(private_mask.id),
+                "title": "Nope",
+            },
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 404
+
     async def test_materialize_requires_upload_permission(
         self,
         client: AsyncClient,
@@ -311,6 +345,35 @@ class TestMaterializeEndpoint:
         )
         assert preview.status_code == 200, preview.text
 
+    async def test_materialize_requires_export_permission(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """Materialize hands the caller an owned dataset carrying the
+        source's attributes — the outcome the download endpoints gate on
+        `export` — so the two paths must agree under a customized role
+        matrix: an editor whose export was revoked gets 403, not a job."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        revoked = {
+            **_DEFAULT_PERMISSION_MATRIX,
+            "editor": {**_DEFAULT_PERMISSION_MATRIX["editor"], "export": False},
+        }
+        try:
+            await _put_permission_matrix(client, admin_auth_header, revoked)
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Not allowed"},
+                headers=editor_auth_header,
+            )
+            assert resp.status_code == 403, resp.text
+            assert "export" in resp.json()["detail"].lower()
+        finally:
+            await _reset_permission_matrix(client, admin_auth_header)
+
     async def test_dissolve_unknown_column_rejected(
         self,
         client: AsyncClient,
@@ -329,6 +392,37 @@ class TestMaterializeEndpoint:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
+
+    async def test_dissolve_json_column_rejected_at_enqueue(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#766): PG has no equality operator for `json` (GDAL maps
+        nested GeoJSON objects to it), so the CTAS GROUP BY would burn the
+        queue wait and the per-user job slot on an opaque 42883. Reject at
+        enqueue, naming the column."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="POLYGON",
+            feature_count=2,
+            column_info=[
+                {"name": "props", "type": "json"},
+                {"name": "name", "type": "text"},
+            ],
+        )
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={"operation": "dissolve", "by_field": "props", "title": "Grouped"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "props" in detail
+        assert "group" in detail.lower()
 
     async def test_materialize_requires_title(
         self,
@@ -616,6 +710,57 @@ class TestMaterializeWorker:
             )
         ).scalar_one()
         assert name_count == 2
+
+    async def test_non_identifier_columns_survive_materialize(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#763): GDAL launders only case/`-`/`#`, so ingested tables
+        legitimately carry columns like `Área` or `2020_pop`; the old
+        identifier-shaped filter silently dropped them from every analysis
+        output."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{ds.table_name} "
+                f'ADD COLUMN "Área" TEXT, ADD COLUMN "2020_pop" INTEGER'
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{ds.table_name} "  # noqa: S608
+                f'SET "Área" = \'norte\', "2020_pop" = 7'
+            )
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="buffer",
+            title=f"Buffered unicode {uuid.uuid4().hex[:6]}",
+            distance_meters=100,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f'SELECT "Área", "2020_pop" '  # noqa: S608
+                    f"FROM data.{new_ds.table_name}"
+                )
+            )
+        ).all()
+        assert len(rows) == 2
+        assert all(tuple(row) == ("norte", 7) for row in rows)
 
     async def test_null_geometry_rows_are_dropped_from_output(
         self,
@@ -1778,6 +1923,22 @@ class TestUserErrorMessage:
             'CREATE TABLE "data"."secret_output" AS SELECT 1', {}, Exception("boom")
         )
         msg = _user_error_message(exc)
+        assert "secret_output" not in msg
+        assert "CREATE TABLE" not in msg
+
+    def test_sqlstate_42_is_named_a_column_problem(self):
+        """fix(#766): SQLSTATE class 42 (e.g. no equality operator for
+        `json` in a dissolve GROUP BY) is a parameter problem, not a
+        generic database error — say so, without leaking the SQL."""
+        from sqlalchemy.exc import ProgrammingError
+
+        orig = Exception("could not identify an equality operator for type json")
+        orig.sqlstate = "42883"
+        exc = ProgrammingError(
+            'CREATE TABLE "data"."secret_output" AS SELECT 1', {}, orig
+        )
+        msg = _user_error_message(exc)
+        assert "column" in msg.lower()
         assert "secret_output" not in msg
         assert "CREATE TABLE" not in msg
 
