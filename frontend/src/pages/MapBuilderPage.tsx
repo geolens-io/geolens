@@ -1625,10 +1625,11 @@ export function MapBuilderPage() {
               onPasteStyle={layers.handlePasteStyle}
               onBulkApplyStyle={handleBulkApplyStyle}
               copiedStyleGeometryClass={layers.copiedStyleGeometryClass}
-              onKeyboardReorder={(layerId, direction) => {
-                if (direction === 'up') layers.handleMoveUp(layerId);
-                else layers.handleMoveDown(layerId);
-              }}
+              onKeyboardReorder={(layerId, direction) =>
+                direction === 'up'
+                  ? layers.handleMoveUp(layerId)
+                  : layers.handleMoveDown(layerId)
+              }
               // fix(#759): the keyboard reorder mode shares the pointer
               // path's aria-live region instead of staying silent.
               onAnnounce={announce}

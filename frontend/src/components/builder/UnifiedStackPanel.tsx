@@ -86,7 +86,7 @@ interface UnifiedStackPanelProps {
   /** Geometry class of the currently-copied style (null = nothing copied). Used
    *  to enable "Paste style" only on geometry-compatible rows. */
   copiedStyleGeometryClass?: GeometryStyleClass | null;
-  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
   /** fix(#759): shared aria-live announcer for the keyboard reorder mode. */
   onAnnounce?: (text: string) => void;
   onAddDataClick: (initialQuery?: string) => void;

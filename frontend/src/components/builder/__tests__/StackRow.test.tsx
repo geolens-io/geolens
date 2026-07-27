@@ -121,6 +121,24 @@ describe('StackRow', () => {
       expect(onAnnounce).toHaveBeenCalledWith('Population dropped.');
     });
 
+    it('stays silent when a boundary move does not happen (codex #794)', () => {
+      const onAnnounce = vi.fn();
+      const onKeyboardReorder = vi.fn(() => false);
+      render(<StackRow {...defaultProps({ onAnnounce, onKeyboardReorder })} />);
+      const handle = screen.getByRole('button', { name: gripName });
+      fireEvent.keyDown(handle, { key: ' ' });
+      fireEvent.keyDown(handle, { key: 'ArrowUp' });
+      expect(onKeyboardReorder).toHaveBeenCalledWith('layer-1', 'up');
+      expect(onAnnounce).not.toHaveBeenCalledWith('Population moved up.');
+    });
+
+    it('reports pressed during a pointer drag (codex #794)', () => {
+      render(<StackRow {...defaultProps({ isDragging: true })} />);
+      expect(
+        screen.getByRole('button', { name: gripName }),
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+
     it('announces a cancel on Escape', () => {
       const onAnnounce = vi.fn();
       render(<StackRow {...defaultProps({ onAnnounce })} />);

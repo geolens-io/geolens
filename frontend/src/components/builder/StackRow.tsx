@@ -73,7 +73,9 @@ interface StackRowProps {
   onCreateGroupWithLayer?: (layerId: string) => void;
   /** Called when user selects "Move out of group" (layer is already in a group) */
   onMoveLayerOutOfGroup?: (layerId: string) => void;
-  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  /** Returns whether the move happened, so boundary no-ops stay silent
+   *  (codex(#794)); void is treated as moved for older callers. */
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
   /** fix(#759): routes reorder-mode announcements into the builder's shared
    *  aria-live region — the pointer drag path announces pickup/position/drop
    *  while this mode used to be completely silent. */
@@ -210,14 +212,18 @@ export const StackRow = memo(function StackRow({
     e.preventDefault();
     e.stopPropagation();
     const direction = e.key === 'ArrowUp' ? 'up' : 'down';
-    onKeyboardReorder?.(layer.id, direction);
-    onAnnounce?.(
-      t(direction === 'up' ? 'a11y.reorderMovedUp' : 'a11y.reorderMovedDown', {
-        defaultValue:
-          direction === 'up' ? '{{name}} moved up.' : '{{name}} moved down.',
-        name: displayName,
-      }),
-    );
+    const moved = onKeyboardReorder?.(layer.id, direction);
+    // codex(#794): a boundary ArrowUp/Down is a no-op — announcing a move
+    // there gives screen-reader users false confirmation.
+    if (moved !== false) {
+      onAnnounce?.(
+        t(direction === 'up' ? 'a11y.reorderMovedUp' : 'a11y.reorderMovedDown', {
+          defaultValue:
+            direction === 'up' ? '{{name}} moved up.' : '{{name}} moved down.',
+          name: displayName,
+        }),
+      );
+    }
   }
 
   // Phase 1041: modifier-aware click handler (POL-06)
@@ -298,7 +304,10 @@ export const StackRow = memo(function StackRow({
           name: displayName,
         })}
         touchReveal
-        ariaPressed={keyboardReorderActive}
+        // codex(#794): dnd-kit drives aria-pressed=true through `attributes`
+        // while its sortable is active; the explicit prop must not report
+        // unpressed during a real pointer drag.
+        ariaPressed={keyboardReorderActive || isDragging}
         onKeyDown={handleDragHandleKeyDown}
         onBlur={() => setKeyboardReorderActive(false)}
       />

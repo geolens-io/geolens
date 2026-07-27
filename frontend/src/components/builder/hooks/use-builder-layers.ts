@@ -285,20 +285,23 @@ export function useBuilderLayers(
   // `layersRef.current` instead of `localLayers` to keep their dep lists
   // stable (KISS-2 / PERF-N2).
 
-  const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
+  // codex(#794): reports whether a move actually happened, so the keyboard
+  // reorder announcement can stay silent at the stack boundaries instead of
+  // confirming a move that did not occur.
+  const handleMove = useCallback((layerId: string, direction: 'up' | 'down'): boolean => {
     const currentLayers = layersRef.current;
     // fix(HT-03): the stack no longer suppresses terrain-mode DEM rows, so the
     // rendered order IS the full layer order again (the #394 LM-05 filter is
     // obsolete — an arrow-move can never swap with an invisible row).
     const rendered = currentLayers;
     const renderedIdx = rendered.findIndex((l) => l.id === layerId);
-    if (direction === 'up' && renderedIdx <= 0) return;
-    if (direction === 'down' && (renderedIdx < 0 || renderedIdx >= rendered.length - 1)) return;
+    if (direction === 'up' && renderedIdx <= 0) return false;
+    if (direction === 'down' && (renderedIdx < 0 || renderedIdx >= rendered.length - 1)) return false;
     const neighborId = rendered[direction === 'up' ? renderedIdx - 1 : renderedIdx + 1].id;
 
     const idx = currentLayers.findIndex((l) => l.id === layerId);
     const swapIdx = currentLayers.findIndex((l) => l.id === neighborId);
-    if (idx < 0 || swapIdx < 0) return;
+    if (idx < 0 || swapIdx < 0) return false;
 
     const next = [...currentLayers];
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
@@ -312,6 +315,7 @@ export function useBuilderLayers(
     }
 
     setHasUnsavedChanges(true);
+    return true;
   }, [mapInstanceRef]);
 
   const handleMoveUp = useCallback((layerId: string) => handleMove(layerId, 'up'), [handleMove]);

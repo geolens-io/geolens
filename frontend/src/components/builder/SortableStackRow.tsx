@@ -19,7 +19,7 @@ interface SortableStackRowProps {
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
-  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
   /** fix(#759): shared aria-live announcer for the keyboard reorder mode. */
   onAnnounce?: (text: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
