@@ -465,9 +465,15 @@ export function AnalysisPanel({
             <SelectItem value="clip">
               {t('analysisTools.opClip', { defaultValue: 'Clip' })}
             </SelectItem>
-            <SelectItem value="dissolve">
-              {t('analysisTools.opDissolve', { defaultValue: 'Dissolve' })}
-            </SelectItem>
+            {/* fix(#779): dissolve has no preview by design, and the whole
+                materialize block is hidden without the upload permission — a
+                viewer picking it got a form with no actions and a hint
+                naming a button they cannot see. Don't offer the dead end. */}
+            {canCreateDataset && (
+              <SelectItem value="dissolve">
+                {t('analysisTools.opDissolve', { defaultValue: 'Dissolve' })}
+              </SelectItem>
+            )}
           </SelectContent>
         </Select>
         {operation === 'dissolve' && (
@@ -673,6 +679,15 @@ export function AnalysisPanel({
                   defaultValue: 'None — draw on the map',
                 })}
               </SelectItem>
+              {/* fix(#779): say why the list is empty instead of showing a
+                  dropdown with a lone "None" entry. */}
+              {maskLayerOptions.length === 0 && (
+                <SelectItem value="__no_polygon_layers__" disabled>
+                  {t('analysisTools.clipLayerEmpty', {
+                    defaultValue: 'No polygon layers on this map',
+                  })}
+                </SelectItem>
+              )}
               {maskLayerOptions.map((l) => (
                 <SelectItem key={l.id} value={l.id}>
                   {l.display_name ?? l.dataset_name ?? l.id}

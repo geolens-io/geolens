@@ -68,6 +68,13 @@ export function AnalysisJobWatcher() {
           : t('analysisTools.jobComplete', { defaultValue: 'Dataset created' }),
         {
           id: toastId,
+          // fix(#725): the default bottom-right placement lands exactly on
+          // the rail panel's own "Add to map" button, and with an infinite
+          // duration the overlap is permanent, leaving the button visible
+          // but unclickable. When a builder for this map is mounted, raise
+          // the notification top-center, clear of the right rail; everywhere
+          // else the default corner stays.
+          position: canAddToMap ? ('top-center' as const) : undefined,
           // A long job lands when attention has moved on, so the default 4s
           // notification is one the user is likely to miss entirely. The
           // Toaster is configured with closeButton, so this stays until

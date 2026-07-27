@@ -134,6 +134,27 @@ describe('API error localization boundary', () => {
     expect(rendered).toContain('Credentialed requests');
   });
 
+  it('fix(#774): maps the four analysis 4xx literals #718 missed', () => {
+    expect(
+      classifyApiError(
+        'An analysis job is already running; wait for it to finish',
+        429,
+      ),
+    ).toEqual({ key: 'errors.analysisJobAlreadyRunning' });
+    expect(classifyApiError('Analysis requires a vector dataset', 422)).toEqual({
+      key: 'errors.analysisVectorRequired',
+    });
+    expect(
+      classifyApiError('mask_dataset_id must reference a polygon dataset', 422),
+    ).toEqual({ key: 'errors.analysisMaskPolygonRequired' });
+    expect(
+      classifyApiError("Unknown dissolve column: 'wetland_ha'", 422),
+    ).toEqual({
+      key: 'errors.analysisUnknownDissolveColumn',
+      values: { column: 'wetland_ha' },
+    });
+  });
+
   it('still falls back for an unmapped analysis-shaped message', () => {
     expect(
       translateApiErrorDetail('This dataset is too large for everything', 422),

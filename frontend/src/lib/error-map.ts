@@ -176,6 +176,29 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     return { key: 'errors.corsWildcardNotAllowed' };
   }
 
+  // fix(#774): the four analysis 4xx literals #718 didn't map. Without these
+  // the 429 collapsed to generic rate-limit advice (wrong — it is the user's
+  // OWN job holding the one-per-user slot) and the three 422s to "values are
+  // invalid".
+  if (/^An analysis job is already running/i.test(message)) {
+    return { key: 'errors.analysisJobAlreadyRunning' };
+  }
+  if (/^Analysis requires a vector dataset/i.test(message)) {
+    return { key: 'errors.analysisVectorRequired' };
+  }
+  if (/^mask_dataset_id must reference a polygon dataset/i.test(message)) {
+    return { key: 'errors.analysisMaskPolygonRequired' };
+  }
+  const unknownDissolveColumn = message.match(
+    /^Unknown dissolve column: '(.+)'$/i,
+  );
+  if (unknownDissolveColumn) {
+    return {
+      key: 'errors.analysisUnknownDissolveColumn',
+      values: { column: unknownDissolveColumn[1] },
+    };
+  }
+
   return fallbackDescriptor(status);
 }
 

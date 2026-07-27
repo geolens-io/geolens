@@ -966,6 +966,7 @@
     "truncatedNoticeTotal": "Mostrando las primeras {{count}} de {{total}} entidades de origen",
     "clipLayerLabel": "O recortar con una capa",
     "clipLayerNone": "Ninguna — dibujar en el mapa",
+    "clipLayerEmpty": "No hay capas de polígonos en este mapa",
     "jobCompleteNamed": "«{{title}}» está listo",
     "viewDataset": "Ver conjunto de datos",
     "jobSaving": "Guardando el conjunto de datos…",
