@@ -536,6 +536,24 @@ interface SaveState {
   pendingLayerAdd?: boolean;
 }
 
+/** fix(#756): the state fields handleSave snapshots into its payloads. If any
+ *  of them changes identity while the save's network round-trip is in flight,
+ *  the dirty flag must survive the save — clearing it would absorb the
+ *  mid-save edit into the baseline and let the query-invalidation resync
+ *  overwrite it on screen. */
+const SAVE_SNAPSHOT_FIELDS = [
+  'localLayers',
+  'groupMeta',
+  'localName',
+  'localDescription',
+  'legendTitle',
+  'dockNotes',
+  'localBasemap',
+  'showBasemapLabels',
+  'basemapConfig',
+  'terrainConfig',
+] as const satisfies readonly (keyof SaveState)[];
+
 export function useBuilderSave(state: SaveState) {
   const { t } = useTranslation('builder');
   const navigate = useNavigate();
@@ -557,6 +575,19 @@ export function useBuilderSave(state: SaveState) {
       baselineLayersRef.current = state.localLayers.map((layer) => ({ ...layer }));
     }
   }, [state.hasUnsavedChanges, state.localLayers]);
+
+  // fix(#756): handleSave destructures `state` once at call time and then
+  // awaits the network; this ref always points at the latest rendered state
+  // so the post-await code can tell whether anything was edited meanwhile.
+  const latestStateRef = useRef(state);
+  useEffect(() => {
+    latestStateRef.current = state;
+  });
+
+  function editedDuringSave(sent: SaveState): boolean {
+    const latest = latestStateRef.current;
+    return SAVE_SNAPSHOT_FIELDS.some((field) => sent[field] !== latest[field]);
+  }
 
   useEffect(() => {
     // fix(#392): let layer-create paths register the server-created layer into the
@@ -673,7 +704,12 @@ export function useBuilderSave(state: SaveState) {
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
             }));
-            state.setHasUnsavedChanges(false);
+            // fix(#756): the baseline above is the SENT snapshot; only clear
+            // the dirty flag when nothing was edited during the await, so a
+            // mid-save edit stays diffable and guarded.
+            if (!editedDuringSave(state)) {
+              state.setHasUnsavedChanges(false);
+            }
             if (map && id) captureThumbnail(map, id, queryClient, localLayers);
             return;
           }
@@ -683,7 +719,13 @@ export function useBuilderSave(state: SaveState) {
 
       baselineLayersRef.current = localLayers.map((layer) => ({ ...layer }));
       toast.success(t('toasts.mapSaved'));
-      state.setHasUnsavedChanges(false);
+      // fix(#756): the baseline above is the SENT snapshot; only clear the
+      // dirty flag when nothing was edited during the network await —
+      // otherwise the baseline effect would absorb the mid-save edit and the
+      // query-invalidation resync would overwrite it on screen.
+      if (!editedDuringSave(state)) {
+        state.setHasUnsavedChanges(false);
+      }
 
       // Capture thumbnail and upload (fire-and-forget)
       // Use `map` captured before mutate — mapInstanceRef.current may be

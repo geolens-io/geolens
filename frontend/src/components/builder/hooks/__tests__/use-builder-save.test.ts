@@ -444,6 +444,60 @@ describe('useBuilderSave', () => {
     expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
   });
 
+  it('fix(#756): keeps the dirty flag when an edit lands while the save is in flight', async () => {
+    // The added-layer PATCH is handleSave's first await; deferring it holds
+    // the save in flight while the test lands an edit.
+    let resolvePatch!: (v: unknown) => void;
+    mockPatchMapLayersMutateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePatch = resolve; }),
+    );
+    const setHasUnsavedChanges = vi.fn();
+    let state = makeSaveState({
+      localLayers: [makeLayer()],
+      hasUnsavedChanges: true,
+      setHasUnsavedChanges,
+    });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.handleSave();
+    });
+
+    // An edit lands while the network round-trip is still awaiting: the
+    // dirty flag must survive the save, or the baseline effect absorbs the
+    // edit and the query-invalidation resync overwrites it on screen.
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+      setHasUnsavedChanges,
+    });
+    rerender();
+
+    await act(async () => {
+      resolvePatch({});
+      await savePromise;
+    });
+
+    expect(setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
+  });
+
+  it('fix(#756): still clears the dirty flag when nothing changed during the save', async () => {
+    const setHasUnsavedChanges = vi.fn();
+    const state = makeSaveState({
+      localLayers: [makeLayer()],
+      hasUnsavedChanges: true,
+      setHasUnsavedChanges,
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(setHasUnsavedChanges).toHaveBeenCalledWith(false);
+  });
+
   it('persists terrain config in metadata saves without forcing layer replacement', async () => {
     const state = makeSaveState({
       terrainConfig: {
