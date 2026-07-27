@@ -23,7 +23,7 @@ import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { getLayerCapabilities, isFolderGroupLayer } from '@/lib/layer-capabilities';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
  *  resulting offscreen canvas. Crops from the center without distortion
@@ -794,8 +794,11 @@ export function useBuilderSave(state: SaveState) {
           const descFontPx = 14 * dpr;
           const titleBlockH = title ? (description ? 84 * dpr : 56 * dpr) : 0;
 
+          // fix(#769): synthetic group:folder rows inherit visible/show_in_legend
+          // from their first child — exclude them or the exported PNG ships a
+          // phantom legend row per folder group (mirrors LegendPlugin's filter).
           const legendLayers = state.localLayers.filter(
-            (l) => l.visible && l.show_in_legend !== false,
+            (l) => l.visible && l.show_in_legend !== false && !isFolderGroupLayer(l),
           );
           const legendHeaderH = legendLayers.length > 0 ? 32 * dpr : 0;
           const legendRowH = 22 * dpr;
