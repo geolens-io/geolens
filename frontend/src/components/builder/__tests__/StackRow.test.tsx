@@ -372,6 +372,42 @@ describe('StackRow', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  // ux(#772): kebab entry into the Analysis panel, prefilled with this layer.
+  it('kebab "Analyze this layer" calls onAnalyzeLayer for an analysable layer', () => {
+    const onAnalyzeLayer = vi.fn();
+    const layer = makeLayer({ id: 'analyzable-layer' });
+    render(<StackRow {...defaultProps({ layer, onAnalyzeLayer })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByTestId('kebab-analyze-layer'));
+
+    expect(onAnalyzeLayer).toHaveBeenCalledOnce();
+    expect(onAnalyzeLayer).toHaveBeenCalledWith('analyzable-layer');
+  });
+
+  it('hides "Analyze this layer" for a layer the panel would not offer (ux #772)', () => {
+    const layer = makeLayer({
+      id: 'raster-layer',
+      dataset_record_type: 'raster_dataset',
+      dataset_geometry_type: null,
+    });
+    render(<StackRow {...defaultProps({ layer, onAnalyzeLayer: vi.fn() })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    // The menu is open (its siblings render) but the analysis entry is gated
+    // on the panel's own eligibility predicate.
+    expect(screen.getByTestId('kebab-zoom-to-layer')).toBeInTheDocument();
+    expect(screen.queryByTestId('kebab-analyze-layer')).toBeNull();
+  });
+
+  it('hides "Analyze this layer" when no handler is wired (ux #772)', () => {
+    render(<StackRow {...defaultProps()} />);
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    expect(screen.getByTestId('kebab-zoom-to-layer')).toBeInTheDocument();
+    expect(screen.queryByTestId('kebab-analyze-layer')).toBeNull();
+  });
+
   it('"Add to group…" submenu exposes "New group…" when no existing groups (#585)', () => {
     const layer = makeLayer({ id: 'group-layer' });
     render(<StackRow {...defaultProps({ layer, existingFolderGroups: [] })} />);

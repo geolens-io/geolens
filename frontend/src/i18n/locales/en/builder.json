@@ -1229,6 +1229,7 @@
     "kebabMoveOutOfGroup": "Move out of group",
     "labelsIndicator": "Labels on: {{column}}",
     "kebabZoomToLayer": "Zoom to layer",
+    "kebabAnalyzeLayer": "Analyze this layer",
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
     "kebabPasteStyleHint": "Copy a style from a matching layer first",
