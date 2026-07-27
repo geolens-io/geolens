@@ -721,16 +721,20 @@ class TestMaterializeWorker:
         output."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        # ":id" doubles as the codex-review case: text() parses `:name` as a
+        # bind parameter even inside quoted identifiers, so an unescaped
+        # Socrata-style column would fail the whole CTAS, not just drop out.
         await test_db_session.execute(
             text(
                 f"ALTER TABLE data.{ds.table_name} "
-                f'ADD COLUMN "Área" TEXT, ADD COLUMN "2020_pop" INTEGER'
+                f'ADD COLUMN "Área" TEXT, ADD COLUMN "2020_pop" INTEGER, '
+                f'ADD COLUMN "\\:id" TEXT'
             )
         )
         await test_db_session.execute(
             text(
                 f"UPDATE data.{ds.table_name} "  # noqa: S608
-                f'SET "Área" = \'norte\', "2020_pop" = 7'
+                f'SET "Área" = \'norte\', "2020_pop" = 7, "\\:id" = \'r1\''
             )
         )
         await test_db_session.commit()
@@ -754,13 +758,13 @@ class TestMaterializeWorker:
         rows = (
             await test_db_session.execute(
                 text(
-                    f'SELECT "Área", "2020_pop" '  # noqa: S608
+                    f'SELECT "Área", "2020_pop", "\\:id" '  # noqa: S608
                     f"FROM data.{new_ds.table_name}"
                 )
             )
         ).all()
         assert len(rows) == 2
-        assert all(tuple(row) == ("norte", 7) for row in rows)
+        assert all(tuple(row) == ("norte", 7, "r1") for row in rows)
 
     async def test_null_geometry_rows_are_dropped_from_output(
         self,
@@ -1941,6 +1945,20 @@ class TestUserErrorMessage:
         assert "column" in msg.lower()
         assert "secret_output" not in msg
         assert "CREATE TABLE" not in msg
+
+    def test_other_class_42_states_stay_generic(self):
+        """codex(#791): 42501 (privilege), 42P01 (missing table) and the
+        like are server/configuration faults — mapping them onto "choose a
+        different column" would bury the actionable failure."""
+        from sqlalchemy.exc import ProgrammingError
+
+        for sqlstate in ("42501", "42P01", "42601"):
+            orig = Exception("boom")
+            orig.sqlstate = sqlstate
+            exc = ProgrammingError("CREATE TABLE x AS SELECT 1", {}, orig)
+            assert _user_error_message(exc) == (
+                "The analysis failed due to a database error"
+            ), sqlstate
 
     def test_statement_timeout_is_actionable(self):
         from sqlalchemy.exc import OperationalError
