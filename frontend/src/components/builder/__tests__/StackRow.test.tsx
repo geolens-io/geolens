@@ -335,15 +335,34 @@ describe('StackRow', () => {
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole('menuitem', { name: /Delete layer/i }));
 
-    // The kebab item now opens an inline alertdialog confirm (StackRow.tsx:357-389)
-    // — `onRemove` is invoked only when the destructive `Delete` button inside
-    // the alertdialog is clicked. Drive through the confirm step.
-    const dialog = screen.getByRole('alertdialog');
-    expect(dialog).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Delete$/ }));
+    // The kebab item opens an inline confirm — `onRemove` is invoked only when
+    // the destructive `Delete` button inside it is clicked. fix(#788): the
+    // confirm is a role="group" (non-modal), labelled by its role="alert"
+    // message, no longer an alertdialog it couldn't honor.
+    const confirm = screen.getByRole('group', { name: 'Are you sure? This cannot be undone.' });
+    expect(within(confirm).getByRole('alert')).toHaveTextContent('Are you sure? This cannot be undone.');
+    fireEvent.click(within(confirm).getByRole('button', { name: /^Delete$/ }));
 
     expect(onRemove).toHaveBeenCalledOnce();
     expect(onRemove).toHaveBeenCalledWith('delete-layer');
+  });
+
+  // fix(#788): Escape dismisses the pending confirm (consumed, so it cannot
+  // trigger ancestor Escape behavior) and hands focus back to the row.
+  it('Escape inside the delete confirm cancels it without calling onRemove and refocuses the row', () => {
+    const onRemove = vi.fn();
+    const layer = makeLayer({ id: 'esc-layer' });
+    render(<StackRow {...defaultProps({ layer, onRemove })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete layer/i }));
+
+    const confirm = screen.getByRole('group', { name: 'Are you sure? This cannot be undone.' });
+    fireEvent.keyDown(within(confirm).getByRole('button', { name: /Keep layer/i }), { key: 'Escape' });
+
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.queryByRole('group', { name: 'Are you sure? This cannot be undone.' })).not.toBeInTheDocument();
+    expect(document.activeElement?.id).toBe('stack-row-esc-layer');
   });
 
   it('clicking "Duplicate" calls onDuplicate(layer.id)', () => {

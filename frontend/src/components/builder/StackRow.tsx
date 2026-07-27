@@ -289,6 +289,15 @@ export const StackRow = memo(function StackRow({
           e.preventDefault();
           onCmdClick?.(layer.id); // Space = Cmd-click (toggles multi-selection)
         }
+        // fix(#788): Escape with the delete confirm pending dismisses the
+        // confirm (consumed) instead of falling through to ancestor Escape
+        // handlers. The confirm handles its own Escape when focus is inside it;
+        // this covers focus resting on the row.
+        if (e.key === 'Escape' && confirmingDelete) {
+          e.preventDefault();
+          e.stopPropagation();
+          setConfirmingDelete(false);
+        }
       }}
     >
       {/* Cell 1: Caret column — hidden span at rest; Checkbox during multi-selection mode (Phase 1041) */}
@@ -687,7 +696,12 @@ export const StackRow = memo(function StackRow({
           onRemove(layer.id);
           setConfirmingDelete(false);
         }}
-        onCancel={() => setConfirmingDelete(false)}
+        onCancel={() => {
+          setConfirmingDelete(false);
+          // fix(#788): the confirm owned focus (autofocused Cancel button), so
+          // dismissing it must hand focus back to the row instead of <body>.
+          document.getElementById(`stack-row-${layer.id}`)?.focus();
+        }}
       />
     )}
     </>

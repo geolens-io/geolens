@@ -19,16 +19,16 @@ interface EphemeralBadgeProps {
 }
 
 export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, onSaveAsDataset, className }: EphemeralBadgeProps) {
-  const { t, i18n } = useTranslation('builder');
+  const { t } = useTranslation('builder');
 
   const countLabel = truncated && totalCount != null
     ? t('ephemeralBadge.featureCountTruncated', {
         count: featureCount,
-        // fix(#674 audit): group the total per locale, matching how the rest of
-        // the app renders feature counts (OverviewTab). `count` drives plural
-        // selection so it stays numeric — it is capped anyway, never grouped.
-        total: totalCount.toLocaleString(i18n.language),
-        defaultValue: '{{count}} of {{total}} features',
+        // fix(#788): both numbers passed raw — the locale strings group them
+        // via {{count, number}}/{{total, number}} (one sentence, one grouping),
+        // and count keeps driving plural selection.
+        total: totalCount,
+        defaultValue: '{{count, number}} of {{total, number}} features',
       })
     : t('ephemeralBadge.featureCount', { count: featureCount });
   const statusLabel = `${t('ephemeralBadge.queryResult')} · ${countLabel}`;
