@@ -106,6 +106,10 @@ interface BuilderRailProps {
   ) => void;
   // Analysis tools
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
+  /** ux(#772): the layer selected in the builder's stack — the Analysis
+   *  panel prefers it (when analysable) over the remembered form's layer and
+   *  the first-eligible default. */
+  selectedLayerId?: string | null;
   onClearPreview?: () => void;
   hasPreview?: boolean;
   /** fix(#793 review): who drew the current ephemeral overlay — the
@@ -137,6 +141,7 @@ export function BuilderRail({
   layerActions,
   onQueryResult,
   mapInstanceRef,
+  selectedLayerId,
   onClearPreview,
   hasPreview,
   previewSource,
@@ -332,6 +337,7 @@ export function BuilderRail({
                     }
                     layers={layers}
                     mapId={mapId}
+                    selectedLayerId={selectedLayerId}
                     mapInstanceRef={mapInstanceRef}
                     onPreviewResult={onQueryResult}
                     onClearPreview={onClearPreview}

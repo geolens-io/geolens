@@ -1225,6 +1225,7 @@
     "labelsIndicator": "Etiquetas activadas: {{column}}",
     "kebabGroupTrigger": "Opciones de grupo para {{name}}",
     "kebabZoomToLayer": "Acercar a la capa",
+    "kebabAnalyzeLayer": "Analizar esta capa",
     "kebabCopyStyle": "Copiar estilo",
     "kebabPasteStyle": "Pegar estilo",
     "kebabPasteStyleHint": "Copia primero un estilo de una capa compatible",

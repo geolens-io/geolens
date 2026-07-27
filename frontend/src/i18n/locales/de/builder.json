@@ -1225,6 +1225,7 @@
     "labelsIndicator": "Beschriftungen an: {{column}}",
     "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
     "kebabZoomToLayer": "Auf Ebene zoomen",
+    "kebabAnalyzeLayer": "Diese Ebene analysieren",
     "kebabCopyStyle": "Stil kopieren",
     "kebabPasteStyle": "Stil einfügen",
     "kebabPasteStyleHint": "Kopiere zuerst einen Stil von einer passenden Ebene",
