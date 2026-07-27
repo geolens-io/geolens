@@ -278,6 +278,27 @@ describe('Phase 1044-02 — MapBuilderPage drag aria-live region (POL-23)', () =
   });
 });
 
+describe('fix(#785) — DndContext translated announcements', () => {
+  it('wires the accessibility prop (source pin)', () => {
+    // Without it, dnd-kit's DEFAULT announcements fire — hardcoded English
+    // built from the draggable id, i.e. "Picked up draggable item <uuid>…".
+    expect(mapBuilderPageSrc).toMatch(/accessibility=\{dndAccessibility\}/);
+  });
+
+  it('mounts translated screen-reader instructions for the drag handles', () => {
+    render(<MapBuilderPage />, { route: '/maps/map-test' });
+
+    // dnd-kit renders screenReaderInstructions.draggable into a hidden
+    // element portal-mounted on <body>; draggables reference it via
+    // aria-describedby.
+    const instructions = document.querySelector('[id^="DndDescribedBy"]');
+    expect(instructions).toBeInTheDocument();
+    expect(instructions?.textContent).toContain(
+      'To reorder a layer, press Enter or Space on its drag handle',
+    );
+  });
+});
+
 describe('MapBuilderPage complementary landmark names', () => {
   it('names the persistent layers sidebar', () => {
     render(<MapBuilderPage />, { route: '/maps/map-test' });

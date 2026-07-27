@@ -29,6 +29,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useMapDrawStore } from '@/stores/map-draw-store';
 import type { LayerActions } from '@/components/builder/ChatPanel';
+import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { AnalysisOperation, MapLayerResponse } from '@/types/api';
 
@@ -40,34 +41,27 @@ const MASK_LAYER_NONE = '__none__';
 // backend/app/modules/catalog/datasets/api/router_analysis.py — the server
 // rejects any other mask dataset with a 422.
 const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
-// ux(#720): analysis needs a VECTOR dataset. `!is_dem` alone let ordinary
-// raster layers (COG orthophotos, Sentinel scenes) through — they carry a
-// dataset_id, so the panel offered them and auto-selected the first one, and
-// every Preview 422'd.
-//
-// Keyed on dataset_record_type, NOT layer_type (fix(#720 review)). layer_type
-// selects a RENDERER and the API validates it against nothing — MapLayerInput
-// accepts any supported value and add_layer persists it, defaulting to
-// 'vector_geolens'. So a raster dataset can carry the vector default, which is
-// how getLayerCapabilities (which keys on layer_type) would misclassify it, and
-// a vector dataset overridden to the raster renderer would be hidden even
-// though the analysis endpoint accepts it. record_type is what the data IS.
-//
-// geometry_type is required on top of that: it is the precondition
-// _load_vector_dataset enforces server-side, so a vector dataset missing one
-// would 422 just the same. Testing it ALONE was the original bug — it happened
-// to work only because every raster dataset currently stores NULL there, an
-// incidental property of the ingest path rather than an invariant.
-const RASTER_RECORD_TYPES = new Set(['raster_dataset', 'vrt_dataset']);
-const isAnalysableLayer = (l: MapLayerResponse) =>
-  !!l.dataset_id &&
-  !l.is_dem &&
-  !RASTER_RECORD_TYPES.has((l.dataset_record_type ?? '').toLowerCase()) &&
-  !!l.dataset_geometry_type;
 // ux(#686): buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
+// ux(#773): switching the unit converts the displayed number so the PHYSICAL
+// distance is preserved — "100 m" becomes "0.1 km", not a silent 1000×
+// reinterpretation. Rounded to 6 significant digits to trim float tails
+// (0.3 km → 300 m, not 300.00000000000006) while staying far finer than any
+// map-distance precision the buffer endpoint cares about.
+const convertDistanceBetweenUnits = (
+  raw: string,
+  from: BufferUnit,
+  to: BufferUnit,
+): string => {
+  if (from === to) return raw;
+  const value = Number(raw);
+  // An empty or unparseable field has no physical distance to preserve.
+  if (raw.trim() === '' || !Number.isFinite(value)) return raw;
+  const converted = (value * BUFFER_UNIT_METERS[from]) / BUFFER_UNIT_METERS[to];
+  return String(Number(converted.toPrecision(6)));
+};
 // Suffixes of the existing analysisTools.unit* keys, so the range message can
 // name the unit in the user's language without a second set of strings.
 const UNIT_KEY: Record<BufferUnit, string> = {
@@ -82,6 +76,11 @@ interface AnalysisPanelProps {
   /** fix(#757)/fix(#760): keys the remembered form and the rehydrated job to
    *  the map they belong to. */
   mapId?: string;
+  /** ux(#772): the layer currently selected in the builder's stack. When it is
+   *  analysable, the panel opens targeting it instead of whatever sorts first —
+   *  behind an explicit chat prefill, ahead of the remembered form's layer.
+   *  Read at mount only, like every other initializer here. */
+  selectedLayerId?: string | null;
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
   onPreviewResult?: (
     geojson: GeoJSON.FeatureCollection,
@@ -117,6 +116,7 @@ interface AnalysisPanelProps {
 export function AnalysisPanel({
   layers,
   mapId,
+  selectedLayerId,
   mapInstanceRef,
   onPreviewResult,
   onClearPreview,
@@ -134,6 +134,17 @@ export function AnalysisPanel({
     prefill && layers.some((l) => l.id === prefill.layerId && isAnalysableLayer(l))
       ? prefill.layerId
       : undefined;
+  // ux(#772): the stack's selected row, when it is an analysable layer —
+  // "analyze THIS layer" is the common intent behind opening the panel, so it
+  // beats the remembered form's layer and the first-eligible default. A chat
+  // prefill still wins: it names its own layer explicitly. Non-layer ids the
+  // selection slot also carries ('settings', a folder group) validate false
+  // here and change nothing.
+  const stackLayerId =
+    selectedLayerId &&
+    layers.some((l) => l.id === selectedLayerId && isAnalysableLayer(l))
+      ? selectedLayerId
+      : undefined;
   // fix(#757): the panel is conditionally mounted, so a rail switch, Escape,
   // or a breakpoint crossing destroys it — restore the remembered form for
   // this map instead of losing a drawn mask and a typed name to a stray
@@ -149,9 +160,16 @@ export function AnalysisPanel({
     );
     return sourceStillEligible ? remembered : null;
   });
-  const [layerId, setLayerId] = useState(
-    prefillLayerId ?? savedForm?.layerId ?? firstEligibleId,
-  );
+  const initialLayerId =
+    prefillLayerId ?? stackLayerId ?? savedForm?.layerId ?? firstEligibleId;
+  // ux(#772): a stack selection that DISPLACES the remembered layer makes this
+  // mount a different draft. The layer-coupled remembered fields (byField, any
+  // run the form still owned) reset exactly as if the layer select had been
+  // edited — fix(#680)/fix(#793) semantics — while the layer-agnostic ones
+  // (operation, distance, drawn mask, typed name) still restore.
+  const stackDisplacesSavedLayer =
+    stackLayerId != null && !!savedForm && savedForm.layerId !== stackLayerId;
+  const [layerId, setLayerId] = useState(initialLayerId);
   // fix(#793 review): the initializers here deliberately DROP a remembered
   // selection whose source or mask layer left the map while the panel was
   // closed — but the page-level preview overlay drawn from that selection is
@@ -166,6 +184,10 @@ export function AnalysisPanel({
       const remembered = useAnalysisFormStore.getState().forms[mapId];
       if (!remembered) return false;
       return (
+        // ux(#772): a stack selection displacing the remembered layer leaves
+        // any panel-drawn overlay depicting the displaced layer's result —
+        // stale for the same reason a vanished layer's would be.
+        stackDisplacesSavedLayer ||
         !layers.some(
           (l) => l.id === remembered.layerId && isAnalysableLayer(l),
         ) ||
@@ -190,11 +212,19 @@ export function AnalysisPanel({
   const [isDrawing, setIsDrawing] = useState(false);
   // Layer-sourced clip mask; mutually exclusive with a drawn mask.
   const [maskLayerId, setMaskLayerId] = useState(() =>
-    savedForm && layers.some((l) => l.id === savedForm.maskLayerId)
+    savedForm &&
+    // ux(#772): a mask layer can't clip itself — the stack-selected layer may
+    // BE the remembered mask layer (mirrors the layer select's own guard).
+    savedForm.maskLayerId !== initialLayerId &&
+    layers.some((l) => l.id === savedForm.maskLayerId)
       ? savedForm.maskLayerId
       : MASK_LAYER_NONE,
   );
-  const [byField, setByField] = useState(savedForm?.byField ?? BY_FIELD_NONE);
+  const [byField, setByField] = useState(
+    // ux(#772)/fix(#680) parity: a remembered group-by column belongs to the
+    // remembered layer — it must not carry to a stack-selected one.
+    savedForm && !stackDisplacesSavedLayer ? savedForm.byField : BY_FIELD_NONE,
+  );
   // A chat handoff lands on the save form — suggest a title so its primary
   // button isn't silently disabled for want of one.
   const [outputTitle, setOutputTitle] = useState(() => {
@@ -222,7 +252,9 @@ export function AnalysisPanel({
     // fix(#793 review): a restored draft that disowned the run (edited
     // mid-flight, then the panel closed) must not readopt it at mount — the
     // run stays ambient, exactly as the adoption effect below decides.
-    if (savedForm?.runDisowned) return null;
+    // ux(#772): a stack selection displacing the remembered layer disowns the
+    // run the same way — the mounted form no longer matches its parameters.
+    if (savedForm?.runDisowned || stackDisplacesSavedLayer) return null;
     const tracked = useAnalysisJobStore.getState().job;
     return tracked && tracked.mapId && tracked.mapId === mapId
       ? tracked.jobId
@@ -231,7 +263,7 @@ export function AnalysisPanel({
   // fix(#764): the completed run's title, so "Add to map" can say what it
   // adds even after the input field is cleared or edited.
   const [lastRunTitle, setLastRunTitle] = useState(() => {
-    if (prefill || savedForm?.runDisowned) return '';
+    if (prefill || savedForm?.runDisowned || stackDisplacesSavedLayer) return '';
     const tracked = useAnalysisJobStore.getState().job;
     return tracked && tracked.mapId && tracked.mapId === mapId
       ? tracked.title
@@ -255,8 +287,12 @@ export function AnalysisPanel({
   // between the edit and the POST response cannot launder the disowning.
   // A chat prefill starts disowned outright (fix(#793 review)): it is a new
   // draft, so no pre-existing run may be adopted or clear its suggested
-  // title on completion.
-  const formEditedRef = useRef(prefill ? true : (savedForm?.runDisowned ?? false));
+  // title on completion. ux(#772): so does a mount whose stack selection
+  // displaced the remembered layer — the run's blessed form is known to
+  // differ from what this mount shows.
+  const formEditedRef = useRef(
+    prefill || stackDisplacesSavedLayer ? true : (savedForm?.runDisowned ?? false),
+  );
   const trackedJob = useAnalysisJobStore((s) => s.job);
   useEffect(() => {
     if (!trackedJob || !mapId || trackedJob.mapId !== mapId) return;
@@ -883,7 +919,12 @@ export function AnalysisPanel({
               value={distanceUnit}
               onValueChange={(v) => {
                 handleInputsChanged();
-                setDistanceUnit(v as BufferUnit);
+                const next = v as BufferUnit;
+                // ux(#773): keep the physical distance, not the number —
+                // without this, "100 m" switched to miles silently meant
+                // "100 miles".
+                setDistance(convertDistanceBetweenUnits(distance, distanceUnit, next));
+                setDistanceUnit(next);
               }}
             >
               <SelectTrigger
@@ -937,9 +978,11 @@ export function AnalysisPanel({
 
       {operation === 'clip' && maskLayer == null && (
         <div className="space-y-1.5">
-          {/* Exactly one of the three buttons below renders at a time, so
-              they can share the id this label points at. */}
-          <Label className="text-xs" htmlFor="analysis-clip-action">
+          {/* fix(#754): no htmlFor here — a <label for> pointed at a button
+              OVERRIDES the button's own text in the accessible-name
+              computation, so Cancel and Clear were both announced as "Draw
+              clip area". The buttons below are self-labeling. */}
+          <Label className="text-xs">
             {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
           </Label>
           {isDrawing ? (
@@ -950,7 +993,6 @@ export function AnalysisPanel({
                 })}
               </p>
               <Button
-                id="analysis-clip-action"
                 variant="outline"
                 size="sm"
                 onClick={stopDrawing}
@@ -964,7 +1006,6 @@ export function AnalysisPanel({
                 {t('analysisTools.maskSet', { defaultValue: 'Clip area set' })}
               </span>
               <Button
-                id="analysis-clip-action"
                 variant="ghost"
                 size="sm"
                 onClick={() => {
@@ -981,7 +1022,6 @@ export function AnalysisPanel({
           ) : (
             <div className="space-y-1.5">
               <Button
-                id="analysis-clip-action"
                 variant="outline"
                 size="sm"
                 onClick={startDrawing}
@@ -1111,46 +1151,49 @@ export function AnalysisPanel({
                 ? t('analysisTools.saving', { defaultValue: 'Creating…' })
                 : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
             </Button>
-            {/* fix(#760): the one-job-per-user cap disables the button — say
-                so instead of leaving a disabled primary control unexplained
-                (covers a job started before a reload or from another panel). */}
-            {analysisJobRunning && !job && (
-              <p className="text-xs text-muted-foreground" role="status">
-                {t('analysisTools.anotherJobRunning', {
-                  defaultValue:
-                    'Another analysis is still running — wait for it to finish.',
-                })}
-              </p>
-            )}
-            {job && (
-              <p className="text-xs text-muted-foreground" role="status">
-                {/* ux(#698): reuse the watcher's jobFailedDetail template
-                    rather than concatenating the raw server error onto a
-                    translated prefix, which left half the sentence untranslated. */}
-                {job.status === 'failed'
-                  ? job.error_message
-                    ? t('analysisTools.jobFailedDetail', {
-                        defaultValue: 'Analysis job failed: {{message}}',
-                        message: job.error_message,
-                      })
-                    : t('analysisTools.jobFailed', {
-                        defaultValue: 'Analysis job failed',
-                      })
-                  : job.status === 'complete'
-                    ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                    : job.current_step === 'registering'
-                      ? t('analysisTools.jobSaving', {
-                          defaultValue: 'Saving the dataset…',
+            {/* fix(#784): one PERSISTENT status region, mounted empty with the
+                form — a live region that mounts already populated is not
+                announced, so the previous conditionally-rendered <p>s kept the
+                first message ("Creating dataset…") silent for AT. Every
+                message now arrives as a mutation inside an existing region.
+                fix(#760): the one-job-per-user cap disables the button — the
+                "another analysis" branch says so instead of leaving a disabled
+                primary control unexplained (covers a job started before a
+                reload or from another panel). */}
+            <p className="text-xs text-muted-foreground" role="status">
+              {analysisJobRunning && !job
+                ? t('analysisTools.anotherJobRunning', {
+                    defaultValue:
+                      'Another analysis is still running — wait for it to finish.',
+                  })
+                : job
+                  ? // ux(#698): reuse the watcher's jobFailedDetail template
+                    // rather than concatenating the raw server error onto a
+                    // translated prefix, which left half the sentence untranslated.
+                    job.status === 'failed'
+                    ? job.error_message
+                      ? t('analysisTools.jobFailedDetail', {
+                          defaultValue: 'Analysis job failed: {{message}}',
+                          message: job.error_message,
                         })
-                      : job.current_step === 'queued'
-                        ? t('analysisTools.jobQueued', {
-                            defaultValue: 'Queued — waiting for a worker…',
+                      : t('analysisTools.jobFailed', {
+                          defaultValue: 'Analysis job failed',
+                        })
+                    : job.status === 'complete'
+                      ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
+                      : job.current_step === 'registering'
+                        ? t('analysisTools.jobSaving', {
+                            defaultValue: 'Saving the dataset…',
                           })
-                        : t('analysisTools.jobRunning', {
-                            defaultValue: 'Creating dataset…',
-                          })}
-              </p>
-            )}
+                        : job.current_step === 'queued'
+                          ? t('analysisTools.jobQueued', {
+                              defaultValue: 'Queued — waiting for a worker…',
+                            })
+                          : t('analysisTools.jobRunning', {
+                              defaultValue: 'Creating dataset…',
+                            })
+                  : null}
+            </p>
             {job?.status === 'complete' && !!job.dataset_id && layerActions && (
               <Button
                 variant="outline"

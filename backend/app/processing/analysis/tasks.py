@@ -248,19 +248,83 @@ async def _enforce_output_size(
         )
 
 
+async def _complete_job_for_attempt(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    attempt_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    schema: str,
+    out_table: str,
+    operation: str,
+) -> None:
+    """Commit registration together with the fenced terminal 'complete' write.
+
+    fix(#786): the terminal write is fenced on the attempt token, like the
+    claim and ``_fail_cancelled_job`` — a plain ``job.status = "complete"``
+    would overwrite a row the stale-job sweep already failed (a stalled
+    heartbeat expires the lease), resurrecting failed → complete and handing
+    the user a dataset for a job they were told failed. The fence shares the
+    registration transaction, so a miss rolls the Dataset row back with it.
+    """
+    if await update_ingest_job_for_attempt(
+        session,
+        uuid.UUID(job_id),
+        attempt_id,
+        values={"status": "complete", "dataset_id": dataset_id},
+    ):
+        await session.commit()
+        ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
+        return
+    await session.rollback()
+    logger.warning("analysis.complete_write_superseded", job_id=job_id)
+    # The build commit made the output table durable, and the rollback above
+    # discarded its only registration. Only this worker registers or
+    # completes the job (retry=0), so the table is a provable orphan — drop
+    # it instead of leaking it.
+    try:
+        await session.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"'))
+        await session.commit()
+    except Exception:  # broad: best-effort cleanup of the orphaned output
+        await session.rollback()
+
+
 async def _mark_job_failed(
     session: AsyncSession,
     *,
     job_id: str,
+    attempt_id: uuid.UUID,
     exc: Exception,
     schema: str,
     out_table: str | None,
     operation: str,
 ) -> None:
-    """Roll back, drop this job's own partial table, and record the failure."""
-    from app.platform.jobs.models import IngestJob
+    """Roll back, record the failure, and drop this job's own partial table.
 
+    fix(#786): fenced on the attempt token FIRST, mirroring
+    ``_fail_cancelled_job`` — the previous plain ORM write could overwrite a
+    terminal state some other actor already set (the stale-job sweep failing
+    the row after a stalled lease, or a final commit that reached the server
+    before the connection dropped, leaving the row 'complete'). A successful
+    fence proves the row was still 'running', so the registration commit has
+    not happened and any committed output table is an unregistered orphan —
+    safe to drop. If the fence misses, the row AND the table are left alone.
+    """
     await session.rollback()
+    if not await update_ingest_job_for_attempt(
+        session,
+        uuid.UUID(job_id),
+        attempt_id,
+        values={
+            "status": "failed",
+            # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
+            "error_message": _user_error_message(exc),
+        },
+    ):
+        await session.rollback()
+        logger.warning("analysis.failed_write_superseded", job_id=job_id)
+        return
+    await session.commit()
     if out_table is not None:
         try:
             await session.execute(
@@ -269,12 +333,6 @@ async def _mark_job_failed(
             await session.commit()
         except Exception:  # broad: best-effort cleanup of the partial table
             await session.rollback()
-    failed_job = await session.get(IngestJob, uuid.UUID(job_id))
-    if failed_job is not None:
-        failed_job.status = "failed"
-        # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
-        failed_job.error_message = _user_error_message(exc)
-        await session.commit()
     ANALYSIS_JOBS.labels(operation=operation, status="failed").inc()
 
 
@@ -301,6 +359,26 @@ async def _list_carry_columns(
     return [row[0] for row in rows]
 
 
+def _wrap_not_empty(select_sql: str) -> str:
+    """Exclude NULL/EMPTY-geometry rows inside the CTAS itself.
+
+    fix(#786): ``_enforce_output_size`` probes ``pg_total_relation_size``
+    right after the CTAS, and the post-CTAS DELETE cannot shrink what it
+    measures — dead tuples keep their pages until a rewrite. Rows the
+    cleanup removes therefore counted toward the output ceiling for
+    buffer/centroid/dissolve and the drawn-mask clip, failing analyses
+    whose real output is small. The clip-by-layer branch has filtered
+    in-CTAS since fix(#719 review); this extends the same rule to the
+    other shapes. ``OFFSET 0`` fences subquery pull-up so the geometry
+    expression (``ST_Buffer`` at worst) is evaluated once per row rather
+    than re-evaluated inside the outer WHERE.
+    """
+    return (
+        f"SELECT * FROM ({select_sql} OFFSET 0) AS _rows"
+        f" WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom)"
+    )
+
+
 def _build_materialize_select(
     src_ref: str,
     operation: str,
@@ -320,13 +398,13 @@ def _build_materialize_select(
         union_expr = "ST_Multi(ST_CollectionExtract(ST_Union(ST_MakeValid(geom_4326))))"
         if by_field:
             col = f'"{by_field}"'
-            return (
+            return _wrap_not_empty(
                 f"SELECT (row_number() OVER ())::integer AS gid, {col}, "
                 f"COUNT(*)::integer AS source_count, "
                 f"{union_expr} AS geom "
                 f"FROM {src_ref} GROUP BY {col}"
             )
-        return (
+        return _wrap_not_empty(
             f"SELECT 1 AS gid, COUNT(*)::integer AS source_count, "
             f"{union_expr} AS geom FROM {src_ref}"
         )
@@ -359,7 +437,7 @@ def _build_materialize_select(
         mask=mask,
     )
     cols = "".join(f"{_sql_quote_ident(c)}, " for c in carry_cols)
-    return f"SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}"
+    return _wrap_not_empty(f"SELECT gid, {cols}{expr} AS geom FROM {src_ref}{where}")
 
 
 async def _materialize(
@@ -475,7 +553,17 @@ async def _materialize(
                 mask_table_ref=mask_table_ref,
             )
 
-            out_table, _warning = await generate_table_name(title, session)
+            out_table, collision_warning = await generate_table_name(title, session)
+            if collision_warning:
+                # fix(#786): persisted like the upload path (tasks_vector) —
+                # the job-status endpoint surfaces
+                # user_metadata['collision_warning'] as warning_message, so
+                # discarding it here silently landed an analysis output in
+                # e.g. parcels_buffered_3 with no indication to the user.
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "collision_warning": collision_warning,
+                }
             out_ref = f'"{_schema}"."{out_table}"'
 
             carry_cols = (
@@ -509,13 +597,16 @@ async def _materialize(
             # hold the single worker slot through the rewrite phases. The
             # authoritative check runs after add_4326_column below.
             await _enforce_output_size(session, _schema, out_table)
-            # Rows with nothing to show are dropped for EVERY operation, not
-            # just clip (fix(#692)): buffer/centroid map NULL source
+            # Rows with nothing to show are excluded inside the CTAS for
+            # EVERY shape (fix(#786), extending fix(#719 review)'s clip
+            # rule via _wrap_not_empty): buffer/centroid map NULL source
             # geometries to NULL, dissolve unions an all-NULL group to NULL,
             # and boundary-grazing clips survive ST_Intersects but extract to
             # EMPTY (see analysis_sql.render_geometry_expr). The preview
             # filters the same rows in SQL (fix(#680 review)) — the saved
-            # dataset must agree with the preview the user approved.
+            # dataset must agree with the preview the user approved. This
+            # DELETE stays as the backstop enforcing that invariant should a
+            # future query shape miss the in-CTAS filter.
             await session.execute(
                 text(f"DELETE FROM {out_ref} WHERE geom IS NULL OR ST_IsEmpty(geom)")
             )
@@ -567,10 +658,15 @@ async def _materialize(
                 ),
                 requester,
             )
-            job.dataset_id = dataset.id
-            job.status = "complete"
-            await session.commit()
-            ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
+            await _complete_job_for_attempt(
+                session,
+                job_id=job_id,
+                attempt_id=attempt_id,
+                dataset_id=dataset.id,
+                schema=_schema,
+                out_table=out_table,
+                operation=operation,
+            )
         except asyncio.CancelledError:
             # Graceful worker shutdown cancels this task after the drain
             # window; `except Exception` cannot catch it, and retry=0 means no
@@ -607,6 +703,7 @@ async def _materialize(
             await _mark_job_failed(
                 session,
                 job_id=job_id,
+                attempt_id=attempt_id,
                 exc=exc,
                 schema=_schema,
                 out_table=out_table if out_table_created else None,

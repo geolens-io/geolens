@@ -13,6 +13,7 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { Pencil, Check } from 'lucide-react';
 import {
   deriveTerrainLegendEntry,
@@ -104,9 +105,13 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") — they
   // have no stack row and paint nothing, so they must not appear as per-layer
   // legend entries. Consume the shared predicate, never re-derive it.
+  // fix(#769): synthetic group:folder rows are built by spreading the group's
+  // first child, so they inherit visible/show_in_legend/paint — without this
+  // predicate every folder group renders a phantom legend entry.
   const legendLayers = useMemo(
     () => ctx.layers.filter(
-      (l) => l.visible && l.show_in_legend !== false && !isDemTerrainVisualSuppressed(l),
+      (l) => l.visible && l.show_in_legend !== false && !isFolderGroupLayer(l)
+        && !isDemTerrainVisualSuppressed(l),
     ),
     [ctx.layers],
   );

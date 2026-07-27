@@ -1966,6 +1966,42 @@ describe('SHARE-09 export PNG composition', () => {
     expect(fillRectSpy).toHaveBeenCalled();
   });
 
+  // fix(#769): the synthetic group:folder row is built by spreading the group's
+  // first child, so it inherits visible/show_in_legend — the export filter must
+  // exclude it or the PNG ships a phantom legend row labeled with the group name.
+  it('excludes folder-group rows from the exported legend (#769)', () => {
+    const mockMap = makeExportMap();
+    const streetsLayer = makeLayer({
+      id: 'layer-streets',
+      display_name: 'Streets',
+      visible: true,
+      show_in_legend: true,
+    });
+    const groupRow = {
+      ...makeLayer({
+        id: 'group-1',
+        display_name: 'Transit group',
+        visible: true,
+        show_in_legend: true,
+      }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [groupRow, streetsLayer],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(calls.some((text) => text === 'Streets')).toBe(true);
+    expect(calls.some((text) => text === 'Transit group')).toBe(false);
+  });
+
   it('swatch border uses the layer stroke color for hollow-circle styles', () => {
     const mockMap = makeExportMap();
     // Light fill + colored stroke (hollow circle). The old export drew the near-white

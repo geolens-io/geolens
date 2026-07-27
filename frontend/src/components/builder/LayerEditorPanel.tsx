@@ -322,7 +322,15 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               onClick={onBreadcrumbClick}
               className="block text-mini leading-tight tracking-[0.04em] text-muted-foreground hover:text-foreground hover:underline"
             >
-              Basemap · {breadcrumbPresetName ?? 'Untitled'} ›
+              {/* fix(#788 item 1): translated — the visible text was a
+                  hardcoded English literal while the aria-label above is
+                  translated, so the two disagreed in non-English locales. */}
+              {t('basemapSublayer.breadcrumb', {
+                defaultValue: 'Basemap · {{name}} ›',
+                name:
+                  breadcrumbPresetName ??
+                  t('basemapSublayer.breadcrumbUntitled', { defaultValue: 'Untitled' }),
+              })}
             </button>
           </div>
         )}

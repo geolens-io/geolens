@@ -80,6 +80,8 @@ interface UnifiedStackPanelProps {
   // Phase 1201-01 (ENH-01/ENH-02/ENH-03): authoring actions threaded to the kebab
   // + bulk bar.
   onZoomToLayer?: (id: string) => void;
+  /** ux(#772): opens the Analysis panel prefilled with this layer. */
+  onAnalyzeLayer?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   onBulkApplyStyle?: (ids: Set<string>) => void;
@@ -297,6 +299,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onRename,
   onDuplicate,
   onZoomToLayer,
+  onAnalyzeLayer,
   onCopyStyle,
   onPasteStyle,
   onBulkApplyStyle,
@@ -776,6 +779,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 onRename={onRename}
                                 onDuplicate={onDuplicate}
                                 onZoomToLayer={onZoomToLayer}
+                                onAnalyzeLayer={onAnalyzeLayer}
                                 onCopyStyle={onCopyStyle}
                                 onPasteStyle={onPasteStyle}
                                 canPasteStyle={
@@ -823,6 +827,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onRename={onRename}
                     onDuplicate={onDuplicate}
                     onZoomToLayer={onZoomToLayer}
+                    onAnalyzeLayer={onAnalyzeLayer}
                     onCopyStyle={onCopyStyle}
                     onPasteStyle={onPasteStyle}
                     canPasteStyle={

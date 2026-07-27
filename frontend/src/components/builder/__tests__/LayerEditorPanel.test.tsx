@@ -11,7 +11,18 @@ vi.mock('react-i18next', () => ({
       if (key === 'layerItem.filterTab') return 'Filter';
       if (key === 'layerItem.labelsTab') return 'Labels';
       if (key === 'layerItem.popupTab') return 'Popup';
-      return options?.defaultValue ?? key;
+      // fix(#788 item 1): interpolate params into defaultValue so keys like
+      // basemapSublayer.breadcrumb ("Basemap · {{name}} ›") resolve for the
+      // breadcrumb assertions.
+      let result = options?.defaultValue ?? key;
+      if (options) {
+        for (const [param, value] of Object.entries(options)) {
+          if (param !== 'defaultValue') {
+            result = result.replace(`{{${param}}}`, String(value));
+          }
+        }
+      }
+      return result;
     },
   }),
 }));
