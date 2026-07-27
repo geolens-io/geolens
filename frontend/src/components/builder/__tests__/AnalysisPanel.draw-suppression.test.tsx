@@ -93,8 +93,12 @@ const polygonLayer = {
 
 function renderPanel() {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-  // startDrawing bails without a map; the adapter is mocked, so any object does.
-  const mapInstanceRef = { current: {} as MaplibreMap };
+  // startDrawing bails without a map; the adapter is mocked. on/off: the
+  // finished polygon sets a mask, whose fix(#775) style.load subscription
+  // attaches to the map.
+  const mapInstanceRef = {
+    current: { on: vi.fn(), off: vi.fn() } as unknown as MaplibreMap,
+  };
   return render(
     <QueryClientProvider client={qc}>
       <AnalysisPanel layers={[polygonLayer]} mapInstanceRef={mapInstanceRef} />
