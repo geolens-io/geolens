@@ -106,6 +106,10 @@ interface BuilderRailProps {
   ) => void;
   // Analysis tools
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
+  /** ux(#772): the layer selected in the builder's stack — the Analysis
+   *  panel prefers it (when analysable) over the remembered form's layer and
+   *  the first-eligible default. */
+  selectedLayerId?: string | null;
   onClearPreview?: () => void;
   hasPreview?: boolean;
   /** fix(#793 review): who drew the current ephemeral overlay — the
@@ -137,6 +141,7 @@ export function BuilderRail({
   layerActions,
   onQueryResult,
   mapInstanceRef,
+  selectedLayerId,
   onClearPreview,
   hasPreview,
   previewSource,
@@ -154,6 +159,23 @@ export function BuilderRail({
 
   const togglePanel = useCallback((panel: RailPanel) => {
     onPanelChange(activePanel === panel ? null : panel);
+  }, [activePanel, onPanelChange]);
+
+  // fix(#783): closing the panel unmounts the aside containing the focused
+  // element, dropping keyboard focus to <body>. Mirror handleCloseEditor
+  // (MapBuilderPage): return focus to the rail button that opened the panel.
+  // In sheet mode (showRail=false) the button doesn't exist and Radix's own
+  // close-time focus restoration applies instead.
+  const closePanel = useCallback(() => {
+    const panel = activePanel;
+    onPanelChange(null);
+    if (panel) {
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-rail-button="${panel}"]`)
+          ?.focus();
+      });
+    }
   }, [activePanel, onPanelChange]);
 
   const railButtons = useMemo(() => [
@@ -193,10 +215,16 @@ export function BuilderRail({
     <>
       {/* Icon rail */}
       {showRail && (
-        <aside className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0">
+        // fix(#788 item 5): named landmark — both builder asides announced as
+        // bare "complementary" with no way to tell rail from panel.
+        <aside
+          aria-label={t('rail.toolsLabel', { defaultValue: 'Builder tools' })}
+          className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0"
+        >
           {railButtons.map(btn => (
             <button
               key={btn.id}
+              data-rail-button={btn.id}
               onClick={btn.disabled ? undefined : () => togglePanel(btn.id)}
               disabled={btn.disabled}
               data-unavailable={btn.unavailable || undefined}
@@ -240,6 +268,9 @@ export function BuilderRail({
       {activePanel && (
         // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- container-level Escape shortcut for keystrokes bubbling from the panel's own interactive children; the aside itself stays non-interactive
         <aside
+          // fix(#788 item 5): named landmark — the panel takes its accessible
+          // name from its own title, distinguishing it from the icon rail.
+          aria-labelledby="builder-rail-panel-title"
           className={cn(
             'bg-background border-s flex h-full min-h-0 flex-col shrink-0 overflow-hidden',
             showRail ? 'w-80' : 'w-full border-s-0',
@@ -250,14 +281,14 @@ export function BuilderRail({
             // focus is inside the panel).
             if (e.key === 'Escape' && !e.defaultPrevented) {
               e.stopPropagation();
-              onPanelChange(null);
+              closePanel();
             }
           }}
         >
           {/* Panel header */}
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b shrink-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">
+              <span id="builder-rail-panel-title" className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
                 {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
                 {activePanel === 'analysis' && t('analysisTools.title', { defaultValue: 'Analysis' })}
@@ -267,7 +298,7 @@ export function BuilderRail({
               </span>
             </div>
             <button
-              onClick={() => onPanelChange(null)}
+              onClick={closePanel}
               title={t('rail.closePanel', { defaultValue: 'Close panel' })}
               aria-label={t('rail.closePanel', { defaultValue: 'Close panel' })}
               className="flex cursor-pointer items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
@@ -332,6 +363,7 @@ export function BuilderRail({
                     }
                     layers={layers}
                     mapId={mapId}
+                    selectedLayerId={selectedLayerId}
                     mapInstanceRef={mapInstanceRef}
                     onPreviewResult={onQueryResult}
                     onClearPreview={onClearPreview}

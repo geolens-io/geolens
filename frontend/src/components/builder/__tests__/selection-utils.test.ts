@@ -5,7 +5,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeNextSelection } from '../selection-utils';
+import { computeNextSelection, computeSelectableRowIds } from '../selection-utils';
+import type { MapLayerResponse } from '@/types/api';
 
 const ROWS = ['A', 'B', 'C', 'D', 'E'];
 
@@ -97,5 +98,70 @@ describe('computeNextSelection — shift click (range-select)', () => {
     const result = computeNextSelection(ROWS, 'C', SHIFT, new Set(['gone']), 'gone');
     expect(Array.from(result.selection)).toEqual(['C']);
     expect(result.anchor).toBe('C');
+  });
+});
+
+// fix(#771): selectableRowIds must mirror the RENDERED row set — children of
+// collapsed groups and rows hidden by the layer search are not selectable, so
+// a shift-click range can never act on rows the user cannot see.
+describe('computeSelectableRowIds', () => {
+  function makeRow(overrides: {
+    id: string;
+    display_name?: string | null;
+    dataset_name?: string;
+    layer_type?: string | null;
+    parent_group_id?: string | null;
+  }): MapLayerResponse {
+    return {
+      id: overrides.id,
+      display_name: overrides.display_name ?? null,
+      dataset_name: overrides.dataset_name ?? overrides.id,
+      layer_type: overrides.layer_type ?? 'vector_geolens',
+      parent_group_id: overrides.parent_group_id ?? null,
+    } as unknown as MapLayerResponse;
+  }
+
+  // Stack: [group G ("Roads") with children c1 ("Streets") + c2 ("Rivers"), loose L ("Parcels")]
+  const group = makeRow({ id: 'G', display_name: 'Roads', layer_type: 'group:folder' });
+  const child1 = makeRow({ id: 'c1', display_name: 'Streets', parent_group_id: 'G' });
+  const child2 = makeRow({ id: 'c2', display_name: 'Rivers', parent_group_id: 'G' });
+  const loose = makeRow({ id: 'L', display_name: 'Parcels' });
+  const stack = [group, child1, child2, loose];
+
+  it('returns render order (group, its children, loose rows) with no search and an expanded group', () => {
+    expect(computeSelectableRowIds(stack, { G: { expanded: true } }, '')).toEqual([
+      'G', 'c1', 'c2', 'L',
+    ]);
+  });
+
+  it('excludes children of a collapsed group (they are not rendered)', () => {
+    expect(computeSelectableRowIds(stack, { G: { expanded: false } }, '')).toEqual(['G', 'L']);
+    // groupMeta absence means collapsed (matches the panel's `?? false` default)
+    expect(computeSelectableRowIds(stack, {}, '')).toEqual(['G', 'L']);
+  });
+
+  it('excludes rows hidden by the layer search', () => {
+    expect(computeSelectableRowIds(stack, { G: { expanded: true } }, 'parcel')).toEqual(['L']);
+  });
+
+  it('a child match keeps the group header and only the matching children', () => {
+    expect(computeSelectableRowIds(stack, { G: { expanded: true } }, 'streets')).toEqual([
+      'G', 'c1',
+    ]);
+  });
+
+  it('a group-name match keeps every child of the expanded group', () => {
+    expect(computeSelectableRowIds(stack, { G: { expanded: true } }, 'roads')).toEqual([
+      'G', 'c1', 'c2',
+    ]);
+  });
+
+  it('a child match inside a COLLAPSED group keeps only the group header', () => {
+    expect(computeSelectableRowIds(stack, { G: { expanded: false } }, 'streets')).toEqual(['G']);
+  });
+
+  it('falls back to dataset_name when display_name is null (matches the search input behavior)', () => {
+    const unnamed = makeRow({ id: 'U', display_name: null, dataset_name: 'Unnamed dataset' });
+    expect(computeSelectableRowIds([unnamed, loose], {}, 'unnamed')).toEqual(['U']);
   });
 });

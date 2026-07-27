@@ -77,4 +77,17 @@ describe('EmptyStackState — no-suggestions state (STACK-04)', () => {
     expect(screen.queryByText('SUGGESTED')).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Suggested datasets' })).not.toBeInTheDocument();
   });
+
+  // fix(#780): the first-run copy must name controls that exist on this
+  // surface — the header's "Add data" button — not a starter list or an
+  // Upload button that stock installs never render.
+  it('points the fallback help copy at the Add data button, not an absent Upload button (#780)', () => {
+    render(<EmptyStackState {...defaultProps()} />);
+
+    expect(
+      screen.getByText('Search the catalog to find datasets, or use the Add data button to add your own.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Upload button/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/starter dataset/)).not.toBeInTheDocument();
+  });
 });

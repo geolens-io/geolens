@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FlaskConical,
   Folder,
   FolderMinus,
   FolderPlus,
@@ -31,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { LayerTypeIcon } from '@/components/map/layer-icons';
+import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import { semanticBadgeColors } from '@/lib/status-colors';
@@ -59,6 +61,9 @@ interface StackRowProps {
   // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions.
   /** Frames the map to this layer's extent (ENH-01). */
   onZoomToLayer?: (id: string) => void;
+  /** ux(#772): opens the Analysis panel prefilled with this layer. Rendered
+   *  only for analysable (vector dataset) layers. */
+  onAnalyzeLayer?: (id: string) => void;
   /** Stashes this layer's geometry-compatible style in the session clipboard (ENH-02). */
   onCopyStyle?: (id: string) => void;
   /** Applies the clipboard style to this layer (ENH-02); disabled when !canPasteStyle. */
@@ -125,6 +130,7 @@ export const StackRow = memo(function StackRow({
   onRename,
   onDuplicate,
   onZoomToLayer,
+  onAnalyzeLayer,
   onCopyStyle,
   onPasteStyle,
   canPasteStyle = false,
@@ -282,6 +288,15 @@ export const StackRow = memo(function StackRow({
         if (e.key === ' ') {
           e.preventDefault();
           onCmdClick?.(layer.id); // Space = Cmd-click (toggles multi-selection)
+        }
+        // fix(#788): Escape with the delete confirm pending dismisses the
+        // confirm (consumed) instead of falling through to ancestor Escape
+        // handlers. The confirm handles its own Escape when focus is inside it;
+        // this covers focus resting on the row.
+        if (e.key === 'Escape' && confirmingDelete) {
+          e.preventDefault();
+          e.stopPropagation();
+          setConfirmingDelete(false);
         }
       }}
     >
@@ -580,6 +595,18 @@ export const StackRow = memo(function StackRow({
               <Crosshair className="h-3.5 w-3.5 me-2" aria-hidden="true" />
               {t('stackRow.kebabZoomToLayer', { defaultValue: 'Zoom to layer' })}
             </DropdownMenuItem>
+            {/* ux(#772): jump straight into Analysis targeting this layer.
+                Gated on the panel's own eligibility predicate so a raster or
+                DEM row doesn't offer an entry the panel would ignore. */}
+            {onAnalyzeLayer && isAnalysableLayer(layer) && (
+              <DropdownMenuItem
+                data-testid="kebab-analyze-layer"
+                onSelect={() => onAnalyzeLayer(layer.id)}
+              >
+                <FlaskConical className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                {t('stackRow.kebabAnalyzeLayer', { defaultValue: 'Analyze this layer' })}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               data-testid="kebab-copy-style"
               onSelect={() => onCopyStyle?.(layer.id)}
@@ -669,7 +696,12 @@ export const StackRow = memo(function StackRow({
           onRemove(layer.id);
           setConfirmingDelete(false);
         }}
-        onCancel={() => setConfirmingDelete(false)}
+        onCancel={() => {
+          setConfirmingDelete(false);
+          // fix(#788): the confirm owned focus (autofocused Cancel button), so
+          // dismissing it must hand focus back to the row instead of <body>.
+          document.getElementById(`stack-row-${layer.id}`)?.focus();
+        }}
       />
     )}
     </>

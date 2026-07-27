@@ -13,7 +13,11 @@ import {
   removePerLayerCompanions,
   shouldClearTerrainOnDelete,
 } from '@/components/builder/hooks/builder-layer-mutations';
-import { type GroupedLayer, clearPersistedFolderGroup } from '@/components/builder/folder-groups';
+import {
+  type GroupedLayer,
+  clearPersistedFolderGroup,
+  pruneEmptyFolderGroups,
+} from '@/components/builder/folder-groups';
 import { bulkDeleteLayersApi } from '@/api/maps';
 import {
   extractCopyableStyle,
@@ -305,17 +309,24 @@ export function useBulkLayerActions({
       if ((layer as GroupedLayer).layer_type === 'group:folder') return false;
       return true;
     });
-    if (idsToDelete.length === 0) return false;
+    if (idsToDelete.length === 0) {
+      // fix(#771): a selection of only group rows used to no-op silently — the
+      // bar promised "Delete N layers", nothing happened, no toast, selection
+      // preserved. Say why nothing was deletable.
+      toast.info(t('toasts.bulkDeleteOnlyGroupRows'));
+      return false;
+    }
 
     // Clear expanded layer if it's being deleted
     setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
 
     // Optimistic update — remove only layers actually sent to the backend (idsToDelete),
     // not the full selectedIds which may include frontend-only group folder rows (WR-04).
+    // fix(#767): deleting every child of a folder group also prunes the now-empty
+    // group row — it has no persisted carrier and would vanish on save+reload anyway.
     const idsToDeleteSet = new Set(idsToDelete);
     setLocalLayers((prev) =>
-      prev
-        .filter((l) => !idsToDeleteSet.has(l.id))
+      pruneEmptyFolderGroups(prev.filter((l) => !idsToDeleteSet.has(l.id)))
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
@@ -353,8 +364,10 @@ export function useBulkLayerActions({
       if (result.failed.length === 0) {
         // Full success — sync baseline immediately so the subsequent invalidateQueries
         // refetch is not blocked by a stale savedLayerBaselineRef (CR-01).
-        savedLayerBaselineRef.current = savedLayerBaselineRef.current.filter(
-          (l) => !idsToDeleteSet.has(l.id),
+        // fix(#767): prune emptied group rows here too so the baseline cannot
+        // retain a group row localLayers no longer renders.
+        savedLayerBaselineRef.current = pruneEmptyFolderGroups(
+          savedLayerBaselineRef.current.filter((l) => !idsToDeleteSet.has(l.id)),
         );
         await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
         toast.success(t('bulkActions.deleteSuccess', { count: idsToDelete.length }));
@@ -372,22 +385,26 @@ export function useBulkLayerActions({
         return false;
       }
 
-      // Partial failure: keep deleted layers removed, restore failed layers
-      const failedIds = new Set(result.failed.map((f) => f.id));
-      setLocalLayers((current) => {
-        // Re-insert failed layers from previousLayers at their original sort_order positions
-        const failedLayers = previousLayers.filter((l) => failedIds.has(l.id));
-        const merged = [...current, ...failedLayers];
-        // Re-sort by original sort_order so failed layers slot back in naturally
-        merged.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        return merged.map((l, i) => ({ ...l, sort_order: i }));
-      });
+      // Partial failure: keep deleted layers removed, restore failed layers.
+      // fix(#805): rebuild from previousLayers minus the actually-deleted rows.
+      // The old path merged the already-renumbered optimistic array with failed
+      // rows still carrying their ORIGINAL sort_order — interleaving two
+      // numbering schemes — so survivors slotted back at the wrong stack
+      // position, and the wrong order was then saved. previousLayers preserves
+      // the true relative order of every survivor. Empty groups are pruned like
+      // the optimistic path (#767): a group whose children all deleted
+      // successfully must not linger.
+      const deletedIds = new Set(result.deleted);
+      setLocalLayers(
+        pruneEmptyFolderGroups(
+          previousLayers.filter((l) => !deletedIds.has(l.id)),
+        ).map((l, i) => ({ ...l, sort_order: i })),
+      );
       // HI-01: the optimistic terrain clear assumed the WHOLE batch was deleted.
       // Re-evaluate against the layers that ACTUALLY remain after restoring the
       // failed ones; if terrain is still backed (its source DEM was among the
       // failures), restore terrain_config so it is not silently disabled.
       if (clearedTerrainOnBulk) {
-        const deletedIds = new Set(result.deleted);
         const remainingAfterPartial = previousLayers.filter((l) => !deletedIds.has(l.id));
         if (!shouldClearTerrainOnDelete(remainingAfterPartial, previousTerrainConfig)) {
           setLocalTerrainConfig(previousTerrainConfig);

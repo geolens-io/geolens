@@ -1,8 +1,17 @@
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -160,23 +169,26 @@ export function BuilderDialogs({
         </DialogContent>
       </Dialog>
 
-      {/* Unsaved changes leave warning */}
-      <Dialog open={blockerState === 'blocked'} onOpenChange={() => onBlockerReset?.()}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t('leaveWarning.title')}</DialogTitle>
-            <DialogDescription>{t('leaveWarning.description')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onBlockerReset?.()}>
+      {/* Unsaved changes leave warning.
+          ux(#777): a modal AlertDialog with the canonical Cancel-then-Action
+          footer, matching the DatasetPage / AdminSettingsPage navigation guards
+          — was a dismissible Dialog with a hand-rolled footer. */}
+      <AlertDialog open={blockerState === 'blocked'} onOpenChange={() => onBlockerReset?.()}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('leaveWarning.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('leaveWarning.description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => onBlockerReset?.()}>
               {t('leaveWarning.stay')}
-            </Button>
-            <Button variant="destructive" onClick={() => onBlockerProceed?.()}>
+            </AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => onBlockerProceed?.()}>
               {t('leaveWarning.leave')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
