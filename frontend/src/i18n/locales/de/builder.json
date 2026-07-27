@@ -966,6 +966,7 @@
     "truncatedNoticeTotal": "Die ersten {{count}} von {{total}} Quell-Features werden angezeigt",
     "clipLayerLabel": "Oder an einer Ebene zuschneiden",
     "clipLayerNone": "Keine — auf der Karte zeichnen",
+    "clipLayerEmpty": "Keine Polygon-Ebenen auf dieser Karte",
     "jobCompleteNamed": "„{{title}}“ ist fertig",
     "viewDataset": "Datensatz anzeigen",
     "jobSaving": "Datensatz wird gespeichert…",

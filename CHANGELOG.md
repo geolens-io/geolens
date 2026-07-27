@@ -7,6 +7,26 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The analysis completion notice no longer covers the panel's own "Add to
+  map" button.** In the builder it now appears top-center, clear of the right
+  rail; elsewhere it keeps the usual corner. (#725)
+- **The viewer legend no longer runs down behind the Map data button and the
+  basemap toggle.** Its height is capped against the map container instead of
+  the browser window, so a tall legend scrolls internally above the
+  bottom-left controls (embed pages included). (#731)
+- **Four analysis errors now explain themselves.** "An analysis job is
+  already running" no longer renders as generic rate-limit advice, and the
+  vector-dataset, polygon-mask, and unknown-dissolve-column refusals surface
+  their actual reason (translated) instead of "the submitted values are
+  invalid". (#774)
+- **Viewers are no longer offered Dissolve.** It is materialize-only and the
+  creation controls are hidden without the upload permission, so picking it
+  was a dead end whose hint named an invisible button. The clip mask picker
+  also says "No polygon layers on this map" instead of showing a lone "None"
+  entry. (#779)
+
 ## [1.5.0] - 2026-07-26
 
 ### Added

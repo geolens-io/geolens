@@ -218,6 +218,18 @@ describe('AnalysisPanel', () => {
     expect(screen.getByText('Parcels rendered oddly')).toBeInTheDocument();
   });
 
+  it('does not offer Dissolve to viewers (fix #779)', async () => {
+    mockCanUpload = false;
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+    // Dissolve is materialize-only and the materialize block is hidden
+    // without upload permission — offering it was a dead end with a hint
+    // naming an invisible button.
+    await user.click(screen.getAllByRole('combobox')[1]);
+    expect(await screen.findByRole('option', { name: 'Clip' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Dissolve' })).toBeNull();
+  });
+
   it('hides the dataset-creation half without the upload permission (#700)', () => {
     mockCanUpload = false;
     renderPanel([datasetLayer]);
