@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as core_db
@@ -835,6 +835,212 @@ class TestMaterializeWorker:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert job.dataset_id is None
+
+    async def test_sweeper_failed_job_is_not_resurrected_at_completion(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#786): the terminal 'complete' write is fenced on the attempt
+        token like the claim — if a stalled heartbeat lets the lease expire
+        and the stale-job sweep fails the row mid-run, the worker must not
+        overwrite failed → complete and hand the user a dataset for a job
+        they were told failed. The fence shares the registration
+        transaction, so the Dataset row rolls back with the miss, and the
+        already-committed output table is dropped as a provable orphan."""
+        import app.processing.ingest.service as ingest_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        real_register = ingest_service.register_existing_table
+        out_tables: list[str] = []
+
+        async def sweeping_register(session, request, user):
+            # The sweep lands between the build commit and the terminal
+            # write: fail the row out from under the worker on its own
+            # session, exactly as the platform's stale-job sweep does.
+            out_tables.append(request.table_name)
+            async with core_db.async_session() as sweeper:
+                await sweeper.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job.id)
+                    .values(
+                        status="failed",
+                        error_message="Stale: heartbeat lease expired",
+                    )
+                )
+                await sweeper.commit()
+            return await real_register(session, request, user)
+
+        with patch.object(ingest_service, "register_existing_table", sweeping_register):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="centroid",
+                title=f"Superseded {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "Stale: heartbeat lease expired"
+        assert job.dataset_id is None
+        assert out_tables, "materialize never reached registration"
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        registered = (
+            await test_db_session.execute(
+                select(Dataset).where(Dataset.table_name == out_tables[0])
+            )
+        ).scalar_one_or_none()
+        assert registered is None
+        # ...and the committed output table was dropped, not leaked.
+        leaked = (
+            await test_db_session.execute(
+                text("SELECT to_regclass(:ref)").bindparams(
+                    ref=f'data."{out_tables[0]}"'
+                )
+            )
+        ).scalar_one()
+        assert leaked is None
+
+    async def test_sweeper_failed_job_error_is_not_overwritten(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#786): _mark_job_failed is fenced like _fail_cancelled_job —
+        when another actor already moved the row to a terminal state, this
+        worker's later failure must not clobber the message the user saw.
+        And since the failure path cannot tell a swept row from a completed
+        one, it must leave the output table alone (the name generator
+        self-heals around the orphan, fix(#692))."""
+        import app.processing.ingest.service as ingest_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        out_tables: list[str] = []
+
+        async def sweeping_register(session, request, user):
+            out_tables.append(request.table_name)
+            async with core_db.async_session() as sweeper:
+                await sweeper.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job.id)
+                    .values(
+                        status="failed",
+                        error_message="Stale: heartbeat lease expired",
+                    )
+                )
+                await sweeper.commit()
+            raise RuntimeError("boom after supersession")
+
+        with patch.object(ingest_service, "register_existing_table", sweeping_register):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="centroid",
+                title=f"Superseded fail {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "Stale: heartbeat lease expired"
+        assert job.dataset_id is None
+        assert out_tables, "materialize never reached registration"
+        left = (
+            await test_db_session.execute(
+                text("SELECT to_regclass(:ref)").bindparams(
+                    ref=f'data."{out_tables[0]}"'
+                )
+            )
+        ).scalar_one()
+        assert left is not None
+
+    async def test_name_collision_warning_is_surfaced(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#786): the rename generate_table_name reports on a collision
+        was discarded — the upload path persists it to
+        user_metadata['collision_warning'], which the job-status endpoint
+        surfaces as warning_message, so an analysis output landing in e.g.
+        parcels_buffered_3 said nothing to the user."""
+        from app.processing.ingest.service import generate_table_name
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+        title = f"Warned {uuid.uuid4().hex[:6]}"
+        taken, _ = await generate_table_name(title, test_db_session)
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{taken}" (marker integer)')
+        )
+        await test_db_session.commit()
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="centroid",
+            title=title,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        warning = (job.user_metadata or {}).get("collision_warning")
+        assert warning is not None
+        assert f"{taken}_2" in warning
+
+    async def test_cleanup_rows_do_not_count_toward_size_cap(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#786): NULL/EMPTY-geometry rows are excluded in the CTAS
+        itself — a DELETE cannot shrink pg_total_relation_size (dead tuples
+        keep their pages until a rewrite), so the early ceiling probe used
+        to measure rows the cleanup removes and could fail a small analysis
+        as oversized. Same shape as the clip-by-layer case from the #719
+        review, extended to the render_geometry_expr operations."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        # 2,025 NULL-geometry decoys: centroid maps them to NULL and the
+        # cleanup removes them, but before the in-CTAS filter they inflated
+        # the measured relation well past the 64 KB ceiling below, while
+        # the 2 real centroids fit comfortably.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{ds.table_name} (name) "  # noqa: S608
+                f"SELECT 'decoy' FROM generate_series(1, 2025)"
+            )
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch("app.processing.analysis.tasks.MAX_OUTPUT_BYTES", 65536):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="centroid",
+                title=f"Centroids {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        kept = await test_db_session.scalar(
+            text(f"SELECT COUNT(*) FROM data.{new_ds.table_name}")  # noqa: S608
+        )
+        assert kept == 2
 
     async def test_worker_cancellation_fails_job_and_reraises(
         self,

@@ -569,12 +569,10 @@ export function DatasetSearchPanel({
         </div>
       )}
 
-      <div
-        className={cn(
-          'mt-3 max-h-[24rem] space-y-1 overflow-y-auto px-1',
-          isFetching && !isLoading && 'pointer-events-none opacity-50',
-        )}
-      >
+      {/* ux(#776): no pointer-events/opacity freeze during debounced
+          refetches — the pulse band above already signals them, and the
+          freeze made visible rows unclickable on every keystroke pause. */}
+      <div className="mt-3 max-h-[24rem] space-y-1 overflow-y-auto px-1">
         {results.map((record) => (
           <DraggableDatasetRow
             key={record.id}

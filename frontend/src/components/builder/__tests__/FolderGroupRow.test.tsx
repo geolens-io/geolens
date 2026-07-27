@@ -349,12 +349,12 @@ describe('FolderGroupRow', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('Test 17: When confirmingDelete=true, "Keep group" button is the secondary safe-choice action (autoFocus declared)', () => {
-    // This test verifies the safe-choice UI contract: "Keep group" is secondary (not destructive),
-    // and appears last in the confirm — meaning it gets autoFocus by the component.
+  it('Test 17: When confirmingDelete=true, "Keep group" button is the leading safe-choice action (autoFocus declared)', () => {
+    // fix(#777): the safe-choice UI contract is the app's canonical AlertDialog order —
+    // safe choice first ("Keep group", secondary variant, autoFocus), destructive last ("Delete all").
     // In practice, jsdom + Radix focus management makes document.activeElement unreliable here.
     // We verify: (a) the alertdialog appears, (b) Keep group button exists and is secondary variant,
-    // (c) Delete all is the first button (destructive), Keep group is second.
+    // (c) Keep group is the first button (safe), Delete all is last (destructive).
     const { container } = render(<FolderGroupRow {...defaultProps()} />);
 
     const kebabTrigger = screen.getByRole('button', { name: /Group options/i });
@@ -366,11 +366,10 @@ describe('FolderGroupRow', () => {
 
     const buttons = alertdialog?.querySelectorAll('button');
     expect(buttons?.length).toBe(2);
-    // First button is destructive ("Delete all"), second is secondary safe choice ("Keep group")
-    expect(buttons?.[0].textContent).toContain('Delete all');
-    expect(buttons?.[1].textContent).toContain('Keep group');
+    // First button is the secondary safe choice ("Keep group"), last is destructive ("Delete all")
+    expect(buttons?.[0].textContent).toContain('Keep group');
+    expect(buttons?.[1].textContent).toContain('Delete all');
     // The safe choice button has autoFocus as a React prop (renders as autofocus attribute in HTML)
-    // verifying it's the LAST button (autoFocus on secondary safe choice = accessibility contract)
     expect(screen.getByRole('button', { name: /Keep group/i })).toBeInTheDocument();
   });
 

@@ -205,6 +205,68 @@ describe('LayerStyleEditor - B-010 Advanced JSON strips builder-private keys', (
     expect(textarea.value).not.toContain('outline-color');
     expect(textarea.value).not.toContain('_height_column');
   });
+
+  // fix(#770): Apply replaces the block wholesale while the textarea shows the
+  // stripped copy — the onApply wrappers must re-merge the `_`-prefixed private
+  // keys, or an edit-free open→Apply of the Layout block resets the layer's
+  // zoom range (layout _minzoom/_maxzoom is the zoom sliders' only storage).
+  it('re-merges layout _minzoom/_maxzoom on an unedited Layout Apply (#770)', async () => {
+    const onLayoutChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': '#123456' },
+          layout: { '_minzoom': 5, '_maxzoom': 12 },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={onLayoutChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Advanced JSON/i }));
+    await user.click(screen.getByRole('button', { name: 'Layout' }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(onLayoutChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      '_minzoom': 5,
+      '_maxzoom': 12,
+    }));
+  });
+
+  it('re-merges paint `_`-keys on Paint Apply while keeping the applied JSON (#770)', async () => {
+    const onPaintChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': '#123456', 'fill-opacity': 0.4, '_outline-color': '#abcdef' },
+        })}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Advanced JSON/i }));
+    await user.click(screen.getByRole('button', { name: 'Paint' }));
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: JSON.stringify({ 'fill-color': '#ff0000', 'fill-opacity': 0.4 }) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'fill-color': '#ff0000',
+      'fill-opacity': 0.4,
+      '_outline-color': '#abcdef',
+    });
+  });
 });
 
 describe('hasUnsavedStyleChanges helper (SP-05)', () => {

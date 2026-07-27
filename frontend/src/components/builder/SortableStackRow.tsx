@@ -16,6 +16,8 @@ interface SortableStackRowProps {
   onDuplicate: (id: string) => void;
   // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions threaded to StackRow.
   onZoomToLayer?: (id: string) => void;
+  /** ux(#772): opens the Analysis panel prefilled with this layer. */
+  onAnalyzeLayer?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
@@ -56,6 +58,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   onRename,
   onDuplicate,
   onZoomToLayer,
+  onAnalyzeLayer,
   onCopyStyle,
   onPasteStyle,
   canPasteStyle,
@@ -111,6 +114,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         onRename={onRename}
         onDuplicate={onDuplicate}
         onZoomToLayer={onZoomToLayer}
+        onAnalyzeLayer={onAnalyzeLayer}
         onCopyStyle={onCopyStyle}
         onPasteStyle={onPasteStyle}
         canPasteStyle={canPasteStyle}

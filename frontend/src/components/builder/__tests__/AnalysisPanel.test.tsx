@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TerraDraw } from 'terra-draw';
 import { render } from '@/test/test-utils';
 import { AnalysisPanel } from '../AnalysisPanel';
 import { ApiError } from '@/api/client';
@@ -478,16 +479,36 @@ describe('AnalysisPanel', () => {
     expect(screen.queryByRole('option', { name: 'Bus stops' })).toBeNull();
   });
 
+  it('clip action buttons keep their own accessible names (#754)', async () => {
+    // The section label used htmlFor pointed at the state-dependent action
+    // buttons, and a <label for> aimed at a button OVERRIDES the button's own
+    // text — Cancel and Clear were both announced as "Draw clip area".
+    const user = userEvent.setup();
+    renderPanel([datasetLayer, datasetLayer2]);
+
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Clip' }));
+
+    const label = screen.getByText('Draw clip area', { selector: 'label' });
+    expect(label).not.toHaveAttribute('for');
+    // The draw button is named by its own text, not by the label element.
+    const drawButton = screen.getByRole('button', { name: 'Draw clip area' });
+    expect(drawButton).not.toHaveAttribute('id');
+  });
+
   it('converts the buffer distance from the selected unit to meters (#686)', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer]);
 
-    fireEvent.change(screen.getByLabelText('Distance'), {
-      target: { value: '2' },
-    });
+    // ux(#773): pick the unit FIRST — changing it now converts the number to
+    // preserve the physical distance, so typing after the switch is how a
+    // user enters "2 miles".
     // Combobox order under buffer: layer, operation, distance unit.
     await user.click(screen.getAllByRole('combobox')[2]);
     await user.click(await screen.findByRole('option', { name: 'miles' }));
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '2' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await waitFor(() =>
@@ -496,6 +517,59 @@ describe('AnalysisPanel', () => {
         distance_meters: 2 * 1609.344,
       }),
     );
+  });
+
+  it('converts the displayed number on a unit switch, preserving the distance (#773)', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '100' },
+    });
+    // 100 m → km converts to 0.1 instead of silently meaning 100 km.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'kilometers' }));
+    expect(screen.getByLabelText('Distance')).toHaveValue(0.1);
+
+    // The wire value is the same physical distance as before the switch.
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'buffer',
+        distance_meters: 100,
+      }),
+    );
+
+    // And back — a clean round trip, no drift.
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'meters' }));
+    expect(screen.getByLabelText('Distance')).toHaveValue(100);
+  });
+
+  it('rounds converted distances instead of leaving float tails (#773)', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '500' },
+    });
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'feet' }));
+    // 500 / 0.3048 = 1640.419947506… — trimmed to 6 significant digits.
+    expect(screen.getByLabelText('Distance')).toHaveValue(1640.42);
+  });
+
+  it('leaves an empty distance field alone on a unit switch (#773)', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '' },
+    });
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'kilometers' }));
+    // Nothing to convert — no NaN materializes in the field.
+    expect(screen.getByLabelText('Distance')).toHaveValue(null);
   });
 
   it('sends by_field when a dissolve group column is chosen', async () => {
@@ -719,6 +793,23 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       await new Promise((r) => setTimeout(r, 0));
       // The superseded response must not resurrect the run state either.
       expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
+    });
+
+    it('renders the job status in a persistent role="status" region (#784)', async () => {
+      mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+      renderPanel([datasetLayer]);
+
+      // Mounted EMPTY with the form — a live region that mounts already
+      // populated is not announced, so the first message must arrive as a
+      // mutation inside an existing region.
+      const region = screen.getByRole('status');
+      expect(region).toBeEmptyDOMElement();
+
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Walkshed' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() => expect(region).toHaveTextContent('Dataset created'));
     });
 
     it('clears the typed name once the run completes (#793 review)', async () => {
@@ -983,7 +1074,9 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       expect(mockTerraDraw.instance.addFeatures).not.toHaveBeenCalled();
 
       // The map arrives by REF assignment; the load re-renders the parent.
-      mapRef.current = {};
+      // on/off: the fix(#775) style.load subscription attaches while a mask
+      // is set.
+      mapRef.current = { on: vi.fn(), off: vi.fn() };
       view.rerender(renderTree());
       await waitFor(() =>
         expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
@@ -1004,12 +1097,75 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       });
       renderPanel([datasetLayer], {
         mapId: 'm1',
-        mapInstanceRef: { current: {} as never },
+        mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
       });
       // The failed restore must stop the instance it started — the ref was
       // never assigned, so stopping via the ref would leak its map layers.
       await waitFor(() =>
         expect(mockTerraDraw.instance.stop).toHaveBeenCalled(),
+      );
+    });
+
+    it('re-adds the drawn mask overlay after a basemap style reload (#775)', async () => {
+      mockTerraDraw.instance.addFeatures.mockClear();
+      mockTerraDraw.instance.setMode.mockClear();
+      mockTerraDraw.instance.stop.mockClear();
+      const mask: GeoJSON.Polygon = {
+        type: 'Polygon',
+        coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+      };
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+        mask, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      });
+      // A map that actually tracks its style.load handlers: the fix
+      // subscribes for the lifetime of the mask, and the unsubscribe half
+      // (mask cleared → no resurrect) is only observable through a registry.
+      const styleLoadHandlers = new Set<() => void>();
+      const mockMap = {
+        on: vi.fn((event: string, fn: () => void) => {
+          if (event === 'style.load') styleLoadHandlers.add(fn);
+        }),
+        off: vi.fn((event: string, fn: () => void) => {
+          if (event === 'style.load') styleLoadHandlers.delete(fn);
+        }),
+      };
+      renderPanel([datasetLayer], {
+        mapId: 'm1',
+        mapInstanceRef: { current: mockMap as never },
+      });
+      // The #793 mount restore drew the static overlay once.
+      await waitFor(() =>
+        expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(1),
+      );
+
+      // A basemap switch: setStyle wiped TerraDraw's layers (the mask state
+      // survives), then the new style announced itself via style.load.
+      const constructionsBefore = vi.mocked(TerraDraw).mock.calls.length;
+      act(() => {
+        [...styleLoadHandlers].forEach((fn) => fn());
+      });
+      // The orphaned instance is stopped and the overlay rebuilt from mask.
+      expect(mockTerraDraw.instance.stop).toHaveBeenCalled();
+      expect(vi.mocked(TerraDraw).mock.calls.length).toBe(
+        constructionsBefore + 1,
+      );
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(2);
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenLastCalledWith([
+        expect.objectContaining({ geometry: mask }),
+      ]);
+      expect(mockTerraDraw.instance.setMode).toHaveBeenLastCalledWith('static');
+
+      // Clearing the mask drops the subscription — a later style reload must
+      // not resurrect the cleared overlay.
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+      await waitFor(() => expect(styleLoadHandlers.size).toBe(0));
+      const constructionsAfterClear = vi.mocked(TerraDraw).mock.calls.length;
+      act(() => {
+        [...styleLoadHandlers].forEach((fn) => fn());
+      });
+      expect(vi.mocked(TerraDraw).mock.calls.length).toBe(
+        constructionsAfterClear,
       );
     });
 
@@ -1151,5 +1307,161 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       renderPanel([datasetLayer], { mapId: 'm2' });
       expect(screen.getByLabelText('Distance')).toHaveValue(500);
     });
+  });
+});
+
+describe('AnalysisPanel — stack-selected layer (#772)', () => {
+  beforeEach(() => {
+    mockJobStatus.value = null;
+    mockJobStatus.error = null;
+    useAnalysisFormStore.setState({ forms: {} });
+    useAnalysisJobStore.setState({ job: null });
+    useAuthStore.setState({ token: null, refreshToken: null, user: null });
+    vi.mocked(previewAnalysis).mockClear();
+    vi.mocked(materializeAnalysis).mockClear();
+  });
+
+  it('targets the stack-selected layer instead of the first eligible one', async () => {
+    renderPanel([datasetLayer, datasetLayer2], { selectedLayerId: 'l3' });
+    expect(screen.getByText('Roads')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(previewAnalysis).toHaveBeenCalledWith('ds2', {
+        operation: 'buffer',
+        distance_meters: 500,
+      }),
+    );
+  });
+
+  it('ignores a selection that is not an analysable layer', () => {
+    // The selection slot also carries raster layers, folder groups, and
+    // sentinel ids like 'settings' — none of them may hijack the default.
+    renderPanel([datasetLayer, rasterLayer], { selectedLayerId: 'l5' });
+    expect(screen.getByText('Parcels')).toBeInTheDocument();
+  });
+
+  it('yields to an explicit chat prefill', async () => {
+    renderPanel([datasetLayer, datasetLayer2], {
+      selectedLayerId: 'l3',
+      prefill: { layerId: 'l1', operation: 'buffer', distanceMeters: 750 },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'buffer',
+        distance_meters: 750,
+      }),
+    );
+  });
+
+  it("beats the remembered form's layer while the rest of the form restores", () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '750', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Draft name',
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      selectedLayerId: 'l3',
+    });
+    expect(screen.getByText('Roads')).toBeInTheDocument();
+    expect(screen.getByLabelText('Distance')).toHaveValue(750);
+    expect(screen.getByLabelText('New dataset name')).toHaveValue('Draft name');
+  });
+
+  it("drops the displaced layer's remembered group-by (#680 parity)", async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'dissolve', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: 'col:name',
+      outputTitle: 'Dissolved',
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      selectedLayerId: 'l3',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+    // No by_field: the remembered column belonged to the displaced layer.
+    await waitFor(() =>
+      expect(materializeAnalysis).toHaveBeenCalledWith('ds2', {
+        operation: 'dissolve',
+        title: 'Dissolved',
+      }),
+    );
+  });
+
+  it('clears a remembered mask layer the selection displaces into the source slot', () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: 'l3', byField: '__none__', outputTitle: '',
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      selectedLayerId: 'l3',
+    });
+    // A mask layer can't clip itself, so the clip params are incomplete again.
+    expect(screen.getAllByRole('combobox')[2]).toHaveTextContent(
+      'None — draw on the map',
+    );
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+  });
+
+  it('leaves a tracked run ambient when the selection displaces its form (#793 semantics)', () => {
+    mockJobStatus.value = { status: 'running', current_step: null };
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Run name',
+    });
+    useAnalysisJobStore.setState({
+      job: { jobId: 'job9', title: 'Run name', mapId: 'm1' },
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      selectedLayerId: 'l3',
+    });
+    // The run's blessed form is known to differ from this mount — adopting it
+    // would surface (and later clear) state over a different draft.
+    expect(screen.queryByText('Creating dataset…')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Another analysis is still running — wait for it to finish.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('still rehydrates the run when the selection matches the remembered layer', () => {
+    mockJobStatus.value = { status: 'running', current_step: null };
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Run name',
+    });
+    useAnalysisJobStore.setState({
+      job: { jobId: 'job9', title: 'Run name', mapId: 'm1' },
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      selectedLayerId: 'l1',
+    });
+    expect(screen.getByText('Creating dataset…')).toBeInTheDocument();
+  });
+
+  it('clears a panel-owned overlay when the selection displaces the remembered layer', async () => {
+    const onClearPreview = vi.fn();
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '750', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+    });
+    renderPanel([datasetLayer, datasetLayer2], {
+      mapId: 'm1',
+      selectedLayerId: 'l3',
+      onClearPreview,
+      hasPreview: true,
+      previewSource: 'analysis-panel',
+    });
+    // The overlay depicts the displaced layer's preview — stale for the same
+    // reason a vanished layer's would be.
+    await waitFor(() => expect(onClearPreview).toHaveBeenCalled());
   });
 });

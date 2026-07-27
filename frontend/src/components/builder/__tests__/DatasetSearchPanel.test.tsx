@@ -417,7 +417,7 @@ describe('DatasetSearchPanel — Phase 1042-02 polish fixes', () => {
     expect(container.querySelector('.animate-spin')).toBeNull();
   });
 
-  it('Test 2 (AUD-13): isFetching=true && isLoading=false shows thin progress band above dimmed list', () => {
+  it('Test 2 (AUD-13/ux #776): refetch shows the thin progress band and keeps the list interactive', () => {
     useQueryOverride = {
       data: searchResponse,
       isLoading: false,
@@ -430,9 +430,10 @@ describe('DatasetSearchPanel — Phase 1042-02 polish fixes', () => {
     // Progress band — h-0.5 element with animate-pulse
     const progressBand = container.querySelector('.h-0\\.5.animate-pulse');
     expect(progressBand).not.toBeNull();
-    // The results list should be present but dimmed (pointer-events-none opacity-50)
-    const dimmedList = container.querySelector('.pointer-events-none.opacity-50');
-    expect(dimmedList).not.toBeNull();
+    // ux(#776): the stale list stays fully interactive during a debounced
+    // refetch — the band is the signal; the old pointer-events/opacity freeze
+    // made visible rows unclickable on every keystroke pause.
+    expect(container.querySelector('.pointer-events-none.opacity-50')).toBeNull();
     // No skeleton rows during refetch
     const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBe(0);

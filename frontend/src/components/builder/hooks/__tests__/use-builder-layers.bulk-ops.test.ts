@@ -908,3 +908,99 @@ describe('useBuilderLayers — handleBulkDelete batched (PERF-03)', () => {
     expect(isDeletingDuringCall).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleBulkDelete — fix(#805) survivor position + fix(#767) empty-group prune
+// + fix(#771) zero-deletable feedback
+// ---------------------------------------------------------------------------
+
+describe('useBuilderLayers — handleBulkDelete survivor position and group rows', () => {
+  // fix(#805): the old partial-failure path merged the already-renumbered
+  // optimistic array with failed rows still carrying their ORIGINAL sort_order,
+  // interleaving two numbering schemes. With [a,b,c,d,e], deleting {a,b} where
+  // only 'a' succeeds used to restore 'b' AFTER c and d — and that wrong order
+  // was then saved. Survivors must keep their original relative order.
+  it('partial failure restores survivors at their original stack position (fix #805)', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockResolvedValue({
+      deleted: ['a'],
+      failed: [{ id: 'b', reason: 'concurrent_edit' }],
+    });
+
+    const layers = [
+      makeMockLayer({ id: 'a', sort_order: 0 }),
+      makeMockLayer({ id: 'b', sort_order: 1 }),
+      makeMockLayer({ id: 'c', sort_order: 2 }),
+      makeMockLayer({ id: 'd', sort_order: 3 }),
+      makeMockLayer({ id: 'e', sort_order: 4 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    await act(async () => {
+      await result.current.handleBulkDelete(new Set(['a', 'b']));
+    });
+
+    // Exact order matters: 'b' returns to the TOP (its original slot minus the
+    // deleted 'a'), not interleaved into the renumbered survivors.
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['b', 'c', 'd', 'e']);
+    expect(result.current.localLayers.map((l) => l.sort_order)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('bulk-deleting every child of a folder group prunes the empty group row (fix #767)', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockResolvedValue({ deleted: ['child-a', 'child-b'], failed: [] });
+
+    const marker = {
+      builder: { folderGroupId: 'g1', folderGroupName: 'Group 1' },
+    } as MapLayerResponse['style_config'];
+    const layers = [
+      makeMockLayer({ id: 'child-a', sort_order: 0, style_config: marker }),
+      makeMockLayer({ id: 'child-b', sort_order: 1, style_config: marker }),
+      makeMockLayer({ id: 'loose', sort_order: 2 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    // Sanity: hydration materialized the group row from the child markers.
+    expect(result.current.localLayers.map((l) => l.id)).toEqual([
+      'g1', 'child-a', 'child-b', 'loose',
+    ]);
+
+    await act(async () => {
+      await result.current.handleBulkDelete(new Set(['child-a', 'child-b']));
+    });
+
+    // The emptied group row is pruned alongside its deleted children — it had
+    // no persisted carrier and would have silently vanished on reload anyway.
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['loose']);
+    // The synthetic group row was never sent to the backend.
+    expect(mockedBulkDelete).toHaveBeenCalledWith(MAP_ID, expect.not.arrayContaining(['g1']));
+  });
+
+  it('a selection of only group rows toasts instead of silently no-oping (fix #771)', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    const infoSpy = vi.spyOn(toast, 'info');
+
+    const marker = {
+      builder: { folderGroupId: 'g1', folderGroupName: 'Group 1' },
+    } as MapLayerResponse['style_config'];
+    const layers = [
+      makeMockLayer({ id: 'child-a', sort_order: 0, style_config: marker }),
+      makeMockLayer({ id: 'loose', sort_order: 1 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.handleBulkDelete(new Set(['g1']));
+    });
+
+    expect(ok).toBe(false);
+    expect(infoSpy).toHaveBeenCalledOnce();
+    expect(mockedBulkDelete).not.toHaveBeenCalled();
+    // Nothing was removed locally either.
+    expect(result.current.localLayers.map((l) => l.id)).toEqual(['g1', 'child-a', 'loose']);
+  });
+});
