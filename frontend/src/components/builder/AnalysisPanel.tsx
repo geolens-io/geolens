@@ -698,13 +698,16 @@ export function AnalysisPanel({
                 // fix(#680 review): "source features" — the total is the
                 // source dataset's COUNT(*), which can exceed the number of
                 // rows that produce output (NULL/EMPTY geometries).
+                // fix(#788): both numbers passed raw — the locale strings
+                // group them via {{count, number}}/{{total, number}}, so count
+                // keeps driving plural selection AND renders locale-grouped.
                 defaultValue:
-                  'Showing the first {{count}} of {{total}} source features',
+                  'Showing the first {{count, number}} of {{total, number}} source features',
                 count: result.feature_count,
-                total: total.toLocaleString(i18n.language),
+                total,
               })
             : t('analysisTools.truncatedNotice', {
-                defaultValue: 'Preview capped at {{count}} features',
+                defaultValue: 'Preview capped at {{count, number}} features',
                 count: result.feature_count,
               }),
           // ux(#686): a capped preview is exactly what materialize is for, so

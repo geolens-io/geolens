@@ -320,7 +320,9 @@ describe('LayerEditorPanel', () => {
       }
       fireEvent.click(pills[0] as HTMLElement);
       expect(handlers.onRenderModeChange).toHaveBeenCalled();
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      // fix(#788): the inline confirm is a role="group" (non-modal), no longer
+      // an alertdialog it couldn't honor.
+      expect(screen.queryByRole('group', { name: /Compatible style/ })).not.toBeInTheDocument();
     });
 
     // fix(#430 V-09): a layer whose current mode HAS diverged from its defaults
@@ -352,9 +354,11 @@ describe('LayerEditorPanel', () => {
         return;
       }
       fireEvent.click(pills[0] as HTMLElement);
-      // Switch is destructive — confirm dialog opens, no actual mutation yet.
-      expect(handlers.onRenderModeChange).not.toHaveBeenCalled();
-      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      // Switch is destructive — inline confirm opens, no actual mutation yet.
+      // fix(#788): role="group" labelled by the message, which is a role="alert"
+      // so assistive tech announces the confirm when it appears.
+      expect(screen.getByRole('group', { name: /Compatible style/ })).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent(/Compatible style/);
       expect(screen.getByRole('button', { name: 'Switch mode' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Keep style' })).toBeInTheDocument();
     });
@@ -393,7 +397,37 @@ describe('LayerEditorPanel', () => {
       fireEvent.click(pills[0] as HTMLElement);
       fireEvent.click(screen.getByRole('button', { name: 'Keep style' }));
       expect(handlers.onRenderModeChange).not.toHaveBeenCalled();
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: /Compatible style/ })).not.toBeInTheDocument();
+    });
+
+    // fix(#788): Escape with the confirm pending cancels the pending switch and
+    // is consumed — previously it bubbled to the builder <aside>, which closed
+    // the whole editor panel with the confirm still open.
+    it('Escape with the render-as confirm pending cancels it, is consumed, and restores focus to the active pill', () => {
+      const onParentKeyDown = vi.fn();
+      const handlers = makeHandlers();
+      const layer = makeCustomizedHeatmapLayer();
+      render(
+        // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- test stand-in for the builder aside's Escape handler
+        <div onKeyDown={onParentKeyDown}>
+          <LayerEditorPanel
+            layer={layer}
+            onClose={vi.fn()}
+            handlers={handlers}
+            activeTab="style"
+          />
+        </div>
+      );
+      const pills = document.querySelectorAll('[data-active="false"]');
+      if (pills.length === 0) return;
+      fireEvent.click(pills[0] as HTMLElement);
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Keep style' }), { key: 'Escape' });
+      expect(handlers.onRenderModeChange).not.toHaveBeenCalled();
+      expect(screen.queryByRole('group', { name: /Compatible style/ })).not.toBeInTheDocument();
+      // Consumed: the ancestor (stand-in for the builder aside) never sees it.
+      expect(onParentKeyDown).not.toHaveBeenCalled();
+      // Focus returned to the still-active render-as pill, not <body>.
+      expect((document.activeElement as HTMLElement | null)?.id).toMatch(/^renderas-layer-1-/);
     });
 
     it('Style tab embeds LayerStyleEditor for a vector layer', () => {

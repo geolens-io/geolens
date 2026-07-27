@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen, within } from '@/test/test-utils';
 import { FolderGroupRow } from '../FolderGroupRow';
 import { useInlineRename } from '../useInlineRename';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
@@ -298,11 +298,11 @@ describe('FolderGroupRow', () => {
 
     expect(onUngroup).toHaveBeenCalledOnce();
     expect(onUngroup).toHaveBeenCalledWith('group-1');
-    // No alertdialog should appear
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // No inline confirm should appear
+    expect(screen.queryByRole('group', { name: /Delete this group/ })).not.toBeInTheDocument();
   });
 
-  it('Test 14: Kebab "Delete group" click sets confirmingDelete=true; inline alertdialog appears', () => {
+  it('Test 14: Kebab "Delete group" click sets confirmingDelete=true; inline confirm appears', () => {
     render(<FolderGroupRow {...defaultProps()} />);
 
     const kebabTrigger = screen.getByRole('button', { name: /Group options/i });
@@ -311,10 +311,10 @@ describe('FolderGroupRow', () => {
     const deleteItem = screen.getByRole('menuitem', { name: /Delete group/i });
     fireEvent.click(deleteItem);
 
-    // Alertdialog should appear with correct message and buttons
-    const dialog = screen.getByRole('alertdialog');
-    expect(dialog).toBeInTheDocument();
-    expect(screen.getByText('Delete this group and all its layers?')).toBeInTheDocument();
+    // fix(#788): the confirm is a role="group" (non-modal), labelled by its
+    // role="alert" message — no longer an alertdialog it couldn't honor.
+    const confirm = screen.getByRole('group', { name: 'Delete this group and all its layers?' });
+    expect(within(confirm).getByRole('alert')).toHaveTextContent('Delete this group and all its layers?');
     expect(screen.getByRole('button', { name: /Delete all/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Keep group/i })).toBeInTheDocument();
   });
@@ -331,8 +331,8 @@ describe('FolderGroupRow', () => {
 
     expect(onDeleteGroup).toHaveBeenCalledOnce();
     expect(onDeleteGroup).toHaveBeenCalledWith('group-1');
-    // Dialog should be gone
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // Confirm should be gone
+    expect(screen.queryByRole('group', { name: /Delete this group/ })).not.toBeInTheDocument();
   });
 
   it('Test 16: "Keep group" click sets confirmingDelete=false and does NOT call onDeleteGroup', () => {
@@ -346,14 +346,32 @@ describe('FolderGroupRow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Keep group/i }));
 
     expect(onDeleteGroup).not.toHaveBeenCalled();
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /Delete this group/ })).not.toBeInTheDocument();
+  });
+
+  // fix(#788): Escape dismisses the pending confirm (consumed, so it cannot
+  // trigger ancestor Escape behavior) and hands focus back to the row.
+  it('Escape inside the delete confirm cancels it without calling onDeleteGroup and refocuses the row', () => {
+    const onDeleteGroup = vi.fn();
+    render(<FolderGroupRow {...defaultProps({ onDeleteGroup })} />);
+
+    const kebabTrigger = screen.getByRole('button', { name: /Group options/i });
+    fireEvent.pointerDown(kebabTrigger, { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete group/i }));
+
+    const confirm = screen.getByRole('group', { name: 'Delete this group and all its layers?' });
+    fireEvent.keyDown(within(confirm).getByRole('button', { name: /Keep group/i }), { key: 'Escape' });
+
+    expect(onDeleteGroup).not.toHaveBeenCalled();
+    expect(screen.queryByRole('group', { name: /Delete this group/ })).not.toBeInTheDocument();
+    expect(document.activeElement?.id).toBe('stack-row-group-1');
   });
 
   it('Test 17: When confirmingDelete=true, "Keep group" button is the leading safe-choice action (autoFocus declared)', () => {
     // fix(#777): the safe-choice UI contract is the app's canonical AlertDialog order —
     // safe choice first ("Keep group", secondary variant, autoFocus), destructive last ("Delete all").
     // In practice, jsdom + Radix focus management makes document.activeElement unreliable here.
-    // We verify: (a) the alertdialog appears, (b) Keep group button exists and is secondary variant,
+    // We verify: (a) the confirm appears, (b) Keep group button exists and is secondary variant,
     // (c) Keep group is the first button (safe), Delete all is last (destructive).
     const { container } = render(<FolderGroupRow {...defaultProps()} />);
 
@@ -361,10 +379,11 @@ describe('FolderGroupRow', () => {
     fireEvent.pointerDown(kebabTrigger, { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole('menuitem', { name: /Delete group/i }));
 
-    const alertdialog = container.querySelector('[role="alertdialog"]');
-    expect(alertdialog).toBeTruthy();
+    // fix(#788): role="group" — anchored by the confirm's aria-labelledby id.
+    const confirm = container.querySelector('[role="group"][aria-labelledby="confirm-delete-group-1"]');
+    expect(confirm).toBeTruthy();
 
-    const buttons = alertdialog?.querySelectorAll('button');
+    const buttons = confirm?.querySelectorAll('button');
     expect(buttons?.length).toBe(2);
     // First button is the secondary safe choice ("Keep group"), last is destructive ("Delete all")
     expect(buttons?.[0].textContent).toContain('Keep group');
