@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TerraDraw } from 'terra-draw';
 import { render } from '@/test/test-utils';
 import { AnalysisPanel } from '../AnalysisPanel';
 import { ApiError } from '@/api/client';
@@ -1073,7 +1074,9 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       expect(mockTerraDraw.instance.addFeatures).not.toHaveBeenCalled();
 
       // The map arrives by REF assignment; the load re-renders the parent.
-      mapRef.current = {};
+      // on/off: the fix(#775) style.load subscription attaches while a mask
+      // is set.
+      mapRef.current = { on: vi.fn(), off: vi.fn() };
       view.rerender(renderTree());
       await waitFor(() =>
         expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
@@ -1094,12 +1097,75 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       });
       renderPanel([datasetLayer], {
         mapId: 'm1',
-        mapInstanceRef: { current: {} as never },
+        mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
       });
       // The failed restore must stop the instance it started — the ref was
       // never assigned, so stopping via the ref would leak its map layers.
       await waitFor(() =>
         expect(mockTerraDraw.instance.stop).toHaveBeenCalled(),
+      );
+    });
+
+    it('re-adds the drawn mask overlay after a basemap style reload (#775)', async () => {
+      mockTerraDraw.instance.addFeatures.mockClear();
+      mockTerraDraw.instance.setMode.mockClear();
+      mockTerraDraw.instance.stop.mockClear();
+      const mask: GeoJSON.Polygon = {
+        type: 'Polygon',
+        coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+      };
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+        mask, maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      });
+      // A map that actually tracks its style.load handlers: the fix
+      // subscribes for the lifetime of the mask, and the unsubscribe half
+      // (mask cleared → no resurrect) is only observable through a registry.
+      const styleLoadHandlers = new Set<() => void>();
+      const mockMap = {
+        on: vi.fn((event: string, fn: () => void) => {
+          if (event === 'style.load') styleLoadHandlers.add(fn);
+        }),
+        off: vi.fn((event: string, fn: () => void) => {
+          if (event === 'style.load') styleLoadHandlers.delete(fn);
+        }),
+      };
+      renderPanel([datasetLayer], {
+        mapId: 'm1',
+        mapInstanceRef: { current: mockMap as never },
+      });
+      // The #793 mount restore drew the static overlay once.
+      await waitFor(() =>
+        expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(1),
+      );
+
+      // A basemap switch: setStyle wiped TerraDraw's layers (the mask state
+      // survives), then the new style announced itself via style.load.
+      const constructionsBefore = vi.mocked(TerraDraw).mock.calls.length;
+      act(() => {
+        [...styleLoadHandlers].forEach((fn) => fn());
+      });
+      // The orphaned instance is stopped and the overlay rebuilt from mask.
+      expect(mockTerraDraw.instance.stop).toHaveBeenCalled();
+      expect(vi.mocked(TerraDraw).mock.calls.length).toBe(
+        constructionsBefore + 1,
+      );
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(2);
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenLastCalledWith([
+        expect.objectContaining({ geometry: mask }),
+      ]);
+      expect(mockTerraDraw.instance.setMode).toHaveBeenLastCalledWith('static');
+
+      // Clearing the mask drops the subscription — a later style reload must
+      // not resurrect the cleared overlay.
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+      await waitFor(() => expect(styleLoadHandlers.size).toBe(0));
+      const constructionsAfterClear = vi.mocked(TerraDraw).mock.calls.length;
+      act(() => {
+        [...styleLoadHandlers].forEach((fn) => fn());
+      });
+      expect(vi.mocked(TerraDraw).mock.calls.length).toBe(
+        constructionsAfterClear,
       );
     });
 

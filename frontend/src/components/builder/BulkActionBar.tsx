@@ -171,11 +171,13 @@ export const BulkActionBar = memo(function BulkActionBar({
           <span className="text-sm text-muted-foreground flex-1">
             {t('bulkActions.deletingLayers', { count: deletableCount })}
           </span>
+          {/* ux(#777): variant="destructive" (not ghost+text-destructive) so the
+              in-flight button matches the confirm button the user just pressed. */}
           <Button
             type="button"
-            variant="ghost"
+            variant="destructive"
             size="sm"
-            className="h-8 gap-1.5 px-2 shrink-0 text-destructive cursor-not-allowed"
+            className="h-8 gap-1.5 px-2 shrink-0 cursor-not-allowed"
             disabled={true}
             aria-busy={true}
             aria-label={t('bulkActions.deleteAriaLabel', { count: deletableCount })}
@@ -217,11 +219,13 @@ export const BulkActionBar = memo(function BulkActionBar({
           >
             {t('bulkActions.deleteConfirmCancel')}
           </Button>
+          {/* ux(#777): destructive action styled variant="destructive" and placed
+              last (right), matching InlineDeleteConfirm and every ui/alert-dialog
+              footer — deleting one layer and deleting five are the same gesture. */}
           <Button
             type="button"
-            variant="ghost"
+            variant="destructive"
             size="sm"
-            className="text-destructive"
             onClick={(e) => {
               e.stopPropagation();
               onBulkDelete(selectedIds);
