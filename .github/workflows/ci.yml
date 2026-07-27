@@ -33,6 +33,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
       mcp: ${{ steps.filter.outputs.mcp }}
+      sdks: ${{ steps.filter.outputs.sdks }}
       alembic: ${{ steps.filter.outputs.alembic }}
       installer: ${{ steps.filter.outputs.installer }}
       backup: ${{ steps.filter.outputs.backup }}
@@ -86,6 +87,12 @@ jobs:
             mcp:
               - 'mcp/**'
               - 'sdks/python/**'
+            # fix(#709): a PR that only touches the SDKs' own toolchain
+            # (generator, package.json, tsconfig) ran neither drift gate,
+            # so generator breakage merged green and reddened main on push.
+            sdks:
+              - 'sdks/**'
+              - 'backend/openapi.json'
             alembic:
               - 'backend/alembic/**'
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
@@ -490,7 +497,7 @@ jobs:
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -526,7 +533,7 @@ jobs:
   sdks-check:
     name: SDKs Drift Gate
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       # Match the OpenAPI snapshot job's env so dump_openapi.py runs
