@@ -206,3 +206,40 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
     expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
   });
 });
+
+// fix(#769): hydrateFolderGroupLayers builds the synthetic group:folder row by
+// spreading the group's first child, so it inherits visible/show_in_legend/
+// paint wholesale — the legend filter must exclude it or every folder group
+// renders a phantom entry carrying a duplicate of the first child's swatch.
+describe('LegendPlugin folder-group exclusion (#769)', () => {
+  // 'group:folder' is a builder-synthetic layer_type outside the MapLayerType
+  // union, exactly as hydrateFolderGroupLayers produces it — hence the cast.
+  const folderGroupRow = (overrides: Partial<MapLayerResponse> = {}) => ({
+    ...layer({ id: 'group-1', display_name: 'Transit group', ...overrides }),
+    layer_type: 'group:folder',
+  } as unknown as MapLayerResponse);
+
+  it('excludes synthetic group:folder rows from per-layer legend entries', () => {
+    const ctx = createCtx({
+      layers: [
+        layer({ id: 'roads', display_name: 'Roads' }),
+        folderGroupRow(),
+      ],
+    });
+    render(<LegendPlugin ctx={ctx} />);
+
+    expect(screen.getByText('Roads')).toBeInTheDocument();
+    expect(screen.queryByText('Transit group')).not.toBeInTheDocument();
+  });
+
+  it('shows the no-layers placeholder when only a folder-group row qualifies', () => {
+    const ctx = createCtx({
+      layers: [folderGroupRow()],
+    });
+    render(<LegendPlugin ctx={ctx} />);
+
+    expect(screen.queryByText('Transit group')).not.toBeInTheDocument();
+    // The test setup initializes real i18n, so the placeholder renders English.
+    expect(screen.getByText('No visible layers')).toBeInTheDocument();
+  });
+});

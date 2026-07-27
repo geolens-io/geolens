@@ -99,6 +99,16 @@ function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: 
   );
 }
 
+// fix(#770): the `_`-prefixed builder-private subset of a paint/layout object.
+// The Advanced JSON editor shows a copy with these keys stripped (see
+// stripBuilderPrivate) and Apply replaces the block wholesale, so the onApply
+// wrappers must re-merge them — otherwise an edit-free open→Apply of the
+// layout block silently resets _minzoom/_maxzoom (the zoom sliders' only
+// storage) to 0–22, and the paint block loses its `_`-keys the same way.
+function builderPrivateKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([k]) => k.startsWith('_')));
+}
+
 /**
  * LayerStyleEditor orchestrator.
  *
@@ -529,8 +539,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         <AdvancedJsonEditor
           paint={editorPaint}
           layout={editorLayout}
-          onPaintChange={(p) => onPaintChange(layer.id, p)}
-          onLayoutChange={(l) => onLayoutChange(layer.id, l)}
+          // fix(#770): re-merge the stripped `_`-prefixed private keys on Apply —
+          // the editor never showed them, so a wholesale replace would drop them
+          // (layout _minzoom/_maxzoom reset the layer's zoom range to 0–22).
+          onPaintChange={(p) => onPaintChange(layer.id, { ...builderPrivateKeys(paint), ...p })}
+          onLayoutChange={(l) => onLayoutChange(layer.id, { ...builderPrivateKeys(layoutObj), ...l })}
           layerType={advancedJsonLayerType}
         />
       </StyleControlSection>
