@@ -138,6 +138,13 @@ run_backup() {
         return 1
     fi
 
+    # fix(#712): freshness marker for the compose healthcheck. Every failure
+    # path above returns before this line, so the marker's mtime records the
+    # last FULLY successful cycle (dump + verify + S3 when enabled). The
+    # healthcheck in docker-compose(.prod).yml goes unhealthy when it is
+    # missing or older than BACKUP_MAX_AGE_MINUTES.
+    touch "${BACKUP_DIR}/.last-success"
+
     log "Backup cycle complete"
 }
 

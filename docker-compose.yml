@@ -626,16 +626,26 @@ services:
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
-      # The entrypoint runs the built-in sleep-loop scheduler (postgres:18 has no
-      # cron); the probe just verifies that process is alive.
-      test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
+      # fix(#712): freshness, not liveness. The old pgrep probe stayed healthy
+      # while every pg_dump failed, because the sleep loop was alive. Healthy now
+      # means: /backups/.last-success — touched by backup-entrypoint.sh only
+      # after a fully successful cycle (dump + verify + S3 when enabled) — is
+      # younger than BACKUP_MAX_AGE_MINUTES (default 1560 min = 26 h, the default
+      # daily schedule plus slack; raise the knob in .env for less-frequent
+      # BACKUP_SCHEDULE values). A missing marker fails the probe too, so a
+      # container whose backups never succeed goes unhealthy after start_period.
+      test: ["CMD-SHELL", "find /backups/.last-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      # Generous grace window: the marker only exists after the FIRST successful
+      # backup, and the initial on-startup dump of a large existing DB can take
+      # minutes (a fresh install lands it in seconds).
+      start_period: 10m
       # Probe every 5s during start-up so the service reports healthy quickly — it
       # starts last (gated on migrate) and must clear the installer's
-      # wait-for-healthy budget on a fresh install.
+      # wait-for-healthy budget on a fresh install; the probe first passes as
+      # soon as the initial on-startup backup writes the marker.
       start_interval: 5s
     depends_on:
       db:
