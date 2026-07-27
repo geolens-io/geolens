@@ -1077,6 +1077,9 @@
     "dragPosition": "Aktuelle Position: {{n}} von {{total}}",
     "dragDropped": "Abgelegt. {{name}} an Position {{n}} hinzugefügt.",
     "dragCancelled": "Ablegen abgebrochen.",
+    "reorderMovedUp": "{{name}} nach oben verschoben.",
+    "reorderMovedDown": "{{name}} nach unten verschoben.",
+    "reorderDropped": "{{name}} abgelegt.",
     "basemapPositionChanged": "Basiskarte nach {{position}} verschoben",
     "shortcuts": {
       "title": "Tastaturkürzel",

@@ -1077,6 +1077,9 @@
     "dragPosition": "Position actuelle : {{n}} sur {{total}}",
     "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
     "dragCancelled": "Dépôt annulé.",
+    "reorderMovedUp": "{{name}} déplacé vers le haut.",
+    "reorderMovedDown": "{{name}} déplacé vers le bas.",
+    "reorderDropped": "{{name}} déposé.",
     "basemapPositionChanged": "Fond de carte déplacé vers {{position}}",
     "shortcuts": {
       "title": "Raccourcis clavier",

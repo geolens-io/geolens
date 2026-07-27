@@ -74,6 +74,22 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof FolderGroup
 }
 
 describe('FolderGroupRow', () => {
+  it('forwards grip keys to the dnd-kit keyboard activator (fix #759)', () => {
+    // The grip used to set onKeyDown={undefined} AFTER spreading listeners,
+    // which destroyed the KeyboardSensor activator — group rows have no
+    // fallback reorder mode, so they were pointer-only (WCAG 2.1.1).
+    const props = defaultProps();
+    const dndKeyDown = vi.fn();
+    props.dragHandleProps.listeners = {
+      onKeyDown: dndKeyDown,
+    } as DraggableSyntheticListeners;
+    render(<FolderGroupRow {...props} />);
+
+    const grip = screen.getByRole('button', { name: 'Drag to reorder My Group' });
+    fireEvent.keyDown(grip, { key: ' ' });
+    expect(dndKeyDown).toHaveBeenCalledTimes(1);
+  });
+
   it('Test 1: Renders the ▸ glyph in the type-icon cell using the folder-group token', () => {
     render(<FolderGroupRow {...defaultProps()} />);
 

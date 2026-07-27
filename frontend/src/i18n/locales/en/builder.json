@@ -1081,6 +1081,9 @@
     "dragPosition": "Current position: {{n}} of {{total}}",
     "dragDropped": "Dropped. {{name}} added at position {{n}}.",
     "dragCancelled": "Drop cancelled.",
+    "reorderMovedUp": "{{name}} moved up.",
+    "reorderMovedDown": "{{name}} moved down.",
+    "reorderDropped": "{{name}} dropped.",
     "basemapPositionChanged": "Basemap moved to {{position}}",
     "shortcuts": {
       "title": "Keyboard shortcuts",

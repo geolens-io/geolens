@@ -74,6 +74,10 @@ interface StackRowProps {
   /** Called when user selects "Move out of group" (layer is already in a group) */
   onMoveLayerOutOfGroup?: (layerId: string) => void;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  /** fix(#759): routes reorder-mode announcements into the builder's shared
+   *  aria-live region — the pointer drag path announces pickup/position/drop
+   *  while this mode used to be completely silent. */
+  onAnnounce?: (text: string) => void;
   /** When non-null, the layer is inside a group — "Move out of group" replaces the sub-flow */
   parentGroupId?: string | null;
   // Phase 1041: multi-selection props (POL-06, POL-07)
@@ -127,6 +131,7 @@ export const StackRow = memo(function StackRow({
   onCreateGroupWithLayer,
   onMoveLayerOutOfGroup,
   onKeyboardReorder,
+  onAnnounce,
   parentGroupId = null,
   isMultiSelected = false,
   isMultiSelectionActive = false,
@@ -175,13 +180,28 @@ export const StackRow = memo(function StackRow({
     if (isToggleKey) {
       e.preventDefault();
       e.stopPropagation();
-      setKeyboardReorderActive((active) => !active);
+      // fix(#759): mirror the pointer path's pickup/drop announcements — this
+      // mode was completely silent while the shortcuts sheet advertised it.
+      onAnnounce?.(
+        keyboardReorderActive
+          ? t('a11y.reorderDropped', {
+              defaultValue: '{{name}} dropped.',
+              name: displayName,
+            })
+          : t('a11y.dragPickup', {
+              defaultValue:
+                'Picked up {{name}}. Use arrow keys to choose a position, Enter to drop, Escape to cancel.',
+              name: displayName,
+            }),
+      );
+      setKeyboardReorderActive(!keyboardReorderActive);
       return;
     }
 
     if (e.key === 'Escape' && keyboardReorderActive) {
       e.preventDefault();
       e.stopPropagation();
+      onAnnounce?.(t('a11y.dragCancelled', { defaultValue: 'Drop cancelled.' }));
       setKeyboardReorderActive(false);
       return;
     }
@@ -189,7 +209,15 @@ export const StackRow = memo(function StackRow({
     if (!keyboardReorderActive || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     e.stopPropagation();
-    onKeyboardReorder?.(layer.id, e.key === 'ArrowUp' ? 'up' : 'down');
+    const direction = e.key === 'ArrowUp' ? 'up' : 'down';
+    onKeyboardReorder?.(layer.id, direction);
+    onAnnounce?.(
+      t(direction === 'up' ? 'a11y.reorderMovedUp' : 'a11y.reorderMovedDown', {
+        defaultValue:
+          direction === 'up' ? '{{name}} moved up.' : '{{name}} moved down.',
+        name: displayName,
+      }),
+    );
   }
 
   // Phase 1041: modifier-aware click handler (POL-06)
@@ -270,6 +298,7 @@ export const StackRow = memo(function StackRow({
           name: displayName,
         })}
         touchReveal
+        ariaPressed={keyboardReorderActive}
         onKeyDown={handleDragHandleKeyDown}
         onBlur={() => setKeyboardReorderActive(false)}
       />

@@ -87,6 +87,8 @@ interface UnifiedStackPanelProps {
    *  to enable "Paste style" only on geometry-compatible rows. */
   copiedStyleGeometryClass?: GeometryStyleClass | null;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
+  /** fix(#759): shared aria-live announcer for the keyboard reorder mode. */
+  onAnnounce?: (text: string) => void;
   onAddDataClick: (initialQuery?: string) => void;
   onAddDataset?: (datasetId: string) => void;
   onSettingsClick: () => void;
@@ -300,6 +302,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onBulkApplyStyle,
   copiedStyleGeometryClass = null,
   onKeyboardReorder,
+  onAnnounce,
   onAddDataClick,
   onAddDataset,
   onSettingsClick,
@@ -780,6 +783,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                   copiedStyleGeometryClass === geometryClassOf(child.dataset_geometry_type)
                                 }
                                 onKeyboardReorder={onKeyboardReorder}
+                                onAnnounce={onAnnounce}
                                 existingFolderGroups={existingFolderGroups}
                                 parentGroupId={layer.id}
                                 onAddToGroup={safeAddLayerToExistingGroup}
@@ -826,6 +830,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                       copiedStyleGeometryClass === geometryClassOf(layer.dataset_geometry_type)
                     }
                     onKeyboardReorder={onKeyboardReorder}
+                    onAnnounce={onAnnounce}
                     existingFolderGroups={existingFolderGroups}
                     parentGroupId={getParentGroupId(layer)}
                     onAddToGroup={safeAddLayerToExistingGroup}

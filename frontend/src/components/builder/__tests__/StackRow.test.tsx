@@ -96,6 +96,62 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof StackRow>> 
 }
 
 describe('StackRow', () => {
+  describe('keyboard reorder mode (fix #759)', () => {
+    const gripName = 'Drag to reorder Population';
+
+    it('announces arm, moves, and drop, and reflects the mode in aria-pressed', () => {
+      const onAnnounce = vi.fn();
+      const onKeyboardReorder = vi.fn();
+      render(<StackRow {...defaultProps({ onAnnounce, onKeyboardReorder })} />);
+      const handle = screen.getByRole('button', { name: gripName });
+      expect(handle).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.keyDown(handle, { key: ' ' });
+      expect(handle).toHaveAttribute('aria-pressed', 'true');
+      expect(onAnnounce).toHaveBeenCalledWith(
+        expect.stringContaining('Picked up Population'),
+      );
+
+      fireEvent.keyDown(handle, { key: 'ArrowUp' });
+      expect(onKeyboardReorder).toHaveBeenCalledWith('layer-1', 'up');
+      expect(onAnnounce).toHaveBeenCalledWith('Population moved up.');
+
+      fireEvent.keyDown(handle, { key: ' ' });
+      expect(handle).toHaveAttribute('aria-pressed', 'false');
+      expect(onAnnounce).toHaveBeenCalledWith('Population dropped.');
+    });
+
+    it('announces a cancel on Escape', () => {
+      const onAnnounce = vi.fn();
+      render(<StackRow {...defaultProps({ onAnnounce })} />);
+      const handle = screen.getByRole('button', { name: gripName });
+      fireEvent.keyDown(handle, { key: ' ' });
+      fireEvent.keyDown(handle, { key: 'Escape' });
+      expect(onAnnounce).toHaveBeenCalledWith('Drop cancelled.');
+      expect(handle).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('keeps claimed keys from the dnd-kit activator but forwards the rest', () => {
+      const dndKeyDown = vi.fn();
+      const props = defaultProps();
+      props.dragHandleProps.listeners = {
+        onKeyDown: dndKeyDown,
+      } as DraggableSyntheticListeners;
+      render(<StackRow {...props} />);
+      const handle = screen.getByRole('button', { name: gripName });
+
+      // Space is claimed by the fallback reorder mode (preventDefault), so
+      // the sensor must NOT also start a keyboard drag.
+      fireEvent.keyDown(handle, { key: ' ' });
+      expect(dndKeyDown).not.toHaveBeenCalled();
+      fireEvent.keyDown(handle, { key: 'Escape' });
+
+      // A key the row does not claim still reaches the sensor.
+      fireEvent.keyDown(handle, { key: 'a' });
+      expect(dndKeyDown).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('renders the five interactive cells in DOM order: grip → eye → name → kebab (caret hidden)', () => {
     const props = defaultProps();
     render(<StackRow {...props} />);
