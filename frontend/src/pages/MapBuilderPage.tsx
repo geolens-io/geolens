@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, Info, FlaskConical } from 'lucide-react';
+import { FileText, History, Sparkles, Info, FlaskConical, Loader2 } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -785,6 +785,10 @@ export function MapBuilderPage() {
   // the signal survives this page unmounting. This page contributes only the
   // "Add to map" capability, which needs its layer actions.
   const setAnalysisJob = useAnalysisJobStore((s) => s.setJob);
+  // fix(#760): the mobile rail buttons need the same ambient job signal the
+  // desktop rail shows (feat(#682)) — <800px was the only surface with no
+  // indication at all that a materialize is still running.
+  const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
   const handleAnalysisJobChange = useCallback(
     (jobId: string | null, title?: string) => {
       setAnalysisJob(jobId ? { jobId, title: title ?? '', mapId: id ?? null } : null);
@@ -828,17 +832,19 @@ export function MapBuilderPage() {
     onNotesChange: setDockNotes,
     mapId: id,
     layers: layers.localLayers,
+    layersMapId: layers.layersMapId,
     layerActions: layers.chatLayerActions,
     onQueryResult: layers.handleQueryResult,
     mapInstanceRef,
     onClearPreview: layers.handleDismissEphemeral,
     hasPreview: !!layers.ephemeralResult,
+    previewSource: layers.ephemeralResult?.source,
     analysisPrefill,
     // setState identity is stable — safe to pass without a memo dep.
     onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.layersMapId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
 
   const mobileRailButtons = useMemo(() => [
     {
@@ -1824,6 +1830,8 @@ export function MapBuilderPage() {
                   title={btn.label}
                   aria-label={btn.label}
                   aria-pressed={railPanel === btn.id}
+                  // fix(#760): mirrors BuilderRail's feat(#682) job signal.
+                  aria-busy={btn.id === 'analysis' && analysisJobRunning}
                   className={cn(
                     'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
                     btn.disabled
@@ -1833,7 +1841,11 @@ export function MapBuilderPage() {
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                   )}
                 >
-                  <btn.icon className="h-4 w-4" aria-hidden="true" />
+                  {btn.id === 'analysis' && analysisJobRunning ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <btn.icon className="h-4 w-4" aria-hidden="true" />
+                  )}
                   {/* MAP-22: presence dot on mobile Notes button — mirrors BuilderRail.tsx:105-110.
                       BuilderRail is hidden at <800px (isEditorHidden); this dot keeps MAP-22
                       parity at 414×896. */}

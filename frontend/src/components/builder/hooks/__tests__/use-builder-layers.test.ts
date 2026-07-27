@@ -50,6 +50,9 @@ describe('useBuilderLayers', () => {
     expect(result.current.localLayers).toHaveLength(1);
     expect(result.current.localLayers[0].id).toBe('layer-1');
     expect(result.current.savedLayerBaseline).toEqual([layer]);
+    // fix(#793 review): consumers that initialize from layers at mount gate
+    // on this — it must identify which map hydrated the current rows.
+    expect(result.current.layersMapId).toBe(mapData.id);
   });
 
   it('initializes localTerrainConfig from mapData', () => {
@@ -87,6 +90,34 @@ describe('useBuilderLayers', () => {
 
     expect(result.current.localLayers[0].id).toBe('layer-2');
     expect(result.current.savedLayerBaseline[0].id).toBe('layer-2');
+  });
+
+  it('re-hydrates wholesale when the map identity changes (#793 review)', () => {
+    let mapData = makeMapData([makeMockLayer({ id: 'layer-a' })]);
+    const mapRef = { current: null } as React.RefObject<MaplibreMap | null>;
+    const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
+    const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+    const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
+    const { result, rerender } = renderHook(() =>
+      useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
+    );
+
+    // Dirty edits, then the user chooses "Leave without saving" and lands on
+    // another map — the same-map refetch guard must not pin the old rows.
+    act(() => {
+      result.current.handleToggleVisibility('layer-a');
+    });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    mapData = {
+      ...makeMapData([makeMockLayer({ id: 'layer-b', dataset_id: 'ds-b' })]),
+      id: 'map-2',
+    };
+    rerender();
+
+    expect(result.current.localLayers[0].id).toBe('layer-b');
+    expect(result.current.layersMapId).toBe('map-2');
+    expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
   it('handleToggleVisibility flips visible and marks dirty', () => {

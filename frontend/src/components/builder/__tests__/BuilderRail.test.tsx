@@ -21,6 +21,10 @@ vi.mock('@/components/builder/ChatPanel', () => ({
   ChatPanel: () => <div data-testid="chat-panel" />,
 }));
 
+vi.mock('@/components/builder/AnalysisPanel', () => ({
+  AnalysisPanel: () => <div data-testid="analysis-panel-mock" />,
+}));
+
 vi.mock('@/hooks/use-ai-availability', async (importOriginal) => {
   const actual = await importOriginal<typeof availabilityModule>();
   return {
@@ -227,6 +231,36 @@ describe('MAP-22 — Notes presence indicator', () => {
 
     const aiButton = screen.getByRole('button', { name: /ask ai/i });
     expect(within(aiButton).queryByLabelText('Map has notes')).toBeNull();
+  });
+});
+
+describe('BuilderRail — analysis layer-ownership gate (#793 review)', () => {
+  function renderAnalysisRail(layersMapId: string | null) {
+    return render(
+      <BuilderRail
+        activePanel="analysis"
+        onPanelChange={vi.fn()}
+        aiAvailable={false}
+        notes=""
+        onNotesChange={vi.fn()}
+        mapId="map-1"
+        layers={[]}
+        layersMapId={layersMapId}
+        onMarkDirty={vi.fn()}
+      />,
+    );
+  }
+
+  it('holds the panel while layers still belong to the previous map', () => {
+    renderAnalysisRail('previous-map');
+    // Mounting now would judge this map's remembered form against the other
+    // map's rows and overwrite it with fallbacks.
+    expect(screen.queryByTestId('analysis-panel-mock')).not.toBeInTheDocument();
+  });
+
+  it('mounts the panel once the layers belong to this map', async () => {
+    renderAnalysisRail('map-1');
+    expect(await screen.findByTestId('analysis-panel-mock')).toBeInTheDocument();
   });
 });
 

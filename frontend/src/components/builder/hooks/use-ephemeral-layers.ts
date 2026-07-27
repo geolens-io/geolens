@@ -32,6 +32,10 @@ export function useEphemeralLayers(
     /** feat(#675): present when the overlay came from a chat run_analysis
      *  preview the builder can hand off to the Analysis panel. */
     analysis?: EphemeralAnalysisHandoff;
+    /** fix(#793 review): stamped by the Analysis panel's own previews so
+     *  its stale-restore cleanup can tell them from a chat result sharing
+     *  this slot — it must never clear an overlay someone else drew. */
+    source?: 'analysis-panel';
   } | null>(null);
 
   const clearEphemeralLayer = useCallback(() => {
@@ -147,7 +151,12 @@ export function useEphemeralLayers(
   const handleQueryResult = useCallback((
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
-    meta?: { truncated?: boolean; totalCount?: number; analysis?: EphemeralAnalysisHandoff },
+    meta?: {
+      truncated?: boolean;
+      totalCount?: number;
+      analysis?: EphemeralAnalysisHandoff;
+      source?: 'analysis-panel';
+    },
   ) => {
     setEphemeralResult({ geojson, bbox, ...meta });
   }, []);

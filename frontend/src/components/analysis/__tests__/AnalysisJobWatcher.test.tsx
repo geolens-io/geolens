@@ -2,6 +2,7 @@ import { render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
+import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { ApiError } from '@/api/client';
@@ -45,6 +46,82 @@ describe('AnalysisJobWatcher', () => {
     useAnalysisJobStore.setState({ job: null });
     analysisAddToMap.current = null;
     analysisAddToMap.mapId = null;
+  });
+
+  it('fix(#793 review): a completed job clears the remembered form title for its map', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    // Restoring the finished run's name would re-enable Create with it and
+    // invite an identically-named duplicate; the rest of the form survives.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    expect(useAnalysisFormStore.getState().forms['m1']?.distance).toBe('500');
+  });
+
+  it('fix(#793 review): a FAILED job keeps the remembered title for the retry', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
+    mockJob({ status: 'failed', dataset_id: null, error_message: 'no features' });
+    renderWatcher();
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    // Nothing was created — re-entering the name to retry would be pure loss.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
+  });
+
+  it('fix(#793 review): a title edited after the run started is not cleared', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'My next run',
+      // The panel stamps this whenever the form changes mid-run.
+      runDisowned: true,
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('My next run');
+  });
+
+  it('fix(#793 review): a disowned draft reusing the run name survives completion', async () => {
+    // Title equality is NOT ownership: the next draft may deliberately reuse
+    // the same permitted, non-unique dataset name.
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+      runDisowned: true,
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
+  });
+
+  it('fix(#793 review): a swept (404) job also clears the remembered title', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Walkshed', mapId: 'm1' } });
+    mockJob(undefined, new ApiError('Not Found', 404));
+    renderWatcher();
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    // The run may have completed before the retention sweep — restoring its
+    // name would re-enable Create with it, the duplicate-creation state.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
   });
 
   it('does nothing while the job is still running', () => {

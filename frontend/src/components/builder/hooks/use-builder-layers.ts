@@ -57,6 +57,14 @@ export function useBuilderLayers(
   const addDatasetProcessedRef = useRef(false);
 
   const [localLayers, setLocalLayers] = useState<MapLayerResponse[]>([]);
+  // fix(#793 review): which map the CURRENT localLayers belong to. On direct
+  // /maps/:id navigation this page stays mounted and the route id flips a
+  // commit (or more) before the new map's layers hydrate — consumers that
+  // initialize from layers at mount (AnalysisPanel) must wait until this
+  // matches the route id, or they judge one map's remembered state against
+  // another map's rows and overwrite it.
+  const [layersMapId, setLayersMapId] = useState<string | null>(null);
+  const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
@@ -205,10 +213,31 @@ export function useBuilderLayers(
   // effect, MapBuilderPage `handleDragEnd` for basemap drag) read the field via
   // `basemapConfig?.basemap_position ?? 'bottom'` so legacy maps without the
   // field default to 'bottom' (the historical behaviour).
+  // fix(#793 review): a direct /maps/:id navigation keeps this hook mounted,
+  // so a DIFFERENT map identity must re-hydrate wholesale. The
+  // !hasUnsavedChanges guard on the refetch sync below is for same-map
+  // refetches — a discarded-edit exit ("Leave without saving") leaves the
+  // flag true, which otherwise pins localLayers (and layersMapId, the
+  // Analysis panel's mount gate) to the previous map forever. Declared
+  // BEFORE the hydration effect so the same pass re-hydrates.
+  useEffect(() => {
+    if (
+      mapData &&
+      initializedRef.current &&
+      layersMapIdRef.current !== null &&
+      mapData.id !== layersMapIdRef.current
+    ) {
+      initializedRef.current = false;
+      setHasUnsavedChanges(false);
+    }
+  }, [mapData]);
+
   useEffect(() => {
     if (mapData && !initializedRef.current) {
       const hydrated = hydrateFolderGroupLayers(mapData.layers ?? []);
       setLocalLayers(hydrated.layers);
+      layersMapIdRef.current = mapData.id;
+      setLayersMapId(mapData.id);
       savedLayerBaselineRef.current = hydrated.layers;
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
@@ -241,6 +270,8 @@ export function useBuilderLayers(
     if (apiLayers && initializedRef.current && !hasUnsavedChanges) {
       const hydrated = hydrateFolderGroupLayers(apiLayers);
       setLocalLayers(hydrated.layers);
+      layersMapIdRef.current = mapData?.id ?? null;
+      setLayersMapId(mapData?.id ?? null);
       savedLayerBaselineRef.current = hydrated.layers;
       setGroupMeta({
         ...hydrated.groupMeta,
@@ -879,6 +910,7 @@ export function useBuilderLayers(
     handleLegendTitleChange,
     handleLegendLabelChange,
     localLayers,
+    layersMapId,
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
     localBasemap, setLocalBasemap,
