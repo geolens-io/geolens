@@ -16,10 +16,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { ApiError } from '@/api/client';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useDataset } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { usePermissions } from '@/hooks/use-permissions';
+import {
+  useAnalysisFormStore,
+  type SavedAnalysisForm,
+} from '@/stores/analysis-form-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useMapDrawStore } from '@/stores/map-draw-store';
 import type { LayerActions } from '@/components/builder/ChatPanel';
@@ -73,14 +79,25 @@ const UNIT_KEY: Record<BufferUnit, string> = {
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
+  /** fix(#757)/fix(#760): keys the remembered form and the rehydrated job to
+   *  the map they belong to. */
+  mapId?: string;
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
   onPreviewResult?: (
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
-    meta?: { truncated?: boolean; totalCount?: number },
+    meta?: {
+      truncated?: boolean;
+      totalCount?: number;
+      source?: 'analysis-panel';
+    },
   ) => void;
   onClearPreview?: () => void;
   hasPreview?: boolean;
+  /** fix(#793 review): who drew the current ephemeral overlay. The
+   *  stale-restore cleanup only clears the panel's own previews — never a
+   *  chat result sharing the slot. */
+  previewSource?: 'analysis-panel';
   layerActions?: LayerActions;
   /** feat(#675): initial form values handed off from a chat run_analysis
    *  preview ("Save as dataset"). Applied on mount only — BuilderRail keys the
@@ -99,10 +116,12 @@ interface AnalysisPanelProps {
  */
 export function AnalysisPanel({
   layers,
+  mapId,
   mapInstanceRef,
   onPreviewResult,
   onClearPreview,
   hasPreview,
+  previewSource,
   layerActions,
   prefill,
   onAnalysisJobChange,
@@ -115,22 +134,71 @@ export function AnalysisPanel({
     prefill && layers.some((l) => l.id === prefill.layerId && isAnalysableLayer(l))
       ? prefill.layerId
       : undefined;
-  const [layerId, setLayerId] = useState(prefillLayerId ?? firstEligibleId);
-  const [operation, setOperation] = useState<AnalysisOperation>(prefill?.operation ?? 'buffer');
+  // fix(#757): the panel is conditionally mounted, so a rail switch, Escape,
+  // or a breakpoint crossing destroys it — restore the remembered form for
+  // this map instead of losing a drawn mask and a typed name to a stray
+  // click. A chat handoff (prefill) takes precedence; a remembered form
+  // whose source layer has left the map is ignored wholesale rather than
+  // restored piecemeal (its byField/mask describe that layer).
+  const [savedForm] = useState<SavedAnalysisForm | null>(() => {
+    if (prefill || !mapId) return null;
+    const remembered = useAnalysisFormStore.getState().forms[mapId];
+    if (!remembered) return null;
+    const sourceStillEligible = layers.some(
+      (l) => l.id === remembered.layerId && isAnalysableLayer(l),
+    );
+    return sourceStillEligible ? remembered : null;
+  });
+  const [layerId, setLayerId] = useState(
+    prefillLayerId ?? savedForm?.layerId ?? firstEligibleId,
+  );
+  // fix(#793 review): the initializers here deliberately DROP a remembered
+  // selection whose source or mask layer left the map while the panel was
+  // closed — but the page-level preview overlay drawn from that selection is
+  // still on screen, depicting a layer that no longer exists. Detected during
+  // render, before the write-through effect below overwrites the slot with
+  // the fallback form; cleared once, from the effect further down. The
+  // tracked JOB, if any, deliberately survives: it runs server-side and
+  // fix(#760) wants it visible.
+  const staleRestoreRef = useRef(
+    (() => {
+      if (prefill || !mapId) return false;
+      const remembered = useAnalysisFormStore.getState().forms[mapId];
+      if (!remembered) return false;
+      return (
+        !layers.some(
+          (l) => l.id === remembered.layerId && isAnalysableLayer(l),
+        ) ||
+        (remembered.maskLayerId !== MASK_LAYER_NONE &&
+          !layers.some((l) => l.id === remembered.maskLayerId))
+      );
+    })(),
+  );
+  const [operation, setOperation] = useState<AnalysisOperation>(
+    prefill?.operation ?? savedForm?.operation ?? 'buffer',
+  );
   const [distance, setDistance] = useState(
-    prefill?.distanceMeters != null ? String(prefill.distanceMeters) : '500',
+    prefill?.distanceMeters != null
+      ? String(prefill.distanceMeters)
+      : (savedForm?.distance ?? '500'),
   );
   // A chat handoff always carries metres, so the unit starts there regardless.
-  const [distanceUnit, setDistanceUnit] = useState<BufferUnit>('m');
-  const [mask, setMask] = useState<GeoJSON.Polygon | null>(null);
+  const [distanceUnit, setDistanceUnit] = useState<BufferUnit>(
+    prefill ? 'm' : (savedForm?.distanceUnit ?? 'm'),
+  );
+  const [mask, setMask] = useState<GeoJSON.Polygon | null>(savedForm?.mask ?? null);
   const [isDrawing, setIsDrawing] = useState(false);
   // Layer-sourced clip mask; mutually exclusive with a drawn mask.
-  const [maskLayerId, setMaskLayerId] = useState(MASK_LAYER_NONE);
-  const [byField, setByField] = useState(BY_FIELD_NONE);
+  const [maskLayerId, setMaskLayerId] = useState(() =>
+    savedForm && layers.some((l) => l.id === savedForm.maskLayerId)
+      ? savedForm.maskLayerId
+      : MASK_LAYER_NONE,
+  );
+  const [byField, setByField] = useState(savedForm?.byField ?? BY_FIELD_NONE);
   // A chat handoff lands on the save form — suggest a title so its primary
   // button isn't silently disabled for want of one.
   const [outputTitle, setOutputTitle] = useState(() => {
-    if (!prefill) return '';
+    if (!prefill) return savedForm?.outputTitle ?? '';
     const layer = layers.find((l) => l.id === prefill.layerId);
     const base = layer?.display_name ?? layer?.dataset_name ?? '';
     const opLabel =
@@ -143,11 +211,188 @@ export function AnalysisPanel({
             : t('analysisTools.opDissolve', { defaultValue: 'Dissolve' });
     return [base, opLabel].filter(Boolean).join(' — ');
   });
-  const [jobId, setJobId] = useState<string | null>(null);
+  // fix(#760): rehydrate a still-tracked materialize for THIS map so a
+  // reopened (or reloaded) panel shows the status line and completion
+  // actions instead of a silently disabled Create button. NOT for a chat
+  // prefill (fix(#793 review)): that mount is a NEW draft — an unrelated
+  // tracked run stays ambient rather than surfacing its status and
+  // completion actions over the handed-off form.
+  const [jobId, setJobId] = useState<string | null>(() => {
+    if (prefill) return null;
+    // fix(#793 review): a restored draft that disowned the run (edited
+    // mid-flight, then the panel closed) must not readopt it at mount — the
+    // run stays ambient, exactly as the adoption effect below decides.
+    if (savedForm?.runDisowned) return null;
+    const tracked = useAnalysisJobStore.getState().job;
+    return tracked && tracked.mapId && tracked.mapId === mapId
+      ? tracked.jobId
+      : null;
+  });
+  // fix(#764): the completed run's title, so "Add to map" can say what it
+  // adds even after the input field is cleared or edited.
+  const [lastRunTitle, setLastRunTitle] = useState(() => {
+    if (prefill || savedForm?.runDisowned) return '';
+    const tracked = useAnalysisJobStore.getState().job;
+    return tracked && tracked.mapId && tracked.mapId === mapId
+      ? tracked.title
+      : '';
+  });
+  // fix(#793 review): a materialize can outlive the panel instance that
+  // started it — closed during the POST, reopened before the response lands.
+  // The mount-time initializers above see no tracked job yet, so a job that
+  // arrives in the store later for this map is adopted here. Once per job id:
+  // a job this instance itself started is owned by the seq-guarded mutation
+  // callbacks, and re-adopting a run the user has since disowned (inputs
+  // changed mid-flight) would resurrect exactly the state fix(#758) clears.
+  const adoptedJobsRef = useRef(new Set<string>());
+  // fix(#793 review): adoption is only for an instance whose form still
+  // matches the run. Once the user edits ANYTHING after a run starts, a job
+  // from that run belongs to abandoned parameters and must stay ambient
+  // ("another analysis is running") — exactly what the seq guard would have
+  // decided in the originating instance. Set by handleInputsChanged below,
+  // reset when a new run starts (Create blesses the current form), and
+  // PERSISTED through the form store so closing and reopening the panel
+  // between the edit and the POST response cannot launder the disowning.
+  // A chat prefill starts disowned outright (fix(#793 review)): it is a new
+  // draft, so no pre-existing run may be adopted or clear its suggested
+  // title on completion.
+  const formEditedRef = useRef(prefill ? true : (savedForm?.runDisowned ?? false));
+  const trackedJob = useAnalysisJobStore((s) => s.job);
+  useEffect(() => {
+    if (!trackedJob || !mapId || trackedJob.mapId !== mapId) return;
+    if (formEditedRef.current) return;
+    if (adoptedJobsRef.current.has(trackedJob.jobId)) return;
+    adoptedJobsRef.current.add(trackedJob.jobId);
+    setJobId(trackedJob.jobId);
+    setLastRunTitle(trackedJob.title);
+  }, [trackedJob, mapId]);
   const drawRef = useRef<TerraDraw | null>(null);
+
+  // fix(#757): remember the form for this map across unmounts. The snapshot
+  // ref is refreshed every render; the cleanup writes it back exactly once,
+  // when the panel actually unmounts.
+  const formSnapshotRef = useRef<SavedAnalysisForm | null>(null);
+  formSnapshotRef.current = {
+    layerId,
+    operation,
+    distance,
+    distanceUnit,
+    mask,
+    maskLayerId,
+    byField,
+    outputTitle,
+    runDisowned: formEditedRef.current,
+  };
+  // fix(#793 review): the snapshot belongs to the user who typed it —
+  // after a logout (the auth subscription just cleared the slot) this panel
+  // must stop writing, or it would hand the previous user's form to the next
+  // login. Captured once at mount: after an in-place identity change the
+  // mounted values are still the previous user's, so staying silent is the
+  // correct side of the line.
+  const [formOwnerId] = useState(() => useAuthStore.getState().user?.id ?? null);
+  // fix(#793 review): the responsive breakpoint swap unmounts this panel
+  // and mounts its replacement in the SAME React commit, and the
+  // replacement's mount-only initializers read the store DURING render —
+  // before any unmount cleanup of ours could run. So the store must already
+  // be current at the end of every commit: write through each time (nothing
+  // renders from this store, so save() notifies no one). This also covers
+  // the plain unmount, which is why there is deliberately no cleanup-time
+  // save.
+  useEffect(() => {
+    if (!mapId) return;
+    if ((useAuthStore.getState().user?.id ?? null) !== formOwnerId) return;
+    if (formSnapshotRef.current) {
+      useAnalysisFormStore.getState().save(mapId, formSnapshotRef.current);
+    }
+  });
+
+  // fix(#793 review): a restored drawn mask must be VISIBLE, not just
+  // set — the previous unmount tore down TerraDraw and its map layers, so
+  // the panel said "Clip area set" over an empty map. Recreate the
+  // kept-static overlay exactly as the finish handler leaves it. Best
+  // effort: if TerraDraw rejects the feature, the mask still applies (the
+  // pre-fix behavior), just without the outline.
+  const restoredMaskDrawnRef = useRef(false);
+  useEffect(() => {
+    if (restoredMaskDrawnRef.current) return;
+    const map = mapInstanceRef?.current;
+    if (!mask || !map || drawRef.current) return;
+    restoredMaskDrawnRef.current = true;
+    // fix(#793 review): held locally so the catch can reach a PARTIALLY
+    // started instance — drawRef is only assigned on full success, so
+    // stopping drawRef there stopped nothing while the failed instance kept
+    // its map layers and handlers attached.
+    let td: TerraDraw | null = null;
+    try {
+      td = new TerraDraw({
+        adapter: new TerraDrawMapLibreGLAdapter({ map }),
+        modes: [
+          new TerraDrawPolygonMode({
+            styles: {
+              fillColor: MAP_COLORS.default.fill,
+              fillOpacity: MAP_COLORS.default.fillOpacity,
+              outlineColor: MAP_COLORS.default.stroke,
+              outlineWidth: MAP_COLORS.default.strokeWidth,
+            },
+          }),
+        ],
+      });
+      td.start();
+      td.addFeatures([
+        {
+          id: crypto.randomUUID(),
+          type: 'Feature',
+          geometry: mask,
+          properties: { mode: 'polygon' },
+        },
+      ]);
+      td.setMode('static');
+      drawRef.current = td;
+    } catch {
+      try {
+        td?.stop();
+      } catch {
+        // stop() on a partially initialized instance may itself throw.
+      }
+      drawRef.current = null;
+    }
+    // No dep array (fix(#793 review)): the map arrives by REF assignment —
+    // no dep ever changes — but the lazy BuilderMap's load re-renders the
+    // parent, so retrying every commit reaches the moment the map exists;
+    // restoredMaskDrawnRef then latches this to a no-op.
+  });
   // Shares its TanStack query with the page-level tracker (same key), so
   // there is exactly one 2s poll loop however many components watch the job.
-  const job = useJobStatus(jobId).data;
+  const { data: job, error: jobError } = useJobStatus(jobId);
+  // fix(#793 review): once the observed run COMPLETES, the typed name
+  // has served its purpose — clearing the mounted panel's copy keeps the
+  // unmount snapshot from re-saving the finished run's name over the value
+  // AnalysisJobWatcher just cleared in the form store. Success only, and
+  // only while the run still owns the field (nothing edited since it
+  // started): a failed run created nothing (the user most likely retries
+  // under the same name), and an edited field is a newer draft — even one
+  // that deliberately reuses the same permitted, non-unique name, which is
+  // why this keys on the edit revision and NOT on title equality. The
+  // completed-state UI is unaffected: "Dataset created" and the named
+  // "Add to map" read job state and lastRunTitle, not the field.
+  const observedJobStatus = job?.status;
+  useEffect(() => {
+    if (observedJobStatus !== 'complete') return;
+    if (!formEditedRef.current) setOutputTitle('');
+  }, [observedJobStatus]);
+  // fix(#793 review): mirror AnalysisJobWatcher's gone path for the
+  // MOUNTED panel — a definitive 401/403/404 (retention sweep, revoked
+  // access) never yields the terminal status the effect above keys on, so
+  // without this the panel polls a dead id forever and keeps the old run's
+  // name in the field, re-enabling Create with it once the watcher drops the
+  // global job. Transient errors keep polling, exactly as fix(#682) requires.
+  const jobGone =
+    jobError instanceof ApiError && [401, 403, 404].includes(jobError.status);
+  useEffect(() => {
+    if (!jobGone) return;
+    setJobId(null);
+    if (!formEditedRef.current) setOutputTitle('');
+  }, [jobGone]);
   // AnalysisJobWatcher clears this on any terminal status, so a tracked job
   // is by definition still in flight.
   const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
@@ -181,6 +426,62 @@ export function AnalysisPanel({
     setIsDrawing(false);
   }, []);
 
+  // fix(#758): a preview belongs to the inputs that produced it. Every input
+  // change bumps the sequence (so an in-flight response knows it has been
+  // superseded) and clears the overlay + badge outright.
+  const previewSeqRef = useRef(0);
+  const jobIdRef = useRef(jobId);
+  jobIdRef.current = jobId;
+  // fix(#793 review): an input change while the materialize POST is still on the
+  // wire must reset too — jobId isn't set yet, but the run (and its name)
+  // already belongs to the old parameters. Assigned below the mutation.
+  const materializePendingRef = useRef(false);
+  // fix(#793 review): the shared slot may hold someone else's overlay (a
+  // chat query result) — an input change invalidates only a preview these
+  // inputs produced: one the panel drew itself, or the chat run_analysis
+  // handoff this panel was opened to continue. Render-assigned so
+  // handleInputsChanged stays referentially stable.
+  const ownsPreviewRef = useRef(false);
+  ownsPreviewRef.current = previewSource === 'analysis-panel' || !!prefill;
+  const handleInputsChanged = useCallback(() => {
+    previewSeqRef.current += 1;
+    formEditedRef.current = true;
+    if (ownsPreviewRef.current) onClearPreview?.();
+    // fix(#764): a finished run's "Dataset created" + name must not survive
+    // an input change — one more click would create an identically-named
+    // dataset from different parameters. Global job tracking is untouched
+    // (see the #682 note on the Create button).
+    if (jobIdRef.current != null || materializePendingRef.current) {
+      setJobId(null);
+      setOutputTitle('');
+    }
+  }, [onClearPreview]);
+
+  // fix(#793 review), mount half: see staleRestoreRef above.
+  useEffect(() => {
+    if (!staleRestoreRef.current) return;
+    staleRestoreRef.current = false;
+    // fix(#793 review): the shared ephemeral slot may meanwhile hold a
+    // NEWER result someone else wrote (a chat query) — only an overlay this
+    // panel itself drew belongs to the stale form and goes with it.
+    if (previewSource === 'analysis-panel') onClearPreview?.();
+  }, [onClearPreview, previewSource]);
+  // fix(#793 review), mounted half: losing the selected source or mask
+  // layer while the panel is open (deleted from the stack) is an input
+  // change like any other — the overlay clears, a finished run's affordances
+  // reset, and the selection falls back exactly as a fresh mount would.
+  const selectedLayerGone =
+    layerId !== '' && !datasetLayers.some((l) => l.id === layerId);
+  const maskLayerGone =
+    maskLayerId !== MASK_LAYER_NONE &&
+    !maskLayerOptions.some((l) => l.id === maskLayerId);
+  useEffect(() => {
+    if (!selectedLayerGone && !maskLayerGone) return;
+    handleInputsChanged();
+    if (selectedLayerGone) setLayerId(firstEligibleId);
+    if (maskLayerGone) setMaskLayerId(MASK_LAYER_NONE);
+  }, [selectedLayerGone, maskLayerGone, firstEligibleId, handleInputsChanged]);
+
   // Stop any active draw when the panel unmounts.
   useEffect(() => stopDrawing, [stopDrawing]);
 
@@ -198,6 +499,11 @@ export function AnalysisPanel({
   const startDrawing = useCallback(() => {
     const map = mapInstanceRef?.current;
     if (!map || drawRef.current) return;
+    // fix(#793 review): the preview is stale the moment drawing begins —
+    // the next line drops any layer-sourced mask, and cancelling the draw
+    // leaves no mask at all, so a preview computed against the old mask must
+    // not linger. The 'finish' handler still invalidates for the drawn mask.
+    handleInputsChanged();
     // Drawing replaces a layer-sourced mask.
     setMaskLayerId(MASK_LAYER_NONE);
     // Direct TerraDraw instantiation (BboxMapPicker precedent) — the feature
@@ -220,6 +526,8 @@ export function AnalysisPanel({
     td.on('finish', (id: string | number) => {
       const feature = td.getSnapshotFeature(id);
       if (feature && feature.geometry.type === 'Polygon') {
+        // fix(#758): a new mask supersedes any preview drawn without it.
+        handleInputsChanged();
         setMask(feature.geometry as GeoJSON.Polygon);
         // Keep the drawn polygon visible (built-in static mode) so the user
         // can see what will be clipped — removing it left the mask invisible
@@ -234,7 +542,7 @@ export function AnalysisPanel({
     });
     drawRef.current = td;
     setIsDrawing(true);
-  }, [mapInstanceRef, stopDrawing]);
+  }, [mapInstanceRef, stopDrawing, handleInputsChanged]);
 
   // The API takes metres; the input is whatever unit the user picked.
   const distanceValue = Number(distance) * BUFFER_UNIT_METERS[distanceUnit];
@@ -255,7 +563,10 @@ export function AnalysisPanel({
     distanceValue <= MAX_BUFFER_METERS;
 
   const previewMutation = useMutation({
-    mutationFn: async () => {
+    // fix(#758): the request carries the sequence current at click time, so
+    // a response that outlived its inputs (layer/operation/distance/mask
+    // changed while it was in flight) is dropped instead of drawn.
+    mutationFn: async ({ seq: _seq }: { seq: number }) => {
       const datasetId = selectedLayer?.dataset_id;
       // ux(#698): thrown messages reach the user verbatim via the onError
       // `error.message || t(...)` fallback, so this one has to be translated.
@@ -273,7 +584,18 @@ export function AnalysisPanel({
           : {}),
       });
     },
-    onSuccess: (result) => {
+    // fix(#793 review): the error path checks the sequence too — a
+    // rejection from a request whose inputs were already abandoned must not
+    // raise "Analysis failed" over a newer, possibly successful preview.
+    onError: (error: Error, { seq }) => {
+      if (seq !== previewSeqRef.current) return;
+      toast.error(
+        error.message ||
+          t('analysisTools.previewFailed', { defaultValue: 'Analysis failed' }),
+      );
+    },
+    onSuccess: (result, { seq }) => {
+      if (seq !== previewSeqRef.current) return;
       if (!result.feature_count || !result.bbox) {
         // fix(#676) parity: chat surfaces clear a stale overlay on an empty
         // result; without this the previous preview kept describing a result
@@ -292,9 +614,10 @@ export function AnalysisPanel({
         onPreviewResult?.(result.geojson, bbox, {
           truncated: true,
           totalCount: total ?? undefined,
+          source: 'analysis-panel',
         });
       } else {
-        onPreviewResult?.(result.geojson, bbox);
+        onPreviewResult?.(result.geojson, bbox, { source: 'analysis-panel' });
       }
       if (result.truncated) {
         toast.info(
@@ -326,16 +649,13 @@ export function AnalysisPanel({
         );
       }
     },
-    onError: (error: Error) => {
-      toast.error(
-        error.message ||
-          t('analysisTools.previewFailed', { defaultValue: 'Analysis failed' }),
-      );
-    },
   });
 
   const materializeMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ seq: _seq }: { seq: number }) => {
+      // fix(#793 review): Create blesses the current form as this run's form
+      // — edits from here on disown the run again.
+      formEditedRef.current = false;
       const datasetId = selectedLayer?.dataset_id;
       // ux(#698): thrown messages reach the user verbatim via the onError
       // `error.message || t(...)` fallback, so this one has to be translated.
@@ -356,14 +676,25 @@ export function AnalysisPanel({
           ? { by_field: byField.replace(/^col:/, '') }
           : {}),
       });
+      // fix(#793 review): mark the job as this instance's own BEFORE the
+      // store learns about it — the adoption effect must not treat it as a
+      // foreign job and bypass the seq guard below.
+      adoptedJobsRef.current.add(result.job_id);
       // Notify the page from inside the mutationFn, NOT onSuccess: TanStack
       // suppresses observer callbacks once the component unmounts, and the
       // whole point of page-level tracking is surviving an unmount while the
       // request is in flight.
       onAnalysisJobChange?.(result.job_id, title);
-      return result;
+      return { ...result, title };
     },
-    onSuccess: (result) => setJobId(result.job_id),
+    // fix(#758)/fix(#764): a response whose inputs were superseded must not
+    // resurrect the panel's run state. Global tracking (onAnalysisJobChange
+    // above) is deliberately unguarded — the job IS running either way.
+    onSuccess: (result, { seq }) => {
+      if (seq !== previewSeqRef.current) return;
+      setJobId(result.job_id);
+      setLastRunTitle(result.title);
+    },
     onError: (error: Error) => {
       toast.error(
         error.message ||
@@ -371,6 +702,7 @@ export function AnalysisPanel({
       );
     },
   });
+  materializePendingRef.current = materializeMutation.isPending;
 
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
@@ -411,6 +743,7 @@ export function AnalysisPanel({
         <Select
           value={layerId}
           onValueChange={(v) => {
+            handleInputsChanged();
             setLayerId(v);
             // A mask layer can't clip itself.
             if (v === maskLayerId) setMaskLayerId(MASK_LAYER_NONE);
@@ -444,6 +777,7 @@ export function AnalysisPanel({
         <Select
           value={operation}
           onValueChange={(v) => {
+            handleInputsChanged();
             const next = v as AnalysisOperation;
             if (next !== 'clip') {
               // fix(#680): leaving clip mode must drop the retained mask —
@@ -496,7 +830,13 @@ export function AnalysisPanel({
               defaultValue: 'Group by field (optional)',
             })}
           </Label>
-          <Select value={byField} onValueChange={setByField}>
+          <Select
+            value={byField}
+            onValueChange={(v) => {
+              handleInputsChanged();
+              setByField(v);
+            }}
+          >
             <SelectTrigger id="analysis-by-field" className="w-full">
               <SelectValue />
             </SelectTrigger>
@@ -531,14 +871,20 @@ export function AnalysisPanel({
               max={distanceMaxInUnit}
               step={distanceUnit === 'm' ? 50 : 'any'}
               value={distance}
-              onChange={(e) => setDistance(e.target.value)}
+              onChange={(e) => {
+                handleInputsChanged();
+                setDistance(e.target.value);
+              }}
               aria-invalid={!distanceValid || undefined}
               aria-describedby={distanceValid ? undefined : 'analysis-distance-error'}
               className="flex-1"
             />
             <Select
               value={distanceUnit}
-              onValueChange={(v) => setDistanceUnit(v as BufferUnit)}
+              onValueChange={(v) => {
+                handleInputsChanged();
+                setDistanceUnit(v as BufferUnit);
+              }}
             >
               <SelectTrigger
                 className="w-24"
@@ -622,6 +968,7 @@ export function AnalysisPanel({
                 variant="ghost"
                 size="sm"
                 onClick={() => {
+                  handleInputsChanged();
                   setMask(null);
                   // Also removes the kept-visible drawn polygon (TerraDraw
                   // owns its own map layers; stop() tears them down).
@@ -665,6 +1012,7 @@ export function AnalysisPanel({
           <Select
             value={maskLayerId}
             onValueChange={(v) => {
+              handleInputsChanged();
               setMaskLayerId(v);
               if (v !== MASK_LAYER_NONE) {
                 // A layer mask replaces a drawn one.
@@ -703,7 +1051,10 @@ export function AnalysisPanel({
 
       <div className="mt-auto flex flex-col gap-2 pt-1">
         {operation !== 'dissolve' && (
-          <Button onClick={() => previewMutation.mutate()} disabled={!canRun}>
+          <Button
+            onClick={() => previewMutation.mutate({ seq: previewSeqRef.current })}
+            disabled={!canRun}
+          >
             {previewMutation.isPending
               ? t('analysisTools.running', { defaultValue: 'Running…' })
               : t('analysisTools.run', { defaultValue: 'Preview' })}
@@ -727,7 +1078,14 @@ export function AnalysisPanel({
             <Input
               id="analysis-output-title"
               value={outputTitle}
-              onChange={(e) => setOutputTitle(e.target.value)}
+              // fix(#793 review): a name typed while a run is pending is the
+              // NEXT draft's — it disowns the running job's claim on this
+              // field (so its completion won't clear it) without touching
+              // the preview or the run status.
+              onChange={(e) => {
+                formEditedRef.current = true;
+                setOutputTitle(e.target.value);
+              }}
               // ux(#698): matches the server's bound, so an over-long title is
               // stopped at the keystroke instead of after clicking Create.
               maxLength={500}
@@ -745,7 +1103,7 @@ export function AnalysisPanel({
                 // the original job's completion notification for good — the
                 // mutation replaces the tracked job on success instead.
                 setJobId(null);
-                materializeMutation.mutate();
+                materializeMutation.mutate({ seq: previewSeqRef.current });
               }}
               disabled={!canSave}
             >
@@ -753,6 +1111,17 @@ export function AnalysisPanel({
                 ? t('analysisTools.saving', { defaultValue: 'Creating…' })
                 : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
             </Button>
+            {/* fix(#760): the one-job-per-user cap disables the button — say
+                so instead of leaving a disabled primary control unexplained
+                (covers a job started before a reload or from another panel). */}
+            {analysisJobRunning && !job && (
+              <p className="text-xs text-muted-foreground" role="status">
+                {t('analysisTools.anotherJobRunning', {
+                  defaultValue:
+                    'Another analysis is still running — wait for it to finish.',
+                })}
+              </p>
+            )}
             {job && (
               <p className="text-xs text-muted-foreground" role="status">
                 {/* ux(#698): reuse the watcher's jobFailedDetail template
@@ -789,7 +1158,14 @@ export function AnalysisPanel({
                 className="w-full"
                 onClick={() => job.dataset_id && layerActions.onAddDataset(job.dataset_id)}
               >
-                {t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
+                {/* fix(#764): name the dataset this adds — after a rail
+                    round-trip or reload the field above may no longer say. */}
+                {lastRunTitle
+                  ? t('analysisTools.addToMapNamed', {
+                      defaultValue: 'Add "{{name}}" to map',
+                      name: lastRunTitle,
+                    })
+                  : t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
               </Button>
             )}
           </div>

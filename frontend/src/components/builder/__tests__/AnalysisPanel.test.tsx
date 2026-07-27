@@ -1,11 +1,56 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
 import { AnalysisPanel } from '../AnalysisPanel';
+import { ApiError } from '@/api/client';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
+import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import { useAnalysisJobStore } from '@/stores/analysis-job-store';
-import type { MapLayerResponse } from '@/types/api';
+import { useAuthStore } from '@/stores/auth-store';
+import type { MapLayerResponse, UserResponse } from '@/types/api';
+
+// fix(#760): the rehydration tests need a controllable job status; the real
+// hook would fire a network fetch for any non-null id. `value` applies only
+// when the panel holds a jobId, mirroring the enabled-gate of the real hook.
+const mockJobStatus = vi.hoisted(() => ({
+  value: null as Record<string, unknown> | null,
+  error: null as unknown,
+}));
+vi.mock('@/components/import/hooks/use-ingest', () => ({
+  useJobStatus: (jobId: string | null) => ({
+    data: jobId ? mockJobStatus.value : undefined,
+    error: jobId ? mockJobStatus.error : null,
+  }),
+}));
+
+// fix(#793 review): a controllable TerraDraw so the mask-restore error path
+// can be exercised. Only tests that mount with a saved mask AND a map ref
+// ever construct it; everything else never touches the mock.
+const mockTerraDraw = vi.hoisted(() => ({
+  instance: {
+    start: vi.fn(),
+    stop: vi.fn(),
+    addFeatures: vi.fn(),
+    setMode: vi.fn(),
+    on: vi.fn(),
+    getSnapshotFeature: vi.fn(),
+  },
+}));
+vi.mock('terra-draw', () => ({
+  // Constructible (`new`) — an arrow implementation throws at construction.
+  TerraDraw: vi.fn(function () {
+    return mockTerraDraw.instance;
+  }),
+  TerraDrawPolygonMode: vi.fn(function () {
+    return {};
+  }),
+}));
+vi.mock('terra-draw-maplibre-gl-adapter', () => ({
+  TerraDrawMapLibreGLAdapter: vi.fn(function () {
+    return {};
+  }),
+}));
 
 // Radix Select needs pointer-capture APIs jsdom lacks (DataDrivenStyleEditor
 // precedent).
@@ -31,6 +76,13 @@ vi.mock('@/hooks/use-permissions', () => ({
     isLoading: false,
   }),
 }));
+
+const mockToast = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+  info: vi.fn(),
+}));
+vi.mock('sonner', () => ({ toast: mockToast }));
 
 vi.mock('@/api/analysis', () => ({
   previewAnalysis: vi.fn().mockResolvedValue({
@@ -266,6 +318,7 @@ describe('AnalysisPanel', () => {
       expect(onPreviewResult).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'FeatureCollection' }),
         [0, 0, 1, 1],
+        { source: 'analysis-panel' },
       );
     });
   });
@@ -356,7 +409,7 @@ describe('AnalysisPanel', () => {
       expect(onPreviewResult).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'FeatureCollection' }),
         [0, 0, 1, 1],
-        { truncated: true, totalCount: 10651 },
+        { truncated: true, totalCount: 10651, source: 'analysis-panel' },
       ),
     );
   });
@@ -542,6 +595,561 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
         operation: 'buffer',
         distance_meters: 250,
       });
+    });
+  });
+
+  describe('state lifecycle (fix #757/#758/#760/#764)', () => {
+    beforeEach(() => {
+      mockJobStatus.value = null;
+      mockJobStatus.error = null;
+      useAnalysisFormStore.setState({ forms: {} });
+      useAnalysisJobStore.setState({ job: null });
+      useAuthStore.setState({ token: null, refreshToken: null, user: null });
+    });
+
+    it('clears a stale preview when the operation changes (#758)', async () => {
+      const user = userEvent.setup();
+      const onClearPreview = vi.fn();
+      renderPanel([datasetLayer], {
+        hasPreview: true,
+        previewSource: 'analysis-panel',
+        onClearPreview,
+      });
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'Centroids' }));
+      expect(onClearPreview).toHaveBeenCalled();
+    });
+
+    it('clears a stale preview when the source layer changes (#758)', async () => {
+      const user = userEvent.setup();
+      const onClearPreview = vi.fn();
+      renderPanel([datasetLayer, datasetLayer2], {
+        hasPreview: true,
+        previewSource: 'analysis-panel',
+        onClearPreview,
+      });
+      await user.click(screen.getAllByRole('combobox')[0]);
+      await user.click(await screen.findByRole('option', { name: 'Roads' }));
+      expect(onClearPreview).toHaveBeenCalled();
+    });
+
+    it('drops an in-flight preview whose inputs were superseded (#758)', async () => {
+      let resolvePreview!: (v: unknown) => void;
+      vi.mocked(previewAnalysis).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePreview = resolve;
+          }) as never,
+      );
+      const onPreviewResult = vi.fn();
+      renderPanel([datasetLayer], { onPreviewResult });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+      // The inputs change while the request is on the wire.
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      resolvePreview({
+        geojson: {
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [0, 0] },
+              properties: { gid: 1 },
+            },
+          ],
+        },
+        feature_count: 1,
+        truncated: false,
+        bbox: [0, 0, 1, 1],
+      });
+      // Let the resolved mutation settle; the superseded result must not draw.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(onPreviewResult).not.toHaveBeenCalled();
+    });
+
+    it('resets the post-run state on an input change (#764)', async () => {
+      const user = userEvent.setup();
+      mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+      renderPanel([datasetLayer]);
+
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'QA Lakes Buffer' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() =>
+        expect(screen.getByText('Dataset created')).toBeInTheDocument(),
+      );
+
+      // Switching the operation must clear the completed-run affordances AND
+      // the stale name — one more click used to create an identically-named
+      // dataset from different parameters.
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'Centroids' }));
+      expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('');
+    });
+
+    it('clears the name when inputs change during an in-flight run (#793 review)', async () => {
+      const user = userEvent.setup();
+      let resolveMaterialize!: (v: unknown) => void;
+      vi.mocked(materializeAnalysis).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveMaterialize = resolve;
+          }) as never,
+      );
+      renderPanel([datasetLayer]);
+
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Old params name' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() => expect(materializeAnalysis).toHaveBeenCalled());
+
+      // jobId is not set yet (the POST is still on the wire), but the run —
+      // and its name — already belong to the old parameters.
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'Centroids' }));
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('');
+
+      resolveMaterialize({ job_id: 'job-superseded', status: 'pending' });
+      await new Promise((r) => setTimeout(r, 0));
+      // The superseded response must not resurrect the run state either.
+      expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
+    });
+
+    it('clears the typed name once the run completes (#793 review)', async () => {
+      mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+      renderPanel([datasetLayer]);
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Walkshed' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() =>
+        expect(screen.getByText('Dataset created')).toBeInTheDocument(),
+      );
+      // The completed-state UI stays, but the field must not hold the
+      // finished run's name — the unmount snapshot would re-save it over
+      // the value the watcher clears in the form store.
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('');
+    });
+
+    it('keeps the typed name when the run fails (#793 review)', async () => {
+      mockJobStatus.value = {
+        status: 'failed',
+        dataset_id: null,
+        error_message: 'no features',
+      };
+      renderPanel([datasetLayer]);
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Walkshed' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() =>
+        // The test i18n mock returns the raw template, uninterpolated.
+        expect(screen.getByText(/Analysis job failed/)).toBeInTheDocument(),
+      );
+      // Nothing was created — clearing would force re-typing the name to retry.
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('Walkshed');
+    });
+
+    it('does not toast a rejection from a superseded preview (#793 review)', async () => {
+      let rejectPreview!: (e: Error) => void;
+      vi.mocked(previewAnalysis).mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectPreview = reject;
+          }) as never,
+      );
+      renderPanel([datasetLayer]);
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+      // Inputs change; the in-flight request now belongs to abandoned params.
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      rejectPreview(new Error('boom from abandoned params'));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockToast.error).not.toHaveBeenCalled();
+    });
+
+    it('rehydrates a tracked job for this map after a remount (#760)', () => {
+      mockJobStatus.value = { status: 'running', current_step: null };
+      useAnalysisJobStore.setState({
+        job: { jobId: 'job9', title: 'Walkshed', mapId: 'm1' },
+      });
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      expect(screen.getByText('Creating dataset…')).toBeInTheDocument();
+    });
+
+    it('clears the run and its title when the tracked job is unreadable (#793 review)', async () => {
+      // The remembered form holds the run's own name, and the tracked job
+      // rehydrates lastRunTitle to match — the duplicate-creation setup.
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+        mask: null, maskLayerId: '__none__', byField: '__none__',
+        outputTitle: 'Walkshed',
+      });
+      useAnalysisJobStore.setState({
+        job: { jobId: 'swept', title: 'Walkshed', mapId: 'm1' },
+      });
+      mockJobStatus.error = new ApiError('Not Found', 404);
+      renderPanel([datasetLayer], { mapId: 'm1' });
+
+      // A definitive 404 (retention sweep) must clear the local run id and
+      // the field's copy of the run name, not just the store's.
+      await waitFor(() =>
+        expect(screen.getByLabelText('New dataset name')).toHaveValue(''),
+      );
+      expect(screen.queryByText('Creating dataset…')).not.toBeInTheDocument();
+    });
+
+    it('invalidates when the selected source layer is deleted (#793 review)', async () => {
+      const onClearPreview = vi.fn();
+      const qc = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      const view = render(
+        <QueryClientProvider client={qc}>
+          <AnalysisPanel
+            layers={[datasetLayer, datasetLayer2]}
+            mapId="m1"
+            onClearPreview={onClearPreview}
+            hasPreview
+            previewSource="analysis-panel"
+          />
+        </QueryClientProvider>,
+      );
+      // Parcels is selected by default; delete it from the map.
+      view.rerender(
+        <QueryClientProvider client={qc}>
+          <AnalysisPanel
+            layers={[datasetLayer2]}
+            mapId="m1"
+            onClearPreview={onClearPreview}
+            hasPreview
+            previewSource="analysis-panel"
+          />
+        </QueryClientProvider>,
+      );
+      // The overlay still depicted the removed layer's preview.
+      await waitFor(() => expect(onClearPreview).toHaveBeenCalled());
+      // The selection falls back exactly as a fresh mount would.
+      expect(screen.getByText('Roads')).toBeInTheDocument();
+    });
+
+    it('clears a stale overlay when the remembered layer left the map (#793 review)', async () => {
+      const onClearPreview = vi.fn();
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'deleted-layer', operation: 'buffer', distance: '750',
+        distanceUnit: 'm', mask: null, maskLayerId: '__none__',
+        byField: '__none__', outputTitle: '',
+      });
+      renderPanel([datasetLayer], {
+        mapId: 'm1',
+        onClearPreview,
+        hasPreview: true,
+        previewSource: 'analysis-panel',
+      });
+      // The restore is ignored wholesale (defaults shown), and the overlay
+      // from the vanished layer's preview must go with it.
+      await waitFor(() => expect(onClearPreview).toHaveBeenCalled());
+      expect(screen.getByLabelText('Distance')).toHaveValue(500);
+    });
+
+    it("keeps a chat-drawn overlay through a stale restore (#793 review)", async () => {
+      const onClearPreview = vi.fn();
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'deleted-layer', operation: 'buffer', distance: '750',
+        distanceUnit: 'm', mask: null, maskLayerId: '__none__',
+        byField: '__none__', outputTitle: '',
+      });
+      // The slot holds a NEWER chat result (no analysis-panel provenance) —
+      // opening Analysis must not wipe it just because the remembered layer
+      // is gone.
+      renderPanel([datasetLayer], {
+        mapId: 'm1',
+        onClearPreview,
+        hasPreview: true,
+      });
+      await waitFor(() =>
+        expect(screen.getByLabelText('Distance')).toHaveValue(500),
+      );
+      expect(onClearPreview).not.toHaveBeenCalled();
+    });
+
+    it('keeps the store current while mounted, not only at unmount (#793 review)', () => {
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      // The responsive breakpoint swap mounts the replacement panel in the
+      // same commit that removes this one, and the replacement initializes
+      // from the store during render — it can only see what is already there.
+      expect(useAnalysisFormStore.getState().forms['m1']?.distance).toBe('750');
+    });
+
+    it('does not re-save the form when the user logged out before unmount (#793 review)', () => {
+      useAuthStore.setState({ user: { id: 'u1' } as UserResponse, token: 't1' });
+      const first = renderPanel([datasetLayer], { mapId: 'm1' });
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      // Logout clears the slot; the unmount that follows must not write the
+      // previous user's snapshot back for the next login to restore.
+      act(() => {
+        useAuthStore.getState().logout();
+      });
+      first.unmount();
+      expect(useAnalysisFormStore.getState().forms['m1']).toBeUndefined();
+    });
+
+    it('adopts a job that lands in the store after mount (#793 review)', async () => {
+      mockJobStatus.value = { status: 'running', current_step: null };
+      // No tracked job at mount — the previous panel instance's POST is still
+      // on the wire.
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      expect(screen.queryByText('Creating dataset…')).not.toBeInTheDocument();
+
+      // The old instance's mutation resolves and registers the job globally.
+      act(() => {
+        useAnalysisJobStore.setState({
+          job: { jobId: 'late-job', title: 'Walkshed', mapId: 'm1' },
+        });
+      });
+      // The panel adopts the run instead of reporting a foreign job.
+      await waitFor(() =>
+        expect(screen.getByText('Creating dataset…')).toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByText(
+          'Another analysis is still running — wait for it to finish.',
+        ),
+      ).not.toBeInTheDocument();
+    });
+
+    it('does not adopt a late job after the form changed (#793 review)', async () => {
+      mockJobStatus.value = { status: 'running', current_step: null };
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      // The user edits before the old instance's POST resolves — the run now
+      // belongs to abandoned parameters.
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      act(() => {
+        useAnalysisJobStore.setState({
+          job: { jobId: 'late-job', title: 'Walkshed', mapId: 'm1' },
+        });
+      });
+      // Ambient, not adopted: the reason line shows, no run status resurrects.
+      expect(
+        await screen.findByText(
+          'Another analysis is still running — wait for it to finish.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Creating dataset…')).not.toBeInTheDocument();
+    });
+
+    it('retries mask restoration once the map instance is ready (#793 review)', async () => {
+      mockTerraDraw.instance.addFeatures.mockClear();
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+        mask: {
+          type: 'Polygon',
+          coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+        maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      });
+      // The lazy BuilderMap has not loaded yet — the ref is empty at mount.
+      const mapRef = { current: null as unknown };
+      const qc = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      // A fresh element each time — rerendering the SAME element reference
+      // hits React's same-element bailout and skips the subtree entirely.
+      const renderTree = () => (
+        <QueryClientProvider client={qc}>
+          <AnalysisPanel
+            layers={[datasetLayer]}
+            mapId="m1"
+            mapInstanceRef={mapRef as never}
+          />
+        </QueryClientProvider>
+      );
+      const view = render(renderTree());
+      expect(mockTerraDraw.instance.addFeatures).not.toHaveBeenCalled();
+
+      // The map arrives by REF assignment; the load re-renders the parent.
+      mapRef.current = {};
+      view.rerender(renderTree());
+      await waitFor(() =>
+        expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
+      );
+    });
+
+    it('stops a partially started draw when mask restore fails (#793 review)', async () => {
+      mockTerraDraw.instance.addFeatures.mockImplementationOnce(() => {
+        throw new Error('unsupported geometry');
+      });
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+        mask: {
+          type: 'Polygon',
+          coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+        maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+      });
+      renderPanel([datasetLayer], {
+        mapId: 'm1',
+        mapInstanceRef: { current: {} as never },
+      });
+      // The failed restore must stop the instance it started — the ref was
+      // never assigned, so stopping via the ref would leak its map layers.
+      await waitFor(() =>
+        expect(mockTerraDraw.instance.stop).toHaveBeenCalled(),
+      );
+    });
+
+    it('a chat prefill stays disowned from an existing tracked run (#793 review)', () => {
+      mockJobStatus.value = { status: 'complete', dataset_id: 'old-ds' };
+      useAnalysisJobStore.setState({
+        job: { jobId: 'old-job', title: 'Old run', mapId: 'm1' },
+      });
+      renderPanel([datasetLayer], {
+        mapId: 'm1',
+        prefill: { operation: 'buffer', layerId: 'l1', distanceMeters: 500 },
+      });
+      // The old run is ambient — not rehydrated into the new draft, and its
+      // completion must not surface actions over (or clear) the handed-off
+      // form.
+      expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Another analysis is still running — wait for it to finish.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText('New dataset name')).toHaveValue(
+        'Parcels — Buffer',
+      );
+    });
+
+    it('keeps a name typed while the run is pending (#793 review)', async () => {
+      mockJobStatus.value = { status: 'running', current_step: null };
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'First run' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+      await waitFor(() =>
+        expect(screen.getByText('Creating dataset…')).toBeInTheDocument(),
+      );
+      // The NEXT draft's name, typed while the job is still running.
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Second run' },
+      });
+      mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+      // Mimic the run registering globally; the resulting re-render lets the
+      // panel observe the completed status.
+      act(() => {
+        useAnalysisJobStore.setState({
+          job: { jobId: 'job1', title: 'First run', mapId: 'm1' },
+        });
+      });
+      await waitFor(() =>
+        expect(screen.getByText('Dataset created')).toBeInTheDocument(),
+      );
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('Second run');
+    });
+
+    it('does not rehydrate a run the restored draft disowned (#793 review)', () => {
+      mockJobStatus.value = { status: 'running', current_step: null };
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'buffer', distance: '750',
+        distanceUnit: 'm', mask: null, maskLayerId: '__none__',
+        byField: '__none__', outputTitle: 'New draft', runDisowned: true,
+      });
+      useAnalysisJobStore.setState({
+        job: { jobId: 'old-job', title: 'Old run', mapId: 'm1' },
+      });
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      // The mount-time initializer applies the same disowning the adoption
+      // effect does: the abandoned run stays ambient, under the newer draft.
+      expect(screen.queryByText('Creating dataset…')).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Another analysis is still running — wait for it to finish.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('New draft');
+    });
+
+    it('keeps a late job disowned across a remount (#793 review)', async () => {
+      mockJobStatus.value = { status: 'running', current_step: null };
+      // The previous instance edited mid-flight and persisted the disowning;
+      // this remount restores the edited draft.
+      useAnalysisFormStore.getState().save('m1', {
+        layerId: 'l1', operation: 'buffer', distance: '750',
+        distanceUnit: 'm', mask: null, maskLayerId: '__none__',
+        byField: '__none__', outputTitle: 'New draft', runDisowned: true,
+      });
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      act(() => {
+        useAnalysisJobStore.setState({
+          job: { jobId: 'late-job', title: 'Old params', mapId: 'm1' },
+        });
+      });
+      // Still ambient — the remount must not launder the disowning.
+      expect(
+        await screen.findByText(
+          'Another analysis is still running — wait for it to finish.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Creating dataset…')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('New draft');
+    });
+
+    it("says why Create is disabled when the running job is another map's (#760)", () => {
+      useAnalysisJobStore.setState({
+        job: { jobId: 'job9', title: 'Elsewhere', mapId: 'other-map' },
+      });
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      expect(
+        screen.getByText(
+          'Another analysis is still running — wait for it to finish.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Create dataset' }),
+      ).toBeDisabled();
+    });
+
+    it('remembers the form for the same map across unmounts (#757)', () => {
+      const first = renderPanel([datasetLayer], { mapId: 'm1' });
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      fireEvent.change(screen.getByLabelText('New dataset name'), {
+        target: { value: 'Draft name' },
+      });
+      first.unmount();
+
+      renderPanel([datasetLayer], { mapId: 'm1' });
+      expect(screen.getByLabelText('Distance')).toHaveValue(750);
+      expect(screen.getByLabelText('New dataset name')).toHaveValue('Draft name');
+    });
+
+    it('starts fresh on a different map (#757)', () => {
+      const first = renderPanel([datasetLayer], { mapId: 'm1' });
+      fireEvent.change(screen.getByLabelText('Distance'), {
+        target: { value: '750' },
+      });
+      first.unmount();
+
+      renderPanel([datasetLayer], { mapId: 'm2' });
+      expect(screen.getByLabelText('Distance')).toHaveValue(500);
     });
   });
 });

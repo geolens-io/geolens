@@ -98,12 +98,22 @@ interface BuilderRailProps {
   onQueryResult?: (
     geojson: GeoJSON.FeatureCollection,
     bbox: [number, number, number, number],
-    meta?: { truncated?: boolean; totalCount?: number },
+    meta?: {
+      truncated?: boolean;
+      totalCount?: number;
+      source?: 'analysis-panel';
+    },
   ) => void;
   // Analysis tools
   mapInstanceRef?: React.RefObject<MaplibreMap | null>;
   onClearPreview?: () => void;
   hasPreview?: boolean;
+  /** fix(#793 review): who drew the current ephemeral overlay — the
+   *  panel's stale-restore cleanup only clears its own. */
+  previewSource?: 'analysis-panel';
+  /** fix(#793 review): which map `layers` currently belongs to; the
+   *  Analysis panel mounts only once this matches mapId. */
+  layersMapId?: string | null;
   /** feat(#675): chat-preview handoff — keys a remount of AnalysisPanel so the
    *  form initializes from it. The nonce distinguishes successive handoffs. */
   analysisPrefill?: (EphemeralAnalysisHandoff & { nonce: number }) | null;
@@ -129,6 +139,8 @@ export function BuilderRail({
   mapInstanceRef,
   onClearPreview,
   hasPreview,
+  previewSource,
+  layersMapId,
   analysisPrefill,
   onAnalysisJobChange,
   viewport,
@@ -284,7 +296,21 @@ export function BuilderRail({
               <HistoryPanel mapId={mapId} />
             )}
 
-            {activePanel === 'analysis' && layers && (
+            {/* fix(#793 review): the panel's initializers judge the remembered
+                form against `layers` at mount, but on direct /maps/:id
+                navigation the page keeps the PREVIOUS map's layers until its
+                sync effect runs — mounting then would discard (and overwrite)
+                the new map's remembered form against the wrong rows. Hold the
+                mount until the layers are known to belong to this map. */}
+            {activePanel === 'analysis' &&
+              layers &&
+              mapId != null &&
+              layersMapId !== mapId && (
+                <div className="flex-1 flex items-center justify-center p-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            {activePanel === 'analysis' && layers && (mapId == null || layersMapId === mapId) && (
               <LazyLoadErrorBoundary>
                 <Suspense fallback={
                   <div className="flex-1 flex items-center justify-center p-4">
@@ -292,12 +318,25 @@ export function BuilderRail({
                   </div>
                 }>
                   <AnalysisPanel
-                    key={analysisPrefill?.nonce ?? 'analysis'}
+                    // fix(#793 review): keyed by map as well — navigating
+                    // directly between /maps/:id routes (fork, "open new
+                    // map") reuses this mounted tree, and the panel's
+                    // initializers run on mount only; without the remount the
+                    // new map inherited the previous map's form, mask, and
+                    // job state. The map id is in BOTH variants: an active
+                    // prefill's nonce doesn't change on a map switch.
+                    key={
+                      analysisPrefill
+                        ? `prefill-${mapId ?? 'none'}-${analysisPrefill.nonce}`
+                        : `map-${mapId ?? 'none'}`
+                    }
                     layers={layers}
+                    mapId={mapId}
                     mapInstanceRef={mapInstanceRef}
                     onPreviewResult={onQueryResult}
                     onClearPreview={onClearPreview}
                     hasPreview={hasPreview}
+                    previewSource={previewSource}
                     layerActions={layerActions}
                     prefill={analysisPrefill ?? undefined}
                     onAnalysisJobChange={onAnalysisJobChange}

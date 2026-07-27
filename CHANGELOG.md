@@ -61,6 +61,25 @@ and releases use semantic versioning.
   the result is a caller-owned copy of the source's attributes, so the two
   paths now agree under a customized role matrix. Installations using the
   default role matrix are unaffected (editor and admin hold both).
+- **The Analysis panel no longer loses its form to a panel switch.** Clicking
+  Notes, History, or Ask AI (or crossing the mobile breakpoint) used to
+  silently discard every field — including a hand-drawn clip mask and a typed
+  dataset name. The form is now remembered per map for the session. (#757)
+- **A stale analysis preview no longer outlives its inputs.** Changing the
+  layer, operation, distance, unit, group-by field, or clip mask now clears
+  the preview overlay and its result badge, and a preview response that
+  arrives after its inputs changed is discarded instead of drawn and zoomed
+  to. (#758)
+- **A running analysis job stays visible after the panel closes.** Reopening
+  the panel (or reloading) now restores the job's status line, explains a
+  disabled Create button when another analysis is still running, and the
+  mobile rail button shows the same running-job spinner the desktop rail has.
+  (#760)
+- **The post-run state resets when the inputs change.** After a successful
+  run, switching the layer or operation cleared neither "Dataset created" nor
+  the name field, so one more click created an identically-named dataset from
+  different parameters. The run state and name now reset on any input change,
+  and "Add to map" names the dataset it adds. (#764)
 
 ## [1.5.0] - 2026-07-26
 

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
 
 /**
@@ -37,7 +38,11 @@ export function AnalysisJobWatcher() {
     if (!job) return;
     if (gone) {
       // Pruned by the retention sweep, or no longer ours to read — nothing to
-      // report, and keeping it would poll forever.
+      // report, and keeping it would poll forever. The run may well have
+      // completed before the sweep, so drop its remembered title too
+      // (#793 review): restoring it would re-enable Create with the finished
+      // run's name.
+      useAnalysisFormStore.getState().clearTitleForMap(job.mapId);
       setJob(null);
       return;
     }
@@ -115,6 +120,14 @@ export function AnalysisJobWatcher() {
           : t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' }),
         { id: toastId, duration: Infinity },
       );
+    }
+    // fix(#793 review): the remembered form title belongs to a finished run —
+    // restoring it on the panel's next mount would re-enable Create with the
+    // old name and invite an identically-named duplicate. Success only: a
+    // failed run created nothing, and the user most likely retries it under
+    // the same name.
+    if (status === 'complete') {
+      useAnalysisFormStore.getState().clearTitleForMap(job.mapId);
     }
     setJob(null);
   }, [job, status, gone, data, queryClient, navigate, setJob, t]);
