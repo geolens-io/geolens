@@ -85,9 +85,13 @@ export function MapTitleBar({
       : saveStatus === 'saving'
         ? t('titleBar.saveStatus.saving', { defaultValue: 'Saving...' })
         : t('tooltips.allSaved', { defaultValue: 'All changes saved' });
-  const saveButtonAriaLabel = saveStatus === 'failed'
+  // fix(#782): aria-label OVERRIDES element contents in the accessible-name
+  // computation, so an sr-only status span inside the button was never
+  // conveyed. Fold the status into the label itself; the role="status" region
+  // below announces status CHANGES without the button needing focus.
+  const saveButtonAriaLabel = `${saveStatus === 'failed'
     ? t('titleBar.retrySave', { defaultValue: 'Retry save' })
-    : t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` });
+    : t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` })}, ${saveStatusLabel}`;
 
   return (
     <div className="h-10 border-b bg-background flex items-center gap-3 px-3 shrink-0">
@@ -186,15 +190,18 @@ export function MapTitleBar({
                 <span className="hidden sm:inline">
                   {isSaveRetryable ? t('titleBar.retry', { defaultValue: 'Retry' }) : saveButtonLabel}
                 </span>
-                {/* sr-only status text so AT users still hear the save state even
-                    when the visible label is hidden on narrow viewports. */}
-                <span className="sr-only">{saveStatusLabel}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {saveTooltip}
             </TooltipContent>
           </Tooltip>
+          {/* fix(#782): persistent live region — mounts with the title bar
+              (initial "Saved" is deliberately not announced) and each status
+              change (Saving… / Saved / Save failed) is announced without
+              focus. The previous sr-only span INSIDE the button was dead: the
+              button's aria-label overrode it. */}
+          <span role="status" className="sr-only">{saveStatusLabel}</span>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

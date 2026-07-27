@@ -13,7 +13,14 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
+import type {
+  Active,
+  Announcements,
+  DragEndEvent,
+  DragOverEvent,
+  DragStartEvent,
+  ScreenReaderInstructions,
+} from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 // PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
@@ -61,7 +68,7 @@ const StyleJsonDialog = lazy(() =>
 );
 import { KeyboardShortcutsSheet } from '@/components/builder/KeyboardShortcutsSheet';
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
-import { computeNextSelection } from '@/components/builder/selection-utils';
+import { computeNextSelection, computeSelectableRowIds } from '@/components/builder/selection-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -172,6 +179,11 @@ export function MapBuilderPage() {
   // the Phase 1040 lift-DndContext architecture decision.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastToggleAnchor = useRef<string | null>(null);
+  // fix(#771): the layer-search query is lifted here (hybrid-controlled on
+  // UnifiedStackPanel) so selectableRowIds below can be derived from the
+  // RENDERED row set — a shift-click range must never sweep rows the search
+  // has filtered out or that live inside a collapsed group.
+  const [layerSearch, setLayerSearch] = useState('');
 
   // Phase 1040 Plan 04: aria-live announcement for keyboard/mouse catalog drag (T-1040-10 / POL-05).
   // A sr-only region reads these strings to screen-reader users. We append a zero-width-space
@@ -629,14 +641,41 @@ export function MapBuilderPage() {
     return basemapGroup.sublayers.some((s) => s.id === id);
   }, [basemapGroup]);
 
-  // Phase 1041: derive selectable row ids (ordered flat list, basemap excluded)
-  // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler
+  // Phase 1041: derive selectable row ids (ordered list, basemap excluded)
+  // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler.
+  // fix(#771): derived from the RENDERED row set (shared helper with
+  // UnifiedStackPanel) instead of the raw flat array — the raw list let a
+  // shift-click range select children of collapsed groups and rows hidden by
+  // the layer search, so bulk delete/visibility/opacity acted on rows the
+  // user could not see.
+  // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
+  // range-selectable like any other row (the BLDR-03 skip is obsolete).
   const selectableRowIds = useMemo(
-    // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
-    // range-selectable like any other row (the BLDR-03 skip is obsolete).
-    (): string[] => layers.localLayers.map((layer) => layer.id),
-    [layers.localLayers],
+    (): string[] => computeSelectableRowIds(layers.localLayers, layers.groupMeta, layerSearch),
+    [layers.localLayers, layers.groupMeta, layerSearch],
   );
+
+  // fix(#771): selection ids can outlive their rows — handleRemove,
+  // handleDeleteGroup, handleUngroup, and the #767 empty-group prune all
+  // remove rows without touching selectedIds, so the bulk bar kept
+  // over-reporting counts it could not perform. Prune against the live layer
+  // set. Skipped while a bulk delete is in flight: its optimistic removal
+  // must not eat the preserved-on-failure selection (a full-failure rollback
+  // restores the rows in the same commit that clears isDeleting).
+  useEffect(() => {
+    if (layers.isDeleting) return;
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const rowId of prev) {
+        if (liveIds.has(rowId)) next.add(rowId);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [layers.localLayers, layers.isDeleting]);
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
@@ -816,6 +855,14 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, [ephemeralAnalysis]);
 
+  // ux(#772): stack-row kebab "Analyze this layer" — the same handoff path the
+  // chat preview uses, so the panel opens (or remounts, via the prefill nonce
+  // key) targeting exactly this layer even when the row isn't selected.
+  const handleAnalyzeLayer = useCallback((layerId: string) => {
+    setAnalysisPrefill({ layerId, operation: 'buffer', nonce: Date.now() });
+    setRailPanel('analysis');
+  }, []);
+
   // fix(#679 review P2): the prefill lives only for the handoff opening it
   // triggered. Clearing it on any navigation away from the panel (rail close,
   // panel switch, mobile sheet dismiss) keeps a later ordinary opening from
@@ -833,6 +880,9 @@ export function MapBuilderPage() {
     mapId: id,
     layers: layers.localLayers,
     layersMapId: layers.layersMapId,
+    // ux(#772): the stack's selected row, so the Analysis panel can open
+    // targeting it instead of the first eligible layer.
+    selectedLayerId: layers.expandedLayerId,
     layerActions: layers.chatLayerActions,
     onQueryResult: layers.handleQueryResult,
     mapInstanceRef,
@@ -844,7 +894,7 @@ export function MapBuilderPage() {
     onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.layersMapId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
 
   const mobileRailButtons = useMemo(() => [
     {
@@ -900,9 +950,18 @@ export function MapBuilderPage() {
         })
       : t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map...' });
 
+  // ux(#776): the Add Data dialog stays open for repeated adds, so the
+  // "open the editor on the new layer" step is DEFERRED — opening it per-add
+  // would stack the flyout behind the still-open dialog. The last added
+  // layer's id waits here until the dialog closes.
+  const pendingEditorLayerIdRef = useRef<string | null>(null);
+
   const handleAddDataClick = useCallback(
     (initialQuery?: string) => {
       dialogs.setAddDataInitialQuery(initialQuery ?? '');
+      // A pending id from a previous session's mid-flight add must not leak
+      // into this one's close.
+      pendingEditorLayerIdRef.current = null;
       dialogs.setShowAddData(true);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setters from useBuilderDialogs
@@ -1130,6 +1189,61 @@ export function MapBuilderPage() {
     if (index < 0) return;
     announce(t('a11y.dragPosition', { n: index + 1, total: layers.localLayers.length }));
   }, [layers.localLayers, announce, t]);
+
+  // fix(#785): dnd-kit's DEFAULT announcements are hardcoded English built
+  // from the draggable id — every drag emitted "Picked up draggable item
+  // <uuid>…" into dnd-kit's own live region, in English regardless of locale,
+  // competing with the app's localized announce() region. Announce translated,
+  // human layer names instead. Catalog drags return undefined: their pickup /
+  // position / drop already flow through announce() above (the drop
+  // deliberately fires only AFTER the add-dataset mutation resolves — see
+  // handleDragEnd — which dnd-kit's synchronous onDragEnd cannot honor).
+  const dndAccessibility = useMemo(() => {
+    const isCatalogDrag = (active: Active) =>
+      (active.data.current as { source?: string } | undefined)?.source === 'catalog';
+    const itemName = (active: Active): string => {
+      const data = active.data.current as { name?: string } | undefined;
+      if (data?.name) return data.name;
+      if (basemapGroup && String(active.id) === basemapGroup.id) {
+        return basemapGroup.presetName;
+      }
+      const layer = layers.localLayers.find((l) => l.id === String(active.id));
+      return layer ? (layer.display_name ?? layer.dataset_name) : String(active.id);
+    };
+    const overPosition = (over: { id: string | number } | null): number | null => {
+      if (!over) return null;
+      const index = layers.localLayers.findIndex((l) => l.id === String(over.id));
+      return index >= 0 ? index + 1 : null;
+    };
+    const announcements: Announcements = {
+      onDragStart({ active }) {
+        if (isCatalogDrag(active)) return undefined;
+        return t('a11y.dragPickup', { name: itemName(active) });
+      },
+      onDragOver({ active, over }) {
+        if (isCatalogDrag(active)) return undefined;
+        const n = overPosition(over);
+        if (n == null) return undefined;
+        return t('a11y.dragPosition', { n, total: layers.localLayers.length });
+      },
+      onDragEnd({ active, over }) {
+        if (isCatalogDrag(active)) return undefined;
+        if (!over) return t('a11y.dragCancelled');
+        return t('a11y.dragDropped', { name: itemName(active), n: overPosition(over) ?? 1 });
+      },
+      onDragCancel({ active }) {
+        if (isCatalogDrag(active)) return undefined;
+        return t('a11y.dragCancelled');
+      },
+    };
+    const screenReaderInstructions: ScreenReaderInstructions = {
+      draggable: t('a11y.dragInstructions', {
+        defaultValue:
+          'To reorder a layer, press Enter or Space on its drag handle, use the arrow keys to move it, then press Enter, Space, or Escape to finish.',
+      }),
+    };
+    return { announcements, screenReaderInstructions };
+  }, [layers.localLayers, basemapGroup, t]);
 
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
@@ -1535,6 +1649,7 @@ export function MapBuilderPage() {
           at MapBuilderPage level so identity is stable across renders. */}
       <DndContext
         sensors={dndSensors}
+        accessibility={dndAccessibility}
         collisionDetection={(args) =>
           pointerWithin(args).length > 0 ? pointerWithin(args) : closestCenter(args)
         }
@@ -1627,6 +1742,7 @@ export function MapBuilderPage() {
                 layerId,
               })}
               onZoomToLayer={layers.handleZoomToLayer}
+              onAnalyzeLayer={handleAnalyzeLayer}
               onCopyStyle={layers.handleCopyStyle}
               onPasteStyle={layers.handlePasteStyle}
               onBulkApplyStyle={handleBulkApplyStyle}
@@ -1672,6 +1788,10 @@ export function MapBuilderPage() {
               selectedIds={selectedIds}
               isMultiSelectionActive={isMultiSelectionActive}
               selectableRowIds={selectableRowIds}
+              // fix(#771): hybrid-controlled search so selectableRowIds above
+              // tracks exactly what the panel renders.
+              layerSearch={layerSearch}
+              onLayerSearchChange={setLayerSearch}
               onCmdClick={handleCmdClick}
               onShiftClick={handleShiftClick}
               onCheckboxClick={handleCheckboxClick}
@@ -1918,14 +2038,22 @@ export function MapBuilderPage() {
           dialogs.setShowAddData(open);
           if (!open) {
             dialogs.setAddDataInitialQuery('');
+            // ux(#776): the deferred editor-open — once per dialog session,
+            // on the most recently added layer.
+            if (pendingEditorLayerIdRef.current) {
+              handleSelectLayer(pendingEditorLayerIdRef.current);
+              pendingEditorLayerIdRef.current = null;
+            }
           }
         }}
         addDataInitialQuery={dialogs.addDataInitialQuery}
         onAddDataset={(datasetId: string) => {
           layers.handleAddDataset(datasetId, (newLayerId) => {
-            dialogs.setShowAddData(false);
-            dialogs.setAddDataInitialQuery('');
-            handleSelectLayer(newLayerId);
+            // ux(#776): keep the dialog open for multi-add — the row flips to
+            // "Added ✓" and Escape/backdrop/X still close it. The editor
+            // opens on close (see onShowAddDataChange above) instead of
+            // landing behind the dialog.
+            pendingEditorLayerIdRef.current = newLayerId;
           });
         }}
         onDuplicateRendering={(layerId) => layers.dispatchLayerAction({
