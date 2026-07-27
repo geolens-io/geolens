@@ -80,6 +80,16 @@ export const BulkActionBar = memo(function BulkActionBar({
     [layers, selectedIds],
   );
 
+  // fix(#771): group container rows have no backend record — handleBulkDelete
+  // filters them out of the batch — so every delete-facing count must be the
+  // DELETABLE count, not the selection size. Counting group rows promised
+  // deletions that never happened ("Delete 2 layers" on two group headers →
+  // silent no-op) and the Delete item now disables when nothing is deletable.
+  const deletableCount = useMemo(
+    () => selectedLayers.filter((l) => !isFolderGroupLayer(l)).length,
+    [selectedLayers],
+  );
+
   // Derived values for display and enable/disable logic
   const avgOpacity =
     N > 0
@@ -149,7 +159,7 @@ export const BulkActionBar = memo(function BulkActionBar({
           role="toolbar" must not carry aria-live. */}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {isDeleting
-          ? t('bulkActions.deletingLayers', { count: N })
+          ? t('bulkActions.deletingLayers', { count: deletableCount })
           : t('bulkActions.liveAnnouncement', { count: N })}
       </span>
       {isDeleting ? (
@@ -159,7 +169,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         <div className="flex items-center gap-2 w-full">
           <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" aria-hidden="true" />
           <span className="text-sm text-muted-foreground flex-1">
-            {t('bulkActions.deletingLayers', { count: N })}
+            {t('bulkActions.deletingLayers', { count: deletableCount })}
           </span>
           {/* ux(#777): variant="destructive" (not ghost+text-destructive) so the
               in-flight button matches the confirm button the user just pressed. */}
@@ -170,7 +180,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             className="h-8 gap-1.5 px-2 shrink-0 cursor-not-allowed"
             disabled={true}
             aria-busy={true}
-            aria-label={t('bulkActions.deleteAriaLabel', { count: N })}
+            aria-label={t('bulkActions.deleteAriaLabel', { count: deletableCount })}
           >
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
             {t('bulkActions.delete')}
@@ -191,7 +201,9 @@ export const BulkActionBar = memo(function BulkActionBar({
             id={confirmId}
             className="flex-1 text-sm text-destructive text-center"
           >
-            {t('bulkActions.deleteConfirmLabel', { count: N })}
+            {/* fix(#771): the confirm promises only what the handler will
+                actually delete — group rows are filtered out of the batch. */}
+            {t('bulkActions.deleteConfirmLabel', { count: deletableCount })}
           </p>
           <Button
             type="button"
@@ -221,7 +233,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {t('bulkActions.deleteConfirmAction', { count: N })}
+            {t('bulkActions.deleteConfirmAction', { count: deletableCount })}
           </Button>
         </div>
       ) : (
@@ -391,16 +403,26 @@ export const BulkActionBar = memo(function BulkActionBar({
               <DropdownMenuItem
                 data-testid="bulk-action-delete"
                 className="text-destructive focus:text-destructive"
-                aria-label={t('bulkActions.deleteAriaLabel', { count: N })}
+                // fix(#771): disabled when the selection holds only group rows —
+                // the handler filters them out, so confirming would delete nothing.
+                disabled={deletableCount === 0}
+                aria-label={t('bulkActions.deleteAriaLabel', { count: deletableCount })}
                 onSelect={(e) => {
                   // Keep the row from auto-closing the menu so the inline
                   // confirmation dialog appears in the toolbar below.
                   e.preventDefault();
-                  setConfirmingDelete(true);
+                  if (deletableCount > 0) setConfirmingDelete(true);
                 }}
               >
                 <Trash2 className="h-3.5 w-3.5 me-2" aria-hidden="true" />
-                {t('bulkActions.delete')}
+                <span className="flex flex-col items-start">
+                  {t('bulkActions.delete')}
+                  {deletableCount === 0 && (
+                    <span className="text-2xs text-muted-foreground">
+                      {t('bulkActions.deleteHint', { defaultValue: 'Group rows are deleted from their row menu' })}
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   hydrateFolderGroupLayers,
   prepareLayersForPersistence,
+  pruneEmptyFolderGroups,
   resolveDropGroupMembership,
   type GroupedLayer,
 } from '../folder-groups';
@@ -102,6 +103,56 @@ describe('folder group persistence helpers', () => {
       folderGroupExpanded: true,
     });
     expect(persisted[1].style_config?.builder).toEqual({ outlineWidth: 2 });
+  });
+});
+
+// fix(#767): group identity is persisted only on children, so a childless group
+// row cannot survive save+reload — it must be pruned the moment it empties.
+describe('pruneEmptyFolderGroups', () => {
+  const groupRow = (id: string, name = 'Group') =>
+    ({
+      ...makeLayer({ id, display_name: name }),
+      layer_type: 'group:folder',
+    }) as unknown as MapLayerResponse;
+  const childOf = (id: string, groupId: string) =>
+    ({ ...makeLayer({ id }), parent_group_id: groupId }) as unknown as MapLayerResponse;
+
+  it('prunes a group row with no children', () => {
+    const layers = [groupRow('group-1'), makeLayer({ id: 'loose-1' })];
+
+    const pruned = pruneEmptyFolderGroups(layers);
+
+    expect(pruned.map((l) => l.id)).toEqual(['loose-1']);
+  });
+
+  it('keeps group rows that still have children and prunes only the empty one', () => {
+    const layers = [
+      groupRow('group-1'),
+      childOf('child-1', 'group-1'),
+      groupRow('group-2'),
+      makeLayer({ id: 'loose-1' }),
+    ];
+
+    const pruned = pruneEmptyFolderGroups(layers);
+
+    expect(pruned.map((l) => l.id)).toEqual(['group-1', 'child-1', 'loose-1']);
+  });
+
+  it('returns the input array identity when there is nothing to prune', () => {
+    const layers = [groupRow('group-1'), childOf('child-1', 'group-1'), makeLayer({ id: 'loose-1' })];
+
+    expect(pruneEmptyFolderGroups(layers)).toBe(layers);
+  });
+
+  it('never touches non-folder rows even when they have no children pointing at them', () => {
+    const basemapish = {
+      ...makeLayer({ id: 'row-1' }),
+      layer_type: 'group:basemap',
+    } as unknown as MapLayerResponse;
+
+    const pruned = pruneEmptyFolderGroups([basemapish, makeLayer({ id: 'loose-1' })]);
+
+    expect(pruned.map((l) => l.id)).toEqual(['row-1', 'loose-1']);
   });
 });
 

@@ -886,7 +886,8 @@
     "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)",
     "bulkGroupNeedTwo": "Sélectionnez au moins 2 couches libres pour les regrouper",
     "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau",
-    "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez"
+    "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez",
+    "bulkDeleteOnlyGroupRows": "Les lignes de groupe ne peuvent pas être supprimées en masse ; utilisez le menu de la ligne du groupe pour le supprimer"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -1147,6 +1148,7 @@
     "ungroupHint": "Sélectionnez uniquement des lignes de groupe pour dégrouper",
     "ungroupDisabledTooltip": "Sélectionnez uniquement des groupes pour dégrouper",
     "delete": "Supprimer",
+    "deleteHint": "Les groupes se suppriment depuis le menu de leur ligne",
     "deleteAriaLabel": "Supprimer {{count}} couches sélectionnées",
     "deleteConfirmLabel": "Supprimer {{count}} couches ? Cette action est irréversible.",
     "deleteConfirmAction": "Supprimer {{count}} couches",

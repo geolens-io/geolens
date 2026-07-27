@@ -68,7 +68,7 @@ const StyleJsonDialog = lazy(() =>
 );
 import { KeyboardShortcutsSheet } from '@/components/builder/KeyboardShortcutsSheet';
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
-import { computeNextSelection } from '@/components/builder/selection-utils';
+import { computeNextSelection, computeSelectableRowIds } from '@/components/builder/selection-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -179,6 +179,11 @@ export function MapBuilderPage() {
   // the Phase 1040 lift-DndContext architecture decision.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastToggleAnchor = useRef<string | null>(null);
+  // fix(#771): the layer-search query is lifted here (hybrid-controlled on
+  // UnifiedStackPanel) so selectableRowIds below can be derived from the
+  // RENDERED row set — a shift-click range must never sweep rows the search
+  // has filtered out or that live inside a collapsed group.
+  const [layerSearch, setLayerSearch] = useState('');
 
   // Phase 1040 Plan 04: aria-live announcement for keyboard/mouse catalog drag (T-1040-10 / POL-05).
   // A sr-only region reads these strings to screen-reader users. We append a zero-width-space
@@ -636,14 +641,41 @@ export function MapBuilderPage() {
     return basemapGroup.sublayers.some((s) => s.id === id);
   }, [basemapGroup]);
 
-  // Phase 1041: derive selectable row ids (ordered flat list, basemap excluded)
-  // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler
+  // Phase 1041: derive selectable row ids (ordered list, basemap excluded)
+  // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler.
+  // fix(#771): derived from the RENDERED row set (shared helper with
+  // UnifiedStackPanel) instead of the raw flat array — the raw list let a
+  // shift-click range select children of collapsed groups and rows hidden by
+  // the layer search, so bulk delete/visibility/opacity acted on rows the
+  // user could not see.
+  // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
+  // range-selectable like any other row (the BLDR-03 skip is obsolete).
   const selectableRowIds = useMemo(
-    // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
-    // range-selectable like any other row (the BLDR-03 skip is obsolete).
-    (): string[] => layers.localLayers.map((layer) => layer.id),
-    [layers.localLayers],
+    (): string[] => computeSelectableRowIds(layers.localLayers, layers.groupMeta, layerSearch),
+    [layers.localLayers, layers.groupMeta, layerSearch],
   );
+
+  // fix(#771): selection ids can outlive their rows — handleRemove,
+  // handleDeleteGroup, handleUngroup, and the #767 empty-group prune all
+  // remove rows without touching selectedIds, so the bulk bar kept
+  // over-reporting counts it could not perform. Prune against the live layer
+  // set. Skipped while a bulk delete is in flight: its optimistic removal
+  // must not eat the preserved-on-failure selection (a full-failure rollback
+  // restores the rows in the same commit that clears isDeleting).
+  useEffect(() => {
+    if (layers.isDeleting) return;
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const rowId of prev) {
+        if (liveIds.has(rowId)) next.add(rowId);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [layers.localLayers, layers.isDeleting]);
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
@@ -1756,6 +1788,10 @@ export function MapBuilderPage() {
               selectedIds={selectedIds}
               isMultiSelectionActive={isMultiSelectionActive}
               selectableRowIds={selectableRowIds}
+              // fix(#771): hybrid-controlled search so selectableRowIds above
+              // tracks exactly what the panel renders.
+              layerSearch={layerSearch}
+              onLayerSearchChange={setLayerSearch}
               onCmdClick={handleCmdClick}
               onShiftClick={handleShiftClick}
               onCheckboxClick={handleCheckboxClick}

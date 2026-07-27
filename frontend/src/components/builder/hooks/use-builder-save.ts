@@ -448,7 +448,12 @@ export function buildLayerDiff(
   currentLayers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): LayerDiffResult {
-  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers);
+  // fix(#805): prepare BOTH sides with the same groupMeta. The baseline used to
+  // be prepared without it, so baseline children lacked the folderGroupExpanded
+  // marker while current children carried it — every save of a grouped map then
+  // emitted a spurious per-child style_config PATCH, silently persisting
+  // collapse state that is deliberately non-dirtying (see handleToggleGroupExpand).
+  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers, groupMeta);
   const currentPersistedLayers = prepareLayersForPersistence(currentLayers, groupMeta);
   const baselineById = new Map(baselinePersistedLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
   const currentById = new Map(currentPersistedLayers.map((layer) => [layer.id, layer]));
