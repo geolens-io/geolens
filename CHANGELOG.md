@@ -9,6 +9,12 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **Edits made while a save is in flight are no longer silently discarded.**
+  Changing a layer, name, basemap, plugin, or any other map property during
+  the save's network round-trip used to be absorbed into the saved baseline,
+  overwritten on screen by the post-save refresh, and dropped from the
+  unsaved-changes guard. The map now stays marked unsaved until those edits
+  are actually saved. (#756)
 - **The analysis completion notice no longer covers the panel's own "Add to
   map" button.** In the builder it now appears top-center, clear of the right
   rail; elsewhere it keeps the usual corner. (#725)

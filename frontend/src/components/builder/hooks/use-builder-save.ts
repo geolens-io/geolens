@@ -579,10 +579,11 @@ export function useBuilderSave(state: SaveState) {
   // fix(#756): handleSave destructures `state` once at call time and then
   // awaits the network; this ref always points at the latest rendered state
   // so the post-await code can tell whether anything was edited meanwhile.
+  // codex(#792 round 2): assigned during RENDER, not in a passive effect —
+  // effects run after paint, so a mutation resolving right as an edit
+  // commits could read the stale ref and clear the dirty flag anyway.
   const latestStateRef = useRef(state);
-  useEffect(() => {
-    latestStateRef.current = state;
-  });
+  latestStateRef.current = state;
 
   function editedDuringSave(
     sent: SaveState,
