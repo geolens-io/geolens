@@ -1083,6 +1083,7 @@
     "dragPosition": "Current position: {{n}} of {{total}}",
     "dragDropped": "Dropped. {{name}} added at position {{n}}.",
     "dragCancelled": "Drop cancelled.",
+    "dragInstructions": "To reorder a layer, press Enter or Space on its drag handle, use the arrow keys to move it, then press Enter, Space, or Escape to finish.",
     "reorderMovedUp": "{{name}} moved up.",
     "reorderMovedDown": "{{name}} moved down.",
     "reorderDropped": "{{name}} dropped.",
@@ -1199,6 +1200,7 @@
   "rail": {
     "aiDisabled": "AI disabled by admin",
     "closePanel": "Close panel",
+    "toolsLabel": "Builder tools",
     "aiUnavailable": "AI unavailable",
     "aiUnavailableTitle": "AI is unavailable",
     "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder.",
@@ -1257,6 +1259,8 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Back to basemap group",
+    "breadcrumb": "Basemap · {{name}} ›",
+    "breadcrumbUntitled": "Untitled",
     "resetAction": "Reset to default",
     "casingColor": "Casing color",
     "casingLabel": "CASING",

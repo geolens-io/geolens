@@ -1079,6 +1079,7 @@
     "dragPosition": "Aktuelle Position: {{n}} von {{total}}",
     "dragDropped": "Abgelegt. {{name}} an Position {{n}} hinzugefügt.",
     "dragCancelled": "Ablegen abgebrochen.",
+    "dragInstructions": "Zum Neuanordnen einer Ebene Eingabe oder Leertaste auf dem Ziehgriff drücken, die Ebene mit den Pfeiltasten verschieben und mit Eingabe, Leertaste oder Escape beenden.",
     "reorderMovedUp": "{{name}} nach oben verschoben.",
     "reorderMovedDown": "{{name}} nach unten verschoben.",
     "reorderDropped": "{{name}} abgelegt.",
@@ -1194,6 +1195,7 @@
   },
   "rail": {
     "aiDisabled": "KI durch Administrator deaktiviert",
+    "toolsLabel": "Editor-Werkzeuge",
     "aiUnavailable": "KI nicht verfügbar",
     "aiUnavailableTitle": "KI ist nicht verfügbar",
     "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann.",
@@ -1253,6 +1255,8 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",
+    "breadcrumb": "Basiskarte · {{name}} ›",
+    "breadcrumbUntitled": "Ohne Titel",
     "casingColor": "Umrandungsfarbe",
     "casingLabel": "UMRANDUNG",
     "casingWidth": "Breite",

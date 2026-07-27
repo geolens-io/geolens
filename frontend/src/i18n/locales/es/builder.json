@@ -1079,6 +1079,7 @@
     "dragPosition": "Posición actual: {{n}} de {{total}}",
     "dragDropped": "Soltado. {{name}} agregado en la posición {{n}}.",
     "dragCancelled": "Soltar cancelado.",
+    "dragInstructions": "Para reordenar una capa, pulse Intro o Espacio en su asa de arrastre, use las teclas de flecha para moverla y pulse Intro, Espacio o Escape para finalizar.",
     "reorderMovedUp": "{{name}} se movió hacia arriba.",
     "reorderMovedDown": "{{name}} se movió hacia abajo.",
     "reorderDropped": "{{name}} soltado.",
@@ -1194,6 +1195,7 @@
   },
   "rail": {
     "aiDisabled": "IA desactivada por el administrador",
+    "toolsLabel": "Herramientas del editor",
     "aiUnavailable": "IA no disponible",
     "aiUnavailableTitle": "La IA no está disponible",
     "aiUnavailableDescription": "Un administrador debe habilitar un proveedor de IA antes de usar Preguntar a la IA en este builder.",
@@ -1253,6 +1255,8 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Volver al grupo de mapa base",
+    "breadcrumb": "Mapa base · {{name}} ›",
+    "breadcrumbUntitled": "Sin título",
     "casingColor": "Color del contorno",
     "casingLabel": "CONTORNO",
     "casingWidth": "Ancho",
