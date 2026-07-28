@@ -50,6 +50,7 @@ from app.processing.tiles.router import _titiler_client
 from app.standards.ogc.utils import standards_api_path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+import slowapi.middleware as slowapi_middleware_module
 
 # Configure structured logging before app creation so lifespan logs are structured
 setup_logging(json_logs=settings.log_json, log_level=settings.log_level)
@@ -755,6 +756,39 @@ app.add_middleware(RequestLoggingMiddleware)
 # the tenant_id is available to all route handlers.  In single_tenant mode
 # (default) this is a strict no-op (single boolean check, no state mutation).
 app.add_middleware(TenantContextMiddleware)
+
+
+def _find_route_handler_with_lazy_includes(routes, scope):
+    """slowapi <= 0.1.10 resolves the handler by scanning ``app.routes`` for a
+    matching route with an ``endpoint``. fastapi 0.140 keeps included-router
+    routes nested (lazy ``include_router``), so that scan finds nothing and the
+    middleware silently stops enforcing the GLOBAL default rate limit
+    (per-route ``@limiter.limit`` decorators are unaffected). Until a slowapi
+    release understands the nested table, resolve misses through the flattened
+    route contexts, whose ``path_regex``/``methods`` carry the effective full
+    path. Guarded by tests/test_middleware.py::test_rate_limiting."""
+    handler = _slowapi_find_route_handler(routes, scope)
+    if handler is not None:
+        return handler
+    from fastapi.routing import iter_route_contexts
+
+    path = scope.get("path", "")
+    method = scope.get("method", "")
+    for ctx in iter_route_contexts(list(routes)):
+        path_regex = getattr(ctx, "path_regex", None)
+        if path_regex is None or not path_regex.match(path):
+            continue
+        # Registration order matches starlette routing order, so the first
+        # method-compatible hit is the route that would handle the request.
+        if ctx.methods and method not in ctx.methods:
+            continue
+        if ctx.endpoint is not None:
+            return ctx.endpoint
+    return None
+
+
+_slowapi_find_route_handler = slowapi_middleware_module._find_route_handler
+slowapi_middleware_module._find_route_handler = _find_route_handler_with_lazy_includes
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     RequestBodyLimitMiddleware,
