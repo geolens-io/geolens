@@ -3,8 +3,11 @@
 # operator script). NOT sourced by scripts/install.sh: install.sh is a
 # self-contained single file streamed over `curl ... | sh` and byte-synced to the
 # getgeolens.com mirror, so it deliberately inlines its own copies of these
-# helpers. Keep the COMPOSE wrapper / wait_for_healthy / update_env_value logic
-# here in lockstep with install.sh's inlined versions.
+# helpers. Keep the COMPOSE wrapper / update_env_value logic here in lockstep
+# with install.sh's inlined versions. wait_for_healthy deliberately diverges:
+# install.sh's copy budgets 300s and returns a non-fatal rc=2 on timeout (first
+# boot under QEMU emulation), while this copy keeps a 90s budget for the
+# upgrade path where images and volumes already exist locally.
 #
 # This file has NO side effects on source: it only defines functions and the few
 # constants below. The caller sets COMPOSE_FILE before invoking compose().
@@ -113,7 +116,15 @@ semver_compare() {
 
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must exit
 # 0; every healthcheck-having service must report (healthy). Surfaces the failing
-# service with a log tail on timeout/failure. Mirrors install.sh :158.
+# service with a log tail on timeout/failure. Diverges from install.sh's inlined
+# copy (300s budget, non-fatal rc=2 timeout) — see the header note above.
+#
+# Services still in `(health: starting)` when the budget runs out are treated
+# as converging, not failed: they sit inside their own declared start_period
+# (e.g. the backup service allows 10m for its first pg_dump of a large DB,
+# far beyond this 90s budget), so Docker has not judged them yet — and neither
+# should we. Only a service that is (unhealthy), restarting, or exited
+# non-zero fails the wait.
 wait_for_healthy() {
   attempts=18
   sleep_s=5
@@ -149,6 +160,25 @@ wait_for_healthy() {
     sleep "$sleep_s"
   done
 
+  # Budget spent — classify what is left. `(health: starting)` means the
+  # service is within its declared start_period and Docker has not ruled on it;
+  # failing the upgrade here would tell the operator to roll back a stack that
+  # is converging fine (a pre-existing install whose first backup pg_dump
+  # outlasts 90s hit exactly that). Warn and succeed when ONLY such services
+  # remain; anything (unhealthy)/restarting/exited-nonzero is a real failure.
+  remaining=$(compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null | grep -v '|.*(healthy)' | grep -v '|Exited (0)' | grep -v '^$' || true)
+  if [ -z "$remaining" ]; then
+    printf '\n'
+    return 0
+  fi
+  broken=$(printf '%s\n' "$remaining" | grep -v '(health: starting)' || true)
+  if [ -z "$broken" ]; then
+    printf '\n'
+    warn "these services are still starting after $((attempts * sleep_s))s but remain within their declared start_period:"
+    printf '%s\n' "$remaining" | sed 's/^/  /' >&2
+    warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
+    return 0
+  fi
   printf '\n' >&2
   warn "timed out after $((attempts * sleep_s))s waiting for services. Current status:"
   compose ps 2>&1 | sed 's/^/  /' >&2
