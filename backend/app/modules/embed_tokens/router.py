@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
-from app.modules.auth.dependencies import get_current_active_user
+from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.schemas import (
     EmbedTokenCreate,
@@ -70,7 +70,10 @@ router = APIRouter(
 async def create_embed_token_endpoint(
     map_id: uuid.UUID,
     body: EmbedTokenCreate,
-    user: Identity = Depends(get_current_active_user),
+    # Same permission gate as share_map_endpoint: an embed token outranks the
+    # share link it accompanies (anonymous tile capability), so minting or
+    # managing one must never be gated weaker than creating the share link.
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenCreatedResponse:
     """Create an embed token scoped to a map's current layers.
@@ -124,7 +127,7 @@ async def create_embed_token_endpoint(
 @router.get("/", response_model=EmbedTokenListResponse)
 async def list_embed_tokens_endpoint(
     map_id: uuid.UUID,
-    user: Identity = Depends(get_current_active_user),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenListResponse:
     """List all embed tokens for a map."""
@@ -148,7 +151,7 @@ async def update_embed_token_endpoint(
     map_id: uuid.UUID,
     token_id: uuid.UUID,
     body: EmbedTokenUpdate,
-    user: Identity = Depends(get_current_active_user),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
     """Update embed token allowed_origins.
@@ -196,7 +199,7 @@ async def update_embed_token_endpoint(
 async def revoke_embed_token_endpoint(
     map_id: uuid.UUID,
     token_id: uuid.UUID,
-    user: Identity = Depends(get_current_active_user),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
     """Revoke an embed token."""

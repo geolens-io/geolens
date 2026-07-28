@@ -15,6 +15,7 @@ import {
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, isMvtSourceLayerConfigReady, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { logUnhandledMapError } from '@/lib/map-error-log';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
+import { useAuthStore } from '@/stores/auth-store';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
@@ -438,6 +439,13 @@ export const ViewerMap = memo(function ViewerMap({
         const headers: Record<string, string> = {};
         if (embedToken && !isThirdPartyUrl(url)) {
           headers['X-Embed-Token'] = embedToken;
+        } else if (absUrl.includes('/raster-tiles/') && !isThirdPartyUrl(url)) {
+          // Raster tiles carry no signed URL (unlike vector tiles), so a
+          // signed-in viewer needs the Bearer header here just like
+          // BuilderMap/DatasetMap — without it, private rasters fail on the
+          // viewer surface (incl. builder "View as viewer").
+          const token = useAuthStore.getState().token;
+          if (token) headers.Authorization = `Bearer ${token}`;
         }
         return { url: absUrl, headers };
       });

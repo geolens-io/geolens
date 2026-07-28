@@ -390,8 +390,9 @@ docker inspect --format '{{.State.Health.Status}}' $(docker compose ps -q backup
 
 `healthy` means a backup cycle **fully succeeded recently** — it is not a
 liveness probe. The entrypoint touches `/backups/.last-success` only after
-`pg_dump`, end-to-end verification (`pg_restore -f /dev/null`), and the S3
-upload (when `BACKUP_S3_ENABLED=true`) all succeed. The healthcheck fails when
+`pg_dump`, end-to-end verification (`pg_restore -f /dev/null`), the
+object-storage staging archive (when the staging volume is mounted and
+non-empty), and the S3 upload (when `BACKUP_S3_ENABLED=true`) all succeed. The healthcheck fails when
 that marker is missing or older than `BACKUP_MAX_AGE_MINUTES` (default `1560`
 minutes = 26 hours, the default daily schedule plus slack). A container whose
 backups quietly stop succeeding therefore turns `unhealthy` roughly one missed
@@ -427,7 +428,7 @@ docker compose logs -f backup
 | `Object-storage archive complete: staging-<ts>.tar.gz (<size>)` | `upload_staging` archived alongside the dump |
 | `Backup cycle complete` | Full cycle (dump + staging + S3 if enabled) finished |
 | `ERROR: S3 upload failed for <key>` | Offsite upload failed; cycle returns non-zero |
-| `WARNING: object-storage archive failed — staging backup skipped` | Staging tar failed; DB dump is still good |
+| `ERROR: object-storage archive failed — this cycle will be reported as failed` | Staging tar failed; the cycle fails and the service turns `unhealthy` at the next freshness probe |
 | `ERROR: pg_dump failed` | DB dump failed; no artifacts written for this cycle |
 
 A healthy cycle produces at least `Backup complete` and `Backup cycle complete`.

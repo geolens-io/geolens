@@ -257,6 +257,7 @@
     },
     "pattern": "Muster",
     "extrusionRange": "Bereich: {{min}}–{{max}}, {{count}} Objekte",
+    "heightColumn": "Höhenspalte",
     "heightColumnRemoved": "Die Höhenspalte „{{column}}“ wurde beim erneuten Hochladen entfernt. Wählen Sie eine neue Spalte aus oder setzen Sie diese Einstellung zurück.",
     "lineEnds": "Linienenden",
     "lineCap": "Ende",
