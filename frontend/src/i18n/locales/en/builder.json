@@ -989,7 +989,11 @@
     "unitKilometers": "kilometers",
     "unitFeet": "feet",
     "unitMiles": "miles",
-    "drawMaskPointerHint": "Drawing needs a pointer. To clip without one, pick a polygon layer below."
+    "drawMaskPointerHint": "Drawing needs a pointer. To clip without one, pick a polygon layer below.",
+    "saveHintNeedsName": "Enter a name for the new dataset to enable Create dataset.",
+    "saveHintNeedsParams": "Complete the operation settings above to enable Create dataset.",
+    "addedToMap": "Added to map",
+    "openMap": "Open map"
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

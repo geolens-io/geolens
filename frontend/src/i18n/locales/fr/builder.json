@@ -989,7 +989,11 @@
     "unitKilometers": "kilomètres",
     "unitFeet": "pieds",
     "unitMiles": "milles",
-    "drawMaskPointerHint": "Le dessin nécessite un pointeur. Pour découper sans, choisissez une couche de polygones ci-dessous."
+    "drawMaskPointerHint": "Le dessin nécessite un pointeur. Pour découper sans, choisissez une couche de polygones ci-dessous.",
+    "saveHintNeedsName": "Saisissez un nom pour le nouveau jeu de données pour activer Créer un jeu de données.",
+    "saveHintNeedsParams": "Renseignez les paramètres de l’opération ci-dessus pour activer Créer un jeu de données.",
+    "addedToMap": "Ajouté à la carte",
+    "openMap": "Ouvrir la carte"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

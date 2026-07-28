@@ -989,7 +989,11 @@
     "unitKilometers": "kilómetros",
     "unitFeet": "pies",
     "unitMiles": "millas",
-    "drawMaskPointerHint": "Dibujar requiere un puntero. Para recortar sin él, elige una capa de polígonos abajo."
+    "drawMaskPointerHint": "Dibujar requiere un puntero. Para recortar sin él, elige una capa de polígonos abajo.",
+    "saveHintNeedsName": "Introduce un nombre para el nuevo conjunto de datos para activar Crear conjunto de datos.",
+    "saveHintNeedsParams": "Completa los ajustes de la operación de arriba para activar Crear conjunto de datos.",
+    "addedToMap": "Añadido al mapa",
+    "openMap": "Abrir mapa"
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

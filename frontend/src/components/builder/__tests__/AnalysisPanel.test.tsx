@@ -1447,6 +1447,17 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     expect(screen.getByText('Creating dataset…')).toBeInTheDocument();
   });
 
+  it('marks the clear-preview and add-to-map controls with explicit button types', () => {
+    // The panel is a <form> now — an unmarked <button> inside it submits.
+    renderPanel([datasetLayer], { hasPreview: true });
+    expect(
+      screen.getByRole('button', { name: 'Clear preview' }),
+    ).toHaveAttribute('type', 'button');
+    expect(
+      screen.getByRole('button', { name: 'Create dataset' }),
+    ).toHaveAttribute('type', 'button');
+  });
+
   it('clears a panel-owned overlay when the selection displaces the remembered layer', async () => {
     const onClearPreview = vi.fn();
     useAnalysisFormStore.getState().save('m1', {
@@ -1463,5 +1474,295 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     // The overlay depicts the displaced layer's preview — stale for the same
     // reason a vanished layer's would be.
     await waitFor(() => expect(onClearPreview).toHaveBeenCalled());
+  });
+});
+
+describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
+  beforeEach(() => {
+    mockJobStatus.value = null;
+    mockJobStatus.error = null;
+    useAnalysisFormStore.setState({ forms: {} });
+    useAnalysisJobStore.setState({ job: null });
+    useAuthStore.setState({ token: null, refreshToken: null, user: null });
+    vi.mocked(previewAnalysis).mockClear();
+    vi.mocked(materializeAnalysis).mockClear();
+    mockToast.error.mockClear();
+    mockTerraDraw.instance.stop.mockClear();
+    mockTerraDraw.instance.addFeatures.mockClear();
+  });
+
+  it("does not warn 'another analysis' during its own run's tracking gaps", async () => {
+    // onAnalysisJobChange fires inside the mutationFn, setJobId only in
+    // onSuccess, and the first poll lands later still — during both gaps the
+    // tracked job is OURS, so the foreign-job banner must stay silent.
+    let resolveMaterialize!: (v: unknown) => void;
+    vi.mocked(materializeAnalysis).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMaterialize = resolve;
+        }) as never,
+    );
+    renderPanel([datasetLayer], { mapId: 'm1' });
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Own run' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+    await waitFor(() => expect(materializeAnalysis).toHaveBeenCalled());
+
+    // The page registers the job globally while the POST is still pending.
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: { jobId: 'own-job', title: 'Own run', mapId: 'm1' },
+      });
+    });
+    expect(
+      screen.queryByText(
+        'Another analysis is still running — wait for it to finish.',
+      ),
+    ).not.toBeInTheDocument();
+
+    resolveMaterialize({ job_id: 'own-job', status: 'pending' });
+    await new Promise((r) => setTimeout(r, 0));
+    // onSuccess → first poll: jobId set, no status observed yet.
+    expect(
+      screen.queryByText(
+        'Another analysis is still running — wait for it to finish.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('Escape during a clip draw cancels the draw, not the panel', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer], {
+      mapInstanceRef: { current: { on: vi.fn(), off: vi.fn() } as never },
+    });
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Clip' }));
+    await user.click(screen.getByRole('button', { name: 'Draw clip area' }));
+
+    // The Draw→Cancel swap moves focus onto Cancel — without this the
+    // keystroke below lands on <body> and never reaches the panel.
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel).toHaveFocus();
+
+    // fireEvent returns false when preventDefault fired — the consumed
+    // Escape is what keeps BuilderRail's handler from closing the panel.
+    const notPrevented = fireEvent.keyDown(cancel, { key: 'Escape' });
+    expect(notPrevented).toBe(false);
+    expect(mockTerraDraw.instance.stop).toHaveBeenCalled();
+
+    // Back to the idle state, focus returned to the Draw button.
+    const draw = await screen.findByRole('button', { name: 'Draw clip area' });
+    expect(draw).toHaveFocus();
+  });
+
+  it('Escape without a pending draw is left for the rail to handle', () => {
+    renderPanel([datasetLayer]);
+    const notPrevented = fireEvent.keyDown(screen.getByLabelText('Distance'), {
+      key: 'Escape',
+    });
+    // Not consumed: closing the panel on Escape is BuilderRail's job.
+    expect(notPrevented).toBe(true);
+  });
+
+  it('keeps the cap attainable across a unit switch (100 000 m → feet)', async () => {
+    const user = userEvent.setup();
+    renderPanel([datasetLayer]);
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '100000' },
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('combobox')[2]);
+    await user.click(await screen.findByRole('option', { name: 'feet' }));
+    // Was 328 084 ft (6-significant-digit round UP = 100 000.0032 m), which
+    // the panel then flagged invalid against its own stated maximum. The
+    // conversion now rounds DOWN to the cap in the target unit.
+    expect(screen.getByLabelText('Distance')).toHaveValue(328083.98);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
+  });
+
+  it('caps the distance input at an attainable stated maximum', () => {
+    renderPanel([datasetLayer]);
+    // The max attribute matches the floored, attainable cap the range
+    // message states — 100 000 m is exact in metres.
+    expect(screen.getByLabelText('Distance')).toHaveAttribute('max', '100000');
+  });
+
+  it('submits Preview on Enter via the form (D10)', async () => {
+    renderPanel([datasetLayer]);
+    fireEvent.submit(screen.getByTestId('analysis-panel'));
+    await waitFor(() =>
+      expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
+        operation: 'buffer',
+        distance_meters: 500,
+      }),
+    );
+  });
+
+  it('ignores a form submit while the inputs are invalid (D10)', () => {
+    renderPanel([datasetLayer]);
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '0' },
+    });
+    fireEvent.submit(screen.getByTestId('analysis-panel'));
+    expect(previewAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('explains the disabled Create button via a static hint (D6)', () => {
+    renderPanel([datasetLayer]);
+    const createButton = screen.getByRole('button', { name: 'Create dataset' });
+    expect(createButton).toBeDisabled();
+    expect(createButton).toHaveAttribute(
+      'aria-describedby',
+      'analysis-save-hint',
+    );
+    const hint = document.getElementById('analysis-save-hint');
+    expect(hint).toHaveTextContent(
+      'Enter a name for the new dataset to enable Create dataset.',
+    );
+    // Deliberately OUTSIDE the polite status region — a live region would
+    // narrate the hint on every keystroke.
+    expect(screen.getByRole('status')).not.toContainElement(hint);
+
+    // With the name typed, the reason (and describedby) go away.
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Named' },
+    });
+    expect(createButton).not.toBeDisabled();
+    expect(createButton).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('points the hint at the invalid parameters once a name exists (D6)', () => {
+    renderPanel([datasetLayer]);
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Named' },
+    });
+    fireEvent.change(screen.getByLabelText('Distance'), {
+      target: { value: '0' },
+    });
+    expect(document.getElementById('analysis-save-hint')).toHaveTextContent(
+      'Complete the operation settings above to enable Create dataset.',
+    );
+  });
+
+  it('marks the panel Add to map used after one click', async () => {
+    mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+    const onAddDataset = vi.fn();
+    renderPanel([datasetLayer], {
+      mapId: 'm1',
+      layerActions: { onAddDataset } as never,
+    });
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Out' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    // The test i18n mock returns the raw template, uninterpolated.
+    const addButton = await screen.findByRole('button', {
+      name: 'Add "{{name}}" to map',
+    });
+    fireEvent.click(addButton);
+    expect(onAddDataset).toHaveBeenCalledTimes(1);
+
+    // Completion also raises the watcher's toast action — each affordance is
+    // single-use so the pair can't add the layer twice.
+    const usedButton = screen.getByRole('button', { name: 'Added to map' });
+    expect(usedButton).toBeDisabled();
+    fireEvent.click(usedButton);
+    expect(onAddDataset).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets aria-busy on the pending Preview button', async () => {
+    let resolvePreview!: (v: unknown) => void;
+    vi.mocked(previewAnalysis).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePreview = resolve;
+        }) as never,
+    );
+    renderPanel([datasetLayer]);
+    const previewButton = screen.getByRole('button', { name: 'Preview' });
+    expect(previewButton).not.toHaveAttribute('aria-busy');
+    fireEvent.click(previewButton);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Running…' })).toHaveAttribute(
+        'aria-busy',
+        'true',
+      ),
+    );
+    resolvePreview({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 0,
+      truncated: false,
+      bbox: null,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Preview' }),
+      ).not.toHaveAttribute('aria-busy'),
+    );
+  });
+
+  it('sets aria-busy on the pending Create dataset button', async () => {
+    vi.mocked(materializeAnalysis).mockImplementationOnce(
+      () => new Promise(() => {}) as never,
+    );
+    renderPanel([datasetLayer]);
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Busy' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Creating…' }),
+      ).toHaveAttribute('aria-busy', 'true'),
+    );
+  });
+
+  it('retries a failed mask restore on a later commit', async () => {
+    // The latch used to be set BEFORE the attempt, so one failure left the
+    // mask applied but never visible, with no retry — mirrors
+    // use-ephemeral-layers' retry-until-attached idiom now.
+    mockTerraDraw.instance.addFeatures.mockImplementationOnce(() => {
+      throw new Error('unsupported geometry');
+    });
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'clip', distance: '500', distanceUnit: 'm',
+      mask: {
+        type: 'Polygon',
+        coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+      },
+      maskLayerId: '__none__', byField: '__none__', outputTitle: '',
+    });
+    const qc = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const mapRef = { current: { on: vi.fn(), off: vi.fn() } };
+    // A fresh element each time — rerendering the SAME element reference
+    // hits React's same-element bailout and skips the subtree entirely.
+    const renderTree = () => (
+      <QueryClientProvider client={qc}>
+        <AnalysisPanel
+          layers={[datasetLayer]}
+          mapId="m1"
+          mapInstanceRef={mapRef as never}
+        />
+      </QueryClientProvider>
+    );
+    const view = render(renderTree());
+    // First attempt failed and tore itself down.
+    await waitFor(() =>
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(1),
+    );
+    expect(mockTerraDraw.instance.stop).toHaveBeenCalled();
+
+    // The next commit retries and succeeds.
+    view.rerender(renderTree());
+    await waitFor(() =>
+      expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalledTimes(2),
+    );
+    expect(mockTerraDraw.instance.setMode).toHaveBeenLastCalledWith('static');
   });
 });
