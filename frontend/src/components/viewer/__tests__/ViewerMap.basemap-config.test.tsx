@@ -108,11 +108,26 @@ const mapState = vi.hoisted(() => {
 vi.mock('@vis.gl/react-maplibre', async () => {
   const React = await import('react');
   return {
-    Map: ({ children, onLoad }: { children?: ReactNode; onLoad?: (event: { target: FakeMap }) => void }) => {
+    Map: ({
+      children,
+      onLoad,
+      projection,
+    }: {
+      children?: ReactNode;
+      onLoad?: (event: { target: FakeMap }) => void;
+      projection?: string | { type: string };
+    }) => {
       React.useEffect(() => {
         onLoad?.({ target: mapState.fakeMap });
       }, [onLoad]);
-      return <div data-testid="mapgl">{children}</div>;
+      return (
+        <div
+          data-testid="mapgl"
+          data-projection={typeof projection === 'string' ? projection : projection?.type}
+        >
+          {children}
+        </div>
+      );
     },
     NavigationControl: () => null,
     ScaleControl: () => null,
@@ -211,8 +226,8 @@ const BASEMAP_CONFIG_WITH_OVERRIDES: MapBasemapConfig = {
   },
 };
 
-function renderViewer(config: MapBasemapConfig | null = BASEMAP_CONFIG, showBasemapLabels = true) {
-  return render(
+function viewerElement(config: MapBasemapConfig | null = BASEMAP_CONFIG, showBasemapLabels = true) {
+  return (
     <ViewerMap
       layers={[]}
       basemapStyle="openfreemap-positron"
@@ -227,8 +242,12 @@ function renderViewer(config: MapBasemapConfig | null = BASEMAP_CONFIG, showBase
         pitch: 0,
       }}
       visibleLayers={new Set()}
-    />,
+    />
   );
+}
+
+function renderViewer(config: MapBasemapConfig | null = BASEMAP_CONFIG, showBasemapLabels = true) {
+  return render(viewerElement(config, showBasemapLabels));
 }
 
 describe('ViewerMap basemap config runtime', () => {
@@ -396,6 +415,21 @@ describe('ViewerMap basemap config runtime', () => {
       showBasemapLabels: true,
       basemapPosition: 'top',
     });
+  });
+
+  it('passes the saved projection to MapGL for cold-mount application (feat(#845))', () => {
+    const globe = renderViewer({ ...BASEMAP_CONFIG, projection: 'globe' });
+    expect(screen.getByTestId('mapgl')).toHaveAttribute('data-projection', 'globe');
+
+    // Codex P2 r4 on #848: the prop must stay frozen after mount — a changed
+    // projection prop hits react-maplibre's unguarded setter and throws mid
+    // style-swap. Runtime changes flow through applyMapBasemapAppearance.
+    globe.rerender(viewerElement({ ...BASEMAP_CONFIG, projection: 'mercator' }));
+    expect(screen.getByTestId('mapgl')).toHaveAttribute('data-projection', 'globe');
+    globe.unmount();
+
+    renderViewer(null);
+    expect(screen.getByTestId('mapgl')).toHaveAttribute('data-projection', 'mercator');
   });
 
   it('syncs duplicate sort-order layers with stable viewer layer IDs', async () => {

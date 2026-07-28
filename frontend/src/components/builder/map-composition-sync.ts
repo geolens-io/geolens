@@ -14,6 +14,10 @@ import {
 
 type RefBox<T> = { current: T };
 
+// feat(#845): one pending projection idle-retry per map instance, so a newer
+// appearance application can cancel a stale one (Codex P2 on #848).
+const pendingProjectionRetries = new WeakMap<MaplibreMap, () => void>();
+
 function sourcePrefixFor(idPrefix: string | undefined) {
   return idPrefix ? `${idPrefix}source-` : 'source-';
 }
@@ -50,6 +54,35 @@ export function applyMapBasemapAppearance({
   // COMPOSE with it (override * master) rather than clobbering the master-opacity
   // paint applyBasemapConfigToMap just wrote.
   const masterOpacity = basemapConfig?.opacity ?? 1;
+
+  // feat(#845): projection is root style state persisted on
+  // basemap_config.projection — apply it with the rest of the basemap
+  // appearance so viewer/shared surfaces honor the saved value, not just the
+  // builder. setProjection only needs the style PARSED (maplibre's
+  // Style._checkLoaded), which is already true inside a `style.load`
+  // callback, so attempt it immediately rather than gating on
+  // isStyleLoaded()/idle — a slow tile source would otherwise leave a saved
+  // globe map visibly in mercator (Codex P2 round 2 on #848). If the style
+  // is not parsed yet the call throws; retry once on `style.load`, and
+  // cancel any stale retry first so a projection change during the load
+  // window can't be reverted by an old callback (Codex P2 round 1 on #848).
+  const staleRetry = pendingProjectionRetries.get(map);
+  if (staleRetry) {
+    map.off?.('style.load', staleRetry);
+    pendingProjectionRetries.delete(map);
+  }
+  const applyProjection = () => {
+    pendingProjectionRetries.delete(map);
+    try {
+      map.setProjection?.({ type: basemapConfig?.projection ?? 'mercator' });
+    } catch {
+      // Style not parsed yet — re-attempt as soon as it is. Partial map
+      // mocks in tests lack `once`, hence the optional call.
+      pendingProjectionRetries.set(map, applyProjection);
+      map.once?.('style.load', applyProjection);
+    }
+  };
+  applyProjection();
 
   if (!map.isStyleLoaded()) {
     applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);

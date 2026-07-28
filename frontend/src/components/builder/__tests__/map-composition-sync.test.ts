@@ -132,6 +132,65 @@ describe('map composition sync', () => {
     ]);
   });
 
+  it('applies the saved projection with the basemap appearance (feat(#845))', () => {
+    const setProjection = vi.fn();
+    const target = { isStyleLoaded: vi.fn(() => true), setProjection } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: target,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+      idPrefix: 'viewer-',
+    });
+    expect(setProjection).toHaveBeenCalledWith({ type: 'globe' });
+
+    // No saved projection → explicit mercator, so a globe→mercator edit resets.
+    applyMapBasemapAppearance({ map: target, basemapConfig: null, idPrefix: 'viewer-' });
+    expect(setProjection).toHaveBeenLastCalledWith({ type: 'mercator' });
+
+    // setProjection is attempted even while isStyleLoaded() is false — it
+    // only needs the style parsed, and gating on idle left a saved globe map
+    // visibly in mercator during slow tile loads (Codex P2 round 2 on #848).
+    setProjection.mockClear();
+    applyMapBasemapAppearance({
+      map: { isStyleLoaded: vi.fn(() => false), setProjection } as unknown as MaplibreMap,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(setProjection).toHaveBeenCalledWith({ type: 'globe' });
+  });
+
+  it('retries an unparsed-style projection on style.load and cancels stale retries (feat(#845))', () => {
+    // A style that is not parsed yet makes setProjection throw.
+    let styleParsed = false;
+    const setProjection = vi.fn(() => {
+      if (!styleParsed) throw new Error('Style is not done loading');
+    });
+    const once = vi.fn();
+    const off = vi.fn();
+    const loading = { isStyleLoaded: vi.fn(() => false), setProjection, once, off } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: loading,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(once).toHaveBeenCalledWith('style.load', expect.any(Function));
+    const globeRetry = once.mock.calls[0][1] as () => void;
+
+    // A newer application cancels the stale retry, so a projection change
+    // during the load window can't be reverted (Codex P2 round 1 on #848).
+    applyMapBasemapAppearance({
+      map: loading,
+      basemapConfig: { projection: 'mercator' } as MapBasemapConfig,
+    });
+    expect(off).toHaveBeenCalledWith('style.load', globeRetry);
+
+    // Once the style parses, the latest retry applies the latest value.
+    styleParsed = true;
+    setProjection.mockClear();
+    (once.mock.calls[1][1] as () => void)();
+    expect(setProjection).toHaveBeenCalledTimes(1);
+    expect(setProjection).toHaveBeenCalledWith({ type: 'mercator' });
+  });
+
   it('lets sublayer override retry logic handle unloaded styles', () => {
     const basemapConfig: MapBasemapConfig = {
       label_mode: 'full',
