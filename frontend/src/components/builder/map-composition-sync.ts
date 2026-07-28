@@ -58,15 +58,17 @@ export function applyMapBasemapAppearance({
   // feat(#845): projection is root style state persisted on
   // basemap_config.projection — apply it with the rest of the basemap
   // appearance so viewer/shared surfaces honor the saved value, not just the
-  // builder. Globe needs a loaded style, and inside a `style.load` callback
-  // isStyleLoaded() still reports false, so fall back to a one-shot idle
-  // retry (same gate MapBuilderPage uses) instead of dropping it. Any
-  // previously scheduled retry is canceled first so a projection change
-  // during the load-to-idle window can't be reverted by a stale callback
-  // (Codex P2 on #848).
+  // builder. setProjection only needs the style PARSED (maplibre's
+  // Style._checkLoaded), which is already true inside a `style.load`
+  // callback, so attempt it immediately rather than gating on
+  // isStyleLoaded()/idle — a slow tile source would otherwise leave a saved
+  // globe map visibly in mercator (Codex P2 round 2 on #848). If the style
+  // is not parsed yet the call throws; retry once on `style.load`, and
+  // cancel any stale retry first so a projection change during the load
+  // window can't be reverted by an old callback (Codex P2 round 1 on #848).
   const staleRetry = pendingProjectionRetries.get(map);
   if (staleRetry) {
-    map.off?.('idle', staleRetry);
+    map.off?.('style.load', staleRetry);
     pendingProjectionRetries.delete(map);
   }
   const applyProjection = () => {
@@ -74,15 +76,13 @@ export function applyMapBasemapAppearance({
     try {
       map.setProjection?.({ type: basemapConfig?.projection ?? 'mercator' });
     } catch {
-      // partial map mocks in tests / older maplibre — swallow safely
+      // Style not parsed yet — re-attempt as soon as it is. Partial map
+      // mocks in tests lack `once`, hence the optional call.
+      pendingProjectionRetries.set(map, applyProjection);
+      map.once?.('style.load', applyProjection);
     }
   };
-  if (map.isStyleLoaded()) {
-    applyProjection();
-  } else {
-    pendingProjectionRetries.set(map, applyProjection);
-    map.once?.('idle', applyProjection);
-  }
+  applyProjection();
 
   if (!map.isStyleLoaded()) {
     applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
