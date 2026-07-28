@@ -16,7 +16,7 @@ import { useSettingsForm } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
 import { useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useEdition } from '@/hooks/use-edition';
+import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
 import { detectEmbeddingDims } from '@/api/settings';
 import type { SettingItem } from '@/api/settings';
 import { probeAIStatus } from '@/api/admin';
@@ -47,13 +47,14 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
   const canManageUsers = can('manage_users');
-  const { isMultiTenant } = useEdition();
-  // fix(#652): mirror the backend's require_ai_status_reader, which switches
-  // from manage_users to manage_tenants in multi-tenant deployments.
-  const canProbe = isMultiTenant ? can('manage_tenants') : canManageUsers;
+  // fix(#653): the #652 inline gate moved into the shared useAIStatusReader
+  // hook so ai-status surfaces can't drift from require_ai_status_reader again.
+  const canProbe = useAIStatusReader();
   const { data: keyStatus } = useApiKeyStatus();
-  // Coverage/backfill are manage_users operations. A settings-only operator
-  // can configure embeddings without issuing forbidden operational probes.
+  // Coverage/backfill are manage_users operations in BOTH tenancy modes
+  // (see /admin/embedding-stats + /admin/backfill-embeddings) — deliberately
+  // NOT useAIStatusReader (#653). A settings-only operator can configure
+  // embeddings without issuing forbidden operational probes.
   const { data: embeddingStatsData } = useEmbeddingStats({ enabled: canManageUsers });
   const embeddingStats = canManageUsers ? embeddingStatsData : undefined;
   const backfill = useBackfillEmbeddings();
