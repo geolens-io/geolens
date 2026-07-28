@@ -1066,7 +1066,9 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         # fix(#526 B-044): per-layer minzoom/maxzoom in style.json export,
         # propagated to companion layers.
         # fix(#527 B-054/S-05+LB-04): symbol icon-opacity + allow-overlap parity.
-        "backend/app/modules/catalog/maps/style_json.py": 1421,
+        # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
+        # companion so exported ramps match the builder's Reverse toggle.
+        "backend/app/modules/catalog/maps/style_json.py": 1431,
         "backend/app/modules/catalog/maps/style_import.py": 450,
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,

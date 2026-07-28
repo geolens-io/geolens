@@ -1,6 +1,6 @@
 // builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for a loose layer or a folder-group child row.
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { StackRow } from '@/components/builder/StackRow';
@@ -39,6 +39,10 @@ interface SortableStackRowProps {
   isFresh?: boolean;
   // Phase 1199 STACK-01: "Copy N of M" duplicate label, null when not a duplicate
   disambiguationLabel?: string | null;
+  /** fix(v1.6.0 audit): non-null when this row is the LAST child of the named
+   *  group — deleting it or moving it out dissolves the group (#767 prune), so
+   *  the row's confirms must say so. */
+  dissolvesGroupName?: string | null;
   // fix(#430 V-17): true when this layer's dataset would be filtered out for the
   // map's audience (private/unpublished dataset on a public/shared map).
   audienceHidden?: boolean;
@@ -76,6 +80,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   onCheckboxClick,
   isFresh,
   disambiguationLabel,
+  dissolvesGroupName,
   audienceHidden,
   drawsNothing,
   dragDisabled = false,
@@ -101,13 +106,20 @@ export const SortableStackRow = memo(function SortableStackRow({
     [onSelectLayer],
   );
 
+  // fix(v1.6.0 audit D7): a fresh object literal here re-broke StackRow's memo
+  // on every wrapper render even when the drag state was unchanged.
+  const dragHandleProps = useMemo(
+    () => ({ attributes, listeners, setActivatorNodeRef }),
+    [attributes, listeners, setActivatorNodeRef],
+  );
+
   return (
     <div ref={setNodeRef} style={style} data-dnd-over={isOver ? 'true' : undefined} data-row-id={layer.id}>
       <StackRow
         layer={layer}
         selected={selected}
         isDragging={isDragging}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
+        dragHandleProps={dragHandleProps}
         onSelectLayer={handleSelectLayer}
         onToggleVisibility={onToggleVisibility}
         onRemove={onRemove}
@@ -132,6 +144,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         onCheckboxClick={onCheckboxClick}
         isFresh={isFresh}
         disambiguationLabel={disambiguationLabel}
+        dissolvesGroupName={dissolvesGroupName}
         audienceHidden={audienceHidden}
         drawsNothing={drawsNothing}
       />

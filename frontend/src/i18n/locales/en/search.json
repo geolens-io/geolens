@@ -141,6 +141,7 @@
   },
   "spatial": {
     "title": "Search area",
+    "mapAriaLabel": "Search area map",
     "description": "Draw a rectangle or polygon to limit search results to a specific area.",
     "close": "Close",
     "rectangle": "Rectangle",
@@ -154,6 +155,7 @@
     "clearArea": "Clear area"
   },
   "bbox": {
+    "mapAriaLabel": "Bounding box map",
     "noExtent": "No extent",
     "instruction": "Click and drag to draw a bounding box",
     "loading": "Loading map..."

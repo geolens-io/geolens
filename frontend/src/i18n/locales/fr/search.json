@@ -140,6 +140,7 @@
     "saveShort": "Enregistrer"
   },
   "bbox": {
+    "mapAriaLabel": "Carte du cadre de sélection",
     "noExtent": "Pas d'étendue",
     "instruction": "Cliquez et faites glisser pour dessiner un cadre de sélection",
     "loading": "Chargement de la carte..."
@@ -188,6 +189,7 @@
   "workspaceTitle": "Rechercher dans le catalogue GeoLens",
   "spatial": {
     "title": "Zone de recherche",
+    "mapAriaLabel": "Carte de la zone de recherche",
     "description": "Dessinez un rectangle ou un polygone pour limiter les résultats de recherche à une zone spécifique.",
     "close": "Fermer",
     "rectangle": "Rectangle",

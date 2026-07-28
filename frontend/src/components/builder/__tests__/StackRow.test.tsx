@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, within } from '@/test/test-utils';
+import { act, fireEvent, render, screen, within } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { StackRow } from '../StackRow';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { MapLayerResponse } from '@/types/api';
@@ -809,6 +810,142 @@ describe('Add to group sub-flow', () => {
       // Columns line shows the count (3)
       expect(sourceBlock).toHaveTextContent('3');
     });
+  });
+});
+
+// a11y(v1.6.0 audit A7, WCAG 2.1.1): the row-container keydown used to
+// preventDefault Enter/Space with no target guard, cancelling native button
+// activation on every descendant and swallowing spaces typed into the rename
+// input. user-event 14 implements real keyboard activation (gated on
+// defaultPrevented), so these prove the descendants work again.
+describe('row keydown target guard (v1.6.0 audit A7)', () => {
+  it('Space on the focused eye toggle activates it without toggling multi-selection', async () => {
+    const user = userEvent.setup();
+    const onToggleVisibility = vi.fn();
+    const onCmdClick = vi.fn();
+    const onSelectLayer = vi.fn();
+    render(
+      <StackRow {...defaultProps({ onToggleVisibility, onSelectLayer })} onCmdClick={onCmdClick} />,
+    );
+
+    const eye = screen.getByRole('button', { name: /Toggle visibility/i });
+    eye.focus();
+    await user.keyboard(' ');
+
+    expect(onToggleVisibility).toHaveBeenCalledOnce();
+    expect(onToggleVisibility).toHaveBeenCalledWith('layer-1');
+    expect(onCmdClick).not.toHaveBeenCalled();
+    expect(onSelectLayer).not.toHaveBeenCalled();
+  });
+
+  it('Enter on the focused eye toggle activates it instead of opening the layer editor', async () => {
+    const user = userEvent.setup();
+    const onToggleVisibility = vi.fn();
+    const onSelectLayer = vi.fn();
+    render(<StackRow {...defaultProps({ onToggleVisibility, onSelectLayer })} />);
+
+    const eye = screen.getByRole('button', { name: /Toggle visibility/i });
+    eye.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onToggleVisibility).toHaveBeenCalledOnce();
+    expect(onSelectLayer).not.toHaveBeenCalled();
+  });
+
+  it('Enter and Space on the row container itself still select / multi-toggle', () => {
+    const onSelectLayer = vi.fn();
+    const onCmdClick = vi.fn();
+    render(<StackRow {...defaultProps({ onSelectLayer })} onCmdClick={onCmdClick} />);
+
+    const row = document.getElementById('stack-row-layer-1')!;
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(onSelectLayer).toHaveBeenCalledWith('layer-1');
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onCmdClick).toHaveBeenCalledWith('layer-1');
+  });
+
+  it('Space on the drag grip arms reorder without toggling multi-selection', () => {
+    const onCmdClick = vi.fn();
+    render(<StackRow {...defaultProps()} onCmdClick={onCmdClick} />);
+
+    const grip = screen.getByRole('button', { name: /Drag to reorder/i });
+    fireEvent.keyDown(grip, { key: ' ' });
+
+    expect(grip).toHaveAttribute('aria-pressed', 'true');
+    expect(onCmdClick).not.toHaveBeenCalled();
+  });
+
+  it('a space can be typed into the rename input and Enter commits without re-firing the row action', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    const onSelectLayer = vi.fn();
+    const layer = makeLayer({ id: 'sp-layer', dataset_name: 'Old' });
+    render(<StackRow {...defaultProps({ layer, onRename, onSelectLayer })} />);
+
+    fireEvent.dblClick(screen.getByText('Old'));
+    const input = screen.getByTestId('stack-row-rename-input');
+    await user.clear(input);
+    await user.type(input, 'a b');
+    expect(input).toHaveValue('a b');
+
+    await user.keyboard('{Enter}');
+
+    expect(onRename).toHaveBeenCalledOnce();
+    expect(onRename).toHaveBeenCalledWith('sp-layer', 'a b');
+    // The Enter that commits the rename must not double-fire into the row
+    // action and reopen the layer editor.
+    expect(onSelectLayer).not.toHaveBeenCalled();
+  });
+
+  it('the rename input has an accessible name', () => {
+    const layer = makeLayer({ id: 'aria-layer', dataset_name: 'Old' });
+    render(<StackRow {...defaultProps({ layer })} />);
+    fireEvent.dblClick(screen.getByText('Old'));
+    expect(screen.getByRole('textbox', { name: 'Layer name' })).toBe(
+      screen.getByTestId('stack-row-rename-input'),
+    );
+  });
+
+  it('Enter commits the first rename attempt after a previous Escape-cancel', () => {
+    // Escape unmounts the input without a blur, so escapeRef used to stay set
+    // and swallow the NEXT rename's first Enter.
+    const onRename = vi.fn();
+    const layer = makeLayer({ id: 'esc-enter', dataset_name: 'Old' });
+    render(<StackRow {...defaultProps({ layer, onRename })} />);
+
+    fireEvent.dblClick(screen.getByText('Old'));
+    fireEvent.keyDown(screen.getByTestId('stack-row-rename-input'), { key: 'Escape' });
+    expect(screen.queryByTestId('stack-row-rename-input')).not.toBeInTheDocument();
+    expect(onRename).not.toHaveBeenCalled();
+
+    fireEvent.dblClick(screen.getByText('Old'));
+    const input = screen.getByTestId('stack-row-rename-input');
+    fireEvent.change(input, { target: { value: 'New' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onRename).toHaveBeenCalledOnce();
+    expect(onRename).toHaveBeenCalledWith('esc-enter', 'New');
+  });
+
+  it('commit and Escape-cancel hand focus back to the row', async () => {
+    const layer = makeLayer({ id: 'focus-back', dataset_name: 'Old' });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    // Commit path.
+    fireEvent.dblClick(screen.getByText('Old'));
+    fireEvent.keyDown(screen.getByTestId('stack-row-rename-input'), { key: 'Enter' });
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    expect(document.activeElement?.id).toBe('stack-row-focus-back');
+
+    // Escape-cancel path.
+    fireEvent.dblClick(screen.getByText('Old'));
+    fireEvent.keyDown(screen.getByTestId('stack-row-rename-input'), { key: 'Escape' });
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    expect(document.activeElement?.id).toBe('stack-row-focus-back');
   });
 });
 

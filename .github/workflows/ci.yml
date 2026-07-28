@@ -59,8 +59,21 @@ jobs:
               - 'CHANGELOG.md'
               - '.env.example'
               - '.dockerignore'
-              - 'nginx.conf'
               - 'db/**'
+              # Frontend files that backend parity/drift tests read by literal
+              # path (fe-sdk type drift, basemap/capability/paint-key drift,
+              # nginx/CSP/Dockerfile regressions). Specific files only — NOT
+              # frontend/src/** — so ordinary frontend PRs stay backend-skipped.
+              - 'frontend/nginx.conf'
+              - 'frontend/Dockerfile'
+              - 'frontend/Dockerfile.dev'
+              - 'frontend/docker-entrypoint.sh'
+              - 'frontend/index.html'
+              - 'frontend/public/theme-init.js'
+              - 'frontend/src/types/api.ts'
+              - 'frontend/src/lib/basemap-utils.ts'
+              - 'frontend/src/lib/capabilities.ts'
+              - 'frontend/src/components/builder/layer-adapters/shared.ts'
               # fix(#561): a change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship
@@ -74,6 +87,10 @@ jobs:
               # reporter's prefill against this Issue Form — a template-only PR
               # must still run the frontend tests or drift lands silently.
               - '.github/ISSUE_TEMPLATE/bug_report.yml'
+              # PR #745 bumped root @playwright/test with every frontend/e2e/axe
+              # job skipping — the root manifests were in NO filter.
+              - 'package.json'
+              - 'package-lock.json'
             e2e:
               - 'backend/**'
               - 'frontend/**'
@@ -81,9 +98,15 @@ jobs:
               - 'playwright.config.ts'
               - 'playwright.builder-hardening.config.ts'
               - 'docker-compose*.yml'
+              # PR #745: the Playwright toolchain lives in the ROOT manifests.
+              - 'package.json'
+              - 'package-lock.json'
             cli:
               - 'cli/**'
               - 'sdks/python/**'
+              # test_cli_round_trip.py applies examples/manifests/first-catalog
+              # verbatim — an example-only change must still run the CLI suite.
+              - 'examples/**'
             mcp:
               - 'mcp/**'
               - 'sdks/python/**'
@@ -93,6 +116,11 @@ jobs:
             sdks:
               - 'sdks/**'
               - 'backend/openapi.json'
+              # `make sdks-check` is driven by the Makefile recipe and the
+              # flatten intermediate — a change to either alters what the drift
+              # gate regenerates, so it must run.
+              - 'Makefile'
+              - 'scripts/flatten_openapi_defs.py'
             alembic:
               - 'backend/alembic/**'
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
@@ -115,6 +143,9 @@ jobs:
               - 'scripts/tests/test-upgrading-doc-consistency.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
               - 'scripts/check_env_doc_drift.py'
+              # check_env_doc_drift.py parses the Settings class out of this
+              # file — a new Settings field must re-run the drift gate.
+              - 'backend/app/core/config.py'
               - '.env.example'
               - 'UPGRADING.md'
               - 'docker-compose.yml'
@@ -123,9 +154,14 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/restore.sh'
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
+              # Both compose files carry the backup service healthcheck.
+              - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
               - 'Dockerfile'
               - '.github/workflows/publish.yml'
+              # The round-trip proof itself is ~220 inline lines of THIS
+              # workflow — a ci.yml-only edit to those steps must run them.
+              - '.github/workflows/ci.yml'
 
   # ---------- backend ----------
   backend-lint:
@@ -181,7 +217,7 @@ jobs:
         with:
           python-version: "3.13"
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
 
@@ -371,7 +407,17 @@ jobs:
           # provider-snapshot + object-storage recovery without requiring S3/MinIO
           # or the backup image (pure pg_dump/pg_restore + tar). CI checkout ships
           # .env.test, so env overrides are passed explicitly.
-          bash scripts/tests/test-backup-restore-roundtrip.sh
+          #
+          # The script exits 0 with a "SKIP:" line when its prerequisites are
+          # missing (it doubles as a local dev tool). This job only runs when
+          # the backup path filter matched, so a skip here means CI asserted
+          # NOTHING about the backup path — treat it as a hard failure.
+          set -o pipefail
+          bash scripts/tests/test-backup-restore-roundtrip.sh | tee /tmp/roundtrip-fast.log
+          if grep -q '^SKIP:' /tmp/roundtrip-fast.log; then
+            echo "::error::backup round-trip script skipped (prerequisites missing on the CI runner) — nothing was asserted"
+            exit 1
+          fi
 
       - name: BUNDLED MODE — boot backup image (SigV4 S3 upload via image) → download → pg_restore → row-count assert
         run: |
@@ -385,7 +431,10 @@ jobs:
              CREATE TABLE catalog.records (id serial PRIMARY KEY, name text);
              CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text);
              INSERT INTO catalog.records (name) SELECT 'img-r-'||g FROM generate_series(1, 113) g;
-             INSERT INTO catalog.datasets (slug) SELECT 'img-d-'||g FROM generate_series(1, 57) g;"
+             INSERT INTO catalog.datasets (slug) SELECT 'img-d-'||g FROM generate_series(1, 57) g;
+             CREATE SCHEMA IF NOT EXISTS data;
+             CREATE TABLE data.ci_probe (id int PRIMARY KEY);
+             INSERT INTO data.ci_probe VALUES (1);"
           SRC_R=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -tAc "SELECT COUNT(*) FROM catalog.records;")
           SRC_D=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -tAc "SELECT COUNT(*) FROM catalog.datasets;")
 
@@ -412,7 +461,7 @@ jobs:
             -e S3_ENDPOINT="$S3_ENDPOINT" -e S3_BUCKET="$S3_BUCKET"
             -e S3_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
             -e S3_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
-            -e S3_ALLOW_HTTP=true -e S3_ADDRESSING_STYLE=path
+            -e S3_ADDRESSING_STYLE=path
             -v /tmp/ci-backups:/backups -v /tmp/ci-staging:/staging:ro
           )
           docker run "${run_args[@]}" geolens-backup:ci --run-backup
@@ -441,6 +490,28 @@ jobs:
           # Hard row-count asserts — must not be weakened with || true (T-1247-09).
           [ "$SRC_R" = "$DST_R" ] || { echo "FAIL: bundled-mode records count mismatch: $SRC_R != $DST_R"; exit 1; }
           [ "$SRC_D" = "$DST_D" ] || { echo "FAIL: bundled-mode datasets count mismatch: $SRC_D != $DST_D"; exit 1; }
+
+          # geolens_reader grant round-trip: --clean drops schema `data` with
+          # its ACLs and the dump is --no-acl, so restore.sh re-grants AFTER
+          # pg_restore. Mirror that re-grant here, then prove the reader can
+          # actually select from a restored table in schema `data`.
+          psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -v ON_ERROR_STOP=1 -c \
+            "DO \$\$
+             BEGIN
+                 IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+                     CREATE ROLE geolens_reader NOLOGIN;
+                 END IF;
+             END
+             \$\$;
+             GRANT USAGE ON SCHEMA data TO geolens_reader;
+             GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;"
+          # tail -1: -tA still prints the SET command tag ahead of the count
+          READER_CNT=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc \
+            "SET ROLE geolens_reader; SELECT COUNT(*) FROM data.ci_probe;" | tail -n 1)
+          [ "$READER_CNT" = "1" ] || { echo "FAIL: geolens_reader cannot select restored data.ci_probe (got '${READER_CNT}')"; exit 1; }
+          echo "  geolens_reader post-restore grant verified (data.ci_probe readable)"
+
           echo "PASS [BUNDLED MODE]: image backup→SigV4-S3→restore, records=${SRC_R} datasets=${SRC_D}"
           dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$SRC"
           dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$DST"
@@ -555,7 +626,7 @@ jobs:
         with:
           python-version: "3.13"
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -1004,7 +1075,7 @@ jobs:
         with:
           version: "0.10.2"
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -1045,7 +1116,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -1077,7 +1148,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -1144,6 +1215,45 @@ jobs:
 
       - name: Run pip-audit (dependency vulnerability scan)
         run: uv run pip-audit --strict --desc
+
+  # ---------- required-checks aggregator ----------
+  # Every job below is path-filtered (skippable via `if:`), and GitHub treats a
+  # skipped required context as PASSING — the "main red while PRs green" hole.
+  # This job always runs and inspects each needed job's actual result: failure
+  # or cancelled fails it; skipped and success pass. Branch protection should
+  # require THIS single context instead of the individual skippable jobs.
+  ci-ok:
+    name: CI OK
+    needs:
+      - backend-lint
+      - backend-test
+      - installer-test
+      - backup-roundtrip
+      - openapi-snapshot
+      - sdks-check
+      - cli-test
+      - mcp-test
+      - alembic-clean-db
+      - frontend-lint
+      - frontend-test
+      - security-scan
+    # always() alone would rubber-stamp: it only guarantees this job RUNS.
+    # The step below does the real gating on needs.*.result.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any needed job failed or was cancelled
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          BAD=$(echo "$NEEDS_JSON" | jq -r \
+            'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
+          if [ -n "$BAD" ]; then
+            echo "::error::Required jobs failed or were cancelled: $(echo "$BAD" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "OK: no needed job failed (skipped counts as pass)"
 
   # ---------- WORK-04: runtime extension image probe matrix ----------
   # Builds BOTH the 'api' and 'worker' image targets and runs a python probe
@@ -1253,7 +1363,7 @@ jobs:
       - name: Start services
         run: docker compose up -d --wait --wait-timeout 120
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -1445,7 +1555,7 @@ jobs:
       - name: Start services
         run: docker compose up -d --wait --wait-timeout 120
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm

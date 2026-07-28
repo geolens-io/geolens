@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { render } from '@/test/test-utils';
 import { BuilderRail, type RailPanel } from '../BuilderRail';
 import * as availabilityModule from '@/hooks/use-ai-availability';
@@ -212,7 +212,11 @@ describe('fix(#788 item 5) — named aside landmarks', () => {
 });
 
 describe('MAP-22 — Notes presence indicator', () => {
-  it('renders presence dot when notes is non-empty', () => {
+  // The dot is decorative (aria-hidden); the state is exposed via the notes
+  // BUTTON's conditional accessible name (aria-label replaces the subtree, so
+  // a label on the span was never announced — and aria-label on a role-less
+  // span is invalid ARIA).
+  it('folds notes presence into the button accessible name and renders a decorative dot', () => {
     render(
       <BuilderRail
         activePanel={null}
@@ -225,15 +229,14 @@ describe('MAP-22 — Notes presence indicator', () => {
       />,
     );
 
-    const notesButton = screen.getByRole('button', { name: /notes/i });
-    const dot = within(notesButton).getByLabelText('Map has notes');
-    expect(dot).toBeInTheDocument();
-    expect(dot.className).toContain('size-1.5');
-    expect(dot.className).toContain('rounded-full');
-    expect(dot.className).toContain('bg-primary');
+    const notesButton = screen.getByRole('button', { name: 'Notes (map has notes)' });
+    const dot = notesButton.querySelector('[aria-hidden="true"].bg-primary');
+    expect(dot).not.toBeNull();
+    expect(dot!.className).toContain('size-1.5');
+    expect(dot!.className).toContain('rounded-full');
   });
 
-  it('does NOT render presence dot when notes is empty or whitespace', () => {
+  it('does NOT signal notes presence when notes is empty or whitespace', () => {
     const whitespaceVariants = ['', '   ', '\n', '\t\n  '];
 
     for (const notes of whitespaceVariants) {
@@ -249,7 +252,8 @@ describe('MAP-22 — Notes presence indicator', () => {
         />,
       );
 
-      expect(screen.queryByLabelText('Map has notes')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Notes (map has notes)' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Notes' })).toBeInTheDocument();
       unmount();
     }
   });
@@ -268,10 +272,10 @@ describe('MAP-22 — Notes presence indicator', () => {
     );
 
     const historyButton = screen.getByRole('button', { name: /history/i });
-    expect(within(historyButton).queryByLabelText('Map has notes')).toBeNull();
+    expect(historyButton.querySelector('[aria-hidden="true"].bg-primary')).toBeNull();
 
     const aiButton = screen.getByRole('button', { name: /ask ai/i });
-    expect(within(aiButton).queryByLabelText('Map has notes')).toBeNull();
+    expect(aiButton.querySelector('[aria-hidden="true"].bg-primary')).toBeNull();
   });
 });
 

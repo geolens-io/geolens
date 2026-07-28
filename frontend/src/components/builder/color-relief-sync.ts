@@ -59,8 +59,9 @@ export function buildElevationExpression(
   rampName: string,
   elevMin = DEFAULT_ELEV_MIN,
   elevMax = DEFAULT_ELEV_MAX,
+  reversed = false,
 ): unknown[] {
-  const colors = getRampColors(rampName, STOP_COUNT);
+  const colors = getRampColors(rampName, STOP_COUNT, reversed);
   const step = (elevMax - elevMin) / (colors.length - 1);
   const expr: unknown[] = ['interpolate', ['linear'], ['elevation']];
   // Guard stops only make sense below the real domain; a ramp whose elevMin
@@ -111,6 +112,7 @@ export function syncColorReliefLayer(
     typeof input.paint['_hypso-ramp'] === 'string'
       ? (input.paint['_hypso-ramp'] as string)
       : 'Viridis';
+  const rampReversed = input.paint['_hypso-reversed'] === true;
 
   // Always recreate (remove then add) — color-relief-color is a ColorRampProperty;
   // setPaintProperty does not trigger the ramp texture re-bake (Pitfall 1).
@@ -129,7 +131,7 @@ export function syncColorReliefLayer(
     source: input.sourceId, // existing raster-dem source from hillshade-adapter
     layout: { visibility: input.visible ? 'visible' : 'none' },
     paint: {
-      'color-relief-color': buildElevationExpression(rampName),
+      'color-relief-color': buildElevationExpression(rampName, undefined, undefined, rampReversed),
       'color-relief-opacity': 0.7,
     },
   };

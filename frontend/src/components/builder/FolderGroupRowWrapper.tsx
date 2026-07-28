@@ -1,6 +1,6 @@
 // builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for folder group rows.
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useDndContext } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -74,6 +74,13 @@ export const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
     [onSelectGroup],
   );
 
+  // fix(v1.6.0 audit D7): a fresh object literal here re-broke the row memo on
+  // every wrapper render even when the drag state was unchanged.
+  const dragHandleProps = useMemo(
+    () => ({ attributes, listeners, setActivatorNodeRef }),
+    [attributes, listeners, setActivatorNodeRef],
+  );
+
   const displayName = layer.display_name ?? layer.dataset_name;
 
   return (
@@ -90,7 +97,7 @@ export const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
         selected={selected}
         isExpanded={isExpanded}
         isDragging={isDragging}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
+        dragHandleProps={dragHandleProps}
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
         onToggleVisibility={onToggleVisibility}

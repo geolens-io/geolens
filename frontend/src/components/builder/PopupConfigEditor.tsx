@@ -8,7 +8,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
+import type { Announcements, DragEndEvent, ScreenReaderInstructions } from '@dnd-kit/core';
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -115,6 +115,39 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  // fix(#785): mirror MapBuilderPage's DndContext accessibility wiring —
+  // without it dnd-kit falls back to hardcoded-English announcements built
+  // from the draggable id. Field ids ARE the human-readable column names here,
+  // so they can be announced directly.
+  const dndAccessibility = useMemo(() => {
+    const position = (over: { id: string | number } | null): number | null => {
+      if (!over || !visibleFields) return null;
+      const index = visibleFields.indexOf(String(over.id));
+      return index >= 0 ? index + 1 : null;
+    };
+    const announcements: Announcements = {
+      onDragStart({ active }) {
+        return t('a11y.dragPickup', { name: String(active.id) });
+      },
+      onDragOver({ over }) {
+        const n = position(over);
+        if (n == null) return undefined;
+        return t('a11y.dragPosition', { n, total: visibleFields?.length ?? 0 });
+      },
+      onDragEnd({ active, over }) {
+        if (!over) return t('a11y.dragCancelled');
+        return t('a11y.dragDropped', { name: String(active.id), n: position(over) ?? 1 });
+      },
+      onDragCancel() {
+        return t('a11y.dragCancelled');
+      },
+    };
+    const screenReaderInstructions: ScreenReaderInstructions = {
+      draggable: t('a11y.dragInstructions'),
+    };
+    return { announcements, screenReaderInstructions };
+  }, [t, visibleFields]);
 
   const mode: 'all' | 'custom' = visibleFields === null ? 'all' : 'custom';
   const usedFields = useMemo(() => new Set(visibleFields ?? []), [visibleFields]);
@@ -267,6 +300,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
               ) : (
                 <DndContext
                   sensors={sensors}
+                  accessibility={dndAccessibility}
                   collisionDetection={closestCenter}
                   onDragEnd={handleDragEnd}
                 >

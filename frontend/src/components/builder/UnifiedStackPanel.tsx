@@ -148,6 +148,9 @@ interface UnifiedStackPanelProps {
   onBulkDelete: (ids: Set<string>) => void;
   /** Phase 1047-04 (PERF-03): forwarded from useBuilderLayers.isDeleting */
   isDeleting?: boolean;
+  /** fix(v1.6.0 audit A5): in-flight bulk-delete batch size, forwarded from
+   *  useBuilderLayers.deletingCount for the bar's "Deleting N layers…" label. */
+  deletingCount?: number;
   // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
   freshLayerId?: string | null;
   /** Phase 1051 UX-03: basemap position in the unified stack. 'top' renders
@@ -205,6 +208,11 @@ const SublayerRow = memo(function SublayerRow({
       )}
       onClick={() => onSelectLayer(sublayer.id)}
       onKeyDown={(e) => {
+        // a11y(v1.6.0 audit A7, WCAG 2.1.1): keys from the descendant eye
+        // toggle keep their native button activation — the container only
+        // handles keys aimed at the row itself. First-line is safe here: the
+        // sublayer row has no kebab/context-menu key handling.
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelectLayer(sublayer.id);
@@ -353,6 +361,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onBulkUngroup,
   onBulkDelete,
   isDeleting = false,
+  deletingCount,
   freshLayerId = null,
   basemapPosition = 'bottom',
 }: UnifiedStackPanelProps) {
@@ -552,6 +561,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     [visibleStackLayers, groupMeta, layerSearch],
   );
 
+  // fix(v1.6.0 audit D2): a filter that matches nothing used to render a blank
+  // panel with no explanation. renderedRowIds covers DATA rows only — the
+  // basemap row is exempt from filtering and always renders — so size === 0
+  // while a search is active is exactly "no layer matches"; the basemap row
+  // stays visible below the message.
+  const noSearchMatches = !isEmpty && isSearchActive && renderedRowIds.size === 0;
+
   // ---------------------------------------------------------------------------
   // Basemap dock row — rendered in both empty and populated states.
   // In empty state it sits below the EmptyStackState content with a "BASEMAP"
@@ -715,6 +731,20 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           </>
         ) : (
           <>
+            {/* fix(v1.6.0 audit D2): "no layers match" empty state — announced
+                via role="status" so screen readers hear the result count change. */}
+            {noSearchMatches && (
+              <p
+                data-testid="layer-search-no-matches"
+                role="status"
+                className="px-3 py-4 text-center text-xs text-muted-foreground"
+              >
+                {t('unifiedStack.searchNoMatches', {
+                  query: layerSearch.trim(),
+                  defaultValue: 'No layers match “{{query}}”',
+                })}
+              </p>
+            )}
             <SortableContext
               items={sortableIds}
               strategy={verticalListSortingStrategy}
@@ -819,6 +849,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 onShiftClick={onShiftClick}
                                 onCheckboxClick={onCheckboxClick}
                                 isFresh={child.id === freshLayerId}
+                                // fix(v1.6.0 audit): deleting/moving-out a
+                                // group's LAST child dissolves the named group
+                                // (the #767 empty-group prune) — tell the row
+                                // so its confirms can say so.
+                                dissolvesGroupName={
+                                  children.length === 1
+                                    ? (layer.display_name ?? layer.dataset_name)
+                                    : null
+                                }
                                 disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
                                 audienceHidden={audienceHiddenLayerIds.has(child.id)}
                                 drawsNothing={drawsNothingLayerIds?.has(child.id) ?? false}
@@ -941,6 +980,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           onBulkDelete={onBulkDelete}
           onBulkApplyStyle={onBulkApplyStyle}
           isDeleting={isDeleting}
+          deletingCount={deletingCount}
         />
       )}
     </div>

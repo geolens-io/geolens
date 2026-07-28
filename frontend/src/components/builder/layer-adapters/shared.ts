@@ -8,9 +8,9 @@ export const CUSTOM_PAINT_PROPS = new Set([
   'outline-width', 'outline-color',
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
-  '_heatmap-ramp', '_heatmap-weight-column',
+  '_heatmap-ramp', '_heatmap-reversed', '_heatmap-weight-column',
   '_height_column',
-  '_hypso-enabled', '_hypso-ramp',
+  '_hypso-enabled', '_hypso-ramp', '_hypso-reversed',
 ]);
 
 /** Canonical geometry family. `other` covers null/empty and tokens that are
@@ -529,6 +529,7 @@ export const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   outline_color: 'outlineColor',
   outline_width: 'outlineWidth',
   heatmap_ramp: 'heatmapRamp',
+  heatmap_reversed: 'heatmapReversed',
   heatmap_weight_column: 'heatmapWeightColumn',
   height_column: 'heightColumn',
   height_scale: 'heightScale',

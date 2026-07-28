@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useEffect, useId } from 'react';
+import { memo, useState, useMemo, useEffect, useId, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, FolderPlus, FolderMinus, Loader2, Paintbrush, Trash2, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,12 @@ export interface BulkActionBarProps {
   /** Phase 1047-04 (PERF-03): true while bulk-delete HTTP call is in flight.
    *  Swaps Trash2 → Loader2, disables the Delete button, sets aria-busy. */
   isDeleting?: boolean;
+  /** fix(v1.6.0 audit A5): count of layers in the in-flight delete batch, captured
+   *  synchronously in the hook BEFORE the optimistic removal. The optimistic
+   *  setLocalLayers empties the selection-derived deletableCount in the same
+   *  commit that sets isDeleting, so deriving the deleting label from props
+   *  here would announce "Deleting 0 layers…". */
+  deletingCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,11 +66,48 @@ export const BulkActionBar = memo(function BulkActionBar({
   onBulkDelete,
   onBulkApplyStyle,
   isDeleting = false,
+  deletingCount,
 }: BulkActionBarProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
   const confirmId = useId();
+  const barRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
+
+  // fix(v1.6.0 audit A3): every exit path out of the inline delete-confirm must
+  // hand focus somewhere stable instead of dropping it on <body>. The
+  // pre-confirm trigger (the overflow-menu Delete item) unmounts on confirm, so
+  // restore to the first remaining enabled control in the bar, else the bar
+  // itself (tabIndex={-1} below makes it focusable as the last resort).
+  // Mirrors the row-chrome.tsx InlineDeleteConfirm cancel-path restore.
+  const restoreFocusToBar = useCallback(() => {
+    requestAnimationFrame(() => {
+      const bar = barRef.current;
+      if (!bar) return;
+      const first = bar.querySelector<HTMLElement>('button:not([disabled])');
+      (first ?? bar).focus();
+    });
+  }, []);
+
+  // fix(v1.6.0 audit A3): minimal focus trap for the aria-modal confirm — Tab
+  // and Shift+Tab cycle between Cancel and the destructive action.
+  const handleConfirmKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab') return;
+    const root = confirmRef.current;
+    if (!root) return;
+    const focusables = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled])'));
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }, []);
 
   // Mount animation: initial state → rAF flip to mounted state (translate-y + opacity)
   useEffect(() => {
@@ -129,11 +172,20 @@ export const BulkActionBar = memo(function BulkActionBar({
     if (e.key === 'Escape' && confirmingDelete) {
       e.stopPropagation();
       setConfirmingDelete(false);
+      // fix(v1.6.0 audit A3): Escape closed a focus-owning confirm — restore.
+      restoreFocusToBar();
     }
   }
 
+  // fix(v1.6.0 audit A5): while a delete is in flight the optimistic removal
+  // has already emptied selectedLayers, so deletableCount is 0 — render the
+  // batch size the hook captured synchronously instead.
+  const displayDeleteCount = isDeleting ? (deletingCount ?? deletableCount) : deletableCount;
+
   return (
     <div
+      ref={barRef}
+      tabIndex={-1}
       role="toolbar"
       aria-label={t('bulkActions.toolbarLabel', { count: N })}
       // SF-01 (Phase 1049): marker for UnifiedStackPanel's outside-click guard.
@@ -156,11 +208,16 @@ export const BulkActionBar = memo(function BulkActionBar({
     >
       {/* Dedicated sr-only live region — announces selection count during normal
           state and "Deleting N layers…" when a bulk-delete is in flight.
-          role="toolbar" must not carry aria-live. */}
+          role="toolbar" must not carry aria-live.
+          fix(v1.6.0 audit): mounts EMPTY and populates on the rAF tick (the
+          `mounted` flip) — screen readers ignore content already present when
+          a live region enters the accessibility tree. */}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
-        {isDeleting
-          ? t('bulkActions.deletingLayers', { count: deletableCount })
-          : t('bulkActions.liveAnnouncement', { count: N })}
+        {mounted
+          ? isDeleting
+            ? t('bulkActions.deletingLayers', { count: displayDeleteCount })
+            : t('bulkActions.liveAnnouncement', { count: N })
+          : null}
       </span>
       {isDeleting ? (
         // ------------------------------------------------------------------
@@ -169,7 +226,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         <div className="flex items-center gap-2 w-full">
           <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" aria-hidden="true" />
           <span className="text-sm text-muted-foreground flex-1">
-            {t('bulkActions.deletingLayers', { count: deletableCount })}
+            {t('bulkActions.deletingLayers', { count: displayDeleteCount })}
           </span>
           {/* ux(#777): variant="destructive" (not ghost+text-destructive) so the
               in-flight button matches the confirm button the user just pressed. */}
@@ -180,7 +237,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             className="h-8 gap-1.5 px-2 shrink-0 cursor-not-allowed"
             disabled={true}
             aria-busy={true}
-            aria-label={t('bulkActions.deleteAriaLabel', { count: deletableCount })}
+            aria-label={t('bulkActions.deleteAriaLabel', { count: displayDeleteCount })}
           >
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
             {t('bulkActions.delete')}
@@ -192,10 +249,16 @@ export const BulkActionBar = memo(function BulkActionBar({
         // ------------------------------------------------------------------
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
         <div
+          ref={confirmRef}
           role="alertdialog"
+          // fix(v1.6.0 audit A3): the role promised modal semantics it didn't
+          // deliver — declare aria-modal and back it with the Tab-cycle trap
+          // below plus focus restoration on every exit path.
+          aria-modal="true"
           aria-labelledby={confirmId}
           className="flex items-center gap-2 w-full"
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={handleConfirmKeyDown}
         >
           <p
             id={confirmId}
@@ -214,6 +277,8 @@ export const BulkActionBar = memo(function BulkActionBar({
             onClick={(e) => {
               e.stopPropagation();
               setConfirmingDelete(false);
+              // fix(v1.6.0 audit A3): the confirm owned focus — hand it back.
+              restoreFocusToBar();
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
@@ -230,6 +295,11 @@ export const BulkActionBar = memo(function BulkActionBar({
               e.stopPropagation();
               onBulkDelete(selectedIds);
               setConfirmingDelete(false);
+              // fix(v1.6.0 audit A3): confirming unmounts this button (the bar
+              // swaps to the deleting state) — restore to a stable element (the
+              // first remaining control, else the bar itself), never the dead
+              // trigger.
+              restoreFocusToBar();
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >

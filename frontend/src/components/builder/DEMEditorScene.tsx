@@ -408,6 +408,10 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                     mode="graduated"
                     rampName={getStringPaint(paint, '_hypso-ramp', 'Viridis')}
                     onChange={(name) => handlePaintValue('_hypso-ramp', name)}
+                    // Reverse checkbox was rendered inert (no props wired);
+                    // color-relief-sync consumes _hypso-reversed to flip the ramp.
+                    reversed={paint['_hypso-reversed'] === true}
+                    onReversedChange={(next) => handlePaintValue('_hypso-reversed', next)}
                   />
                   {/* builder-audit #338 MAINT-01: surface the hardcoded 0–4000 m, meters-only
                       elevation range limitation in-product (buildElevationExpression in
@@ -474,7 +478,13 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   min={0}
                   max={Math.max(0, maxZoom - 1)}
                   value={minZoom}
-                  onChange={(e) => onZoomChange(clampZoom(Number(e.target.value)), maxZoom)}
+                  // Number('') === 0 — clearing the field must reset the clamp
+                  // (min 0), not silently write a real bound; NaN is ignored.
+                  onChange={(e) => {
+                    const v = e.target.value === '' ? 0 : Number(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    onZoomChange(clampZoom(v), maxZoom);
+                  }}
                   className="h-8 text-xs"
                   aria-label={t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
                 />
@@ -492,7 +502,13 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   min={Math.min(22, minZoom + 1)}
                   max={22}
                   value={maxZoom}
-                  onChange={(e) => onZoomChange(minZoom, clampZoom(Number(e.target.value)))}
+                  // Number('') === 0 — clearing max-zoom used to write 0 and hide
+                  // the layer at every zoom. Empty clears the clamp (22); NaN is ignored.
+                  onChange={(e) => {
+                    const v = e.target.value === '' ? 22 : Number(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    onZoomChange(minZoom, clampZoom(v));
+                  }}
                   className="h-8 text-xs"
                   aria-label={t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
                 />

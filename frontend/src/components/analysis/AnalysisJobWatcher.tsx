@@ -64,6 +64,12 @@ export function AnalysisJobWatcher() {
       const datasetId = data?.dataset_id;
       const canAddToMap =
         !!analysisAddToMap.current && analysisAddToMap.mapId === job.mapId;
+      // Sonner dismisses a toast when its action is clicked, but the exit
+      // animation leaves a window for a second click — and the panel's own
+      // "Add to map" button is a second affordance for the same add. Each
+      // affordance goes single-use after its click; the add itself stays
+      // repeatable elsewhere (adding a dataset twice is legitimate).
+      let addActionUsed = false;
       toast.success(
         job.title
           ? t('analysisTools.jobCompleteNamed', {
@@ -91,6 +97,8 @@ export function AnalysisJobWatcher() {
                   ? t('analysisTools.addToMap', { defaultValue: 'Add to map' })
                   : t('analysisTools.viewDataset', { defaultValue: 'View dataset' }),
                 onClick: () => {
+                  if (addActionUsed) return;
+                  addActionUsed = true;
                   // Re-check: the builder may have unmounted since this toast
                   // was raised.
                   if (
@@ -106,6 +114,17 @@ export function AnalysisJobWatcher() {
             : undefined,
         },
       );
+      // The backend persists a collision note (e.g. the output was renamed
+      // to avoid clobbering an existing dataset) in warning_message; surface
+      // it beside the success toast, mirroring the upload path's
+      // JobProgress warning. Raw message, same as JobProgress — it is
+      // operator-facing server prose with no client-side template.
+      if (data?.warning_message) {
+        toast.warning(data.warning_message, {
+          id: `${toastId}-warning`,
+          duration: Infinity,
+        });
+      }
     } else {
       const message = data?.error_message;
       // Interpolate the detail through i18n rather than concatenating onto
@@ -118,7 +137,20 @@ export function AnalysisJobWatcher() {
               defaultValue: 'Analysis job failed: {{message}}',
             })
           : t('analysisTools.jobFailed', { defaultValue: 'Analysis job failed' }),
-        { id: toastId, duration: Infinity },
+        {
+          id: toastId,
+          duration: Infinity,
+          // Mirror the success branch's recovery action: the failure toast
+          // dead-ended with no way back to the run. Opening the map lands on
+          // the Analysis panel's remembered form — the failed run's name is
+          // deliberately kept there for the retry.
+          action: job.mapId
+            ? {
+                label: t('analysisTools.openMap', { defaultValue: 'Open map' }),
+                onClick: () => navigate(`/maps/${job.mapId}`),
+              }
+            : undefined,
+        },
       );
     }
     // fix(#793 review): the remembered form title belongs to a finished run —

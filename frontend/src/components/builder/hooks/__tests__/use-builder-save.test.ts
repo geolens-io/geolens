@@ -443,6 +443,62 @@ describe('buildLayerDiff', () => {
 
     expect(result.diff.updated).toEqual([{ id: 'vector-1', style_config: null }]);
   });
+
+  // fix(#767 B8): ungrouping a raster layer clears the folder-group markers,
+  // compacting its style_config to null. The V-01 unmanaged-field guard used
+  // to swallow that null-out (rasters have no style editor), so no PATCH was
+  // emitted and the group resurrected on reload. Folder-group markers are
+  // managed for every layer type — the intentional clear must patch through.
+  it('emits style_config: null when ungrouping a raster layer whose baseline carried folder-group markers', () => {
+    const groupRow = makeLayer({
+      id: 'group-1',
+      // Synthetic group rows use the builder-local 'group:folder' type, which
+      // sits outside the persisted MapLayerType union (see GroupedLayer).
+      layer_type: 'group:folder' as unknown as MapLayerResponse['layer_type'],
+      display_name: 'My Group',
+      sort_order: 0,
+    });
+    const rasterChild = makeLayer({
+      id: 'raster-1',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      sort_order: 1,
+      parent_group_id: 'group-1',
+      style_config: null,
+    } as Partial<MapLayerResponse>);
+
+    // Baseline: grouped (prepareLayersForPersistence writes the builder
+    // folderGroup* markers onto the child). Current: ungrouped, markers
+    // cleared — style_config compacts back to null.
+    const ungrouped = makeLayer({
+      ...rasterChild,
+      sort_order: 0,
+      parent_group_id: null,
+      style_config: null,
+    } as Partial<MapLayerResponse>);
+
+    const result = buildLayerDiff([groupRow, rasterChild], [ungrouped]);
+
+    expect(result.diff.updated).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'raster-1', style_config: null })]),
+    );
+  });
+
+  it('still omits style_config for a raster null-out when the baseline had real (non-group) data', () => {
+    const baseline = makeLayer({
+      id: 'raster-2',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      style_config: { someRasterKey: 'value' } as unknown as MapLayerResponse['style_config'],
+    });
+    const current = makeLayer({ ...baseline, style_config: null, opacity: 0.4 });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff.updated).toEqual([{ id: 'raster-2', opacity: 0.4 }]);
+  });
 });
 
 describe('useBuilderSave', () => {

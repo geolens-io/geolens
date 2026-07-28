@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { FolderGroupRow } from '../FolderGroupRow';
 import { useInlineRename } from '../useInlineRename';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
@@ -72,6 +73,109 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof FolderGroup
     ...overrides,
   };
 }
+
+// a11y(v1.6.0 audit A7, WCAG 2.1.1): the row-container keydown preventDefaulted
+// Enter/Space from descendants, so the caret, eye, rename input, and the
+// delete-confirm buttons were mouse-only. user-event 14 implements native
+// keyboard activation gated on defaultPrevented.
+describe('FolderGroupRow keyboard operability (v1.6.0 audit A7)', () => {
+  it('Enter on the focused caret toggles expansion instead of selecting the row', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps();
+    render(<FolderGroupRow {...props} />);
+
+    const caret = screen.getByRole('button', { name: 'Toggle folder group' });
+    caret.focus();
+    await user.keyboard('{Enter}');
+
+    expect(props.onToggleExpand).toHaveBeenCalledOnce();
+    expect(props.onToggleExpand).toHaveBeenCalledWith('group-1');
+    expect(props.onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Space on the focused eye toggles visibility without toggling multi-selection', async () => {
+    const user = userEvent.setup();
+    const onCmdClick = vi.fn();
+    const props = defaultProps({ onCmdClick });
+    render(<FolderGroupRow {...props} />);
+
+    const eye = screen.getByRole('button', { name: 'Toggle visibility for My Group' });
+    eye.focus();
+    await user.keyboard(' ');
+
+    expect(props.onToggleVisibility).toHaveBeenCalledOnce();
+    expect(props.onToggleVisibility).toHaveBeenCalledWith('group-1');
+    expect(onCmdClick).not.toHaveBeenCalled();
+    expect(props.onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('a space can be typed into the group rename input and Enter commits without re-firing the row action', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps();
+    render(<FolderGroupRow {...props} />);
+
+    fireEvent.dblClick(screen.getByText('My Group'));
+    const input = screen.getByRole('textbox', { name: 'Group name' });
+    // Let the hook's deferred focus+select() run before typing — otherwise it
+    // fires mid-type and the select() swallows already-typed characters.
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    await user.clear(input);
+    await user.type(input, 'a b');
+    expect(input).toHaveValue('a b');
+
+    await user.keyboard('{Enter}');
+
+    expect(props.onRenameGroup).toHaveBeenCalledOnce();
+    expect(props.onRenameGroup).toHaveBeenCalledWith('group-1', 'a b');
+    expect(props.onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('the delete confirm is keyboard-operable: Enter on "Delete all" deletes the group', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps();
+    render(<FolderGroupRow {...props} />);
+
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: /Group options for/i }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete group/i }));
+
+    // The confirm mounts INSIDE the row div — its buttons' Enter/Space used to
+    // bubble to the container keydown and be preventDefaulted (mouse-only).
+    // Radix returns focus to the kebab trigger asynchronously on menu close;
+    // wait it out so our focus() isn't stolen back before the keypress.
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    const deleteBtn = screen.getByRole('button', { name: 'Delete all' });
+    await vi.waitFor(() => {
+      deleteBtn.focus();
+      expect(deleteBtn).toHaveFocus();
+    });
+    await user.keyboard('{Enter}');
+
+    expect(props.onDeleteGroup).toHaveBeenCalledOnce();
+    expect(props.onDeleteGroup).toHaveBeenCalledWith('group-1');
+  });
+
+  it('the delete confirm cancel is keyboard-operable: Space on "Keep group" dismisses it', async () => {
+    const user = userEvent.setup();
+    const props = defaultProps();
+    render(<FolderGroupRow {...props} />);
+
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: /Group options for/i }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete group/i }));
+
+    const cancelBtn = screen.getByRole('button', { name: 'Keep group' });
+    cancelBtn.focus();
+    await user.keyboard(' ');
+
+    expect(props.onDeleteGroup).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Delete all' })).not.toBeInTheDocument();
+  });
+});
 
 describe('FolderGroupRow', () => {
   it('forwards grip keys to the dnd-kit keyboard activator (fix #759)', () => {

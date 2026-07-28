@@ -666,6 +666,8 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
       const targetRow = page.locator(`#stack-row-${targetLayerId}`);
       await targetRow.hover();
       await targetRow.locator('[data-kebab-trigger]').click();
+      // "New group…" lives inside the "Add to group…" submenu (Phase 1035).
+      await page.getByTestId('kebab-add-to-group').click();
       await page.getByRole('menuitem', { name: /New group/i }).click();
       await expect(page.getByText(/^Group 1$/).first()).toBeVisible();
 

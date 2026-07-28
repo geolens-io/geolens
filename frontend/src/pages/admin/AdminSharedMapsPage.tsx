@@ -167,7 +167,7 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t('embedTokens.bulkRevokeCancel')}</AlertDialogCancel>
-              <AlertDialogAction onClick={handleBulkRevoke}>{t('embedTokens.bulkRevokeConfirm')}</AlertDialogAction>
+              <AlertDialogAction variant="destructive" onClick={handleBulkRevoke}>{t('embedTokens.bulkRevokeConfirm')}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -402,7 +402,7 @@ export function AdminSharedMapsPage() {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>{t('shareTokens.revokeDialogCancel')}</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => token.id && handleRevoke(token.id)}>
+                                  <AlertDialogAction variant="destructive" onClick={() => token.id && handleRevoke(token.id)}>
                                     {t('shareTokens.revokeDialogConfirm')}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>

@@ -329,7 +329,15 @@ export function SpatialFilterPanel({
             </ToggleGroup>
 
             {/* Map */}
-            <div className="min-h-[300px] overflow-hidden rounded-lg border">
+            {/* audit(w3-maps): aria-label on <MapGL> is silently dropped —
+                @vis.gl/react-maplibre v8 forwards only id/ref/style, and
+                MapLibre labels its canvas "Map". Label the wrapper region
+                instead (same pattern as DatasetMap's shell). */}
+            <div
+              className="min-h-[300px] overflow-hidden rounded-lg border"
+              role="region"
+              aria-label={t('spatial.mapAriaLabel', { defaultValue: 'Search area map' })}
+            >
               <MapGL
                 initialViewState={savedViewport}
                 style={{ width: '100%', height: 300 }}

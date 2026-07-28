@@ -57,8 +57,11 @@ POSTGRES_USER="${POSTGRES_USER:-geolens}"
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
 echo "Running pre-restore setup..."
 
+# ON_ERROR_STOP: this DDL is the last gate before --clean drops the live
+# database — a silently failed CREATE EXTENSION/SCHEMA here must abort the
+# restore, not surface later as a half-restored DB (init-db.sh sets it too).
 "${COMPOSE[@]}" exec -T db \
-    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -68,18 +71,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Schemas
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE SCHEMA IF NOT EXISTS data;
-
--- Read-only role for data schema access
-DO \$\$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
-        CREATE ROLE geolens_reader NOLOGIN;
-    END IF;
-END
-\$\$;
-GRANT USAGE ON SCHEMA data TO geolens_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
 
 EOSQL
 
@@ -143,6 +134,41 @@ if [ "$RESTORE_RC" -ne 0 ]; then
 fi
 rm -f "$RESTORE_STDERR"
 
+# Re-apply geolens_reader grants AFTER pg_restore, not before: --clean drops
+# schema `data` (taking its ACLs and default privileges with it) and the dump
+# is -Fc --no-owner --no-acl, so nothing inside it re-grants. Granting before
+# the restore only decorated a schema that was about to be dropped, and the
+# reader role silently lost SELECT on every restored table.
+echo ""
+echo "Re-applying geolens_reader grants..."
+"${COMPOSE[@]}" exec -T db \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+        CREATE ROLE geolens_reader NOLOGIN;
+    END IF;
+END
+\$\$;
+GRANT USAGE ON SCHEMA data TO geolens_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
+EOSQL
+
+# Assert the grant actually took — a restore that leaves the reader role
+# without schema access breaks every read-only consumer until someone
+# notices, so fail loudly here instead.
+READER_USAGE="$("${COMPOSE[@]}" exec -T db \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+    "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');" | tr -d '[:space:]')"
+if [ "$READER_USAGE" != "t" ]; then
+    echo "ERROR: geolens_reader has no USAGE on schema data after restore." >&2
+    echo "Re-run the grant block above manually and re-check with:" >&2
+    echo "  SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');" >&2
+    exit 1
+fi
+echo "geolens_reader grants verified."
+
 # Post-restore validation
 echo ""
 echo "Verifying restore..."
@@ -167,14 +193,22 @@ _dump_base="$(basename "$BACKUP_FILE")"
 # dump name is <db>_<YYYYmmdd_HHMMSS>.dump → extract the timestamp if present.
 _ts="$(printf '%s' "$_dump_base" | grep -oE '[0-9]{8}_[0-9]{6}' | head -n1 || true)"
 _staging_archive=""
+_staging_match="exact"
 if [ -n "$_ts" ] && [ -f "${_dump_dir}/staging-${_ts}.tar.gz" ]; then
     _staging_archive="${_dump_dir}/staging-${_ts}.tar.gz"
 elif ls "${_dump_dir}"/staging-*.tar.gz >/dev/null 2>&1; then
     _staging_archive="$(ls -t "${_dump_dir}"/staging-*.tar.gz 2>/dev/null | head -n1)"
+    _staging_match="fallback"
 fi
 if [ -n "$_staging_archive" ]; then
     echo ""
-    echo "NOTE: a matching object-storage archive was found:"
+    if [ "$_staging_match" = "fallback" ]; then
+        echo "WARNING: no object-storage archive matches this dump's timestamp (${_ts:-unrecognized})."
+        echo "         The NEWEST archive in the directory is listed below, but it was taken"
+        echo "         in a DIFFERENT backup cycle and may not pair with this dump:"
+    else
+        echo "NOTE: a matching object-storage archive was found:"
+    fi
     echo "        ${_staging_archive}"
     echo "      The database is restored, but staged source objects are NOT"
     echo "      auto-extracted. To restore them into the upload_staging volume, run"

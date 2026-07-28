@@ -304,11 +304,16 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.getByTestId('dataset-map')).toBeInTheDocument();
   });
 
-  it('renders DatasetMap directly for vector datasets (no skeleton, no error overlay)', () => {
+  it('vector datasets use the hero state machine: skeleton until onMapReady', async () => {
+    mockMapConfig.autoFireMapReady = true;
     setup({ record_type: 'vector_dataset' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(screen.getByTestId('dataset-map')).toBeInTheDocument();
+    // Flush the lazy DatasetMap import so the mock mounts and auto-fires
+    // onMapReady; running the 10s timeout timer here would race it.
+    await act(async () => {});
+
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-has-on-map-ready', 'true');
     expect(screen.queryByTestId('hero-skeleton')).not.toBeInTheDocument();
     expect(screen.queryByText('Preview unavailable')).not.toBeInTheDocument();
   });
@@ -344,13 +349,24 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.getByText('Tiles may still be processing')).toBeInTheDocument();
   });
 
-  it('vector datasets do not pass onMapReady/onTileError to DatasetMap', () => {
+  it('vector datasets pass onMapReady/onTileError to DatasetMap', () => {
     setup({ record_type: 'vector_dataset' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
     const map = screen.getByTestId('dataset-map');
-    expect(map).toHaveAttribute('data-has-on-map-ready', 'false');
-    expect(map).toHaveAttribute('data-has-on-tile-error', 'false');
+    expect(map).toHaveAttribute('data-has-on-map-ready', 'true');
+    expect(map).toHaveAttribute('data-has-on-tile-error', 'true');
+  });
+
+  it('table datasets do not pass onMapReady/onTileError to DatasetMap', () => {
+    setup({ record_type: 'table' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    const map = screen.queryByTestId('dataset-map');
+    if (map) {
+      expect(map).toHaveAttribute('data-has-on-map-ready', 'false');
+      expect(map).toHaveAttribute('data-has-on-tile-error', 'false');
+    }
   });
 });
 

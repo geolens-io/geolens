@@ -375,6 +375,7 @@
     "noChanges": "No schema changes detected."
   },
   "map": {
+    "ariaLabel": "Dataset map",
     "featureSaved": "Feature saved",
     "featureSaveFailed": "Failed to save feature",
     "featureUpdated": "Feature updated",
@@ -396,7 +397,8 @@
     "zoomToExtent": "Zoom to dataset extent",
     "fullscreen": "Enter fullscreen",
     "exitFullscreen": "Exit fullscreen",
-    "changeBasemap": "Change basemap"
+    "changeBasemap": "Change basemap",
+    "featureId": "Feature ID: {{id}}"
   },
   "contacts": {
     "title": "Contacts",

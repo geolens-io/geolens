@@ -304,6 +304,57 @@ describe('UnifiedStackPanel — ENH-07: layer search/filter', () => {
     expect(document.getElementById('stack-row-x')).not.toBeInTheDocument();
   });
 
+  // fix(v1.6.0 audit D2): a filter matching nothing used to leave a blank panel.
+  it('shows a "no layers match" message when the filter matches nothing', () => {
+    render(<UnifiedStackPanel {...threeLayerProps} />);
+
+    expect(screen.queryByTestId('layer-search-no-matches')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzznomatch' } });
+
+    const msg = screen.getByTestId('layer-search-no-matches');
+    expect(msg).toHaveTextContent('No layers match “zzznomatch”');
+  });
+
+  it('hides the no-match message while rows match or the query is cleared', () => {
+    render(<UnifiedStackPanel {...threeLayerProps} />);
+    const input = screen.getByRole('searchbox');
+
+    fireEvent.change(input, { target: { value: 'alpha' } });
+    expect(screen.queryByTestId('layer-search-no-matches')).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'zzz' } });
+    expect(screen.getByTestId('layer-search-no-matches')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.queryByTestId('layer-search-no-matches')).not.toBeInTheDocument();
+  });
+
+  it('keeps the basemap dock row visible below the no-match message', () => {
+    const basemapGroup = {
+      id: 'basemap-group',
+      presetName: 'Positron',
+      providerLabel: 'OpenFreeMap',
+      visible: true,
+      opacity: 1,
+      sublayers: [],
+    };
+    render(
+      <UnifiedStackPanel
+        {...threeLayerProps}
+        basemapGroup={basemapGroup}
+        isBasemapExpanded={false}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz' } });
+
+    // The basemap row is exempt from filtering, so the no-match state must
+    // coexist with it rather than replace the whole list.
+    expect(screen.getByTestId('layer-search-no-matches')).toBeInTheDocument();
+    expect(screen.getByTestId('basemap-group-row-basemap-group')).toBeInTheDocument();
+  });
+
   it('does not hide the basemap dock row when a search query is active', () => {
     const basemapGroup = {
       id: 'basemap-group',

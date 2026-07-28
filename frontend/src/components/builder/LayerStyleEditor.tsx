@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect, useRef
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { InlineDeleteConfirm } from './row-chrome';
 import { SliderRow } from './HeatmapStyleControls';
 import { AdvancedJsonEditor } from './LayerStyleEditor/AdvancedJsonEditor';
 import { RenderModeSwitch } from './LayerStyleEditor/RenderModeSwitch';
@@ -231,11 +232,24 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     if (localOpacity === opacityFromPropRef.current) return;
     clearTimeout(opacityTimerRef.current);
     opacityTimerRef.current = setTimeout(() => {
+      opacityTimerRef.current = undefined;
       onOpacityChange(layer.id, localOpacity);
     }, 100);
     return () => clearTimeout(opacityTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- push opacity only on local/layer change; the sync setter is stable
   }, [localOpacity, layer.id]);
+  // B10: flush a still-debouncing value on unmount — the bare clearTimeout
+  // alone discarded the final slider movement when the editor closed before
+  // the 100ms window elapsed. (Commit-on-release was rejected: Radix fires
+  // onValueCommit per keyboard step, which reintroduces the PB-02 spam.)
+  const opacityFlushRef = useRef<(() => void) | undefined>(undefined);
+  opacityFlushRef.current = () => {
+    if (opacityTimerRef.current === undefined) return;
+    clearTimeout(opacityTimerRef.current);
+    opacityTimerRef.current = undefined;
+    onOpacityChange?.(layer.id, localOpacity);
+  };
+  useEffect(() => () => opacityFlushRef.current?.(), []);
 
   // builder-audit #338 DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS
   // table (builder-paint-map.ts), which also backs handlePaintProp's reverse router
@@ -301,6 +315,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     const heatmapRamp = typeof nextPaint['_heatmap-ramp'] === 'string'
       ? nextPaint['_heatmap-ramp'] as string
       : builderConfig.heatmapRamp;
+    // Persist the ramp direction alongside the ramp name so the Reverse
+    // checkbox round-trips through save/reload.
+    const heatmapReversed = typeof nextPaint['_heatmap-reversed'] === 'boolean'
+      ? nextPaint['_heatmap-reversed'] as boolean
+      : builderConfig.heatmapReversed;
     const heatmapWeightColumn = typeof nextPaint['_heatmap-weight-column'] === 'string'
       ? nextPaint['_heatmap-weight-column'] as string
       : nextPaint['heatmap-weight'] === 1
@@ -308,10 +327,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         : builderConfig.heatmapWeightColumn;
     onStyleConfigChange(
       layerId,
-      withBuilderConfig(layer.style_config, { heatmapRamp, heatmapWeightColumn }),
+      withBuilderConfig(layer.style_config, { heatmapRamp, heatmapReversed, heatmapWeightColumn }),
       stripLegacyBuilderPaint(nextPaint),
     );
-  }, [builderConfig.heatmapRamp, builderConfig.heatmapWeightColumn, layer.style_config, onStyleConfigChange]);
+  }, [builderConfig.heatmapRamp, builderConfig.heatmapReversed, builderConfig.heatmapWeightColumn, layer.style_config, onStyleConfigChange]);
 
   const handleSymbolConfigChange = useCallback((patch: SymbolStyleConfig) => {
     const nextSymbol = { ...symbolConfig, ...patch };
@@ -345,20 +364,31 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   }, [layer.id, paint, onPaintChange]);
 
   const handleResetStyle = useCallback(() => {
+    // Every branch clears the zoom clamp — previously only the line branch
+    // did, so fill/point layers kept a stale _minzoom/_maxzoom after Reset
+    // and could stay invisible at every zoom.
+    const nextLayout = { ...layoutObj };
+    delete nextLayout['_minzoom'];
+    delete nextLayout['_maxzoom'];
     if (geomType === 'fill') {
       onStyleConfigChange(layer.id, null, FILL_DEFAULTS);
     } else if (geomType === 'line') {
-      const nextLayout = { ...layoutObj };
       delete nextLayout['line-dasharray'];
-      delete nextLayout['_minzoom'];
-      delete nextLayout['_maxzoom'];
       onStyleConfigChange(layer.id, null, LINE_DEFAULTS);
-      onLayoutChange(layer.id, nextLayout);
     } else {
       onStyleConfigChange(layer.id, null, CIRCLE_DEFAULTS);
     }
+    onLayoutChange(layer.id, nextLayout);
     onOpacityChange?.(layer.id, 1);
   }, [geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
+
+  // Reset destroys render mode + classification — gate it behind the builder's
+  // shared inline confirm (same pattern as the DEM editor's delete footer).
+  const [confirmReset, setConfirmReset] = useState(false);
+  const handleConfirmReset = useCallback(() => {
+    setConfirmReset(false);
+    handleResetStyle();
+  }, [handleResetStyle]);
 
   // Bumped by handleRevertToSaved to force-remount the data-driven editor.
   const [revertNonce, setRevertNonce] = useState(0);
@@ -487,7 +517,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
             variant="ghost"
             size="xs"
             className="shrink-0"
-            onClick={handleResetStyle}
+            onClick={() => setConfirmReset(true)}
             title={t('style.resetTitle')}
           >
             <RotateCcw className="h-3 w-3" />
@@ -495,6 +525,17 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           </Button>
         }
       >
+        {confirmReset && (
+          <InlineDeleteConfirm
+            confirmId={`style-reset-confirm-${layer.id}`}
+            message={t('style.resetConfirmMessage')}
+            confirmLabel={t('style.resetConfirmAction')}
+            cancelLabel={t('style.resetConfirmCancel')}
+            onConfirm={handleConfirmReset}
+            onCancel={() => setConfirmReset(false)}
+            className="mx-0 mb-0"
+          />
+        )}
         <RenderModeSwitch {...editorProps} dispatchKey={dispatchKey} />
 
         {/* Master opacity — all geometry types; omitted when parent owns the opacity control */}

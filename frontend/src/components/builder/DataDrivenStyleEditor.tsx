@@ -872,6 +872,7 @@ export function DataDrivenStyleEditor({
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('dataDriven.sizeMin')}</span>
             <Slider
+              aria-label={t('dataDriven.sizeMin')}
               value={[sizeRange[0]]}
               min={1}
               max={target === 'width' ? 20 : 30}
@@ -884,6 +885,7 @@ export function DataDrivenStyleEditor({
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('dataDriven.sizeMax')}</span>
             <Slider
+              aria-label={t('dataDriven.sizeMax')}
               value={[sizeRange[1]]}
               min={1}
               max={target === 'width' ? 20 : 30}
@@ -976,6 +978,7 @@ export function DataDrivenStyleEditor({
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground w-20">{t('dataDriven.classes')}</span>
               <Slider
+                aria-label={t('dataDriven.classes')}
                 value={[classCount]}
                 min={3}
                 max={9}

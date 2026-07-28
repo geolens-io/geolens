@@ -87,7 +87,15 @@ export function BboxMapPicker({ onBboxSelected }: BboxMapPickerProps) {
 
   return (
     <div>
-      <div className="overflow-hidden rounded-md">
+      {/* audit(w3-maps): aria-label on <MapGL> is silently dropped —
+          @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
+          labels its canvas "Map". Label the wrapper region instead (same
+          pattern as DatasetMap's shell). */}
+      <div
+        className="overflow-hidden rounded-md"
+        role="region"
+        aria-label={t('bbox.mapAriaLabel', { defaultValue: 'Bounding box map' })}
+      >
         <MapGL
           initialViewState={{ longitude: 0, latitude: 20, zoom: 1 }}
           style={{ width: '100%', height: 250 }}

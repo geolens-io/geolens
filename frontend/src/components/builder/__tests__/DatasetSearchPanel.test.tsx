@@ -301,8 +301,10 @@ describe('DatasetSearchPanel', () => {
 
     render(<DatasetSearchPanel {...defaultProps()} />);
 
-    const statusEl = await screen.findByRole('status');
-    expect(statusEl).toBeInTheDocument();
+    // The live region is permanently mounted (content toggles), so wait for
+    // the empty-state copy to arrive rather than for the region itself.
+    expect(await screen.findByText(/Your catalog is empty/)).toBeInTheDocument();
+    const statusEl = screen.getByRole('status');
     expect(statusEl.textContent).toMatch(/Your catalog is empty/);
 
     // Upload CTA link
@@ -333,7 +335,7 @@ describe('DatasetSearchPanel', () => {
         features: [],
       });
       render(<DatasetSearchPanel {...defaultProps()} />);
-      expect(await screen.findByRole('status')).toBeInTheDocument();
+      expect(await screen.findByText(/Your catalog is empty/)).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /upload a file/i })).not.toBeInTheDocument();
     });
 
@@ -362,8 +364,10 @@ describe('DatasetSearchPanel', () => {
     vi.advanceTimersByTime(400);
     vi.useRealTimers();
 
-    const statusEl = await screen.findByRole('status');
-    // i18n mock returns defaultValue without interpolation, so assert patterns separately
+    // The live region is permanently mounted (content toggles) — wait for the
+    // zero-result copy itself.
+    expect(await screen.findByText(/No datasets match/)).toBeInTheDocument();
+    const statusEl = screen.getByRole('status');
     expect(statusEl.textContent).toMatch(/No datasets match/);
 
     // Clear search button resets the query

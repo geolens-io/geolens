@@ -25,6 +25,12 @@ export interface MapLibreErrorLike {
  * raster `/raster-tiles/` paths do not match. */
 function isFirstPartyTileUrl(url: string | undefined): boolean {
   if (!url || !url.includes('/tiles/')) return false;
+  // audit(w3-maps A1): raster/DEM tile URLs are
+  // `/raster-tiles/{id}/tiles/{z}/{x}/{y}.png` — the second `/tiles/` segment
+  // matched above and misclassified raster 401/403s as handled. Raster auth
+  // rides the Authorization header (setTransformRequest), not the vector
+  // re-sign/re-mint path, so it is never "handled" here.
+  if (url.includes('/raster-tiles/')) return false;
   if (!/^https?:\/\//i.test(url)) return true;
   if (url.startsWith(`${window.location.origin}/`)) return true;
   return /[?&]sig=/.test(url);

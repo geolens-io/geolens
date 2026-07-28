@@ -43,6 +43,24 @@ import { logUnhandledMapError } from '@/lib/map-error-log';
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
 
+// audit(w3-maps B11): sources this component (and its hooks) add on top of the
+// basemap. The basemap-switch transformStyle below carries over ONLY these —
+// an allowlist. The previous denylist excluded just the id literally named
+// `basemap`, which only raster styles use; vector styles use provider source
+// ids, so switching vector → raster stacked the entire old vector basemap
+// (~100 layers) on top of the new one.
+const APP_SOURCE_IDS = new Set([
+  'vector-tile-source', // use-map-layers addVectorLayers
+  'raster-tile-source', // use-map-layers addRasterLayers
+  'drawn-overlay', // use-map-layers addOverlaySource
+  'bbox-source', // declarative <Source> below
+]);
+
+/** True for a source id owned by this app (incl. TerraDraw's `td-*` sources). */
+function isAppSourceId(id: string): boolean {
+  return APP_SOURCE_IDS.has(id) || id.startsWith('td-');
+}
+
 /**
  * Dataset detail map preview.
  *
@@ -164,12 +182,14 @@ export const DatasetMap = memo(function DatasetMap({
   // ``key={mapKey}`` remount can't stack listeners (which churned setState and
   // could freeze the tab when titiler is cold and the tile grid is a mix of
   // 200/204/error). Refs are reset whenever a new map mounts via handleLoad.
+  // audit(w3-maps): the same fire-once machinery now also backs the vector
+  // branch, which previously had no loading/error signal at all.
   const readyFiredRef = useRef(false);
   // Tracks a *confirmed* raster load (isSourceLoaded) vs a soft 204-only ready,
   // so a sparse-COG 204 doesn't permanently block the error/retry overlay.
   const readyConfirmedRef = useRef(false);
   const errorFiredRef = useRef(false);
-  const rasterListenersRef = useRef<{
+  const tileListenersRef = useRef<{
     error?: (e: { error: { message?: string; status?: number } }) => void;
     sourcedata?: (e: { sourceId?: string; isSourceLoaded?: boolean }) => void;
   }>({});
@@ -292,11 +312,11 @@ export const DatasetMap = memo(function DatasetMap({
     return () => {
       const map = mapRef.current;
       if (map) {
-        if (rasterListenersRef.current.error) {
-          map.off('error', rasterListenersRef.current.error);
+        if (tileListenersRef.current.error) {
+          map.off('error', tileListenersRef.current.error);
         }
-        if (rasterListenersRef.current.sourcedata) {
-          map.off('sourcedata', rasterListenersRef.current.sourcedata);
+        if (tileListenersRef.current.sourcedata) {
+          map.off('sourcedata', tileListenersRef.current.sourcedata);
         }
         // fix(#430 V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
         if (tilesIdleMovestartHandlerRef.current) {
@@ -310,7 +330,7 @@ export const DatasetMap = memo(function DatasetMap({
           map.off('error', tileAuthErrorHandlerRef.current);
         }
       }
-      rasterListenersRef.current = {};
+      tileListenersRef.current = {};
     };
   }, []);
 
@@ -501,8 +521,10 @@ export const DatasetMap = memo(function DatasetMap({
         const customSources: Record<string, unknown> = {};
         const customLayers: unknown[] = [];
         if (_prev) {
+          // audit(w3-maps B11): allowlist app-owned sources/layers instead of
+          // denylisting the raster-style id `basemap` — see APP_SOURCE_IDS.
           for (const [id, src] of Object.entries(_prev.sources || {})) {
-            if (id === 'basemap' || next.sources?.[id]) continue;
+            if (!isAppSourceId(id) || next.sources?.[id]) continue;
             customSources[id] = src;
           }
           // Only carry over layers whose source exists in the merged style
@@ -513,6 +535,9 @@ export const DatasetMap = memo(function DatasetMap({
           for (const layer of _prev.layers || []) {
             if (next.layers?.some((l) => l.id === layer.id)) continue;
             const src = (layer as { source?: string }).source;
+            // App-owned = a TerraDraw layer or a layer drawing from an
+            // app-owned source; every basemap layer fails both checks.
+            if (!layer.id.startsWith('td-') && !(src && isAppSourceId(src))) continue;
             if (src && !mergedSourceIds.has(src)) continue;
             customLayers.push(layer);
           }
@@ -589,50 +614,60 @@ export const DatasetMap = memo(function DatasetMap({
       map.on('movestart', tilesIdleMovestartHandlerRef.current);
       map.on('idle', tilesIdleIdleHandlerRef.current);
 
+      // Fresh mount: detach any stale listeners and reset the fire-once guards.
+      if (tileListenersRef.current.error) {
+        map.off('error', tileListenersRef.current.error);
+      }
+      if (tileListenersRef.current.sourcedata) {
+        map.off('sourcedata', tileListenersRef.current.sourcedata);
+      }
+      readyFiredRef.current = false;
+      readyConfirmedRef.current = false;
+      errorFiredRef.current = false;
+      const tileStats = { total: 0, failed: 0 };
+
+      // Fire heroState transitions at most once per mount so repeated
+      // sourcedata/error events don't churn setState (freeze).
+      // `confirmed` marks a real source load (isSourceLoaded). A 204-only ready
+      // is "soft": it resolves the loading skeleton for a sparse remote COG but
+      // must NOT make success terminal — a later error threshold can override it.
+      const fireReadyOnce = (confirmed: boolean) => {
+        if (confirmed) readyConfirmedRef.current = true;
+        if (readyFiredRef.current || errorFiredRef.current) return;
+        readyFiredRef.current = true;
+        onMapReady?.();
+      };
+      const fireErrorOnce = () => {
+        // A confirmed load wins over sporadic tile errors; a soft 204-only
+        // ready does NOT block the error/retry overlay.
+        if (errorFiredRef.current || readyConfirmedRef.current) return;
+        errorFiredRef.current = true;
+        onTileError?.();
+      };
+
       // fix(#621): the dataset preview previously had NO vector-tile 401/403
       // handling — the most likely surface in the 7-hour silent-403 incident.
       // A stale sig kicks one throttled token re-mint, and a conclusively
       // dead session surfaces through the global signed-out handling (#628)
       // via the mint request itself.
+      // audit(w3-maps A2): recoverTileAuth() returning false is contractual —
+      // a recent re-mint didn't cure the error (revoked grant, expired embed
+      // token). Previously that return value was discarded and the surface
+      // stayed fully silent; now it falls through to the existing onTileError
+      // error path. Auth failures surface even after a confirmed load (unlike
+      // sporadic tile errors) because they break the whole tile surface.
       tileAuthErrorHandlerRef.current = (e: { error?: { status?: number } }) => {
         const s = e.error?.status;
-        if (s === 401 || s === 403) recoverTileAuth();
+        if (s !== 401 && s !== 403) return;
+        if (!recoverTileAuth() && !errorFiredRef.current) {
+          errorFiredRef.current = true;
+          onTileError?.();
+        }
       };
       map.on('error', tileAuthErrorHandlerRef.current);
 
       if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
-        // Fresh mount: detach any stale listeners and reset the fire-once guards.
-        if (rasterListenersRef.current.error) {
-          map.off('error', rasterListenersRef.current.error);
-        }
-        if (rasterListenersRef.current.sourcedata) {
-          map.off('sourcedata', rasterListenersRef.current.sourcedata);
-        }
-        readyFiredRef.current = false;
-        readyConfirmedRef.current = false;
-        errorFiredRef.current = false;
-
         addRasterLayers(map);
-        const tileStats = { total: 0, failed: 0 };
-
-        // Fire heroState transitions at most once per mount so repeated
-        // sourcedata/error events don't churn setState (freeze).
-        // `confirmed` marks a real source load (isSourceLoaded). A 204-only ready
-        // is "soft": it resolves the loading skeleton for a sparse remote COG but
-        // must NOT make success terminal — a later error threshold can override it.
-        const fireReadyOnce = (confirmed: boolean) => {
-          if (confirmed) readyConfirmedRef.current = true;
-          if (readyFiredRef.current || errorFiredRef.current) return;
-          readyFiredRef.current = true;
-          onMapReady?.();
-        };
-        const fireErrorOnce = () => {
-          // A confirmed load wins over sporadic tile errors; a soft 204-only
-          // ready does NOT block the error/retry overlay.
-          if (errorFiredRef.current || readyConfirmedRef.current) return;
-          errorFiredRef.current = true;
-          onTileError?.();
-        };
 
         const handleRasterError = (e: { error: { message?: string; status?: number } }) => {
           const status = (e.error as { status?: number })?.status;
@@ -667,14 +702,51 @@ export const DatasetMap = memo(function DatasetMap({
 
         map.on('error', handleRasterError);
         map.on('sourcedata', handleRasterSourceData);
-        rasterListenersRef.current = {
+        tileListenersRef.current = {
           error: handleRasterError,
           sourcedata: handleRasterSourceData,
         };
       } else {
         addVectorLayers(map);
         addOverlaySource(map);
-        onMapReady?.();
+
+        // audit(w3-maps): the vector branch previously fired onMapReady
+        // unconditionally and attached no error listeners, so a vector
+        // preview had no loading/error state at all. Mirror the raster
+        // machinery: a soft ready keeps today's immediate-resolve behavior
+        // (a bbox-only dataset has no tiles to confirm), sourcedata confirms
+        // a real load, and repeated hard tile failures cross the same
+        // threshold into the existing onTileError error path. 4xx stays out
+        // of the count — 404 is an expected no-data tile outside the extent,
+        // and 401/403 belong to the tile-auth recovery handler above.
+        const handleVectorError = (e: { error: { message?: string; status?: number } }) => {
+          const status = e.error?.status;
+          if (status && status >= 400 && status < 500) return;
+          if (e.error?.message?.includes('vector-tile-source') ||
+              e.error?.message?.includes('Error: HTTP') ||
+              (status && status >= 500)) {
+            tileStats.failed++;
+            tileStats.total++;
+            if (tileStats.failed >= 3 ||
+                (tileStats.total >= 4 && tileStats.failed / tileStats.total > 0.5)) {
+              fireErrorOnce();
+            }
+          }
+        };
+        const handleVectorSourceData = (e: { sourceId?: string; isSourceLoaded?: boolean }) => {
+          if (e.sourceId === 'vector-tile-source' && e.isSourceLoaded) {
+            tileStats.total++;
+            fireReadyOnce(true);
+          }
+        };
+
+        map.on('error', handleVectorError);
+        map.on('sourcedata', handleVectorSourceData);
+        tileListenersRef.current = {
+          error: handleVectorError,
+          sourcedata: handleVectorSourceData,
+        };
+        fireReadyOnce(false);
       }
     },
     [recordType, addRasterLayers, addVectorLayers, addOverlaySource, onMapReady, onTileError, recoverTileAuth],
@@ -946,7 +1018,7 @@ export const DatasetMap = memo(function DatasetMap({
               {t('map.deleteFeatureDescription')}
               {selectedFeature?.gid != null && (
                 <span className="block mt-1 text-xs text-muted-foreground">
-                  Feature ID: {selectedFeature.gid}
+                  {t('map.featureId', { id: selectedFeature.gid, defaultValue: 'Feature ID: {{id}}' })}
                 </span>
               )}
             </AlertDialogDescription>

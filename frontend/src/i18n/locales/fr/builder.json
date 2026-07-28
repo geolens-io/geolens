@@ -396,7 +396,10 @@
       "parseError": "JSON invalide",
       "structureError": "L'expression doit être un tableau commençant par un opérateur connu"
     },
-    "validatorUnavailable": "Ce JSON n'a pas pu être validé — simplifiez la valeur et réessayez."
+    "validatorUnavailable": "Ce JSON n'a pas pu être validé — simplifiez la valeur et réessayez.",
+    "resetConfirmMessage": "Réinitialiser le style de cette couche ? Le mode de rendu et le style basé sur les données seront perdus.",
+    "resetConfirmAction": "Réinitialiser le style",
+    "resetConfirmCancel": "Conserver le style"
   },
   "filters": {
     "title": "Filtres",
@@ -594,7 +597,8 @@
       "count": "Nombre",
       "crs": "SCR",
       "attribution": "Attribution"
-    }
+    },
+    "table": "Table"
   },
   "share": {
     "title": "Partager",
@@ -677,7 +681,11 @@
     "regenerate": "Régénérer",
     "regenerateLink": "Régénérer le lien",
     "embedTokenForDomains": "Créez un jeton d’intégration pour limiter cette intégration à des domaines spécifiques.",
-    "createEmbedToken": "Créer un jeton d’intégration"
+    "createEmbedToken": "Créer un jeton d’intégration",
+    "revokeConfirmTitle": "Révoquer le lien de partage ?",
+    "revokeConfirmDescription": "Le lien cessera de fonctionner immédiatement et les jetons d’intégration de cette carte seront invalidés. Cette action est irréversible.",
+    "revokeConfirmCancel": "Annuler",
+    "revokeConfirmAction": "Révoquer le lien"
   },
   "chat": {
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
@@ -891,7 +899,9 @@
     "bulkGroupNeedTwo": "Sélectionnez au moins 2 couches libres pour les regrouper",
     "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau",
     "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez",
-    "bulkDeleteOnlyGroupRows": "Les lignes de groupe ne peuvent pas être supprimées en masse ; utilisez le menu de la ligne du groupe pour le supprimer"
+    "bulkDeleteOnlyGroupRows": "Les lignes de groupe ne peuvent pas être supprimées en masse ; utilisez le menu de la ligne du groupe pour le supprimer",
+    "bulkGrouped": "{{count}} couches regroupées dans « {{name}} »",
+    "bulkUngrouped": "{{count}} groupes dissociés"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -987,7 +997,11 @@
     "unitKilometers": "kilomètres",
     "unitFeet": "pieds",
     "unitMiles": "milles",
-    "drawMaskPointerHint": "Le dessin nécessite un pointeur. Pour découper sans, choisissez une couche de polygones ci-dessous."
+    "drawMaskPointerHint": "Le dessin nécessite un pointeur. Pour découper sans, choisissez une couche de polygones ci-dessous.",
+    "saveHintNeedsName": "Saisissez un nom pour le nouveau jeu de données pour activer Créer un jeu de données.",
+    "saveHintNeedsParams": "Renseignez les paramètres de l’opération ci-dessus pour activer Créer un jeu de données.",
+    "addedToMap": "Ajouté à la carte",
+    "openMap": "Ouvrir la carte"
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",
@@ -1192,6 +1206,7 @@
     "listboxLabel": "Couches de la carte",
     "searchPlaceholder": "Filtrer les couches…",
     "searchAriaLabel": "Filtrer les couches par nom",
+    "searchNoMatches": "Aucune couche ne correspond à « {{query}} »",
     "emptyRegionLabel": "Aucune couche — commencer",
     "emptySearchButton": "Rechercher et ouvrir la fenêtre Ajouter des données",
     "emptySearchInput": "Rechercher des jeux de données à ajouter",
@@ -1208,7 +1223,6 @@
     "aiUnavailable": "IA indisponible",
     "aiUnavailableTitle": "L'IA est indisponible",
     "aiUnavailableDescription": "Un administrateur doit activer un fournisseur d'IA avant d'utiliser Demander à l'IA dans ce builder.",
-    "notesPresent": "La carte a des notes",
     "aiDisabledTitle": "L'IA est désactivée",
     "aiDisabledBody": "Un administrateur a désactivé l'IA pour cette instance.",
     "aiNoKeyTitle": "IA non configurée",
@@ -1217,7 +1231,8 @@
     "aiPermissionBody": "Vous n'avez pas l'autorisation d'utiliser le chat IA.",
     "aiGoToSettings": "Aller aux paramètres",
     "aiConfigureSettings": "Configurer dans les paramètres",
-    "closePanel": "Fermer le panneau"
+    "closePanel": "Fermer le panneau",
+    "notesButtonWithNotes": "Notes (la carte a des notes)"
   },
   "stackRow": {
     "dragHandle": "Glisser pour réorganiser {{name}}",
@@ -1225,6 +1240,7 @@
     "opacitySlider": "Opacité pour {{name}}",
     "kebabTrigger": "Options de couche pour {{name}}",
     "kebabRenameLayer": "Renommer la couche",
+    "renameInputLabel": "Nom de la couche",
     "kebabDuplicate": "Dupliquer",
     "kebabDeleteLayer": "Supprimer la couche",
     "kebabAddToGroup": "Ajouter au groupe…",
@@ -1233,6 +1249,9 @@
     "kebabUngroup": "Dégrouper",
     "kebabDeleteGroup": "Supprimer le groupe",
     "kebabMoveOutOfGroup": "Déplacer hors du groupe",
+    "moveOutConfirmMessage": "Déplacer cette couche hors de « {{group}} » ? Le groupe vide sera également supprimé.",
+    "moveOutConfirmAction": "Déplacer hors du groupe",
+    "moveOutConfirmCancel": "Conserver dans le groupe",
     "labelsIndicator": "Étiquettes activées : {{column}}",
     "kebabGroupTrigger": "Options de groupe pour {{name}}",
     "kebabZoomToLayer": "Zoomer sur la couche",
@@ -1338,6 +1357,7 @@
     },
     "confirmDelete": {
       "message": "Êtes-vous sûr ? Cette action est irréversible.",
+      "messageDissolvesGroup": "Êtes-vous sûr ? Cette action est irréversible et le groupe « {{group}} » sera également supprimé.",
       "delete": "Supprimer",
       "keep": "Conserver la couche"
     },
@@ -1368,7 +1388,11 @@
     "deleteLayer": "Supprimer le calque",
     "deleteLayerConfirmMessage": "Supprimer ce calque ? Cette action est irréversible.",
     "deleteLayerConfirmAction": "Supprimer",
-    "deleteLayerConfirmCancel": "Conserver le calque"
+    "deleteLayerConfirmCancel": "Conserver le calque",
+    "typePill": {
+      "hillshade": "Ombrage",
+      "terrain": "Terrain"
+    }
   },
   "settings": {
     "regionLabel": "Paramètres de carte",

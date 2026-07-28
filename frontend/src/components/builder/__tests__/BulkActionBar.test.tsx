@@ -524,7 +524,7 @@ describe('BulkActionBar — bulk handler invocations (POL-09)', () => {
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — isDeleting prop (PERF-03)', () => {
-  it('Test 20: isDeleting=true replaces Trash2 icon with Loader2 spinner in Delete confirm button area', () => {
+  it('Test 20: isDeleting=true replaces Trash2 icon with Loader2 spinner in Delete confirm button area', async () => {
     // When isDeleting=true, the confirm state shows the spinner in place of the trash icon.
     // We verify by checking for a component with animate-spin class (Loader2 pattern).
     const { container } = render(
@@ -539,9 +539,11 @@ describe('BulkActionBar — isDeleting prop (PERF-03)', () => {
     // The aria-live region should announce the deleting state.
     const liveRegion = container.querySelector('[aria-live="polite"]');
     expect(liveRegion).not.toBeNull();
-    // The live region text contains count or deleting key
-    const liveText = liveRegion?.textContent ?? '';
-    expect(liveText.length).toBeGreaterThan(0);
+    // fix(v1.6.0 audit): the live region mounts EMPTY and populates on the rAF
+    // tick, so the deleting text arrives asynchronously.
+    await waitFor(() => {
+      expect((liveRegion?.textContent ?? '').length).toBeGreaterThan(0);
+    });
   });
 
   it('Test 21: isDeleting=true sets aria-busy=true on the Delete button and disables it', () => {
@@ -609,16 +611,142 @@ describe('BulkActionBar — deletable count excludes group rows (fix #771)', () 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('the deleting state announces the deletable count, not the selection size', () => {
-    // 2 data layers + 1 group row; the batch actually deleting is 2.
+  it('the deleting state announces the hook-captured batch size, not the emptied selection', async () => {
+    // fix(v1.6.0 audit A5): while a delete is in flight the optimistic removal
+    // has ALREADY dropped the selected rows from `layers`, so the
+    // selection-derived deletable count is 0. The real bar renders the
+    // deletingCount the hook captured synchronously before the removal.
     const { container } = render(
       <BulkActionBar
-        {...makeProps({ selectedIds: new Set(['a', 'b', 'g1']) })}
+        {...makeProps({
+          selectedIds: new Set(['a', 'b', 'g1']),
+          // a + b optimistically removed; the emptied group row g1 pruned too
+          layers: [vecC, raster1],
+        })}
         isDeleting={true}
+        deletingCount={2}
       />,
     );
 
     const liveRegion = container.querySelector('[aria-live="polite"]');
-    expect(liveRegion?.textContent).toContain('bulkActions.deletingLayers 2');
+    // Live region populates on the rAF tick (mounts empty by design).
+    await waitFor(() => {
+      expect(liveRegion?.textContent).toContain('bulkActions.deletingLayers 2');
+    });
+    // The visible label and busy button also use the captured batch size.
+    expect(screen.getAllByText(/bulkActions.deletingLayers 2/).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BulkActionBar — delete-confirm modal semantics + focus (v1.6.0 audit A3)
+// ---------------------------------------------------------------------------
+
+describe('BulkActionBar — delete-confirm modal semantics and exit focus (v1.6.0 audit A3)', () => {
+  function openConfirm() {
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByTestId('bulk-action-delete'));
+  }
+
+  it('the confirm carries aria-modal="true"', () => {
+    render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
+    openConfirm();
+    expect(screen.getByRole('alertdialog')).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('Tab from the last control wraps to the first (focus trap)', () => {
+    render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
+    openConfirm();
+    const dialog = screen.getByRole('alertdialog');
+    const buttons = Array.from(dialog.querySelectorAll('button'));
+    expect(buttons.length).toBe(2);
+    const [cancelBtn, deleteBtn] = buttons;
+
+    deleteBtn.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // Shift+Tab from the first wraps back to the last.
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(deleteBtn);
+  });
+
+  it('Cancel restores focus into the bar instead of dropping it on <body>', async () => {
+    render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
+    openConfirm();
+    const dialog = screen.getByRole('alertdialog');
+    const cancelBtn = dialog.querySelectorAll('button')[0];
+    fireEvent.click(cancelBtn);
+
+    // Restore happens on a rAF tick; focus must land on a bar control (the
+    // visibility button is the first enabled control in the normal state).
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByRole('toolbar').contains(document.activeElement)).toBe(true);
+    });
+  });
+
+  it('Escape restores focus into the bar', async () => {
+    render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
+    openConfirm();
+    fireEvent.keyDown(screen.getByRole('toolbar'), { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByRole('toolbar').contains(document.activeElement)).toBe(true);
+    });
+  });
+
+  it('confirming restores focus to a stable element while the trigger is unmounted', async () => {
+    // The pre-confirm trigger (overflow Delete item) unmounts on confirm; the
+    // deleting state's only button is disabled, so focus falls back to the bar
+    // itself (tabIndex=-1), never <body>.
+    const onBulkDelete = vi.fn();
+    const { rerender } = render(
+      <BulkActionBar
+        {...makeProps({ selectedIds: new Set(['a', 'b']) })}
+        onBulkDelete={onBulkDelete}
+      />,
+    );
+    openConfirm();
+    const dialog = screen.getByRole('alertdialog');
+    const deleteBtn = dialog.querySelectorAll('button')[1];
+    fireEvent.click(deleteBtn);
+    expect(onBulkDelete).toHaveBeenCalled();
+
+    // Simulate the hook flipping to the deleting state in the same interaction.
+    rerender(
+      <BulkActionBar
+        {...makeProps({ selectedIds: new Set(['a', 'b']), layers: [vecC, raster1] })}
+        onBulkDelete={onBulkDelete}
+        isDeleting={true}
+        deletingCount={2}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByRole('toolbar').contains(document.activeElement) ||
+        document.activeElement === screen.getByRole('toolbar')).toBe(true);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BulkActionBar — live region mounts empty (v1.6.0 audit)
+// ---------------------------------------------------------------------------
+
+describe('BulkActionBar — live region mounts empty then populates', () => {
+  it('is empty at mount and announces the selection on the rAF tick', async () => {
+    vi.useFakeTimers();
+    const { container } = render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
+    const liveRegion = container.querySelector('[aria-live="polite"]');
+    // Present-at-mount content is skipped by screen readers — must start empty.
+    expect(liveRegion?.textContent ?? '').toBe('');
+    await act(async () => {
+      vi.runAllTimers();
+    });
+    vi.useRealTimers();
+    expect(liveRegion?.textContent).toContain('bulkActions.liveAnnouncement 2');
   });
 });

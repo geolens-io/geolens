@@ -662,20 +662,24 @@ export function MapBuilderPage() {
   // set. Skipped while a bulk delete is in flight: its optimistic removal
   // must not eat the preserved-on-failure selection (a full-failure rollback
   // restores the rows in the same commit that clears isDeleting).
+  // fix(v1.6.0 audit B7): also intersect with selectableRowIds — a row hidden
+  // by the layer search or a collapsed group must leave the selection, or the
+  // bulk bar keeps acting on rows the user can no longer see.
   useEffect(() => {
     if (layers.isDeleting) return;
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
       const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
+      const selectable = new Set(selectableRowIds);
       let changed = false;
       const next = new Set<string>();
       for (const rowId of prev) {
-        if (liveIds.has(rowId)) next.add(rowId);
+        if (liveIds.has(rowId) && selectable.has(rowId)) next.add(rowId);
         else changed = true;
       }
       return changed ? next : prev;
     });
-  }, [layers.localLayers, layers.isDeleting]);
+  }, [layers.localLayers, layers.isDeleting, selectableRowIds]);
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
@@ -990,6 +994,101 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
     [layers.handleToggleExpand, handlePlainSelectAnchor],
   );
+
+  // fix(v1.6.0 audit D7): the UnifiedStackPanel props below were inline lambdas
+  // re-created on every MapBuilderPage render, so the React.memo chain
+  // (UnifiedStackPanel → SortableStackRow → StackRow) never skipped a row
+  // render. dispatchLayerAction and the other deps here are the stable
+  // useCallbacks from use-builder-layers — NOT the per-render `layers` literal.
+  const handleRowToggleVisibility = useCallback((layerId: string) => {
+    // P1-09: a folder group row is a synthetic row, not a map layer. Route its
+    // eye toggle to toggle_group_visibility so every child (and its
+    // companions) follows; loose/child rows use set_visibility.
+    // fix(v1.6.0 audit D7): group-ness is read through the hook's ref-backed
+    // isFolderGroupRow predicate — a localLayers.find() here would force this
+    // callback (and every row) to re-create on exactly the frames the
+    // memoization targets.
+    if (layers.isFolderGroupRow(layerId)) {
+      layers.dispatchLayerAction({
+        type: 'toggle_group_visibility',
+        source: 'manual',
+        groupId: layerId,
+      });
+    } else {
+      layers.dispatchLayerAction({
+        type: 'set_visibility',
+        source: 'manual',
+        layerId,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.isFolderGroupRow, layers.dispatchLayerAction]);
+
+  const handleRowReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
+    layers.dispatchLayerAction({
+      type: 'reorder_layers',
+      source: 'manual',
+      layers: reorderedLayers,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.dispatchLayerAction]);
+
+  const handleRowOpacityChange = useCallback((layerId: string, opacity: number) => {
+    layers.dispatchLayerAction({
+      type: 'set_opacity',
+      source: 'manual',
+      layerId,
+      opacity,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.dispatchLayerAction]);
+
+  const handleRowRemove = useCallback((layerId: string) => {
+    layers.dispatchLayerAction({
+      type: 'remove_layer',
+      source: 'manual',
+      layerId,
+      persistence: 'server',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.dispatchLayerAction]);
+
+  const handleRowDuplicate = useCallback((layerId: string) => {
+    layers.dispatchLayerAction({
+      type: 'duplicate_rendering',
+      source: 'manual',
+      layerId,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.dispatchLayerAction]);
+
+  const handleRowKeyboardReorder = useCallback(
+    (layerId: string, direction: 'up' | 'down') =>
+      direction === 'up'
+        ? layers.handleMoveUp(layerId)
+        : layers.handleMoveDown(layerId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+    [layers.handleMoveUp, layers.handleMoveDown],
+  );
+
+  const handlePanelAddDataset = useCallback((datasetId: string) => {
+    layers.handleAddDataset(datasetId, (newLayerId) => {
+      handleSelectLayer(newLayerId);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.handleAddDataset, handleSelectLayer]);
+
+  // handleToggleExpand already toggles-on-same-id (prev === id → close), so the
+  // old `expandedLayerId === 'settings' ? '' : 'settings'` ternary was
+  // redundant AND made the lambda depend on expandedLayerId.
+  const handlePanelSettingsClick = useCallback(() => {
+    layers.handleToggleExpand('settings');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+  }, [layers.handleToggleExpand]);
+
+  const handleSwapBasemapClick = useCallback(() => {
+    handleSelectLayer('basemap-group');
+  }, [handleSelectLayer]);
 
   // Phase 1040: DnD handlers hoisted from UnifiedStackPanel — same behavior,
   // lifted to MapBuilderPage so BuilderDialogs (catalog modal) shares the context.
@@ -1699,73 +1798,29 @@ export function MapBuilderPage() {
               drawsNothingLayerIds={drawsNothingLayerIds}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
-              onToggleVisibility={(layerId) => {
-                // P1-09: a folder group row is a synthetic row, not a map layer.
-                // Route its eye toggle to toggle_group_visibility so every child
-                // (and its companions) follows; loose/child rows use set_visibility.
-                const target = layers.localLayers.find((l) => l.id === layerId);
-                if (target && isFolderGroupLayer(target)) {
-                  layers.dispatchLayerAction({
-                    type: 'toggle_group_visibility',
-                    source: 'manual',
-                    groupId: layerId,
-                  });
-                } else {
-                  layers.dispatchLayerAction({
-                    type: 'set_visibility',
-                    source: 'manual',
-                    layerId,
-                  });
-                }
-              }}
-              onReorder={(reorderedLayers) => layers.dispatchLayerAction({
-                type: 'reorder_layers',
-                source: 'manual',
-                layers: reorderedLayers,
-              })}
-              onOpacityChange={(layerId, opacity) => layers.dispatchLayerAction({
-                type: 'set_opacity',
-                source: 'manual',
-                layerId,
-                opacity,
-              })}
-              onRemove={(layerId) => layers.dispatchLayerAction({
-                type: 'remove_layer',
-                source: 'manual',
-                layerId,
-                persistence: 'server',
-              })}
+              // fix(v1.6.0 audit D7): the row handlers here are memoized
+              // useCallbacks (defined next to handleSelectLayer) — the previous
+              // inline lambdas re-created every render and defeated the
+              // UnifiedStackPanel → StackRow memo chain.
+              onToggleVisibility={handleRowToggleVisibility}
+              onReorder={handleRowReorder}
+              onOpacityChange={handleRowOpacityChange}
+              onRemove={handleRowRemove}
               onRename={layers.handleDisplayNameChange}
-              onDuplicate={(layerId) => layers.dispatchLayerAction({
-                type: 'duplicate_rendering',
-                source: 'manual',
-                layerId,
-              })}
+              onDuplicate={handleRowDuplicate}
               onZoomToLayer={layers.handleZoomToLayer}
               onAnalyzeLayer={handleAnalyzeLayer}
               onCopyStyle={layers.handleCopyStyle}
               onPasteStyle={layers.handlePasteStyle}
               onBulkApplyStyle={handleBulkApplyStyle}
               copiedStyleGeometryClass={layers.copiedStyleGeometryClass}
-              onKeyboardReorder={(layerId, direction) =>
-                direction === 'up'
-                  ? layers.handleMoveUp(layerId)
-                  : layers.handleMoveDown(layerId)
-              }
+              onKeyboardReorder={handleRowKeyboardReorder}
               // fix(#759): the keyboard reorder mode shares the pointer
               // path's aria-live region instead of staying silent.
               onAnnounce={announce}
               onAddDataClick={handleAddDataClick}
-              onAddDataset={(datasetId: string) => {
-                layers.handleAddDataset(datasetId, (newLayerId) => {
-                  handleSelectLayer(newLayerId);
-                });
-              }}
-              onSettingsClick={() => {
-                layers.handleToggleExpand(
-                  layers.expandedLayerId === 'settings' ? '' : 'settings',
-                );
-              }}
+              onAddDataset={handlePanelAddDataset}
+              onSettingsClick={handlePanelSettingsClick}
               isSettingsOpen={editorScene === 'settings'}
               activeDragId={dragActiveId}
               groupMeta={layers.groupMeta}
@@ -1775,7 +1830,7 @@ export function MapBuilderPage() {
               onToggleSublayerVisibility={handleToggleSublayerVisibility}
               onSublayerOpacityChange={handleSublayerOpacityChange}
               onToggleBasemapVisibility={handleToggleBasemapVisibility}
-              onSwapBasemap={() => handleSelectLayer('basemap-group')}
+              onSwapBasemap={handleSwapBasemapClick}
               onResetBasemapAppearance={handleResetBasemapAppearance}
               onRenameGroup={layers.handleRenameGroup}
               onAddLayerToGroup={handleAddLayerToFolderGroup}
@@ -1802,6 +1857,7 @@ export function MapBuilderPage() {
               onBulkUngroup={handleBulkUngroup}
               onBulkDelete={handleBulkDelete}
               isDeleting={layers.isDeleting}
+              deletingCount={layers.deletingCount}
               freshLayerId={layers.freshLayerId}
               basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
             />
@@ -1948,7 +2004,14 @@ export function MapBuilderPage() {
                   disabled={btn.disabled}
                   data-unavailable={btn.unavailable || undefined}
                   title={btn.label}
-                  aria-label={btn.label}
+                  // MAP-22 rework: notes-presence folds into the button's own
+                  // accessible name (aria-label replaces the subtree, so a
+                  // label on the dot span was never exposed).
+                  aria-label={
+                    btn.id === 'notes' && dockNotes.trim().length > 0
+                      ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
+                      : btn.label
+                  }
                   aria-pressed={railPanel === btn.id}
                   // fix(#760): mirrors BuilderRail's feat(#682) job signal.
                   aria-busy={btn.id === 'analysis' && analysisJobRunning}
@@ -1966,12 +2029,14 @@ export function MapBuilderPage() {
                   ) : (
                     <btn.icon className="h-4 w-4" aria-hidden="true" />
                   )}
-                  {/* MAP-22: presence dot on mobile Notes button — mirrors BuilderRail.tsx:105-110.
-                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps MAP-22
-                      parity at 414×896. */}
+                  {/* MAP-22: presence dot on mobile Notes button — mirrors the
+                      BuilderRail rail-button dot (search for MAP-22 there).
+                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps
+                      MAP-22 parity at 414×896. Decorative: the state is announced via
+                      the button's conditional aria-label above. */}
                   {btn.id === 'notes' && dockNotes.trim().length > 0 && (
                     <span
-                      aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
+                      aria-hidden="true"
                       className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
                     />
                   )}

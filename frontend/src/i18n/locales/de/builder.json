@@ -396,7 +396,10 @@
       "parseError": "Ungültiges JSON",
       "structureError": "Ausdruck muss ein Array sein, das mit einem bekannten Operator beginnt"
     },
-    "validatorUnavailable": "Dieses JSON konnte nicht validiert werden – vereinfachen Sie den Wert und versuchen Sie es erneut."
+    "validatorUnavailable": "Dieses JSON konnte nicht validiert werden – vereinfachen Sie den Wert und versuchen Sie es erneut.",
+    "resetConfirmMessage": "Stil dieses Layers zurücksetzen? Rendermodus und datengesteuerter Stil gehen verloren.",
+    "resetConfirmAction": "Stil zurücksetzen",
+    "resetConfirmCancel": "Stil behalten"
   },
   "filters": {
     "title": "Filter",
@@ -594,7 +597,8 @@
       "count": "Anzahl",
       "crs": "KRS",
       "attribution": "Namensnennung"
-    }
+    },
+    "table": "Tabelle"
   },
   "share": {
     "title": "Teilen",
@@ -677,7 +681,11 @@
     "regenerate": "Neu generieren",
     "regenerateLink": "Link neu generieren",
     "embedTokenForDomains": "Erstellen Sie ein Einbettungs-Token, um diese Einbettung auf bestimmte Domains zu beschränken.",
-    "createEmbedToken": "Einbettungs-Token erstellen"
+    "createEmbedToken": "Einbettungs-Token erstellen",
+    "revokeConfirmTitle": "Freigabelink widerrufen?",
+    "revokeConfirmDescription": "Der Link funktioniert sofort nicht mehr und alle Einbettungs-Tokens dieser Karte werden ungültig. Das kann nicht rückgängig gemacht werden.",
+    "revokeConfirmCancel": "Abbrechen",
+    "revokeConfirmAction": "Link widerrufen"
   },
   "chat": {
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
@@ -891,7 +899,9 @@
     "bulkGroupNeedTwo": "Wähle mindestens 2 lose Ebenen aus, um sie zu gruppieren",
     "bulkGroupSkipped": "Einige ausgewählte Ebenen sind bereits gruppiert und können nicht erneut gruppiert werden",
     "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut",
-    "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile"
+    "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile",
+    "bulkGrouped": "{{count}} Ebenen in „{{name}}“ gruppiert",
+    "bulkUngrouped": "{{count}} Gruppen aufgelöst"
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -987,7 +997,11 @@
     "unitKilometers": "Kilometer",
     "unitFeet": "Fuß",
     "unitMiles": "Meilen",
-    "drawMaskPointerHint": "Zeichnen erfordert einen Zeiger. Zum Zuschneiden ohne Zeiger wählen Sie unten eine Polygonebene."
+    "drawMaskPointerHint": "Zeichnen erfordert einen Zeiger. Zum Zuschneiden ohne Zeiger wählen Sie unten eine Polygonebene.",
+    "saveHintNeedsName": "Geben Sie einen Namen für den neuen Datensatz ein, um „Datensatz erstellen“ zu aktivieren.",
+    "saveHintNeedsParams": "Vervollständigen Sie die Einstellungen der Operation oben, um „Datensatz erstellen“ zu aktivieren.",
+    "addedToMap": "Zur Karte hinzugefügt",
+    "openMap": "Karte öffnen"
   },
   "attributeForm": {
     "titleEdit": "Feature-Attribute bearbeiten",
@@ -1192,6 +1206,7 @@
     "listboxLabel": "Karten-Layer",
     "searchPlaceholder": "Layer filtern…",
     "searchAriaLabel": "Layer nach Name filtern",
+    "searchNoMatches": "Keine Layer entsprechen „{{query}}“",
     "emptyRegionLabel": "Keine Layer — loslegen",
     "emptySearchButton": "Suchen und Dialog „Daten hinzufügen“ öffnen",
     "emptySearchInput": "Datensätze zum Hinzufügen suchen",
@@ -1208,7 +1223,6 @@
     "aiUnavailable": "KI nicht verfügbar",
     "aiUnavailableTitle": "KI ist nicht verfügbar",
     "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann.",
-    "notesPresent": "Karte hat Notizen",
     "aiDisabledTitle": "Die KI ist deaktiviert",
     "aiDisabledBody": "Ein Administrator hat die KI für diese Instanz deaktiviert.",
     "aiNoKeyTitle": "KI nicht konfiguriert",
@@ -1217,7 +1231,8 @@
     "aiPermissionBody": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
     "aiGoToSettings": "Zu den Einstellungen",
     "aiConfigureSettings": "In den Einstellungen konfigurieren",
-    "closePanel": "Panel schließen"
+    "closePanel": "Panel schließen",
+    "notesButtonWithNotes": "Notizen (Karte hat Notizen)"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -1225,6 +1240,7 @@
     "opacitySlider": "Deckkraft für {{name}}",
     "kebabTrigger": "Layer-Optionen für {{name}}",
     "kebabRenameLayer": "Layer umbenennen",
+    "renameInputLabel": "Layer-Name",
     "kebabDuplicate": "Duplizieren",
     "kebabDeleteLayer": "Layer löschen",
     "kebabAddToGroup": "Zur Gruppe hinzufügen…",
@@ -1233,6 +1249,9 @@
     "kebabUngroup": "Gruppierung aufheben",
     "kebabDeleteGroup": "Gruppe löschen",
     "kebabMoveOutOfGroup": "Aus Gruppe verschieben",
+    "moveOutConfirmMessage": "Diesen Layer aus „{{group}}“ verschieben? Die leere Gruppe wird ebenfalls entfernt.",
+    "moveOutConfirmAction": "Verschieben",
+    "moveOutConfirmCancel": "In der Gruppe behalten",
     "labelsIndicator": "Beschriftungen an: {{column}}",
     "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
     "kebabZoomToLayer": "Auf Ebene zoomen",
@@ -1338,6 +1357,7 @@
     },
     "confirmDelete": {
       "message": "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "messageDissolvesGroup": "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden, und die Gruppe „{{group}}“ wird ebenfalls entfernt.",
       "delete": "Löschen",
       "keep": "Layer behalten"
     },
@@ -1368,7 +1388,11 @@
     "deleteLayer": "Ebene löschen",
     "deleteLayerConfirmMessage": "Diese Ebene löschen? Das kann nicht rückgängig gemacht werden.",
     "deleteLayerConfirmAction": "Löschen",
-    "deleteLayerConfirmCancel": "Ebene behalten"
+    "deleteLayerConfirmCancel": "Ebene behalten",
+    "typePill": {
+      "hillshade": "Schummerung",
+      "terrain": "Gelände"
+    }
   },
   "settings": {
     "regionLabel": "Karteneinstellungen",

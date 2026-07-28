@@ -140,6 +140,7 @@
     "saveShort": "Guardar"
   },
   "bbox": {
+    "mapAriaLabel": "Mapa del cuadro delimitador",
     "noExtent": "Sin extensión",
     "instruction": "Haz clic y arrastra para dibujar un cuadro delimitador",
     "loading": "Cargando mapa..."
@@ -188,6 +189,7 @@
   "workspaceTitle": "Buscar en el catálogo GeoLens",
   "spatial": {
     "title": "Área de búsqueda",
+    "mapAriaLabel": "Mapa del área de búsqueda",
     "description": "Dibuja un rectángulo o polígono para limitar los resultados de búsqueda a un área específica.",
     "close": "Cerrar",
     "rectangle": "Rectángulo",

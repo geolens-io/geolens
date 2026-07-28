@@ -45,6 +45,14 @@ const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
+// fix(#773 follow-up): the cap expressed in a display unit, floored to two
+// decimals so the STATED maximum is itself a legal value. Rounding to nearest
+// overstated it — 100 000 m in feet displayed as 328,083.99 ft, which
+// converts back to 100 000.0005 m, over the cap, making the panel's own
+// stated maximum unattainable. Flooring keeps it attainable in every unit
+// (100 000 m and 100 km are exact; feet and miles floor slightly short).
+const maxBufferInUnit = (unit: BufferUnit): number =>
+  Math.floor((MAX_BUFFER_METERS / BUFFER_UNIT_METERS[unit]) * 100) / 100;
 // ux(#773): switching the unit converts the displayed number so the PHYSICAL
 // distance is preserved — "100 m" becomes "0.1 km", not a silent 1000×
 // reinterpretation. Rounded to 6 significant digits to trim float tails
@@ -60,7 +68,18 @@ const convertDistanceBetweenUnits = (
   // An empty or unparseable field has no physical distance to preserve.
   if (raw.trim() === '' || !Number.isFinite(value)) return raw;
   const converted = (value * BUFFER_UNIT_METERS[from]) / BUFFER_UNIT_METERS[to];
-  return String(Number(converted.toPrecision(6)));
+  let rounded = Number(converted.toPrecision(6));
+  // fix(#773 follow-up): a legal value must stay legal across a unit switch.
+  // 100 000 m rounded to 6 digits became 328 084 ft, which the panel then
+  // flagged invalid against its own cap. Round DOWN to the cap in the target
+  // unit instead of letting the significant-digit rounding step over it.
+  if (
+    value * BUFFER_UNIT_METERS[from] <= MAX_BUFFER_METERS &&
+    rounded * BUFFER_UNIT_METERS[to] > MAX_BUFFER_METERS
+  ) {
+    rounded = maxBufferInUnit(to);
+  }
+  return String(rounded);
 };
 // Suffixes of the existing analysisTools.unit* keys, so the range message can
 // name the unit in the user's language without a second set of strings.
@@ -269,6 +288,13 @@ export function AnalysisPanel({
       ? tracked.title
       : '';
   });
+  // A completed run raises TWO "Add to map" affordances (this button and the
+  // watcher's toast action) and both added — mark this one used after its
+  // click so a second click can't add the layer twice. Keyed on the dataset
+  // id, so a NEW run's completion re-enables it. Deliberately local: adding
+  // a dataset twice via other surfaces is legitimate, so no global
+  // idempotency in onAddDataset.
+  const [addedDatasetId, setAddedDatasetId] = useState<string | null>(null);
   // fix(#793 review): a materialize can outlive the panel instance that
   // started it — closed during the POST, reopened before the response lands.
   // The mount-time initializers above see no tracked job yet, so a job that
@@ -397,8 +423,13 @@ export function AnalysisPanel({
     if (restoredMaskDrawnRef.current) return;
     const map = mapInstanceRef?.current;
     if (!mask || !map || drawRef.current) return;
-    restoredMaskDrawnRef.current = true;
     addStaticMaskOverlay(map, mask);
+    // Latch AFTER the attempt, and only on success (the overlay helper
+    // assigns drawRef when it fully starts, and resets it to null on
+    // failure) — latching before the attempt made a failed overlay
+    // permanent: the mask applied but never became visible, with no retry.
+    // Mirrors use-ephemeral-layers' retry-until-attached idiom.
+    if (drawRef.current) restoredMaskDrawnRef.current = true;
     // No dep array (fix(#793 review)): the map arrives by REF assignment —
     // no dep ever changes — but the lazy BuilderMap's load re-renders the
     // parent, so retrying every commit reaches the moment the map exists;
@@ -497,6 +528,24 @@ export function AnalysisPanel({
     drawRef.current = null;
     setIsDrawing(false);
   }, []);
+
+  // Starting a draw swaps the Draw button for Cancel, which dropped focus to
+  // <body> — keyboard users lost their place, and the Escape-cancels-draw
+  // handler below never received the keystroke. Follow the swap in both
+  // directions: onto Cancel when drawing starts, back onto Draw (or Clear,
+  // when finishing the polygon replaced Draw with the mask row) when it ends.
+  const drawButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelDrawButtonRef = useRef<HTMLButtonElement | null>(null);
+  const clearMaskButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasDrawingRef = useRef(false);
+  useEffect(() => {
+    if (isDrawing) {
+      cancelDrawButtonRef.current?.focus();
+    } else if (wasDrawingRef.current) {
+      (drawButtonRef.current ?? clearMaskButtonRef.current)?.focus();
+    }
+    wasDrawingRef.current = isDrawing;
+  }, [isDrawing]);
 
   // fix(#758): a preview belongs to the inputs that produced it. Every input
   // change bumps the sequence (so an in-flight response knows it has been
@@ -618,7 +667,9 @@ export function AnalysisPanel({
 
   // The API takes metres; the input is whatever unit the user picked.
   const distanceValue = Number(distance) * BUFFER_UNIT_METERS[distanceUnit];
-  const distanceMaxInUnit = MAX_BUFFER_METERS / BUFFER_UNIT_METERS[distanceUnit];
+  // fix(#773 follow-up): same floor as the unit-switch clamp, so the stated
+  // maximum is attainable — see maxBufferInUnit.
+  const distanceMaxInUnit = maxBufferInUnit(distanceUnit);
   // fix(#700 review): materialize requires the upload permission server-side
   // (it creates a dataset); hide the creation half for viewer roles instead
   // of letting them fill the form into a guaranteed 403. Preview stays.
@@ -795,6 +846,15 @@ export function AnalysisPanel({
     !analysisJobRunning &&
     paramsValid &&
     outputTitle.trim().length > 0;
+  // Create dataset went disabled with no reason: the role="status" region
+  // below explains only the job case. A validation reason lives in this
+  // STATIC hint instead (pointed at via aria-describedby) — putting it in
+  // the polite live region would narrate every keystroke.
+  const saveBlockedReason = !outputTitle.trim()
+    ? ('name' as const)
+    : !paramsValid
+      ? ('params' as const)
+      : null;
 
   if (datasetLayers.length === 0) {
     return (
@@ -807,9 +867,30 @@ export function AnalysisPanel({
   }
 
   return (
-    <div
+    // A <form> so Enter in any field runs Preview — the panel had no submit
+    // path at all. Every non-submit button below carries an explicit
+    // type="button" so it doesn't trigger this instead.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- container-level Escape shortcut for keystrokes bubbling from the panel's own interactive children (cancels a pending draw, BuilderRail precedent); the form itself stays non-interactive
+    <form
       className="flex h-full flex-col gap-3 overflow-y-auto p-3.5"
       data-testid="analysis-panel"
+      // The panel renders its own range message (#723); native constraint
+      // bubbles on the number input would double up with it.
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canRun) previewMutation.mutate({ seq: previewSeqRef.current });
+      }}
+      onKeyDown={(e) => {
+        // Escape while a clip-mask draw is pending cancels the DRAW, not the
+        // panel: BuilderRail's container Escape handler guards on
+        // !e.defaultPrevented, so this preventDefault is what keeps the whole
+        // Analysis panel (and the in-progress mask) from being torn down.
+        if (e.key === 'Escape' && isDrawing) {
+          e.preventDefault();
+          stopDrawing();
+        }
+      }}
     >
       <div className="space-y-1.5">
         <Label className="text-xs" htmlFor="analysis-layer">
@@ -1032,6 +1113,8 @@ export function AnalysisPanel({
                 })}
               </p>
               <Button
+                ref={cancelDrawButtonRef}
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={stopDrawing}
@@ -1045,6 +1128,8 @@ export function AnalysisPanel({
                 {t('analysisTools.maskSet', { defaultValue: 'Clip area set' })}
               </span>
               <Button
+                ref={clearMaskButtonRef}
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => {
@@ -1061,6 +1146,8 @@ export function AnalysisPanel({
           ) : (
             <div className="space-y-1.5">
               <Button
+                ref={drawButtonRef}
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={startDrawing}
@@ -1130,8 +1217,10 @@ export function AnalysisPanel({
 
       <div className="mt-auto flex flex-col gap-2 pt-1">
         {operation !== 'dissolve' && (
+          // The form's submit button — Enter in any field previews too.
           <Button
-            onClick={() => previewMutation.mutate({ seq: previewSeqRef.current })}
+            type="submit"
+            aria-busy={previewMutation.isPending || undefined}
             disabled={!canRun}
           >
             {previewMutation.isPending
@@ -1140,7 +1229,7 @@ export function AnalysisPanel({
           </Button>
         )}
         {hasPreview && (
-          <Button variant="outline" onClick={onClearPreview}>
+          <Button type="button" variant="outline" onClick={onClearPreview}>
             {t('analysisTools.clearPreview', { defaultValue: 'Clear preview' })}
           </Button>
         )}
@@ -1173,8 +1262,13 @@ export function AnalysisPanel({
               })}
             />
             <Button
+              type="button"
               variant="secondary"
               className="w-full"
+              aria-busy={materializeMutation.isPending || undefined}
+              // The validation hint below says WHY this is disabled; the
+              // job cases are narrated by the status region instead.
+              aria-describedby={saveBlockedReason ? 'analysis-save-hint' : undefined}
               onClick={() => {
                 // fix(#682 review): reset only this panel's local status line.
                 // Clearing the GLOBAL tracking here would orphan a job that is
@@ -1190,6 +1284,21 @@ export function AnalysisPanel({
                 ? t('analysisTools.saving', { defaultValue: 'Creating…' })
                 : t('analysisTools.saveButton', { defaultValue: 'Create dataset' })}
             </Button>
+            {/* Static hint, deliberately NOT in the role="status" region —
+                a polite live region would narrate it on every keystroke. */}
+            {saveBlockedReason && (
+              <p id="analysis-save-hint" className="text-xs text-muted-foreground">
+                {saveBlockedReason === 'name'
+                  ? t('analysisTools.saveHintNeedsName', {
+                      defaultValue:
+                        'Enter a name for the new dataset to enable Create dataset.',
+                    })
+                  : t('analysisTools.saveHintNeedsParams', {
+                      defaultValue:
+                        'Complete the operation settings above to enable Create dataset.',
+                    })}
+              </p>
+            )}
             {/* fix(#784): one PERSISTENT status region, mounted empty with the
                 form — a live region that mounts already populated is not
                 announced, so the previous conditionally-rendered <p>s kept the
@@ -1200,7 +1309,17 @@ export function AnalysisPanel({
                 primary control unexplained (covers a job started before a
                 reload or from another panel). */}
             <p className="text-xs text-muted-foreground" role="status">
-              {analysisJobRunning && !job
+              {/* "Another analysis" means a FOREIGN job only. The panel's own
+                  run passes through two tracked-but-not-yet-observed gaps —
+                  mutationFn (onAnalysisJobChange) → onSuccess (setJobId), and
+                  setJobId → the first poll response — during which the store
+                  holds OUR job while `job` is still empty; announcing then
+                  was a false warning. Guarding on isPending alone would still
+                  leave the second gap open. */}
+              {analysisJobRunning &&
+              !job &&
+              jobId == null &&
+              !materializeMutation.isPending
                 ? t('analysisTools.anotherJobRunning', {
                     defaultValue:
                       'Another analysis is still running — wait for it to finish.',
@@ -1235,24 +1354,35 @@ export function AnalysisPanel({
             </p>
             {job?.status === 'complete' && !!job.dataset_id && layerActions && (
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={() => job.dataset_id && layerActions.onAddDataset(job.dataset_id)}
+                // Completion raises this button AND the watcher's toast
+                // action, and both added — mark this one used after its
+                // click. See addedDatasetId.
+                disabled={addedDatasetId === job.dataset_id}
+                onClick={() => {
+                  if (!job.dataset_id) return;
+                  layerActions.onAddDataset(job.dataset_id);
+                  setAddedDatasetId(job.dataset_id);
+                }}
               >
                 {/* fix(#764): name the dataset this adds — after a rail
                     round-trip or reload the field above may no longer say. */}
-                {lastRunTitle
-                  ? t('analysisTools.addToMapNamed', {
-                      defaultValue: 'Add "{{name}}" to map',
-                      name: lastRunTitle,
-                    })
-                  : t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
+                {addedDatasetId === job.dataset_id
+                  ? t('analysisTools.addedToMap', { defaultValue: 'Added to map' })
+                  : lastRunTitle
+                    ? t('analysisTools.addToMapNamed', {
+                        defaultValue: 'Add "{{name}}" to map',
+                        name: lastRunTitle,
+                      })
+                    : t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
               </Button>
             )}
           </div>
         )}
       </div>
-    </div>
+    </form>
   );
 }

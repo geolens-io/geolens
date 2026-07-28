@@ -234,7 +234,8 @@
       "type": "Type",
       "spatial": "Spatial",
       "nonSpatial": "Non spatial"
-    }
+    },
+    "tablesSidebarLabel": "Tables découvertes"
   },
   "layerPicker": {
     "title": "Sélectionner une couche",
@@ -422,7 +423,7 @@
     "columnCount_other": "{{value}} colonnes",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Progression de l'importation",
-    "readyTitle_one": "1 jeu de données prêt",
+    "readyTitle_one": "{{count}} jeu de données prêt",
     "readyTitle_other": "{{count}} jeux de données prêts",
     "readyDescription": "Ouvrez directement les jeux terminés ou continuez à téléverser pendant que les autres tâches se terminent.",
     "kindRaster": "Jeu raster",
@@ -483,7 +484,8 @@
     "comparedToUpload": "Comparé au chargement",
     "compareRegister": "Le chargement ingère depuis un fichier. L'enregistrement pointe vers une table existante — pas de duplication, mais la table doit rester dans votre base de données.",
     "compareStac": "Le chargement ingère des fichiers locaux. Les importations STAC découvrent d'abord les ressources distantes, puis préparent les éléments sélectionnés pour le catalogue.",
-    "compareService": "Le chargement ingère depuis un fichier. L'URL de service récupère depuis une API distante et importe les données dans GeoLens pour le tuilage et les requêtes locaux."
+    "compareService": "Le chargement ingère depuis un fichier. L'URL de service récupère depuis une API distante et importe les données dans GeoLens pour le tuilage et les requêtes locaux.",
+    "asideLabel": "Processus d’importation"
   },
   "status": {
     "uploading": "Téléversement",

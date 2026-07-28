@@ -465,7 +465,16 @@ export const ViewerMap = memo(function ViewerMap({
         // it lands, and a conclusively dead session surfaces through the
         // global signed-out handling (#628) via the mint request itself.
         if ((status === 401 || status === 403) && !isThirdPartyUrl(e.error?.url)) {
-          recoverTileAuth();
+          // audit(w3-maps A2): recoverTileAuth() returning false is
+          // contractual — a recent re-mint didn't cure the error (revoked
+          // grant, expired signature). Previously the return value was
+          // discarded and the surface stayed fully silent; fall through to
+          // the existing deduped tile-error toast instead.
+          if (!recoverTileAuth()) {
+            toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
+              id: 'viewer-map-error',
+            });
+          }
           return;
         }
         // Suppress expected no-data tiles (404) and other client errors
@@ -1037,6 +1046,12 @@ export const ViewerMap = memo(function ViewerMap({
   return (
     <div
       className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      // audit(w3-maps): aria-label on <MapGL> is silently dropped —
+      // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
+      // labels its canvas "Map". Label the wrapper region instead (same
+      // pattern as DatasetMap's shell).
+      role="region"
+      aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
       data-terrain-ready={terrainReady ? 'true' : 'false'}
     >
@@ -1053,7 +1068,6 @@ export const ViewerMap = memo(function ViewerMap({
         // handleLoad's error handler) stops double-logging a red AJAXError
         // console row.
         onError={logUnhandledMapError}
-        aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
       >
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />

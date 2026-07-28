@@ -40,6 +40,7 @@ export const BUILDER_PAINT_FIELDS: readonly BuilderPaintField[] = [
   { builderKey: 'outlineWidthSaved', paintKey: '_outline-width-saved' },
   { builderKey: 'heightColumn', paintKey: '_height_column' },
   { builderKey: 'heatmapRamp', paintKey: '_heatmap-ramp' },
+  { builderKey: 'heatmapReversed', paintKey: '_heatmap-reversed' },
   { builderKey: 'heatmapWeightColumn', paintKey: '_heatmap-weight-column' },
 ] as const;
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export type HeroState = 'loading' | 'loaded' | 'error';
 
@@ -10,18 +10,21 @@ interface UseHeroStateOptions {
 
 export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroStateOptions) {
   const isRasterOrVrt = recordType === 'raster_dataset' || recordType === 'vrt_dataset';
+  // Vector previews report readiness/errors too (soft-ready immediately, then
+  // confirm via sourcedata) — only table datasets have no hero map to track.
+  const tracksHero = isRasterOrVrt || recordType === 'vector_dataset';
   const [heroState, setHeroState] = useState<HeroState>('loading');
   const [retryCount, setRetryCount] = useState(0);
   const [mapKey, setMapKey] = useState(0);
 
-  // 10s timeout: if raster/VRT map never calls onMapReady, show error
+  // 10s timeout: if the tracked hero map never calls onMapReady, show error
   useEffect(() => {
-    if (!isRasterOrVrt || heroState !== 'loading') return;
+    if (!tracksHero || heroState !== 'loading') return;
     const timer = setTimeout(() => {
       setHeroState('error');
     }, 10_000);
     return () => clearTimeout(timer);
-  }, [heroState, isRasterOrVrt, datasetId]);
+  }, [heroState, tracksHero, datasetId]);
 
   // Retry handler for raster/VRT hero error state
   const handleRetry = useCallback(() => {
@@ -30,8 +33,13 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     setMapKey(prev => prev + 1);
   }, []);
 
-  // Reset hero state when dataset changes
+  // Reset hero state when the dataset CHANGES — skip the initial mount, where
+  // state is already fresh and a map that reports ready in the same commit
+  // (cached lazy chunk) would be clobbered back to 'loading'.
+  const mountedForRef = useRef(datasetId);
   useEffect(() => {
+    if (mountedForRef.current === datasetId) return;
+    mountedForRef.current = datasetId;
     setHeroState('loading');
     setRetryCount(0);
     setMapKey(0);
@@ -46,6 +54,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
 
   return {
     isRasterOrVrt,
+    tracksHero,
     heroState,
     retryCount,
     mapKey,

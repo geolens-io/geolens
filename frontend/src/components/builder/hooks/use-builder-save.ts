@@ -18,7 +18,10 @@ import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatc
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
-import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
+// D5: the PNG export legend must render the same effective entry names as the
+// on-screen legend (per-entry legendLabel override > display name > dataset name).
+import { legendEntryName } from '@/components/map-plugins/builtin/LegendPlugin';
+import { getPersistedFolderGroup, prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
@@ -471,6 +474,14 @@ export function buildLayerDiff(
     if (!baseline) continue;
 
     const unmanaged = unmanagedNullableFields(layer);
+    // fix(#767 B8): folder-group markers are written into style_config by
+    // prepareLayersForPersistence for EVERY layer type, so a baseline that
+    // carried them makes a null-out an intentional clear (ungrouping), not a
+    // "field never populated" artifact. Without this, ungrouping a raster
+    // layer never PATCHed (its empty style_config compacts to null and the
+    // V-01 guard below swallowed it) and the group resurrected on reload.
+    const baselineHadFolderGroup =
+      getPersistedFolderGroup({ style_config: baseline.style_config } as MapLayerResponse) !== null;
     const currentSnapshot = toLayerSnapshot(layer);
     const patch: MapLayerPatch = { id: layer.id };
     for (const field of PATCHABLE_LAYER_FIELDS) {
@@ -483,7 +494,13 @@ export function buildLayerDiff(
       // whatever it already has) instead of nulling real data. Only applies
       // in the null/erasure direction; a genuinely new non-null value for an
       // unmanaged field (shouldn't normally happen) still patches through.
-      if (currentValue == null && unmanaged.has(field)) continue;
+      // fix(#767 B8): style_config is exempt when the baseline carried
+      // folder-group markers — that null is a managed, deliberate erasure.
+      if (
+        currentValue == null &&
+        unmanaged.has(field) &&
+        !(field === 'style_config' && baselineHadFolderGroup)
+      ) continue;
 
       patch[field] = currentValue as never;
     }
@@ -852,7 +869,12 @@ export function useBuilderSave(state: SaveState) {
             cursorY += 12 * dpr;
             ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
-            ctx.fillText(t('export.legendHeader', { defaultValue: 'Legend' }), pad, cursorY);
+            // D5: honor the custom map-level legend title (ENH-06) like the
+            // on-screen legend; fall back to the localized default header.
+            const legendHeaderText = state.legendTitle?.trim()
+              ? state.legendTitle.trim()
+              : t('export.legendHeader', { defaultValue: 'Legend' });
+            ctx.fillText(legendHeaderText, pad, cursorY);
             cursorY += legendHeaderH;
             ctx.font = `400 ${13 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             const swatchSize = 14 * dpr;
@@ -898,8 +920,10 @@ export function useBuilderSave(state: SaveState) {
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
               ctx.fillStyle = MAP_COLORS.exportImage.text;
+              // D5: was `display_name || dataset_name`, which dropped the
+              // per-entry legendLabel override the on-screen legend renders.
               ctx.fillText(
-                layer.display_name || layer.dataset_name,
+                legendEntryName(layer),
                 pad + swatchSize + 10 * dpr,
                 cursorY + (legendRowH - 13 * dpr) / 2,
               );

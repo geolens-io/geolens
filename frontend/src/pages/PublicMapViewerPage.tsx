@@ -151,7 +151,10 @@ export function PublicMapViewerPage() {
   };
 
   return (
-    <main id="map-viewport" className="w-full flex-1 min-h-0 relative overflow-hidden">
+    // This page renders inside AppLayout's <main id="main-content">, so it must
+    // not be a second <main> landmark. The id stays: MapErrorBoundary and CSS
+    // target #map-viewport, and the skip link keeps targeting #main-content.
+    <div id="map-viewport" className="w-full flex-1 min-h-0 relative overflow-hidden">
       <MapErrorBoundary className="absolute inset-0">
         <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
           <ViewerMap
@@ -193,6 +196,6 @@ export function PublicMapViewerPage() {
       {id && (
         <ViewerChatPanel mapId={id} layers={data.layers} mapInstanceRef={mapInstanceRef} />
       )}
-    </main>
+    </div>
   );
 }

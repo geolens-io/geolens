@@ -18,9 +18,15 @@ interface UseInlineRenameOptions {
   value: string;
   /** Commit handler. Receives the trimmed name, or null when the field is empty. */
   onCommit: (next: string | null) => void;
+  /** a11y(v1.6.0 audit A7): hand focus back to the row (or rename trigger)
+   *  after commit or Escape-cancel — unmounting the focused input otherwise
+   *  drops focus to <body>. Deferred a frame and skipped when focus already
+   *  landed somewhere real (e.g. a blur-commit caused by clicking another
+   *  control must not steal that click's focus). */
+  restoreFocus?: () => void;
 }
 
-export function useInlineRename({ value, onCommit }: UseInlineRenameOptions) {
+export function useInlineRename({ value, onCommit, restoreFocus }: UseInlineRenameOptions) {
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState('');
   const escapeRef = useRef(false);
@@ -45,9 +51,23 @@ export function useInlineRename({ value, onCommit }: UseInlineRenameOptions) {
   }, [editing]);
 
   const startRename = useCallback(() => {
+    // a11y(v1.6.0 audit A7): Escape unmounts the focused input, so no blur
+    // fires and commit() — the only other place escapeRef clears — never runs.
+    // Without this reset the first Enter of the NEXT rename was swallowed as
+    // a stale escape.
+    escapeRef.current = false;
     setNameValue(value);
     setEditing(true);
   }, [value]);
+
+  // a11y(v1.6.0 audit A7): see restoreFocus in the options doc above.
+  const restoreFocusAfterExit = useCallback(() => {
+    if (!restoreFocus) return;
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) restoreFocus();
+    });
+  }, [restoreFocus]);
 
   const commit = useCallback(() => {
     if (escapeRef.current) {
@@ -58,12 +78,13 @@ export function useInlineRename({ value, onCommit }: UseInlineRenameOptions) {
     committingRef.current = true;
     setEditing(false);
     onCommit(nameValue.trim() || null);
+    restoreFocusAfterExit();
     // committingRef stays true during the synchronous blur triggered by
     // setEditing(false); reset it async so a later genuine focus+blur is allowed.
     requestAnimationFrame(() => {
       committingRef.current = false;
     });
-  }, [nameValue, onCommit]);
+  }, [nameValue, onCommit, restoreFocusAfterExit]);
 
   const inputHandlers = {
     onChange: (e: ChangeEvent<HTMLInputElement>) => setNameValue(e.target.value),
@@ -77,6 +98,7 @@ export function useInlineRename({ value, onCommit }: UseInlineRenameOptions) {
         escapeRef.current = true;
         setEditing(false);
         setNameValue(value);
+        restoreFocusAfterExit();
       }
     },
     onClick: (e: MouseEvent<HTMLInputElement>) => e.stopPropagation(),

@@ -233,7 +233,8 @@
     "comparedToUpload": "Compared to Upload",
     "compareRegister": "Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.",
     "compareStac": "Upload ingests local files. STAC imports discover remote assets first, then stages selected items for catalog use.",
-    "compareService": "Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying."
+    "compareService": "Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying.",
+    "asideLabel": "Import workflow"
   },
   "register": {
     "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",
@@ -277,7 +278,8 @@
       "type": "Type",
       "spatial": "Spatial",
       "nonSpatial": "Non-spatial"
-    }
+    },
+    "tablesSidebarLabel": "Discovered tables"
   },
   "layerPicker": {
     "title": "Select Layer",
@@ -471,7 +473,7 @@
     "columnCount_other": "{{value}} columns",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Import Progress",
-    "readyTitle_one": "1 dataset ready",
+    "readyTitle_one": "{{count}} dataset ready",
     "readyTitle_other": "{{count}} datasets ready",
     "readyDescription": "Open the finished datasets directly, or keep uploading while the rest of the jobs settle.",
     "kindRaster": "Raster dataset",

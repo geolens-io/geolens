@@ -23,6 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
 import { checkMapVisibility } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
@@ -509,22 +520,41 @@ function ShareLinkSettings({
             </div>
           )}
 
-          {/* Revoke */}
+          {/* Revoke — destructive (kills the link AND every embed token), so it
+              gets the same AlertDialog confirm as the admin revoke actions
+              instead of firing on a bare click. */}
           <div className="pt-2 border-t">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-destructive hover:text-destructive hover:bg-destructive/5"
-              onClick={handleRevokeShareLink}
-              disabled={revokeShareToken.isPending}
-            >
-              {revokeShareToken.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
-              ) : (
-                <Trash2 className="h-3.5 w-3.5 me-1.5" />
-              )}
-              {t('share.revokeShareLink')}
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-destructive hover:text-destructive hover:bg-destructive/5"
+                  disabled={revokeShareToken.isPending}
+                >
+                  {revokeShareToken.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5 me-1.5" />
+                  )}
+                  {t('share.revokeShareLink')}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t('share.revokeConfirmTitle')}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('share.revokeConfirmDescription')}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t('share.revokeConfirmCancel')}</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={handleRevokeShareLink}>
+                    {t('share.revokeConfirmAction')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       )}

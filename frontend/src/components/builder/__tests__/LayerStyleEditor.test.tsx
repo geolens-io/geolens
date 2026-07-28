@@ -162,12 +162,35 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
       />,
     );
 
+    // Reset now confirms before destroying render mode + classification:
+    // the header action opens the inline confirm, "Reset style" applies it.
     await user.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(onStyleConfigChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Reset style' }));
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),
     }));
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
+  });
+
+  it('section-header Reset can be cancelled without touching the style', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'Polygon' })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Keep style' }));
+    expect(onStyleConfigChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Reset style' })).toBeNull();
   });
 });
 
@@ -1358,7 +1381,9 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
       />,
     );
 
+    // Reset now confirms first — apply via the inline confirm's "Reset style".
     await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Reset style' }));
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),

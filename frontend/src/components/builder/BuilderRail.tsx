@@ -31,14 +31,11 @@ function AIDisabledState() {
   const { reason, isLoading } = useAIAvailability();
   const isAdmin = useAuthStore((s) => s.isAdmin());
 
-  // Loading or indeterminate — render spinner only
-  if (isLoading || reason === null) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-6" role="status" aria-live="polite">
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  // fix(#788 follow-up): one persistent live region whose CONTENT toggles —
+  // the loading spinner and the disabled-state message used to be two
+  // conditionally-mounted role="status" regions, so the message often
+  // appeared pre-populated and was never announced.
+  const loading = isLoading || reason === null;
 
   const titleKey = reason === 'env_disabled' ? ('rail.aiDisabledTitle' as const)
     : reason === 'no_key' ? ('rail.aiNoKeyTitle' as const)
@@ -67,15 +64,21 @@ function AIDisabledState() {
       className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm"
       role="status"
       aria-live="polite"
-      data-ai-reason={reason}
+      data-ai-reason={loading ? undefined : reason}
     >
-      <BotOff className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-      <p className="text-sm font-medium text-foreground">{t(titleKey, { defaultValue: titleDefault })}</p>
-      <p className="text-sm text-muted-foreground text-center max-w-[18rem]">{t(bodyKey, { defaultValue: bodyDefault })}</p>
-      {showCTA && (
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/admin/settings?tab=ai">{t(ctaKey!, { defaultValue: ctaDefault })}</Link>
-        </Button>
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : (
+        <>
+          <BotOff className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm font-medium text-foreground">{t(titleKey, { defaultValue: titleDefault })}</p>
+          <p className="text-sm text-muted-foreground text-center max-w-[18rem]">{t(bodyKey, { defaultValue: bodyDefault })}</p>
+          {showCTA && (
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/admin/settings?tab=ai">{t(ctaKey!, { defaultValue: ctaDefault })}</Link>
+            </Button>
+          )}
+        </>
       )}
     </div>
   );
@@ -158,7 +161,16 @@ export function BuilderRail({
   const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
 
   const togglePanel = useCallback((panel: RailPanel) => {
-    onPanelChange(activePanel === panel ? null : panel);
+    const next = activePanel === panel ? null : panel;
+    onPanelChange(next);
+    // Opening counterpart to closePanel's focus restore below: move keyboard
+    // focus into the freshly-mounted panel (rAF — it doesn't exist yet this
+    // tick), so rail-button activation doesn't leave focus stranded on the rail.
+    if (next) {
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>('[data-rail-panel]')?.focus();
+      });
+    }
   }, [activePanel, onPanelChange]);
 
   // fix(#783): closing the panel unmounts the aside containing the focused
@@ -229,7 +241,15 @@ export function BuilderRail({
               disabled={btn.disabled}
               data-unavailable={btn.unavailable || undefined}
               title={btn.label}
-              aria-label={btn.label}
+              // MAP-22 rework: the notes-presence state lives in the BUTTON's
+              // accessible name — aria-label replaces the subtree, so a label
+              // on the dot span was never exposed (and aria-label on a
+              // role-less span is invalid ARIA anyway).
+              aria-label={
+                btn.id === 'notes' && notes.trim().length > 0
+                  ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
+                  : btn.label
+              }
               aria-pressed={activePanel === btn.id}
               // feat(#682): the only ambient signal that a materialize job is
               // still running once the panel is closed — the completion toast
@@ -251,11 +271,12 @@ export function BuilderRail({
                 <btn.icon className="h-4 w-4" />
               )}
               {/* MAP-22: presence dot — non-whitespace notes render a 6px primary-color dot
-                  at the button's top-right corner. aria-label keeps the dot accessible.
+                  at the button's top-right corner. Purely decorative: the state is
+                  announced via the button's conditional aria-label above.
                   No animation (static state indicator per UI-SPEC). */}
               {btn.id === 'notes' && notes.trim().length > 0 && (
                 <span
-                  aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
+                  aria-hidden="true"
                   className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
                 />
               )}
@@ -271,8 +292,11 @@ export function BuilderRail({
           // fix(#788 item 5): named landmark — the panel takes its accessible
           // name from its own title, distinguishing it from the icon rail.
           aria-labelledby="builder-rail-panel-title"
+          // togglePanel focuses the panel on open (see above).
+          data-rail-panel=""
+          tabIndex={-1}
           className={cn(
-            'bg-background border-s flex h-full min-h-0 flex-col shrink-0 overflow-hidden',
+            'bg-background border-s flex h-full min-h-0 flex-col shrink-0 overflow-hidden focus:outline-none',
             showRail ? 'w-80' : 'w-full border-s-0',
           )}
           onKeyDown={(e) => {

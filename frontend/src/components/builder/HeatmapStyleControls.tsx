@@ -30,6 +30,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
 
   const weightColumn = (paint['_heatmap-weight-column'] as string) ?? NONE_VALUE;
   const rampName = (paint['_heatmap-ramp'] as string) ?? 'YlOrRd';
+  const reversed = paint['_heatmap-reversed'] === true;
   const radius = typeof paint['heatmap-radius'] === 'number' ? (paint['heatmap-radius'] as number) : 30;
   const intensity = typeof paint['heatmap-intensity'] === 'number' ? (paint['heatmap-intensity'] as number) : 1;
 
@@ -50,9 +51,20 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
     onPaintChange(layer.id, {
       ...paint,
       '_heatmap-ramp': name,
-      'heatmap-color': buildHeatmapColorExpression(name),
+      'heatmap-color': buildHeatmapColorExpression(name, reversed),
     });
-  }, [paint, layer.id, onPaintChange]);
+  }, [paint, layer.id, reversed, onPaintChange]);
+
+  // Reverse toggle: rebuild heatmap-color so the rendered ramp actually flips,
+  // and store the flag so the checkbox round-trips (was an inert default-false
+  // checkbox with no callback wired).
+  const handleReversedChange = useCallback((next: boolean) => {
+    onPaintChange(layer.id, {
+      ...paint,
+      '_heatmap-reversed': next,
+      'heatmap-color': buildHeatmapColorExpression(rampName, next),
+    });
+  }, [paint, layer.id, rampName, onPaintChange]);
 
   const handleRadiusChange = useCallback((val: number) => {
     onPaintChange(layer.id, { ...paint, 'heatmap-radius': val });
@@ -85,7 +97,13 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
       {/* Color ramp */}
       <div className="space-y-1">
         <div className="text-xs font-medium">{t('style.heatmap.colorRamp')}</div>
-        <ColorRampPicker rampName={rampName} onChange={handleRampChange} mode="graduated" />
+        <ColorRampPicker
+          rampName={rampName}
+          onChange={handleRampChange}
+          mode="graduated"
+          reversed={reversed}
+          onReversedChange={handleReversedChange}
+        />
       </div>
 
       {/* Radius */}

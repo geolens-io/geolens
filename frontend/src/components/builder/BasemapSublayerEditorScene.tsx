@@ -201,7 +201,9 @@ export function BasemapSublayerEditorScene({
                 step={0.5}
                 value={minZoom ?? 0}
                 onChange={(e) => {
-                  const v = Number(e.target.value);
+                  // Number('') === 0 is finite — clearing the field must reset
+                  // the clamp (0), not pass through as an accidental bound.
+                  const v = e.target.value === '' ? 0 : Number(e.target.value);
                   if (!Number.isFinite(v)) return;
                   onMinZoomChange?.(Math.min(24, Math.max(0, v)));
                 }}
@@ -221,7 +223,9 @@ export function BasemapSublayerEditorScene({
                 step={0.5}
                 value={maxZoom ?? 22}
                 onChange={(e) => {
-                  const v = Number(e.target.value);
+                  // Number('') === 0 is finite — clearing max-zoom used to write
+                  // 0 and hide the sublayer at every zoom. Empty resets the clamp.
+                  const v = e.target.value === '' ? 22 : Number(e.target.value);
                   if (!Number.isFinite(v)) return;
                   onMaxZoomChange?.(Math.min(24, Math.max(0, v)));
                 }}
