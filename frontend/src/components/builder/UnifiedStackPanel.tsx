@@ -148,6 +148,9 @@ interface UnifiedStackPanelProps {
   onBulkDelete: (ids: Set<string>) => void;
   /** Phase 1047-04 (PERF-03): forwarded from useBuilderLayers.isDeleting */
   isDeleting?: boolean;
+  /** fix(v1.6.0 audit A5): in-flight bulk-delete batch size, forwarded from
+   *  useBuilderLayers.deletingCount for the bar's "Deleting N layers…" label. */
+  deletingCount?: number;
   // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
   freshLayerId?: string | null;
   /** Phase 1051 UX-03: basemap position in the unified stack. 'top' renders
@@ -358,6 +361,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onBulkUngroup,
   onBulkDelete,
   isDeleting = false,
+  deletingCount,
   freshLayerId = null,
   basemapPosition = 'bottom',
 }: UnifiedStackPanelProps) {
@@ -845,6 +849,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 onShiftClick={onShiftClick}
                                 onCheckboxClick={onCheckboxClick}
                                 isFresh={child.id === freshLayerId}
+                                // fix(v1.6.0 audit): deleting/moving-out a
+                                // group's LAST child dissolves the named group
+                                // (the #767 empty-group prune) — tell the row
+                                // so its confirms can say so.
+                                dissolvesGroupName={
+                                  children.length === 1
+                                    ? (layer.display_name ?? layer.dataset_name)
+                                    : null
+                                }
                                 disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
                                 audienceHidden={audienceHiddenLayerIds.has(child.id)}
                                 drawsNothing={drawsNothingLayerIds?.has(child.id) ?? false}
@@ -967,6 +980,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           onBulkDelete={onBulkDelete}
           onBulkApplyStyle={onBulkApplyStyle}
           isDeleting={isDeleting}
+          deletingCount={deletingCount}
         />
       )}
     </div>

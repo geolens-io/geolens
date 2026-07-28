@@ -891,7 +891,9 @@
     "bulkGroupNeedTwo": "Selecciona al menos 2 capas sueltas para agrupar",
     "bulkGroupSkipped": "Algunas capas seleccionadas ya están agrupadas y no se pueden agrupar de nuevo",
     "bulkGroupSkippedGroupRow": "Los grupos no se pueden agrupar; quita las filas de grupo de tu selección e inténtalo de nuevo",
-    "bulkDeleteOnlyGroupRows": "Las filas de grupo no se pueden eliminar en bloque; usa el menú de la fila del grupo para eliminarlo"
+    "bulkDeleteOnlyGroupRows": "Las filas de grupo no se pueden eliminar en bloque; usa el menú de la fila del grupo para eliminarlo",
+    "bulkGrouped": "{{count}} capas agrupadas en «{{name}}»",
+    "bulkUngrouped": "{{count}} grupos desagrupados"
   },
   "builderMap": {
     "loading": "Cargando mapa...",
@@ -1235,6 +1237,9 @@
     "kebabUngroup": "Desagrupar",
     "kebabDeleteGroup": "Eliminar grupo",
     "kebabMoveOutOfGroup": "Mover fuera del grupo",
+    "moveOutConfirmMessage": "¿Mover esta capa fuera de «{{group}}»? El grupo vacío también se eliminará.",
+    "moveOutConfirmAction": "Mover fuera",
+    "moveOutConfirmCancel": "Mantener en el grupo",
     "labelsIndicator": "Etiquetas activadas: {{column}}",
     "kebabGroupTrigger": "Opciones de grupo para {{name}}",
     "kebabZoomToLayer": "Acercar a la capa",
@@ -1340,6 +1345,7 @@
     },
     "confirmDelete": {
       "message": "¿Está seguro? Esta acción no se puede deshacer.",
+      "messageDissolvesGroup": "¿Está seguro? Esta acción no se puede deshacer y el grupo «{{group}}» también se eliminará.",
       "delete": "Eliminar",
       "keep": "Conservar capa"
     },

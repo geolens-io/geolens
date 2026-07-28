@@ -891,7 +891,9 @@
     "bulkGroupNeedTwo": "Wähle mindestens 2 lose Ebenen aus, um sie zu gruppieren",
     "bulkGroupSkipped": "Einige ausgewählte Ebenen sind bereits gruppiert und können nicht erneut gruppiert werden",
     "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut",
-    "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile"
+    "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile",
+    "bulkGrouped": "{{count}} Ebenen in „{{name}}“ gruppiert",
+    "bulkUngrouped": "{{count}} Gruppen aufgelöst"
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -1235,6 +1237,9 @@
     "kebabUngroup": "Gruppierung aufheben",
     "kebabDeleteGroup": "Gruppe löschen",
     "kebabMoveOutOfGroup": "Aus Gruppe verschieben",
+    "moveOutConfirmMessage": "Diesen Layer aus „{{group}}“ verschieben? Die leere Gruppe wird ebenfalls entfernt.",
+    "moveOutConfirmAction": "Verschieben",
+    "moveOutConfirmCancel": "In der Gruppe behalten",
     "labelsIndicator": "Beschriftungen an: {{column}}",
     "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
     "kebabZoomToLayer": "Auf Ebene zoomen",
@@ -1340,6 +1345,7 @@
     },
     "confirmDelete": {
       "message": "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "messageDissolvesGroup": "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden, und die Gruppe „{{group}}“ wird ebenfalls entfernt.",
       "delete": "Löschen",
       "keep": "Layer behalten"
     },

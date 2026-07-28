@@ -99,6 +99,10 @@ interface StackRowProps {
   // per-layer by UnifiedStackPanel from map-stack's shared helper. Null = not a
   // duplicate; render nothing.
   disambiguationLabel?: string | null;
+  /** fix(v1.6.0 audit): non-null when this row is the LAST child of the named
+   *  group — deleting it or moving it out also removes the group (#767 prune),
+   *  so the delete confirm says so and "Move out of group" gains a confirm. */
+  dissolvesGroupName?: string | null;
   // fix(#430 V-17): true when this layer's dataset would be silently filtered out
   // for the map's audience (private/unpublished dataset on a public/shared
   // map) — computed per-layer by UnifiedStackPanel via
@@ -148,11 +152,16 @@ export const StackRow = memo(function StackRow({
   onCheckboxClick,
   isFresh = false,
   disambiguationLabel = null,
+  dissolvesGroupName = null,
   audienceHidden = false,
   drawsNothing = false,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // fix(v1.6.0 audit): "Move out of group" on a group's LAST child dissolves
+  // the named group (#767 empty-group prune) — that deserves the same
+  // lightweight inline confirm the delete path already uses.
+  const [confirmingMoveOut, setConfirmingMoveOut] = useState(false);
   const [keyboardReorderActive, setKeyboardReorderActive] = useState(false);
   const kebabMenu = useKebabContextMenu();
 
@@ -303,10 +312,11 @@ export const StackRow = memo(function StackRow({
         // confirm (consumed) instead of falling through to ancestor Escape
         // handlers. The confirm handles its own Escape when focus is inside it;
         // this covers focus resting on the row.
-        if (e.key === 'Escape' && confirmingDelete) {
+        if (e.key === 'Escape' && (confirmingDelete || confirmingMoveOut)) {
           e.preventDefault();
           e.stopPropagation();
           setConfirmingDelete(false);
+          setConfirmingMoveOut(false);
         }
       }}
     >
@@ -659,8 +669,16 @@ export const StackRow = memo(function StackRow({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {parentGroupId ? (
-              // Layer is already inside a group: show "Move out of group"
-              <DropdownMenuItem onSelect={() => onMoveLayerOutOfGroup?.(layer.id)}>
+              // Layer is already inside a group: show "Move out of group".
+              // fix(v1.6.0 audit): moving the LAST child out dissolves the
+              // named group — route through the inline confirm instead of
+              // destroying the group silently.
+              <DropdownMenuItem
+                onSelect={() => {
+                  if (dissolvesGroupName) setConfirmingMoveOut(true);
+                  else onMoveLayerOutOfGroup?.(layer.id);
+                }}
+              >
                 <FolderMinus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabMoveOutOfGroup', { defaultValue: 'Move out of group' })}
               </DropdownMenuItem>
@@ -703,7 +721,17 @@ export const StackRow = memo(function StackRow({
     {confirmingDelete && (
       <InlineDeleteConfirm
         confirmId={`confirm-delete-${layer.id}`}
-        message={t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+        // fix(v1.6.0 audit): deleting a group's last child also removes the
+        // named group (#767 prune) — the confirm must promise the whole effect.
+        message={
+          dissolvesGroupName
+            ? t('layerEditor.confirmDelete.messageDissolvesGroup', {
+                group: dissolvesGroupName,
+                defaultValue:
+                  'Are you sure? This cannot be undone, and the group "{{group}}" will also be removed.',
+              })
+            : t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })
+        }
         confirmLabel={t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
         cancelLabel={t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
         onConfirm={() => {
@@ -714,6 +742,30 @@ export const StackRow = memo(function StackRow({
           setConfirmingDelete(false);
           // fix(#788): the confirm owned focus (autofocused Cancel button), so
           // dismissing it must hand focus back to the row instead of <body>.
+          document.getElementById(`stack-row-${layer.id}`)?.focus();
+        }}
+      />
+    )}
+
+    {/* fix(v1.6.0 audit): confirm before "Move out of group" dissolves the
+        named group (last-child case) — same shared inline confirm as delete. */}
+    {confirmingMoveOut && (
+      <InlineDeleteConfirm
+        confirmId={`confirm-move-out-${layer.id}`}
+        message={t('stackRow.moveOutConfirmMessage', {
+          group: dissolvesGroupName,
+          defaultValue:
+            'Move this layer out of "{{group}}"? The empty group will also be removed.',
+        })}
+        confirmLabel={t('stackRow.moveOutConfirmAction', { defaultValue: 'Move out' })}
+        cancelLabel={t('stackRow.moveOutConfirmCancel', { defaultValue: 'Keep in group' })}
+        onConfirm={() => {
+          onMoveLayerOutOfGroup?.(layer.id);
+          setConfirmingMoveOut(false);
+        }}
+        onCancel={() => {
+          setConfirmingMoveOut(false);
+          // fix(#788): hand focus back to the row instead of <body>.
           document.getElementById(`stack-row-${layer.id}`)?.focus();
         }}
       />

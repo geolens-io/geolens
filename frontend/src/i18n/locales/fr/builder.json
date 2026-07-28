@@ -891,7 +891,9 @@
     "bulkGroupNeedTwo": "Sélectionnez au moins 2 couches libres pour les regrouper",
     "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau",
     "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez",
-    "bulkDeleteOnlyGroupRows": "Les lignes de groupe ne peuvent pas être supprimées en masse ; utilisez le menu de la ligne du groupe pour le supprimer"
+    "bulkDeleteOnlyGroupRows": "Les lignes de groupe ne peuvent pas être supprimées en masse ; utilisez le menu de la ligne du groupe pour le supprimer",
+    "bulkGrouped": "{{count}} couches regroupées dans « {{name}} »",
+    "bulkUngrouped": "{{count}} groupes dissociés"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -1235,6 +1237,9 @@
     "kebabUngroup": "Dégrouper",
     "kebabDeleteGroup": "Supprimer le groupe",
     "kebabMoveOutOfGroup": "Déplacer hors du groupe",
+    "moveOutConfirmMessage": "Déplacer cette couche hors de « {{group}} » ? Le groupe vide sera également supprimé.",
+    "moveOutConfirmAction": "Déplacer hors du groupe",
+    "moveOutConfirmCancel": "Conserver dans le groupe",
     "labelsIndicator": "Étiquettes activées : {{column}}",
     "kebabGroupTrigger": "Options de groupe pour {{name}}",
     "kebabZoomToLayer": "Zoomer sur la couche",
@@ -1340,6 +1345,7 @@
     },
     "confirmDelete": {
       "message": "Êtes-vous sûr ? Cette action est irréversible.",
+      "messageDissolvesGroup": "Êtes-vous sûr ? Cette action est irréversible et le groupe « {{group}} » sera également supprimé.",
       "delete": "Supprimer",
       "keep": "Conserver la couche"
     },

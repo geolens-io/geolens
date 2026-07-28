@@ -55,6 +55,58 @@ interface UseBulkLayerActionsParams {
   mvtSourceLayerPrefix?: string | null;
 }
 
+// fix(v1.6.0 audit B6): failure-path restore that does NOT clobber concurrent
+// edits. Restoring the pre-delete snapshot wholesale discarded anything that
+// landed during the await (e.g. a handleAddDataset onSuccess), and the next
+// save's removed-computation then asked the server to DELETE the just-added
+// layer. Instead, recompute from CURRENT state: re-insert only the rows whose
+// deletes failed (at their old relative positions when cheap), plus any pruned
+// group container a failed child still points at, and leave every other
+// current row — including concurrent additions — untouched.
+export function restoreFailedLayers(
+  current: MapLayerResponse[],
+  previous: MapLayerResponse[],
+  failedIds: Set<string>,
+): MapLayerResponse[] {
+  const currentIds = new Set(current.map((l) => l.id));
+  const toRestore = previous.filter((l) => {
+    if (currentIds.has(l.id)) return false;
+    if (failedIds.has(l.id)) return true;
+    // Restore a pruned empty-group container whose failed child is returning.
+    return (
+      (l as GroupedLayer).layer_type === 'group:folder' &&
+      previous.some(
+        (child) =>
+          failedIds.has(child.id) &&
+          !currentIds.has(child.id) &&
+          (child as GroupedLayer).parent_group_id === l.id,
+      )
+    );
+  });
+  if (toRestore.length === 0) return current;
+
+  const prevIndex = new Map(previous.map((l, i) => [l.id, i] as const));
+  const next = [...current];
+  // Insert in previous-order so earlier restores anchor later ones.
+  toRestore.sort((a, b) => (prevIndex.get(a.id) ?? 0) - (prevIndex.get(b.id) ?? 0));
+  for (const row of toRestore) {
+    const rowPrevIdx = prevIndex.get(row.id) ?? Number.MAX_SAFE_INTEGER;
+    // Old position ≈ before the first current row that followed it in the
+    // previous order. Rows unknown to `previous` (concurrent additions) have
+    // no index and never force a displacement.
+    let insertAt = next.length;
+    for (let i = 0; i < next.length; i++) {
+      const idx = prevIndex.get(next[i].id);
+      if (idx !== undefined && idx > rowPrevIdx) {
+        insertAt = i;
+        break;
+      }
+    }
+    next.splice(insertAt, 0, row);
+  }
+  return next.map((l, i) => ({ ...l, sort_order: i }));
+}
+
 export function useBulkLayerActions({
   layersRef,
   setLocalLayers,
@@ -75,6 +127,11 @@ export function useBulkLayerActions({
 
   // Phase 1047-04 (PERF-03): tracks in-flight bulk-delete to gate BulkActionBar spinner
   const [isDeleting, setIsDeleting] = useState(false);
+  // fix(v1.6.0 audit A5): batch size captured synchronously in handleBulkDelete
+  // BEFORE the optimistic removal commits. Once that removal lands, the bar's
+  // selection-derived deletableCount is 0, so the deleting state must render
+  // this count instead ("Deleting 0 layers…" regression).
+  const [deletingCount, setDeletingCount] = useState(0);
 
   // ENH-03 (Phase 1201-01): apply one source style to every OTHER compatible
   // selected layer in a SINGLE setLocalLayers pass (no per-field clobber).
@@ -262,6 +319,9 @@ export function useBulkLayerActions({
     });
     setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
     setHasUnsavedChanges(true);
+    // fix(v1.6.0 audit D13): the group action only toasted its skip paths —
+    // success was silent while delete and apply-style both confirm.
+    toast.success(t('toasts.bulkGrouped', { count: groupableLayers.length, name: groupName }));
     return true;
   }, [layersRef, setLocalLayers, setGroupMeta, setHasUnsavedChanges, t]);
 
@@ -295,7 +355,9 @@ export function useBulkLayerActions({
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges]);
+    // fix(v1.6.0 audit D13): ungroup had no success feedback at all.
+    toast.success(t('toasts.bulkUngrouped', { count: selectedGroups.length }));
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, t]);
 
   const handleBulkDelete = useCallback(async (selectedIds: Set<string>): Promise<boolean> => {
     if (!mapId || selectedIds.size === 0) return false;
@@ -357,6 +419,10 @@ export function useBulkLayerActions({
     removePerLayerCompanions(mapInstanceRef.current, idsToDelete);
 
     // Phase 1047-04 (PERF-03): one batched call replaces N sequential DELETEs
+    // fix(v1.6.0 audit A5): capture the batch size for the bar's deleting label
+    // BEFORE isDeleting flips — the optimistic removal above already emptied
+    // the selection-derived count the bar would otherwise render.
+    setDeletingCount(idsToDelete.length);
     setIsDeleting(true);
     try {
       const result = await bulkDeleteLayersApi(mapId, idsToDelete);
@@ -375,8 +441,13 @@ export function useBulkLayerActions({
       }
 
       if (result.deleted.length === 0) {
-        // Full failure — rollback all layers
-        setLocalLayers(previousLayers);
+        // Full failure — restore the failed batch. fix(v1.6.0 audit B6): NOT a
+        // wholesale snapshot write — a concurrent edit (e.g. handleAddDataset
+        // landing during the await) must survive the rollback, otherwise the
+        // next save diff would DELETE the just-added layer.
+        setLocalLayers((current) =>
+          restoreFailedLayers(current, previousLayers, idsToDeleteSet),
+        );
         // HI-01: nothing was actually deleted, so restore terrain_config too.
         if (clearedTerrainOnBulk) {
           setLocalTerrainConfig(previousTerrainConfig);
@@ -386,19 +457,23 @@ export function useBulkLayerActions({
       }
 
       // Partial failure: keep deleted layers removed, restore failed layers.
-      // fix(#805): rebuild from previousLayers minus the actually-deleted rows.
-      // The old path merged the already-renumbered optimistic array with failed
-      // rows still carrying their ORIGINAL sort_order — interleaving two
-      // numbering schemes — so survivors slotted back at the wrong stack
-      // position, and the wrong order was then saved. previousLayers preserves
-      // the true relative order of every survivor. Empty groups are pruned like
-      // the optimistic path (#767): a group whose children all deleted
-      // successfully must not linger.
+      // fix(#805): survivors return at their previous relative positions, not
+      // interleaved between two numbering schemes.
+      // fix(v1.6.0 audit B6): recompute from CURRENT state instead of writing a
+      // stale previousLayers-derived array — a concurrent edit that landed
+      // during the await (e.g. handleAddDataset) must survive; only the rows
+      // whose deletes FAILED are re-inserted, and confirmed-deleted rows are
+      // dropped. Empty groups stay pruned like the optimistic path (#767)
+      // because restoreFailedLayers only revives a group container whose failed
+      // child is returning.
       const deletedIds = new Set(result.deleted);
-      setLocalLayers(
-        pruneEmptyFolderGroups(
-          previousLayers.filter((l) => !deletedIds.has(l.id)),
-        ).map((l, i) => ({ ...l, sort_order: i })),
+      const failedIds = new Set(result.failed.map((f) => f.id));
+      setLocalLayers((current) =>
+        restoreFailedLayers(
+          current.filter((l) => !deletedIds.has(l.id)),
+          previousLayers,
+          failedIds,
+        ),
       );
       // HI-01: the optimistic terrain clear assumed the WHOLE batch was deleted.
       // Re-evaluate against the layers that ACTUALLY remain after restoring the
@@ -451,5 +526,7 @@ export function useBulkLayerActions({
     handleBulkUngroup,
     handleBulkDelete,
     isDeleting,
+    // fix(v1.6.0 audit A5): batch size for the bar's "Deleting N layers…" label.
+    deletingCount,
   };
 }

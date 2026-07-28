@@ -1,6 +1,6 @@
 // builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for the basemap group row.
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useDndContext } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -91,6 +91,13 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
     [onSelectGroup],
   );
 
+  // fix(v1.6.0 audit D7): a fresh object literal here re-broke the row memo on
+  // every wrapper render even when the drag state was unchanged.
+  const dragHandleProps = useMemo(
+    () => ({ attributes, listeners, setActivatorNodeRef }),
+    [attributes, listeners, setActivatorNodeRef],
+  );
+
   return (
     <div
       ref={setNodeRef}
@@ -106,7 +113,7 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         selected={selected}
         isExpanded={isExpanded}
         isDragging={isDragging}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
+        dragHandleProps={dragHandleProps}
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
         onToggleVisibility={onToggleVisibility}

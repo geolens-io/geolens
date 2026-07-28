@@ -29,7 +29,7 @@ import {
 // composes them and keeps its return surface identical so MapBuilderPage is
 // unchanged. PURE RELOCATION — see each hook for the verbatim handler bodies.
 import { useFolderGroupLayers } from '@/components/builder/hooks/use-folder-group-layers';
-import { useBulkLayerActions } from '@/components/builder/hooks/use-bulk-layer-actions';
+import { useBulkLayerActions, restoreFailedLayers } from '@/components/builder/hooks/use-bulk-layer-actions';
 import { useTerrainLayers } from '@/components/builder/hooks/use-terrain-layers';
 import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-layers';
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
@@ -147,6 +147,7 @@ export function useBuilderLayers(
     handleBulkUngroup,
     handleBulkDelete,
     isDeleting,
+    deletingCount,
   } = useBulkLayerActions({
     layersRef,
     setLocalLayers,
@@ -527,9 +528,14 @@ export function useBuilderLayers(
           toast.success(t('toasts.layerRemoved'));
         },
         onError: () => {
-          // Rollback: restore the prior localLayers snapshot so the user
-          // sees the layer reappear in the sidebar.
-          setLocalLayers(previousLayers);
+          // Rollback: re-insert the failed layer so the user sees it reappear.
+          // fix(v1.6.0 audit B6): NOT a wholesale previousLayers write — a
+          // concurrent edit (e.g. handleAddDataset onSuccess landing while the
+          // DELETE was in flight) must survive the rollback, otherwise the next
+          // save diff would ask the server to DELETE the just-added layer.
+          setLocalLayers((current) =>
+            restoreFailedLayers(current, previousLayers, new Set([layerId])),
+          );
           // HI-01: also restore terrain_config if the optimistic delete cleared it,
           // so a failed delete does not leave terrain silently disabled.
           if (clearedTerrainOnRemove) {
@@ -805,6 +811,16 @@ export function useBuilderLayers(
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
+  // fix(v1.6.0 audit D7): identity-stable "is this row a folder group?" lookup.
+  // Reads through layersRef so callers (MapBuilderPage's memoized
+  // onToggleVisibility) do not have to depend on localLayers — a naive
+  // useCallback over localLayers re-creates on exactly the frames the row
+  // memoization is meant to skip.
+  const isFolderGroupRow = useCallback((layerId: string): boolean => {
+    const target = layersRef.current.find((l) => l.id === layerId);
+    return (target as GroupedLayer | undefined)?.layer_type === 'group:folder';
+  }, []);
+
   const dispatchLayerAction = useCallback((action: BuilderLayerAction) => {
     dispatchBuilderLayerAction(action, {
       setFilter: handleFilterChange,
@@ -982,5 +998,10 @@ export function useBuilderLayers(
     handleBulkDelete,
     // Phase 1047-04 (PERF-03): in-flight state for BulkActionBar spinner
     isDeleting,
+    // fix(v1.6.0 audit A5): in-flight batch size for the BulkActionBar label
+    deletingCount,
+    // fix(v1.6.0 audit D7): stable ref-reading predicate so MapBuilderPage's
+    // onToggleVisibility callback does not re-create on every layer change.
+    isFolderGroupRow,
   };
 }
