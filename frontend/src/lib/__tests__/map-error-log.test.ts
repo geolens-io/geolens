@@ -50,8 +50,25 @@ describe('logUnhandledMapError (fix #755)', () => {
     expect(errorSpy).toHaveBeenCalledWith(e.error);
   });
 
-  it('keeps the default single log for a raster-tiles 403 (outside the vector-tile scope)', () => {
-    const e = ajaxError(403, `${window.location.origin}/raster-tiles/cog/9/151/191.png`);
+  // audit(w3-maps A1): real raster/DEM URLs carry a second `/tiles/` segment
+  // (`/raster-tiles/{id}/tiles/{z}/{x}/{y}.png`), which previously satisfied
+  // the `/tiles/` match and misclassified raster auth errors as handled.
+  it('keeps the default single log for a raster-tiles 403 (real backend URL shape)', () => {
+    const e = ajaxError(403, `${window.location.origin}/raster-tiles/0b0af5ab-1f3e-4c1a-9d7e-8f1f0c9d2e11/tiles/9/151/191.png`);
+    logUnhandledMapError(e);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(e.error);
+  });
+
+  it('keeps the default single log for a relative raster-tiles 401', () => {
+    const e = ajaxError(401, '/raster-tiles/0b0af5ab-1f3e-4c1a-9d7e-8f1f0c9d2e11/tiles/9/151/191.png');
+    logUnhandledMapError(e);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(e.error);
+  });
+
+  it('keeps the default single log for a signed raster-tiles 403 (exclusion beats the sig= match)', () => {
+    const e = ajaxError(403, 'https://cdn.example.com/raster-tiles/0b0af5ab-1f3e-4c1a-9d7e-8f1f0c9d2e11/tiles/9/151/191.png?sig=abc');
     logUnhandledMapError(e);
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledWith(e.error);
@@ -93,5 +110,13 @@ describe('isHandledTileAuthError (fix #755)', () => {
   it('requires a tile URL — a 403 without one stays loggable', () => {
     expect(isHandledTileAuthError({ error: { status: 403 } })).toBe(false);
     expect(isHandledTileAuthError(ajaxError(403, `${window.location.origin}/api/datasets/`))).toBe(false);
+  });
+
+  it('excludes raster-tiles URLs despite their second /tiles/ segment (audit w3-maps A1)', () => {
+    const rasterUrl = `${window.location.origin}/raster-tiles/0b0af5ab-1f3e-4c1a-9d7e-8f1f0c9d2e11/tiles/9/151/191.png`;
+    expect(isHandledTileAuthError(ajaxError(401, rasterUrl))).toBe(false);
+    expect(isHandledTileAuthError(ajaxError(403, rasterUrl))).toBe(false);
+    // Vector tile URLs stay handled after the exclusion.
+    expect(isHandledTileAuthError(ajaxError(403, `${window.location.origin}/api/tiles/data.t/1/2/3.pbf?sig=a`))).toBe(true);
   });
 });
