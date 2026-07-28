@@ -12,10 +12,26 @@ vi.mock('@/api/maps', () => ({
   getAIAvailability: vi.fn(),
 }));
 
-// Mutable mock so individual tests can override the `can` return value.
-const mockCan = vi.fn(() => true);
+// fix(#815): the hook branches on useAIStatusReader (capabilities + edition),
+// not the isAdmin flag — mock both sides with per-test mutable state.
+const mocks = vi.hoisted(() => ({
+  capabilities: new Set<string>(),
+  isMultiTenant: false,
+  editionLoading: false,
+}));
 vi.mock('@/hooks/use-permissions', () => ({
-  usePermissions: () => ({ can: mockCan }),
+  usePermissions: () => ({
+    can: (capability: string) => mocks.capabilities.has(capability),
+  }),
+}));
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: mocks.isMultiTenant,
+    isLoading: mocks.editionLoading,
+  }),
 }));
 
 import { getAIStatus } from '@/api/admin';
@@ -47,6 +63,9 @@ const adminUser = {
 describe('useAIStatus / useAIAvailability — caching (SP-08)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
+    mocks.isMultiTenant = false;
+    mocks.editionLoading = false;
     useAuthStore.setState({
       token: 'test-token',
       refreshToken: null,
@@ -124,6 +143,9 @@ describe('useAIStatus / useAIAvailability — caching (SP-08)', () => {
 describe('useAIAvailability — CONSOLE-01 gating', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
+    mocks.isMultiTenant = false;
+    mocks.editionLoading = false;
     mockGetAIStatus.mockResolvedValue({
       enabled: true,
       configured: true,
@@ -154,7 +176,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
   it('authed viewer WITHOUT use_ai_chat: fires NEITHER endpoint — query stays idle, reason=permission', async () => {
     // A genuine viewer lacks use_ai_chat → no admin status probe AND no public
     // availability probe (P1-11: no 403 console noise for viewers).
-    mockCan.mockReturnValue(false);
+    mocks.capabilities = new Set();
     useAuthStore.setState({
       token: 'viewer-token',
       refreshToken: null,
@@ -185,7 +207,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
   });
 
   it('P1-11: non-admin editor WITH use_ai_chat fires the public availability endpoint, NOT admin status', async () => {
-    mockCan.mockReturnValue(true);
+    mocks.capabilities = new Set(['use_ai_chat']);
     mockGetAIAvailability.mockResolvedValue({ available: true });
     useAuthStore.setState({
       token: 'editor-token',
@@ -214,7 +236,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
   });
 
   it('P1-11: non-admin editor sees a safe disabled state (reason=no_key) when AI is not configured', async () => {
-    mockCan.mockReturnValue(true);
+    mocks.capabilities = new Set(['use_ai_chat']);
     mockGetAIAvailability.mockResolvedValue({ available: false });
     useAuthStore.setState({
       token: 'editor-token',
@@ -280,8 +302,10 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
 describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset can mock to default (true) for each test; individual tests override.
-    mockCan.mockReturnValue(true);
+    // Default: a status reader who can also use chat; individual tests override.
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
+    mocks.isMultiTenant = false;
+    mocks.editionLoading = false;
     // Default auth state: admin token.
     useAuthStore.setState({
       token: 'admin-token',
@@ -335,8 +359,9 @@ describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {
 
   // Test C
   it('reason is "permission" when enabled + configured but caller lacks use_ai_chat', async () => {
-    // Override can to return false for this test (permission denied)
-    mockCan.mockReturnValue(false);
+    // A status reader without use_ai_chat: the status query still resolves,
+    // but chat stays permission-denied.
+    mocks.capabilities = new Set(['manage_users']);
     mockGetAIStatus.mockResolvedValue({
       enabled: true,
       configured: true,
@@ -389,5 +414,118 @@ describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {
     // Query is in loading state (pending, not yet resolved)
     expect(result.current.isLoading).toBe(true);
     expect(result.current.reason).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#815): the status branch follows useAIStatusReader, not the isAdmin flag
+// ---------------------------------------------------------------------------
+
+describe('useAIAvailability — mode-aware status gate (fix #815)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.isMultiTenant = false;
+    mocks.editionLoading = false;
+    mockGetAIStatus.mockResolvedValue({
+      enabled: true,
+      configured: true,
+      provider: 'openai',
+      model: 'gpt-4',
+    } as never);
+    mockGetAIAvailability.mockResolvedValue({ available: true });
+  });
+
+  it('multi-tenant: admin-flagged user WITHOUT manage_tenants falls back to the public endpoint (no 403 probe)', async () => {
+    mocks.isMultiTenant = true;
+    // manage_users is not enough in multi-tenant mode — the backend requires
+    // manage_tenants there, so probing admin status would just 403.
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
+    useAuthStore.setState({
+      token: 'admin-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: adminUser,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useAIAvailability(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isAIAvailable).toBe(true));
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+    expect(mockGetAIAvailability).toHaveBeenCalledTimes(1);
+  });
+
+  it('multi-tenant: manage_tenants holder reads detailed admin status', async () => {
+    mocks.isMultiTenant = true;
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_tenants']);
+    useAuthStore.setState({
+      token: 'admin-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: adminUser,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useAIAvailability(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isAIAvailable).toBe(true));
+    expect(mockGetAIStatus).toHaveBeenCalledTimes(1);
+    expect(mockGetAIAvailability).not.toHaveBeenCalled();
+  });
+
+  it('holds BOTH probes while the edition query is loading (no wrong-endpoint 403), surfacing isLoading', () => {
+    // Until the edition resolves, tenancy mode reads as single-tenant, so a
+    // manage_users holder in a multi-tenant deployment would probe the admin
+    // endpoint and 403. Neither endpoint may fire before the mode is known.
+    mocks.editionLoading = true;
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
+    useAuthStore.setState({
+      token: 'admin-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: adminUser,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useAIAvailability(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+    expect(mockGetAIAvailability).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.reason).toBeNull();
+  });
+
+  it('single-tenant: a non-admin manage_users holder reads detailed admin status', async () => {
+    mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
+    useAuthStore.setState({
+      token: 'editor-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'u5',
+        username: 'ops',
+        email: 'ops@x',
+        roles: ['editor'],
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '',
+      },
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useAIAvailability(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isAIAvailable).toBe(true));
+    expect(mockGetAIStatus).toHaveBeenCalledTimes(1);
+    expect(mockGetAIAvailability).not.toHaveBeenCalled();
   });
 });

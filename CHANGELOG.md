@@ -65,6 +65,14 @@ and releases use semantic versioning.
   checks**, so operators who can read AI status always see the card, and
   users without that capability no longer fire requests the backend
   rejects. (#653)
+- **The builder chat availability probe follows that same capability**:
+  users who can read AI status get the detailed signal, everyone else
+  with chat access uses the public one — previously the split keyed on
+  the admin flag, which could probe an endpoint the backend rejects and
+  skip users it would allow. Probes now also wait for the deployment
+  mode to be known instead of guessing. The disabled-state Settings
+  shortcut shows only for users who can open admin settings, and lands
+  on the AI tab instead of General. (#815)
 - **Feature popups open from the keyboard in the shared-map viewer**,
   matching the builder.
 - **A cancelled or fenced-off analysis job cleans up its orphan output

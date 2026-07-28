@@ -13,7 +13,7 @@ import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ep
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
-import { useAuthStore } from '@/stores/auth-store';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Textarea } from '@/components/ui/textarea';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
@@ -21,7 +21,8 @@ const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').th
 
 /**
  * Structured disabled-state for the AI rail panel.
- * Renders per-reason copy + admin-only Settings CTA per UI-SPEC Surface 3 (Phase 1135 AI-02).
+ * Renders per-reason copy per UI-SPEC Surface 3 (Phase 1135 AI-02), plus a
+ * Settings CTA for users the admin-settings route will actually admit.
  *
  * Consumes useAIAvailability() internally — TanStack Query deduplicates so there is no
  * extra network call vs. the parent's derivation; the hook just reads the cached result.
@@ -29,7 +30,10 @@ const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').th
 function AIDisabledState() {
   const { t } = useTranslation('builder');
   const { reason, isLoading } = useAIAvailability();
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // fix(#816): the CTA targets /admin/settings/ai, which AdminCapabilityRoute
+  // gates on manage_settings — show it only to users the route will admit
+  // (the old isAdmin flag no longer matches who sees detailed reasons).
+  const { can } = usePermissions();
 
   // fix(#788 follow-up): one persistent live region whose CONTENT toggles —
   // the loading spinner and the disabled-state message used to be two
@@ -57,7 +61,7 @@ function AIDisabledState() {
   const ctaDefault = reason === 'env_disabled' ? 'Go to Settings'
     : reason === 'no_key' ? 'Configure in Settings'
     : '';
-  const showCTA = ctaKey !== null && isAdmin;
+  const showCTA = ctaKey !== null && can('manage_settings');
 
   return (
     <div
@@ -75,7 +79,9 @@ function AIDisabledState() {
           <p className="text-sm text-muted-foreground text-center max-w-[18rem]">{t(bodyKey, { defaultValue: bodyDefault })}</p>
           {showCTA && (
             <Button variant="outline" size="sm" asChild>
-              <Link to="/admin/settings?tab=ai">{t(ctaKey!, { defaultValue: ctaDefault })}</Link>
+              {/* fix(#816): the ?tab=ai form redirected to the General tab —
+                  the settings route is /admin/settings/:tab */}
+              <Link to="/admin/settings/ai">{t(ctaKey!, { defaultValue: ctaDefault })}</Link>
             </Button>
           )}
         </>
