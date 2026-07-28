@@ -7,6 +7,74 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Upgrading no longer reports a false "Upgrade FAILED".** The new backup
+  freshness marker doesn't exist yet on a pre-upgrade install, and the
+  upgrade script's 90-second health wait counted services still inside
+  their declared start period as unhealthy — so any database that took
+  longer than that to dump printed a failure banner and a rollback recipe
+  while the stack was actually fine. Services still starting are now
+  treated as converging.
+- **A restored database keeps its read-only grants.** The single-server
+  restore script granted the reader role before `pg_restore --clean`
+  dropped and recreated the schema, silently revoking them again; tiles
+  and sandbox queries then failed with permission errors. Grants now
+  apply after the restore and are asserted before the script reports
+  success.
+- **A backup cycle whose staging archive fails is no longer reported as
+  successful**, and several backup edge cases are closed: a zero-padded
+  schedule minute never matching, a truncated dump left looking complete,
+  blank S3 credentials counting as an upload, and a retention setting of
+  0 deleting the dump it just wrote.
+- **Layer rows are fully keyboard-operable.** Visibility eyes, group
+  carets, inline delete confirms, and renames (including typing spaces
+  and committing with Enter) now work from the keyboard on every row
+  type, with focus returned where it was.
+- **Raster tile errors are no longer misclassified as handled**, and an
+  authentication failure that can't be recovered now surfaces the map's
+  error state on the dataset preview and viewer instead of failing
+  silently. Vector previews gained the same loading and error states
+  rasters already had.
+- **Bulk delete announces the real count while deleting**, its
+  confirmation prompt behaves as a proper dialog, selection no longer
+  survives on rows hidden by search or a collapsed group, and a partial
+  failure no longer discards layers added while the delete was in
+  flight.
+- **The Analysis panel keeps a drawing session intact**: Escape cancels
+  the draw instead of closing the panel, converted buffer distances can
+  no longer exceed the cap in the converted unit, Enter runs Preview,
+  and the collision warning the backend already recorded is finally
+  shown. Analysis jobs also record their completion time, so job lists
+  and retention age on the right timestamp.
+- **Switching a vector basemap to a raster one no longer stacks the old
+  basemap on top** of the new one on dataset previews.
+- **Clearing a max-zoom field no longer writes 0** (which hid the layer
+  at every zoom), the last movement of an opacity slider isn't lost when
+  the editor closes, Reset asks before destroying a configured style,
+  and the "Reverse" ramp option actually reverses DEM and heatmap ramps.
+
+### Changed
+
+- **The backup container reports unhealthy when backups stop
+  succeeding**, not just when its loop dies — operators see a red
+  container instead of discovering stale backups during a restore.
+  (#800)
+- **Destructive confirms are consistently ordered** (safe action left,
+  destructive right) across the builder, and revoking a share link asks
+  first. (#809)
+- **Builder accessibility batch**: accessible names on maps, sliders and
+  rename inputs, live regions that announce reliably, translated drag
+  announcements, and honest inline-confirm semantics. (#804, #810)
+- **Analysis correctness batch**: terminal job writes are fenced,
+  renamed outputs surface correctly, the output size check measures the
+  real output, the stack selection is honored, and a drawn clip mask
+  survives a basemap style reload. (#802, #803, #807)
+- **CI closes several audit gaps**: an aggregator check that fails when
+  a required job fails instead of skipping, path filters that actually
+  cover the files jobs read (including the root `package.json`, so a
+  Playwright bump runs the suites again), and workflow hardening.
+
 ## [1.5.1] - 2026-07-27
 
 ### Security

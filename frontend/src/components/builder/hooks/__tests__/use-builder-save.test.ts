@@ -452,7 +452,9 @@ describe('buildLayerDiff', () => {
   it('emits style_config: null when ungrouping a raster layer whose baseline carried folder-group markers', () => {
     const groupRow = makeLayer({
       id: 'group-1',
-      layer_type: 'group:folder',
+      // Synthetic group rows use the builder-local 'group:folder' type, which
+      // sits outside the persisted MapLayerType union (see GroupedLayer).
+      layer_type: 'group:folder' as unknown as MapLayerResponse['layer_type'],
       display_name: 'My Group',
       sort_order: 0,
     });

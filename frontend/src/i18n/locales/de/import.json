@@ -423,7 +423,7 @@
     "columnCount_other": "{{value}} Spalten",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Importfortschritt",
-    "readyTitle_one": "1 Datensatz bereit",
+    "readyTitle_one": "{{count}} Datensatz bereit",
     "readyTitle_other": "{{count}} Datensätze bereit",
     "readyDescription": "Öffnen Sie fertige Datensätze direkt oder laden Sie weiter hoch, während die übrigen Aufträge abgeschlossen werden.",
     "kindRaster": "Rasterdatensatz",

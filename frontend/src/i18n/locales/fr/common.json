@@ -567,7 +567,8 @@
     "exitFullscreen": "Quitter le plein écran",
     "fullscreen": "Plein écran",
     "unsavedDiscarded": "Modifications non sauvegardées ignorées",
-    "zoomToExtent": "Zoom sur l'étendue du jeu de données"
+    "zoomToExtent": "Zoom sur l'étendue du jeu de données",
+    "featureId": "ID d’entité : {{id}}"
   },
   "moreActions": "Plus d'actions",
   "notSet": "Non défini",

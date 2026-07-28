@@ -567,7 +567,8 @@
     "exitFullscreen": "Salir de pantalla completa",
     "fullscreen": "Pantalla completa",
     "unsavedDiscarded": "Cambios sin guardar descartados",
-    "zoomToExtent": "Zoom a la extensión del conjunto de datos"
+    "zoomToExtent": "Zoom a la extensión del conjunto de datos",
+    "featureId": "ID de entidad: {{id}}"
   },
   "moreActions": "Más acciones",
   "notSet": "No establecido",

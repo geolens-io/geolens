@@ -423,7 +423,7 @@
     "columnCount_other": "{{value}} columnas",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Progreso de importación",
-    "readyTitle_one": "1 conjunto listo",
+    "readyTitle_one": "{{count}} conjunto listo",
     "readyTitle_other": "{{count}} conjuntos listos",
     "readyDescription": "Abra directamente los conjuntos terminados o siga cargando mientras se completan los demás trabajos.",
     "kindRaster": "Conjunto ráster",

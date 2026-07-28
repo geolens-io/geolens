@@ -567,7 +567,8 @@
     "exitFullscreen": "Vollbild beenden",
     "fullscreen": "Vollbild öffnen",
     "unsavedDiscarded": "Nicht gespeicherte Änderungen verworfen",
-    "zoomToExtent": "Auf Datensatzausdehnung zoomen"
+    "zoomToExtent": "Auf Datensatzausdehnung zoomen",
+    "featureId": "Feature-ID: {{id}}"
   },
   "moreActions": "Weitere Aktionen",
   "notSet": "Nicht gesetzt",

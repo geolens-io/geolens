@@ -473,7 +473,7 @@
     "columnCount_other": "{{value}} columns",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Import Progress",
-    "readyTitle_one": "1 dataset ready",
+    "readyTitle_one": "{{count}} dataset ready",
     "readyTitle_other": "{{count}} datasets ready",
     "readyDescription": "Open the finished datasets directly, or keep uploading while the rest of the jobs settle.",
     "kindRaster": "Raster dataset",

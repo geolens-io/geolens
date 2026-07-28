@@ -222,7 +222,8 @@
     "exitFullscreen": "Exit fullscreen",
     "fullscreen": "Enter fullscreen",
     "unsavedDiscarded": "Unsaved changes discarded",
-    "zoomToExtent": "Zoom to dataset extent"
+    "zoomToExtent": "Zoom to dataset extent",
+    "featureId": "Feature ID: {{id}}"
   },
   "page": {
     "noSpatialExtent": "No spatial extent available"
