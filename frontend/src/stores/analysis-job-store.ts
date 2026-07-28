@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useAuthStore } from '@/stores/auth-store';
 
 export interface TrackedAnalysisJob {
   jobId: string;
@@ -31,6 +32,18 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
     version: 1,
   }),
 );
+
+// The tracked job is persisted browser state — without this it survives a
+// logout and the next account on the same browser inherits the previous
+// user's run (its title included), whose status endpoint then 401/403s
+// forever until the sweep. Keyed on user identity, not token, mirroring
+// analysis-form-store's guard: routine refresh-token rotation must not drop
+// a job mid-run.
+useAuthStore.subscribe((s, prev) => {
+  if (s.user?.id !== prev.user?.id) {
+    useAnalysisJobStore.getState().setJob(null);
+  }
+});
 
 /**
  * Add-to-map handler registered by MapBuilderPage while it is mounted.
