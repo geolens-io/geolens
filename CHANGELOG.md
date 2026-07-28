@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-28
+
 ### Added
 
 - **Cluster count labels can be turned off.** A "Show counts" toggle in the
@@ -1386,7 +1388,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/geolens-io/geolens/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/geolens-io/geolens/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/geolens-io/geolens/compare/v1.4.13...v1.5.0
 [1.4.13]: https://github.com/geolens-io/geolens/compare/v1.4.12...v1.4.13
