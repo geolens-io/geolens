@@ -776,6 +776,24 @@ app.add_middleware(DynamicCORSMiddleware)
 app.include_router(api_router)
 
 
+def _iter_api_routes(target_app: FastAPI) -> list:
+    """Every APIRoute on the app as a ``RouteContext``, including ones nested
+    in lazily-included routers — fastapi 0.140 stopped flattening
+    ``include_router`` into ``app.routes``, so a plain
+    ``isinstance(route, APIRoute)`` scan over ``app.routes`` silently sees
+    almost nothing. Consumers must read the effective full path from
+    ``ctx.path``/``ctx.path_format`` (``ctx.route.path`` lacks the parent
+    router prefix for nested includes) and route attributes from
+    ``ctx.route``."""
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    return [
+        ctx
+        for ctx in iter_route_contexts(target_app.routes)
+        if isinstance(ctx.route, APIRoute)
+    ]
+
+
 def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
     """ROUTE-01 (Phase 1092 review CR-01): register a hidden no-slash alias
     for every trailing-slash route in the app.
@@ -808,23 +826,19 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
     the CR-01 sweep remain authoritative — this function only adds
     aliases for routes that lack one.
     """
-    from fastapi.routing import APIRoute
 
     # Snapshot existing (method, path) pairs to avoid double-registration.
     existing_paths: set[tuple[str, str]] = set()
-    for route in target_app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        for method in route.methods:
-            existing_paths.add((method, route.path))
+    for ctx in _iter_api_routes(target_app):
+        for method in ctx.route.methods:
+            existing_paths.add((method, ctx.path))
 
     added = 0
-    for route in list(target_app.routes):
-        if not isinstance(route, APIRoute):
+    for ctx in _iter_api_routes(target_app):
+        route = ctx.route
+        if not ctx.path.endswith("/") or ctx.path == "/":
             continue
-        if not route.path.endswith("/") or route.path == "/":
-            continue
-        no_slash = route.path.rstrip("/")
+        no_slash = ctx.path.rstrip("/")
 
         # Skip if ANY method already has a no-slash sibling registered
         # (i.e. a manual stacked decorator already covers this surface).
@@ -892,14 +906,13 @@ def _dependency_uses(dependant, targets: set[object]) -> bool:
     return any(_dependency_uses(child, targets) for child in dependant.dependencies)
 
 
-def _route_operation(schema: dict, route, method: str) -> dict | None:
-    """Resolve an APIRoute to its generated OpenAPI operation."""
-    return schema.get("paths", {}).get(route.path_format, {}).get(method.lower())
+def _route_operation(schema: dict, ctx, method: str) -> dict | None:
+    """Resolve a route context to its generated OpenAPI operation."""
+    return schema.get("paths", {}).get(ctx.path_format, {}).get(method.lower())
 
 
 def _normalize_security_contract(schema: dict) -> None:
     """Publish every runtime credential form and anonymous-capable alternative."""
-    from fastapi.routing import APIRoute
 
     from app.modules.auth.dependencies import get_optional_user
 
@@ -930,12 +943,13 @@ def _normalize_security_contract(schema: dict) -> None:
         {"ApiKeyQuery": []},
     ]
 
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.include_in_schema:
+    for ctx in _iter_api_routes(app):
+        route = ctx.route
+        if not route.include_in_schema:
             continue
         optional_auth = _dependency_uses(route.dependant, optional_targets)
         for method in route.methods or ():
-            operation = _route_operation(schema, route, method)
+            operation = _route_operation(schema, ctx, method)
             if operation is None:
                 continue
             existing = operation.get("security", [])
@@ -958,10 +972,10 @@ def _normalize_security_contract(schema: dict) -> None:
 
 def _document_rate_limits(schema: dict) -> None:
     """Attach the runtime SlowAPI 429 contract to every non-exempt operation."""
-    from fastapi.routing import APIRoute
 
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.include_in_schema:
+    for ctx in _iter_api_routes(app):
+        route = ctx.route
+        if not route.include_in_schema:
             continue
         endpoint_name = f"{route.endpoint.__module__}.{route.endpoint.__name__}"
         # The limiter has a global default, so undecorated routes are limited too.
@@ -969,7 +983,7 @@ def _document_rate_limits(schema: dict) -> None:
         if endpoint_name in limiter._exempt_routes:
             continue
         for method in route.methods or ():
-            operation = _route_operation(schema, route, method)
+            operation = _route_operation(schema, ctx, method)
             if operation is not None:
                 operation.setdefault("responses", {}).setdefault(
                     "429", RATE_LIMIT_RESPONSE
@@ -978,16 +992,16 @@ def _document_rate_limits(schema: dict) -> None:
 
 def _document_global_failures(schema: dict) -> None:
     """Document exception handlers that apply outside individual routers."""
-    from fastapi.routing import APIRoute
 
     from app.core.dependencies import get_db
 
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.include_in_schema:
+    for ctx in _iter_api_routes(app):
+        route = ctx.route
+        if not route.include_in_schema:
             continue
         uses_database = _dependency_uses(route.dependant, {get_db})
         for method in route.methods or ():
-            operation = _route_operation(schema, route, method)
+            operation = _route_operation(schema, ctx, method)
             if operation is None:
                 continue
             responses = operation.setdefault("responses", {})
