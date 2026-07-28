@@ -132,6 +132,35 @@ describe('map composition sync', () => {
     ]);
   });
 
+  it('applies the saved projection with the basemap appearance (feat(#845))', () => {
+    const setProjection = vi.fn();
+    const target = { isStyleLoaded: vi.fn(() => true), setProjection } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: target,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+      idPrefix: 'viewer-',
+    });
+    expect(setProjection).toHaveBeenCalledWith({ type: 'globe' });
+
+    // No saved projection → explicit mercator, so a globe→mercator edit resets.
+    applyMapBasemapAppearance({ map: target, basemapConfig: null, idPrefix: 'viewer-' });
+    expect(setProjection).toHaveBeenLastCalledWith({ type: 'mercator' });
+
+    // Unloaded style (isStyleLoaded is false inside style.load callbacks)
+    // registers a one-shot idle retry instead of dropping the projection.
+    setProjection.mockClear();
+    const once = vi.fn();
+    applyMapBasemapAppearance({
+      map: { isStyleLoaded: vi.fn(() => false), setProjection, once } as unknown as MaplibreMap,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(setProjection).not.toHaveBeenCalled();
+    expect(once).toHaveBeenCalledWith('idle', expect.any(Function));
+    (once.mock.calls[0][1] as () => void)();
+    expect(setProjection).toHaveBeenCalledWith({ type: 'globe' });
+  });
+
   it('lets sublayer override retry logic handle unloaded styles', () => {
     const basemapConfig: MapBasemapConfig = {
       label_mode: 'full',

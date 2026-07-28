@@ -51,6 +51,22 @@ export function applyMapBasemapAppearance({
   // paint applyBasemapConfigToMap just wrote.
   const masterOpacity = basemapConfig?.opacity ?? 1;
 
+  // feat(#845): projection is root style state persisted on
+  // basemap_config.projection — apply it with the rest of the basemap
+  // appearance so viewer/shared surfaces honor the saved value, not just the
+  // builder. Globe needs a loaded style, and inside a `style.load` callback
+  // isStyleLoaded() still reports false, so fall back to a one-shot idle
+  // retry (same gate MapBuilderPage uses) instead of dropping it.
+  const applyProjection = () => {
+    try {
+      map.setProjection?.({ type: basemapConfig?.projection ?? 'mercator' });
+    } catch {
+      // partial map mocks in tests / older maplibre — swallow safely
+    }
+  };
+  if (map.isStyleLoaded()) applyProjection();
+  else map.once?.('idle', applyProjection);
+
   if (!map.isStyleLoaded()) {
     applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
     return;
