@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A backup cycle no longer fails just because the instance was busy.**
+  Anything writing to object storage while the backup archived it made tar
+  report "file changed as we read it", and the cycle treated that warning
+  as fatal: it deleted the (fully written) archive and left the backup
+  container unhealthy under the new freshness probe. The warning now keeps
+  the archive and the cycle; only a fatal tar error (exit 2+) fails it.
+  (#843)
+
 ## [1.6.0] - 2026-07-28
 
 ### Added
