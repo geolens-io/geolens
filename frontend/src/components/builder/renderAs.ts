@@ -371,6 +371,8 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
         || (typeof builder.clusterTextSize === 'number' && builder.clusterTextSize !== 12)
         || (typeof builder.clusterColor === 'string' && builder.clusterColor !== seededClusterColor)
         || (Array.isArray(builder.clusterColorRamp) && builder.clusterColorRamp.length > 0)
+        // ux(#839): counts hidden is user-authored destructible state.
+        || builder.clusterShowCounts === false
       );
     }
 

@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LayoutGrid, Plus, Settings } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ColorizedGeometryIcon, extractStyleHints, getLayerColors } from '@/components/map/layer-icons';
+import { ColorizedGeometryIcon, extractStyleHints, getLayerColors, isDiscreteColorStyle } from '@/components/map/layer-icons';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
@@ -41,6 +41,7 @@ function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
       layerId={layer.id}
       layerType={caps.kind}
       styleHints={styleHints}
+      discrete={isDiscreteColorStyle(layer.style_config)}
     />
   );
 }

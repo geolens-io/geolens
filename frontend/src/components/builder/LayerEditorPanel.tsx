@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { getRenderAsOptions, getCurrentRenderAs, hasCustomizedRenderAsStyle, type RenderAsId } from './renderAs';
-import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
+import { ColorizedGeometryIcon, getLayerColors, extractStyleHints, isDiscreteColorStyle } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 
@@ -369,6 +369,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               layerId={layer.id}
               layerType={caps.kind}
               styleHints={styleHints}
+              discrete={isDiscreteColorStyle(layer.style_config)}
             />
           )}
 

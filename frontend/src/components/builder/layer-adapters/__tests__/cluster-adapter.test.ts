@@ -128,6 +128,48 @@ describe('cluster adapter — getLayerIds returns [clusterCircle, clusterCount, 
   });
 });
 
+describe('cluster adapter — ux(#839) clusterShowCounts gates the count layer only', () => {
+  const countsOff = {
+    render_mode: 'cluster' as const,
+    builder: { clusterShowCounts: false },
+  };
+
+  it('addLayers hides the count layer (and only it) when clusterShowCounts=false', () => {
+    const map = createMockMap({ layerExists: false });
+    clusterAdapter.addLayers(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ style_config: countsOff }),
+    );
+    const calls = map.addLayer.mock.calls as Array<[{ id: string; layout?: { visibility?: string } }]>;
+    const byId = (id: string) => calls.find(([c]) => c.id === id)![0];
+    expect(byId(clusterCountLayerId('layer-cluster-1')).layout?.visibility).toBe('none');
+    expect(byId(clusterCircleLayerId('layer-cluster-1')).layout?.visibility).toBe('visible');
+    expect(byId('layer-cluster-1').layout?.visibility).toBe('visible');
+  });
+
+  it('syncVisibility keeps the count layer hidden when the layer is visible but counts are off', () => {
+    const map = createMockMap({ layerExists: true });
+    clusterAdapter.syncVisibility(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ visible: true, style_config: countsOff }),
+    );
+    const visCalls = map.setLayoutProperty.mock.calls as Array<[string, string, string]>;
+    const visibilityOf = (id: string) =>
+      visCalls.find(([callId, prop]) => callId === id && prop === 'visibility')?.[2];
+    expect(visibilityOf(clusterCountLayerId('layer-cluster-1'))).toBe('none');
+    expect(visibilityOf(clusterCircleLayerId('layer-cluster-1'))).toBe('visible');
+    expect(visibilityOf('layer-cluster-1')).toBe('visible');
+  });
+
+  it('an absent flag renders counts (default on — existing maps unchanged)', () => {
+    const map = createMockMap({ layerExists: false });
+    clusterAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput());
+    const calls = map.addLayer.mock.calls as Array<[{ id: string; layout?: { visibility?: string } }]>;
+    const countCall = calls.find(([c]) => c.id === clusterCountLayerId('layer-cluster-1'));
+    expect(countCall![0].layout?.visibility).toBe('visible');
+  });
+});
+
 describe('cluster adapter — #347 (BLDR-02) cluster color ramp (point_count step)', () => {
   it('clusterColorValue returns a flat color when ramp has fewer than 2 stops', () => {
     expect(clusterColorValue(undefined, '#abcdef')).toBe('#abcdef');

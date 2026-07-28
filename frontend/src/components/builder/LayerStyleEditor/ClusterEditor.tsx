@@ -35,6 +35,8 @@ export function ClusterEditor({
   const clusterColor = builderConfig.clusterColor
     ?? (typeof paint['circle-color'] === 'string' ? paint['circle-color'] as string : CIRCLE_DEFAULTS['circle-color']);
   const clusterTextColor = builderConfig.clusterTextColor ?? MAP_COLORS.cluster.text;
+  // ux(#839): absent = true so existing maps keep their counts.
+  const showCounts = builderConfig.clusterShowCounts !== false;
 
   const ramp: ClusterColorStop[] = Array.isArray(builderConfig.clusterColorRamp)
     ? builderConfig.clusterColorRamp
@@ -85,6 +87,19 @@ export function ClusterEditor({
         format="zoom"
         onChange={(val) => onBuilderChange({ clusterMaxZoom: val })}
       />
+
+      {/* ux(#839): counts are a separate opt-out from the Labels tab — the
+          count layer is emitted by cluster mode itself, not label_config. */}
+      <div className="flex items-center justify-between">
+        <Label htmlFor="cluster-show-counts" className="text-sm font-normal">
+          {t('style.cluster.showCounts')}
+        </Label>
+        <Switch
+          id="cluster-show-counts"
+          checked={showCounts}
+          onCheckedChange={(on) => onBuilderChange({ clusterShowCounts: on })}
+        />
+      </div>
 
       <div className="flex items-center justify-between">
         <Label htmlFor="cluster-color-by-count" className="text-sm font-normal">
@@ -154,20 +169,24 @@ export function ClusterEditor({
         />
       )}
 
-      <StyleColorPicker
-        label={t('style.cluster.countColor')}
-        color={clusterTextColor}
-        onChange={(hex) => onBuilderChange({ clusterTextColor: hex })}
-      />
-      <SliderRow
-        label={t('style.cluster.countSize')}
-        value={builderConfig.clusterTextSize ?? 12}
-        min={8}
-        max={24}
-        step={1}
-        format="px"
-        onChange={(val) => onBuilderChange({ clusterTextSize: val })}
-      />
+      {showCounts && (
+        <>
+          <StyleColorPicker
+            label={t('style.cluster.countColor')}
+            color={clusterTextColor}
+            onChange={(hex) => onBuilderChange({ clusterTextColor: hex })}
+          />
+          <SliderRow
+            label={t('style.cluster.countSize')}
+            value={builderConfig.clusterTextSize ?? 12}
+            min={8}
+            max={24}
+            step={1}
+            format="px"
+            onChange={(val) => onBuilderChange({ clusterTextSize: val })}
+          />
+        </>
+      )}
     </div>
   );
 }

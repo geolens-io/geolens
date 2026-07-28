@@ -60,7 +60,13 @@ export function applyLayerVisibilityToMap(
   if (map.getLayer(ids.arrow)) map.setLayoutProperty(ids.arrow, 'visibility', newVis);
   if (map.getLayer(ids.colorRelief)) map.setLayoutProperty(ids.colorRelief, 'visibility', newVis);
   if (map.getLayer(ids.cluster)) map.setLayoutProperty(ids.cluster, 'visibility', newVis);
-  if (map.getLayer(ids.clusterCount)) map.setLayoutProperty(ids.clusterCount, 'visibility', newVis);
+  // codex(#841): mirror clusterAdapter.syncVisibility — re-showing a layer
+  // (single, bulk, or group path) must not resurrect counts the user turned
+  // off via ux(#839) clusterShowCounts.
+  if (map.getLayer(ids.clusterCount)) {
+    const countsOn = getBuilderStyleConfig(layer).clusterShowCounts !== false;
+    map.setLayoutProperty(ids.clusterCount, 'visibility', nextVisible && countsOn ? 'visible' : 'none');
+  }
   if (map.getLayer(ids.mixedLines)) map.setLayoutProperty(ids.mixedLines, 'visibility', newVis);
   if (map.getLayer(ids.mixedPoints)) map.setLayoutProperty(ids.mixedPoints, 'visibility', newVis);
 }

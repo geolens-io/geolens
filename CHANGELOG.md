@@ -7,6 +7,18 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Cluster count labels can be turned off.** A "Show counts" toggle in the
+  cluster style editor hides the numbers on cluster bubbles — they read as
+  feature labels even with labels disabled — leaving size and color to carry
+  magnitude. The count stays available in the cluster popup, and existing
+  maps keep their counts. (#839)
+- **Categorical layers are legible from the layer list.** A layer styled by
+  category now shows its classes as distinct color bands instead of a single
+  blurred gradient swatch, and the row names the styled column and class
+  count (e.g. "fall · 2 categories"). (#840)
+
 ### Security
 
 - **Map sharing surfaces are gated tighter.** The visibility-check

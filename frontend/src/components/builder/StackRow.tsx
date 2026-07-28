@@ -31,7 +31,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LayerTypeIcon } from '@/components/map/layer-icons';
+import { LayerTypeIcon, isDiscreteColorStyle } from '@/components/map/layer-icons';
 import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
@@ -194,6 +194,16 @@ export const StackRow = memo(function StackRow({
   // point with labels showed text on the map but no badge. fix(#526 B-042)
   const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode as string | undefined;
   const hasLabels = !!layer.label_config?.column && renderMode !== 'heatmap';
+
+  // ux(#840): name the styled column — the banded swatch alone can't say what
+  // the colors mean. Same predicate that switches the row icon to discrete bands.
+  const categoricalSummary = isDiscreteColorStyle(layer.style_config) && layer.style_config?.column
+    ? t('stackRow.categoricalSummary', {
+        column: layer.style_config.column,
+        count: layer.style_config.categories!.length,
+        defaultValue: '{{column}} · {{count}} categories',
+      })
+    : null;
 
   function handleDragHandleKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
     const isToggleKey = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter';
@@ -421,6 +431,17 @@ export const StackRow = memo(function StackRow({
               >
                 <Type className="h-3 w-3" aria-hidden="true" />
                 <span className="sr-only">{t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}</span>
+              </span>
+            )}
+            {/* ux(#840): categorical subtitle — inline like the badges so the
+                row height never changes; max-w-[45%] per the fix(#434) cap. */}
+            {categoricalSummary && (
+              <span
+                title={categoricalSummary}
+                data-testid="stack-row-categories"
+                className="min-w-0 max-w-[45%] truncate text-2xs text-muted-foreground"
+              >
+                {categoricalSummary}
               </span>
             )}
             {/* Phase 1199 STACK-01: live duplicate-disambiguation badge. The label

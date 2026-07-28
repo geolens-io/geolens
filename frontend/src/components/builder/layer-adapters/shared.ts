@@ -544,6 +544,7 @@ export const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   cluster_text_color: 'clusterTextColor',
   cluster_text_size: 'clusterTextSize',
   cluster_color_ramp: 'clusterColorRamp',
+  cluster_show_counts: 'clusterShowCounts',
   folder_group_id: 'folderGroupId',
   folder_group_name: 'folderGroupName',
   folder_group_expanded: 'folderGroupExpanded',
