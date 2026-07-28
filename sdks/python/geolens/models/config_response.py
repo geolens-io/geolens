@@ -30,8 +30,6 @@ class ConfigResponse:
             shown. Default false. Default: False.
         banner_text (str | Unset): Admin-configured site-wide announcement banner text. Empty string means no banner is
             shown. Default: ''.
-        demo_mode (bool | Unset): When true, logged-in users see a persistent demo-account banner. Default false — self-
-            hosters see no banner. Default: False.
         email_verification_required (bool | Unset): When true, new self-registered users must verify their email before
             logging in. Default false for back-compat-safe parsing by older clients. Default: False.
         landing_first (bool | Unset): When true, unauthenticated visits to '/' are redirected to '/login' as the product
@@ -46,7 +44,6 @@ class ConfigResponse:
     banner_color: str | Unset = "warning"
     banner_enabled: bool | Unset = False
     banner_text: str | Unset = ""
-    demo_mode: bool | Unset = False
     email_verification_required: bool | Unset = False
     landing_first: bool | Unset = False
     password_login_enabled: bool | Unset = True
@@ -66,8 +63,6 @@ class ConfigResponse:
         banner_enabled = self.banner_enabled
 
         banner_text = self.banner_text
-
-        demo_mode = self.demo_mode
 
         email_verification_required = self.email_verification_required
 
@@ -92,8 +87,6 @@ class ConfigResponse:
             field_dict["banner_enabled"] = banner_enabled
         if banner_text is not UNSET:
             field_dict["banner_text"] = banner_text
-        if demo_mode is not UNSET:
-            field_dict["demo_mode"] = demo_mode
         if email_verification_required is not UNSET:
             field_dict["email_verification_required"] = email_verification_required
         if landing_first is not UNSET:
@@ -118,8 +111,6 @@ class ConfigResponse:
 
         banner_text = d.pop("banner_text", UNSET)
 
-        demo_mode = d.pop("demo_mode", UNSET)
-
         email_verification_required = d.pop("email_verification_required", UNSET)
 
         landing_first = d.pop("landing_first", UNSET)
@@ -133,7 +124,6 @@ class ConfigResponse:
             banner_color=banner_color,
             banner_enabled=banner_enabled,
             banner_text=banner_text,
-            demo_mode=demo_mode,
             email_verification_required=email_verification_required,
             landing_first=landing_first,
             password_login_enabled=password_login_enabled,

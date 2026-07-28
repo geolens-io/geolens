@@ -104,7 +104,6 @@ x-notification-env: &notification-env
 
 x-app-runtime-env: &app-runtime-env
   LANDING_FIRST: "${LANDING_FIRST:-false}"
-  DEMO_MODE: "${DEMO_MODE:-false}"
   TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
 
 # Shared hardening profile for the FastAPI-image trio (api, worker, migrate).

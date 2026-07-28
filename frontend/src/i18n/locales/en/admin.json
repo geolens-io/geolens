@@ -500,8 +500,6 @@
       "requireMetadataDescription": "When enabled, datasets must have complete metadata (title, summary, contacts, keywords, license, spatial extent, CRS, lineage) before they can be published.",
       "enableDatasetEditing": "Enable Dataset Editing",
       "enableDatasetEditingDescription": "Allow geometry drawing and attribute editing on dataset detail pages. When disabled, datasets are read-only.",
-      "demoMode": "Demo Mode Banner",
-      "demoModeDescription": "Show a persistent demo-account notice banner to logged-in users.",
       "bannerEnabled": "Enable Site Banner",
       "bannerEnabledDescription": "Show the announcement banner to all visitors. The banner text below must also be set.",
       "bannerText": "Site Banner Text",

@@ -44,7 +44,6 @@ from app.core.persistent_config import (
     BANNER_COLOR,
     BANNER_ENABLED,
     BANNER_TEXT,
-    DEMO_MODE,
     EMAIL_VERIFICATION_REQUIRED,
     LANDING_FIRST,
     PASSWORD_LOGIN_ENABLED,
@@ -740,7 +739,6 @@ async def config(
 
     reg_enabled = await REGISTRATION_ENABLED.get(db)
     landing_first = await LANDING_FIRST.get(db)
-    demo_mode = await DEMO_MODE.get(db)
     banner_enabled = await BANNER_ENABLED.get(db)
     # fix(#553): this endpoint is unauthenticated — never expose staged
     # (disabled) announcement text
@@ -756,7 +754,6 @@ async def config(
         email_verification_required=email_verification_required,
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
-        demo_mode=demo_mode,
         banner_enabled=banner_enabled,
         banner_text=banner_text,
         banner_color=banner_color,

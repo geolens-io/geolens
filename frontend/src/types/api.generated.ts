@@ -6658,12 +6658,6 @@ export interface components {
              */
             banner_text: string;
             /**
-             * Demo Mode
-             * @description When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
-             * @default false
-             */
-            demo_mode: boolean;
-            /**
              * Email Verification Required
              * @description When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
              * @default false
