@@ -171,6 +171,9 @@ export const StackRow = memo(function StackRow({
   } = useInlineRename({
     value: displayName,
     onCommit: (next) => onRename(layer.id, next),
+    // a11y(v1.6.0 audit A7): commit/cancel unmount the focused input — hand
+    // focus back to the row, matching the delete-confirm's focus return.
+    restoreFocus: () => document.getElementById(`stack-row-${layer.id}`)?.focus(),
   });
 
   // Derived label indicator.
@@ -281,6 +284,13 @@ export const StackRow = memo(function StackRow({
       onContextMenu={kebabMenu.onContextMenu}
       onKeyDown={(e) => {
         if (kebabMenu.handleContextMenuKey(e)) return;
+        // a11y(v1.6.0 audit A7, WCAG 2.1.1): only keys aimed at the row
+        // container itself belong to the row. Without this guard the
+        // Enter/Space preventDefault below cancelled native button activation
+        // on every descendant (eye toggle, kebab) and swallowed spaces typed
+        // into the rename input. Placed AFTER the context-menu branch so
+        // Shift+F10 still opens the kebab from a focused descendant.
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter') {
           e.preventDefault();
           onSelectLayer(layer.id);
@@ -371,6 +381,10 @@ export const StackRow = memo(function StackRow({
           <input
             ref={inputRef}
             type="text"
+            // a11y(v1.6.0 audit A7): the input had no accessible name while
+            // FolderGroupRow's did — mirror that pattern.
+            aria-label={t('stackRow.renameInputLabel', { defaultValue: 'Layer name' })}
+            placeholder={t('stackRow.renameInputLabel', { defaultValue: 'Layer name' })}
             data-testid="stack-row-rename-input"
             className="h-6 w-full min-w-0 border-b border-primary bg-transparent text-sm outline-none focus:ring-1 focus:ring-ring"
             value={nameValue}

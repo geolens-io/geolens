@@ -1225,6 +1225,7 @@
     "opacitySlider": "Opacidad para {{name}}",
     "kebabTrigger": "Opciones de capa para {{name}}",
     "kebabRenameLayer": "Renombrar capa",
+    "renameInputLabel": "Nombre de la capa",
     "kebabDuplicate": "Duplicar",
     "kebabDeleteLayer": "Eliminar capa",
     "kebabAddToGroup": "Agregar al grupo…",

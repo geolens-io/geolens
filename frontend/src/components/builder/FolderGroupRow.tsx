@@ -86,6 +86,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     onCommit: (next) => {
       if (next) onRenameGroup(groupId, next);
     },
+    // a11y(v1.6.0 audit A7): commit/cancel unmount the focused input — hand
+    // focus back to the row, matching the delete-confirm's focus return.
+    restoreFocus: () => document.getElementById(`stack-row-${groupId}`)?.focus(),
   });
 
   // Reset state on groupId change
@@ -120,6 +123,12 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       onContextMenu={kebabMenu.onContextMenu}
       onKeyDown={(e) => {
         if (kebabMenu.handleContextMenuKey(e)) return;
+        // a11y(v1.6.0 audit A7, WCAG 2.1.1): keys from descendant controls
+        // (caret, eye, rename input, delete-confirm buttons) keep their native
+        // activation — the container only handles keys aimed at the row
+        // itself. AFTER the context-menu branch so Shift+F10 still works from
+        // a focused descendant.
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter') {
           e.preventDefault();
           onSelectGroup(groupId);

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { BasemapGroupRow } from '../BasemapGroupRow';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
@@ -72,6 +73,48 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof BasemapGrou
     ...overrides,
   };
 }
+
+// a11y(v1.6.0 audit A7, WCAG 2.1.1): Enter on the basemap caret was dead — the
+// row-container keydown preventDefaulted Enter/Space from descendants.
+describe('BasemapGroupRow keyboard operability (v1.6.0 audit A7)', () => {
+  it('Enter on the focused caret toggles expansion instead of selecting the row', async () => {
+    const user = userEvent.setup();
+    const onToggleExpand = vi.fn();
+    const onSelectGroup = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'bm', onToggleExpand, onSelectGroup })} />);
+
+    const caret = screen.getByRole('button', { name: 'Toggle basemap group' });
+    caret.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onToggleExpand).toHaveBeenCalledOnce();
+    expect(onToggleExpand).toHaveBeenCalledWith('bm');
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Space on the focused eye toggles visibility instead of selecting the row', async () => {
+    const user = userEvent.setup();
+    const onToggleVisibility = vi.fn();
+    const onSelectGroup = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'bm', onToggleVisibility, onSelectGroup })} />);
+
+    const eye = screen.getByRole('button', { name: /Toggle visibility/i });
+    eye.focus();
+    await user.keyboard(' ');
+
+    expect(onToggleVisibility).toHaveBeenCalledOnce();
+    expect(onToggleVisibility).toHaveBeenCalledWith('bm');
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Enter on the row container itself still selects the basemap group', () => {
+    const onSelectGroup = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'bm', onSelectGroup })} />);
+
+    fireEvent.keyDown(document.getElementById('stack-row-bm')!, { key: 'Enter' });
+    expect(onSelectGroup).toHaveBeenCalledWith('bm');
+  });
+});
 
 describe('BasemapGroupRow', () => {
   it('Test 1: renders with ⊞ glyph in the type-icon cell', () => {

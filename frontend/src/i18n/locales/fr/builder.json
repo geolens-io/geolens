@@ -1225,6 +1225,7 @@
     "opacitySlider": "Opacité pour {{name}}",
     "kebabTrigger": "Options de couche pour {{name}}",
     "kebabRenameLayer": "Renommer la couche",
+    "renameInputLabel": "Nom de la couche",
     "kebabDuplicate": "Dupliquer",
     "kebabDeleteLayer": "Supprimer la couche",
     "kebabAddToGroup": "Ajouter au groupe…",

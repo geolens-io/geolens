@@ -102,6 +102,11 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         // honor the multi-selection boundary, matching the visual signal.
         if (isMultiSelectionActive) return;
         if (kebabMenu.handleContextMenuKey(e)) return;
+        // a11y(v1.6.0 audit A7, WCAG 2.1.1): Enter on the caret or eye was
+        // dead — the container preventDefaulted descendant keys and cancelled
+        // native button activation. Only handle keys aimed at the row itself;
+        // AFTER the context-menu branch so Shift+F10 works from descendants.
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelectGroup(groupId);

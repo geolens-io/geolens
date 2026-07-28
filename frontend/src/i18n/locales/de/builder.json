@@ -1225,6 +1225,7 @@
     "opacitySlider": "Deckkraft für {{name}}",
     "kebabTrigger": "Layer-Optionen für {{name}}",
     "kebabRenameLayer": "Layer umbenennen",
+    "renameInputLabel": "Layer-Name",
     "kebabDuplicate": "Duplizieren",
     "kebabDeleteLayer": "Layer löschen",
     "kebabAddToGroup": "Zur Gruppe hinzufügen…",

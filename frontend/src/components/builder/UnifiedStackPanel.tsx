@@ -205,6 +205,11 @@ const SublayerRow = memo(function SublayerRow({
       )}
       onClick={() => onSelectLayer(sublayer.id)}
       onKeyDown={(e) => {
+        // a11y(v1.6.0 audit A7, WCAG 2.1.1): keys from the descendant eye
+        // toggle keep their native button activation — the container only
+        // handles keys aimed at the row itself. First-line is safe here: the
+        // sublayer row has no kebab/context-menu key handling.
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelectLayer(sublayer.id);
