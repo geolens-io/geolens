@@ -465,7 +465,16 @@ export const ViewerMap = memo(function ViewerMap({
         // it lands, and a conclusively dead session surfaces through the
         // global signed-out handling (#628) via the mint request itself.
         if ((status === 401 || status === 403) && !isThirdPartyUrl(e.error?.url)) {
-          recoverTileAuth();
+          // audit(w3-maps A2): recoverTileAuth() returning false is
+          // contractual — a recent re-mint didn't cure the error (revoked
+          // grant, expired signature). Previously the return value was
+          // discarded and the surface stayed fully silent; fall through to
+          // the existing deduped tile-error toast instead.
+          if (!recoverTileAuth()) {
+            toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
+              id: 'viewer-map-error',
+            });
+          }
           return;
         }
         // Suppress expected no-data tiles (404) and other client errors
