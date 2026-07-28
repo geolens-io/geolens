@@ -172,7 +172,16 @@ export function BuilderDialogs({
       {/* Unsaved changes leave warning.
           ux(#777): a modal AlertDialog with the canonical Cancel-then-Action
           footer, matching the DatasetPage / AdminSettingsPage navigation guards
-          — was a dismissible Dialog with a hand-rolled footer. */}
+          — was a dismissible Dialog with a hand-rolled footer.
+          Note on the blocker callbacks: AlertDialogAction/Cancel ALSO close
+          the dialog, so every click double-invokes — the button's own handler
+          runs, then the close fires onOpenChange, which calls reset again
+          (proceed→reset, or reset→reset). Verified benign with react-router
+          7.18.1: proceed() re-checks the blocker synchronously, so by the
+          time the trailing reset() runs the blocker is no longer 'blocked'
+          and reset() is a no-op that cannot throw. Don't "fix" the
+          double-invoke by dropping onOpenChange — Escape/overlay dismissal
+          needs it to reset the blocker. */}
       <AlertDialog open={blockerState === 'blocked'} onOpenChange={() => onBlockerReset?.()}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
