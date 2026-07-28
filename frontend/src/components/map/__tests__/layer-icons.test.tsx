@@ -22,6 +22,66 @@ describe('ColorizedGeometryIcon raster/vrt contract', () => {
   });
 });
 
+// ux(#840): categorical styles render hard-stop bands (each color duplicated
+// at its band edges) instead of a smooth ramp, capped at 4 bands. Graduated
+// ramps keep the smooth gradient.
+describe('discrete bands for categorical styles (ux #840)', () => {
+  const layerWith = (style_config: LayerTypeIconLayer['style_config']): LayerTypeIconLayer => ({
+    dataset_geometry_type: 'POINT',
+    layer_type: 'vector_geolens',
+    paint: { 'circle-color': ['match', ['get', 'fall'], 'Fell', '#f59e0b', '#94a3b8'] },
+    layout: {},
+    opacity: 1,
+    style_config,
+  });
+
+  it('duplicates gradient stops into hard bands for a categorical layer', () => {
+    const { container } = render(
+      <LayerTypeIcon
+        layer={layerWith({
+          mode: 'categorical',
+          column: 'fall',
+          categories: [
+            { value: 'Fell', color: '#f59e0b' },
+            { value: 'Found', color: '#94a3b8' },
+          ],
+        })}
+        iconId="cat-2"
+      />,
+    );
+    // querySelector('linearGradient …') never matches in JSDOM (HTML selector
+    // lowercasing vs case-sensitive SVG tagName) — query the stops directly.
+    const stops = Array.from(container.querySelectorAll('stop'));
+    // 2 categories → 2 bands → 4 stops with a hard edge at 50%
+    expect(stops.map((s) => [s.getAttribute('offset'), s.getAttribute('stop-color')])).toEqual([
+      ['0%', '#f59e0b'],
+      ['50%', '#f59e0b'],
+      ['50%', '#94a3b8'],
+      ['100%', '#94a3b8'],
+    ]);
+  });
+
+  it('caps the icon at 4 bands for many-category layers', () => {
+    const categories = ['#111111', '#222222', '#333333', '#444444', '#555555', '#666666']
+      .map((color, i) => ({ value: `c${i}`, color }));
+    const { container } = render(
+      <LayerTypeIcon layer={layerWith({ mode: 'categorical', column: 'c', categories })} iconId="cat-6" />,
+    );
+    expect(container.querySelectorAll('stop')).toHaveLength(8);
+  });
+
+  it('keeps the smooth ramp for graduated colors (no categories)', () => {
+    const { container } = render(
+      <LayerTypeIcon
+        layer={layerWith({ mode: 'graduated', column: 'mass', colors: ['#111111', '#222222', '#333333'] })}
+        iconId="grad-3"
+      />,
+    );
+    const stops = Array.from(container.querySelectorAll('stop'));
+    expect(stops.map((s) => s.getAttribute('offset'))).toEqual(['0%', '50%', '100%']);
+  });
+});
+
 // fix(#452): replacement for the deleted StackRow.guard04.test.tsx. The
 // extractStyleHints memo moved verbatim into LayerTypeIcon, where a vi.spyOn
 // seam can no longer observe the (now intra-module) call. Instead, count

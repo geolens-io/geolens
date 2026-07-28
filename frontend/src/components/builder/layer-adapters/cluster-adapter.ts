@@ -156,6 +156,12 @@ function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
   };
 }
 
+// ux(#839): the count label is optional — absent flag means visible, so every
+// existing map keeps its counts. Off = size/color-only clusters.
+function clusterCountsEnabled(input: AdapterLayerInput): boolean {
+  return getBuilderStyleConfig(input).clusterShowCounts !== false;
+}
+
 function clusterCountLayout(input: AdapterLayerInput): Record<string, unknown> {
   const { textSize } = clusterStyle(input);
   return {
@@ -164,7 +170,7 @@ function clusterCountLayout(input: AdapterLayerInput): Record<string, unknown> {
     'text-font': [...LABEL_FONT_STACK],
     'text-allow-overlap': true,
     'text-ignore-placement': true,
-    visibility: input.visible ? 'visible' : 'none',
+    visibility: input.visible && clusterCountsEnabled(input) ? 'visible' : 'none',
   };
 }
 
@@ -287,7 +293,7 @@ export const clusterAdapter: LayerAdapter = {
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
     syncSingleLayerVisibility(map, clusterCircleLayerId(input.layerId), input.visible);
-    syncSingleLayerVisibility(map, clusterCountLayerId(input.layerId), input.visible);
+    syncSingleLayerVisibility(map, clusterCountLayerId(input.layerId), input.visible && clusterCountsEnabled(input));
     syncSingleLayerVisibility(map, input.layerId, input.visible);
   },
 

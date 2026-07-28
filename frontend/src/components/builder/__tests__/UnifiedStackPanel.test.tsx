@@ -34,6 +34,7 @@ vi.mock('@/components/map/layer-icons', () => ({
     <span data-testid={`type-icon-${iconId}`} />
   ),
   getLayerColors: () => ({ fill: '#000', stroke: '#fff', outline: '#000' }),
+  isDiscreteColorStyle: () => false,
   extractStyleHints: () => ({}),
 }));
 

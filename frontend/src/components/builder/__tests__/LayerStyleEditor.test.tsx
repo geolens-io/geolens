@@ -1036,6 +1036,48 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
     }), { 'circle-color': '#ff0000', 'circle-radius': 5 });
   });
 
+  // ux(#839): counts are opt-out via clusterShowCounts, independent of Labels.
+  it('toggles cluster count labels off and hides the count controls', () => {
+    const onStyleConfigChange = vi.fn();
+    const clusterLayer = (builder: Record<string, unknown>) => makeLayer({
+      dataset_geometry_type: 'Point',
+      dataset_feature_count: 100,
+      paint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
+      style_config: { render_mode: 'cluster', builder } as import('@/types/api').StyleConfig,
+    });
+
+    const { unmount } = render(
+      <LayerStyleEditor
+        layer={clusterLayer({})}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    const toggle = screen.getByRole('switch', { name: 'Show counts' });
+    expect(toggle).toBeChecked(); // absent flag = counts on
+    fireEvent.click(toggle);
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      builder: expect.objectContaining({ clusterShowCounts: false }),
+    }), { 'circle-color': '#ff0000', 'circle-radius': 5 });
+    unmount();
+
+    render(
+      <LayerStyleEditor
+        layer={clusterLayer({ clusterShowCounts: false })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('switch', { name: 'Show counts' })).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: 'Count color' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Count size' })).not.toBeInTheDocument();
+  });
+
   it('writes symbol icon settings into style_config and keeps paint clean', () => {
     const onStyleConfigChange = vi.fn();
 

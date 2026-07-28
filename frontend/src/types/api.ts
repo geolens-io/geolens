@@ -904,6 +904,8 @@ export interface BuilderStyleConfig {
   clusterTextColor?: string;
   /** Cluster count label text size for point cluster render mode. */
   clusterTextSize?: number;
+  /** ux(#839): show the cluster count label. Absent = true (counts on). */
+  clusterShowCounts?: boolean;
   /**
    * Optional cluster color ramp keyed on point_count (cluster render mode).
    * With 2+ stops the cluster circle is colored by a MapLibre `step` expression

@@ -1006,3 +1006,35 @@ describe('label indicator', () => {
     expect(screen.getByTestId('label-indicator')).toBeInTheDocument();
   });
 });
+
+// ux(#840): categorical layers name their styled column inline so the row
+// answers "what do the colors mean" without opening the legend.
+describe('categorical subtitle (ux #840)', () => {
+  const categoricalConfig = {
+    mode: 'categorical',
+    column: 'fall',
+    categories: [
+      { value: 'Fell', color: '#f59e0b' },
+      { value: 'Found', color: '#94a3b8' },
+    ],
+  } as MapLayerResponse['style_config'];
+
+  it('shows "column · N categories" for a categorical layer', () => {
+    const layer = makeLayer({ dataset_geometry_type: 'POINT', style_config: categoricalConfig });
+    render(<StackRow {...defaultProps({ layer })} />);
+    expect(screen.getByTestId('stack-row-categories')).toHaveTextContent('fall · 2 categories');
+  });
+
+  it('renders no subtitle for single-color or heatmap layers', () => {
+    const { unmount } = render(<StackRow {...defaultProps({ layer: makeLayer() })} />);
+    expect(screen.queryByTestId('stack-row-categories')).not.toBeInTheDocument();
+    unmount();
+
+    const heatmap = makeLayer({
+      dataset_geometry_type: 'POINT',
+      style_config: { ...categoricalConfig, render_mode: 'heatmap' } as MapLayerResponse['style_config'],
+    });
+    render(<StackRow {...defaultProps({ layer: heatmap })} />);
+    expect(screen.queryByTestId('stack-row-categories')).not.toBeInTheDocument();
+  });
+});

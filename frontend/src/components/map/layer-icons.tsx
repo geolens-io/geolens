@@ -87,6 +87,34 @@ interface IconSubProps {
   layerId: string;
   opacityStyle?: React.CSSProperties;
   styleHints?: StyleHints;
+  /** ux(#840): render multi-color fills as hard-stop bands instead of a smooth ramp. */
+  discrete?: boolean;
+}
+
+/**
+ * ux(#840): a categorical style is a set of discrete classes — its icon must
+ * not blur them into a continuous ramp. Heatmaps keep their smooth ramp icon.
+ */
+export function isDiscreteColorStyle(styleConfig: MapLayerResponse['style_config']): boolean {
+  return !!styleConfig?.categories?.length && styleConfig.render_mode !== 'heatmap';
+}
+
+// ux(#840): bands inside the existing glyph, not separate chips — keeps the
+// geometry-type cue and the 22px row cell untouched. Cap at 4 bands; beyond
+// that 14px slivers are unreadable and the row subtitle carries the count.
+const MAX_DISCRETE_BANDS = 4;
+
+function gradientStops(colors: string[], discrete?: boolean) {
+  if (!discrete) {
+    return colors.map((c, i) => (
+      <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+    ));
+  }
+  const bands = colors.slice(0, MAX_DISCRETE_BANDS);
+  return bands.flatMap((c, i) => [
+    <stop key={`${i}-start`} offset={`${(i / bands.length) * 100}%`} stopColor={c} />,
+    <stop key={`${i}-end`} offset={`${((i + 1) / bands.length) * 100}%`} stopColor={c} />,
+  ]);
 }
 
 function HeatmapIcon({ colors, layerId, opacityStyle }: IconSubProps) {
@@ -107,7 +135,7 @@ function HeatmapIcon({ colors, layerId, opacityStyle }: IconSubProps) {
   );
 }
 
-function LineIcon({ colors, layerId, opacityStyle, styleHints }: IconSubProps) {
+function LineIcon({ colors, layerId, opacityStyle, styleHints, discrete }: IconSubProps) {
   const rawSW = styleHints?.strokeWidth;
   const svgStrokeWidth = rawSW !== undefined ? (rawSW <= 1.5 ? 2 : rawSW > 4 ? 4.5 : 3) : 3;
   const color = colors[0] ?? MAP_COLORS.icon.fallback;
@@ -124,9 +152,7 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints }: IconSubProps) {
         {hasGradient && (
           <defs>
             <linearGradient id={gradientId}>
-              {colors.map((c, i) => (
-                <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
-              ))}
+              {gradientStops(colors, discrete)}
             </linearGradient>
           </defs>
         )}
@@ -136,7 +162,7 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints }: IconSubProps) {
   );
 }
 
-function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint }: IconSubProps & { isPoint: boolean }) {
+function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discrete }: IconSubProps & { isPoint: boolean }) {
   let sizeClass = 'h-3.5 w-3.5';
   if (isPoint && styleHints?.radius !== undefined) {
     sizeClass = styleHints.radius <= 3 ? 'h-2.5 w-2.5' : styleHints.radius > 7 ? 'h-4.5 w-4.5' : 'h-3.5 w-3.5';
@@ -171,9 +197,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint }: IconS
         <svg width="0" height="0" className="absolute">
           <defs>
             <linearGradient id={gradientId}>
-              {colors.map((c, i) => (
-                <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
-              ))}
+              {gradientStops(colors, discrete)}
             </linearGradient>
           </defs>
         </svg>
@@ -189,12 +213,15 @@ export function ColorizedGeometryIcon({
   layerId,
   layerType,
   styleHints,
+  discrete,
 }: {
   geometryType: string | null;
   colors: string[];
   layerId: string;
   layerType?: string;
   styleHints?: StyleHints;
+  /** ux(#840): true for categorical styles — hard-stop bands instead of a smooth ramp. */
+  discrete?: boolean;
 }) {
   if (layerType === 'vrt') return <Layers className="h-3.5 w-3.5 text-muted-foreground" />;
   if (layerType === 'raster') return <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />;
@@ -202,7 +229,7 @@ export function ColorizedGeometryIcon({
   const gt = (geometryType ?? '').toUpperCase();
   const compoundOpacity = (styleHints?.opacity ?? 1) * (styleHints?.fillOpacity ?? 1);
   const opacityStyle: React.CSSProperties | undefined = compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
-  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints };
+  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints, discrete };
 
   if (styleHints?.isHeatmap && colors.length > 1) return <HeatmapIcon {...sub} />;
   if (gt.includes('LINE')) return <LineIcon {...sub} />;
@@ -294,6 +321,7 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
       layerId={iconId}
       layerType={caps.kind}
       styleHints={styleHints}
+      discrete={isDiscreteColorStyle(layer.style_config ?? null)}
     />
   );
 }
