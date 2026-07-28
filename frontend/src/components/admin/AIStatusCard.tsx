@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Bot, ArrowRight } from 'lucide-react';
 import { useAIStatus, useEmbeddingStats } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
   Card,
@@ -15,12 +16,22 @@ import { Badge } from '@/components/ui/badge';
 export function AIStatusCard() {
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
+  // fix(#653): /admin/ai-status is gated by require_ai_status_reader, which
+  // switches from manage_users to manage_tenants in multi-tenant mode — a
+  // manage_users-only gate hid the card from multi-tenant operators and fired
+  // queries the backend 403s.
+  const canReadAIStatus = useAIStatusReader();
   const canManageUsers = can('manage_users');
   const canManageSettings = can('manage_settings');
-  const { data: aiStatus, isLoading } = useAIStatus({ enabled: canManageUsers });
-  const { data: embeddingStats } = useEmbeddingStats({ enabled: canManageUsers });
+  const { data: aiStatus, isLoading } = useAIStatus({ enabled: canReadAIStatus });
+  // fix(#653): /admin/embedding-stats requires manage_users in BOTH tenancy
+  // modes, so it keeps its own gate; the card gate alone would 403 for a
+  // manage_tenants-only operator.
+  const { data: embeddingStats } = useEmbeddingStats({
+    enabled: canReadAIStatus && canManageUsers,
+  });
 
-  if (!canManageUsers || isLoading || !aiStatus) return null;
+  if (!canReadAIStatus || isLoading || !aiStatus) return null;
 
   return (
     <Card>
