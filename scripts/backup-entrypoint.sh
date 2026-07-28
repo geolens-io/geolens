@@ -130,7 +130,7 @@ run_backup() {
 
     # BKP-01: archive the object-storage staging volume alongside the dump.
     # Named with the SAME timestamp as the dump so restore can pair them.
-    # A tar failure marks the cycle failed (like the S3 path below) rather than
+    # A fatal tar failure marks the cycle failed (like the S3 path below) rather than
     # returning early: retention pruning further down must always run, and the
     # `|| cycle_failed=1` also keeps `set -e` from aborting on the non-zero
     # command substitution. The cycle then exits non-zero and `.last-success`
@@ -209,20 +209,31 @@ backup_staging() {
     # as we read it" when api/worker write temp files mid-archive) reaches the
     # container log instead of vanishing.
     log "Archiving object storage: $(basename "$archive")" >&2
-    if tar czf "$archive" -C "$STAGING_DIR" .; then
-        local size
-        size="$(du -h "$archive" | cut -f1)"
-        log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
-        if [ "$(date '+%u')" = "7" ]; then
-            cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
-            log "Weekly object-storage copy saved: $(basename "$archive")" >&2
-        fi
-        printf '%s\n' "$archive"
-    else
+    local tar_rc=0
+    tar czf "$archive" -C "$STAGING_DIR" . || tar_rc=$?
+    # fix(#843): GNU tar exit 1 means "some files differ" — api/worker wrote
+    # to staging mid-archive. The archive IS written and every quiescent file
+    # in it is sound; only files caught mid-write are fuzzy and re-archive
+    # next cycle. Failing the whole cycle on exit 1 traded a usable DB dump +
+    # near-complete staging archive for nothing, and on a busy install the
+    # freshness healthcheck sat unhealthy indefinitely. Only exit >= 2
+    # (fatal tar error) fails the cycle.
+    if [ "$tar_rc" -ge 2 ]; then
         log "ERROR: object-storage archive failed — this cycle will be reported as failed" >&2
         rm -f "$archive"
         return 1
     fi
+    if [ "$tar_rc" -eq 1 ]; then
+        log "WARNING: staging changed during archiving (tar exit 1) — archive kept; changed files re-archive next cycle" >&2
+    fi
+    local size
+    size="$(du -h "$archive" | cut -f1)"
+    log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
+    if [ "$(date '+%u')" = "7" ]; then
+        cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
+        log "Weekly object-storage copy saved: $(basename "$archive")" >&2
+    fi
+    printf '%s\n' "$archive"
 }
 
 # ---------------------------------------------------------------------------
