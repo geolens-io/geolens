@@ -79,6 +79,11 @@ run_backup() {
     local filename="${POSTGRES_DB}_${timestamp}.dump"
     local filepath="${DAILY_DIR}/${filename}"
 
+    # fix(#819): orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
+    # would accumulate forever; a new cycle starting means no dump is in
+    # flight, so any leftover .tmp is garbage.
+    rm -f "${DAILY_DIR}"/*.dump.tmp
+
     log "Starting backup: ${filename}"
 
     export PGPASSWORD="${POSTGRES_PASSWORD}"

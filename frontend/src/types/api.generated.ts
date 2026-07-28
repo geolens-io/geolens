@@ -3758,6 +3758,11 @@ export interface paths {
         /**
          * Visibility Check Endpoint
          * @description Check if a map has non-public datasets. Informational only.
+         *
+         *     Owner-or-admin like the other sharing mutations: the response names
+         *     non-public dataset titles, which read access alone must not reveal.
+         *     Read access is checked first so unreadable maps keep answering 404
+         *     (SEC-007 existence-hiding); readable non-owners get 403.
          */
         get: operations["visibility_check_endpoint_maps__map_id__visibility_check__get"];
         put?: never;

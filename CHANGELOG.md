@@ -7,6 +7,14 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Security
+
+- **Map sharing surfaces are gated tighter.** The visibility-check
+  endpoint now requires map ownership — its response names non-public
+  dataset titles, which read access alone should not reveal — and
+  creating or managing embed tokens requires the same `edit_metadata`
+  capability as creating the share link the token accompanies.
+
 ### Fixed
 
 - **Upgrading no longer reports a false "Upgrade FAILED".** The new backup
@@ -35,7 +43,17 @@ and releases use semantic versioning.
   authentication failure that can't be recovered now surfaces the map's
   error state on the dataset preview and viewer instead of failing
   silently. Vector previews gained the same loading and error states
-  rasters already had.
+  rasters already had. A *recovering* session no longer trips that error
+  state: every tile error in the burst that triggered a token re-mint
+  used to count as a failed recovery, flashing "Preview unavailable"
+  over a map that was about to render — errors now surface only if they
+  persist after the re-mint had time to land.
+- **Private raster layers render for signed-in users in the shared-map
+  viewer**, which never attached the auth header raster tiles need
+  (the builder and dataset preview already did).
+- **Backups no longer accumulate orphaned temp files.** A dump
+  interrupted mid-write left a `.dump.tmp` file no retention pass would
+  ever delete; each cycle now clears leftovers at start.
 - **Bulk delete announces the real count while deleting**, its
   confirmation prompt behaves as a proper dialog, selection no longer
   survives on rows hidden by search or a collapsed group, and a partial
@@ -53,6 +71,13 @@ and releases use semantic versioning.
   at every zoom), the last movement of an opacity slider isn't lost when
   the editor closes, Reset asks before destroying a configured style,
   and the "Reverse" ramp option actually reverses DEM and heatmap ramps.
+- **Applying the Advanced JSON editor no longer resets the layer's zoom
+  range.** Apply wrote the editor's copy of the layout back wholesale,
+  and that copy has the zoom bounds stripped — so an Apply with no edits
+  at all silently wiped a configured min/max zoom back to the defaults.
+  (#770)
+- **Folder groups no longer produce phantom legend entries**, on screen
+  or in the PNG export. (#769)
 
 ### Changed
 
@@ -85,13 +110,22 @@ and releases use semantic versioning.
 - **The backup container reports unhealthy when backups stop
   succeeding**, not just when its loop dies — operators see a red
   container instead of discovering stale backups during a restore.
-  (#800)
+  Freshness is judged against the new `BACKUP_MAX_AGE_MINUTES` setting
+  (default 1560 minutes = 26 hours, sized for the default daily
+  schedule); operators on a non-daily `BACKUP_SCHEDULE` must set it to
+  roughly 1.5× their backup interval. (#800)
 - **Destructive confirms are consistently ordered** (safe action left,
   destructive right) across the builder, and revoking a share link asks
   first. (#809)
 - **Builder accessibility batch**: accessible names on maps, sliders and
   rename inputs, live regions that announce reliably, translated drag
   announcements, and honest inline-confirm semantics. (#804, #810)
+- **The Add Data dialog stays open across adds**, so several datasets
+  can be added in one pass; the layer editor opens on the last added
+  layer once the dialog closes instead of landing behind it. (#776)
+- **The first-run empty state matches a stock install**: the copy no
+  longer points at starter datasets and an Upload button a fresh
+  install doesn't have, in all four languages. (#780)
 - **Analysis correctness batch**: terminal job writes are fenced,
   renamed outputs surface correctly, the output size check measures the
   real output, the stack selection is honored, and a drawn clip mask
@@ -100,6 +134,13 @@ and releases use semantic versioning.
   a required job fails instead of skipping, path filters that actually
   cover the files jobs read (including the root `package.json`, so a
   Playwright bump runs the suites again), and workflow hardening.
+
+### Dependencies
+
+- Routine runtime updates: anthropic, sqlglot, boto3, cachetools,
+  prometheus-fastapi-instrumentator, and sse-starlette on the backend;
+  the React and TanStack ecosystems, lucide-react, and Tailwind tooling
+  on the frontend.
 
 ## [1.5.1] - 2026-07-27
 

@@ -106,6 +106,11 @@ def sync_detailed(
 
      Check if a map has non-public datasets. Informational only.
 
+    Owner-or-admin like the other sharing mutations: the response names
+    non-public dataset titles, which read access alone must not reveal.
+    Read access is checked first so unreadable maps keep answering 404
+    (SEC-007 existence-hiding); readable non-owners get 403.
+
     Args:
         map_id (UUID):
 
@@ -137,6 +142,11 @@ def sync(
 
      Check if a map has non-public datasets. Informational only.
 
+    Owner-or-admin like the other sharing mutations: the response names
+    non-public dataset titles, which read access alone must not reveal.
+    Read access is checked first so unreadable maps keep answering 404
+    (SEC-007 existence-hiding); readable non-owners get 403.
+
     Args:
         map_id (UUID):
 
@@ -162,6 +172,11 @@ async def asyncio_detailed(
     """Visibility Check Endpoint
 
      Check if a map has non-public datasets. Informational only.
+
+    Owner-or-admin like the other sharing mutations: the response names
+    non-public dataset titles, which read access alone must not reveal.
+    Read access is checked first so unreadable maps keep answering 404
+    (SEC-007 existence-hiding); readable non-owners get 403.
 
     Args:
         map_id (UUID):
@@ -191,6 +206,11 @@ async def asyncio(
     """Visibility Check Endpoint
 
      Check if a map has non-public datasets. Informational only.
+
+    Owner-or-admin like the other sharing mutations: the response names
+    non-public dataset titles, which read access alone must not reveal.
+    Read access is checked first so unreadable maps keep answering 404
+    (SEC-007 existence-hiding); readable non-owners get 403.
 
     Args:
         map_id (UUID):

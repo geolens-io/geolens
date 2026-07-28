@@ -46535,7 +46535,7 @@
     },
     "/maps/{map_id}/visibility-check/": {
       "get": {
-        "description": "Check if a map has non-public datasets. Informational only.",
+        "description": "Check if a map has non-public datasets. Informational only.\n\nOwner-or-admin like the other sharing mutations: the response names\nnon-public dataset titles, which read access alone must not reveal.\nRead access is checked first so unreadable maps keep answering 404\n(SEC-007 existence-hiding); readable non-owners get 403.",
         "operationId": "visibility_check_endpoint_maps__map_id__visibility_check__get",
         "parameters": [
           {

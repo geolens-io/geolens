@@ -161,7 +161,10 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: 22
+          # fix(#819): Node 24 ships npm 11.x — OIDC Trusted Publishing requires npm >= 11.5.1.
+          # Node 22 (npm 10.x) cannot authenticate; there is no NODE_AUTH_TOKEN
+          # fallback on the publish step, so the npm version IS the auth path.
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
@@ -215,8 +218,8 @@ jobs:
         # Trusted Publishing: the workflow's `id-token: write` permission plus the npm
         # trusted publisher configured for @geolens/sdk (geolens-io/geolens · this
         # workflow, no environment) let npm authenticate via OIDC — no NPM_TOKEN secret.
-        # npm >= 11.5.1 (installed above) also generates + attaches provenance
-        # automatically, so no explicit --provenance flag is needed. OIDC + provenance
+        # npm >= 11.5.1 (from Node 24 in setup-node above) also generates + attaches
+        # provenance automatically, so no explicit --provenance flag is needed. OIDC + provenance
         # both require a public source repository (it is). `--access public` is kept for
         # the scoped package. NPM_TOKEN secret is now unused (kept as a manual fallback).
         run: npm publish --access public

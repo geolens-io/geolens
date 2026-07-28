@@ -80,3 +80,33 @@ async def test_visibility_check_allows_admin(
     )
 
     assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_visibility_check_rejects_non_owner_editor_on_public_map(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """ATTACK: read access is not enough. The response names non-public
+    dataset titles, so the endpoint is owner-or-admin like the other sharing
+    routes — a non-owner editor is refused (403) even on a PUBLIC (readable)
+    map; unreadable maps keep the SEC-007 404."""
+    import uuid as _uuid
+
+    from app.modules.catalog.maps.models import Map
+
+    owner_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+    attacker_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+    map_id = await _create_private_map(client, owner_headers)
+
+    m = await test_db_session.get(Map, _uuid.UUID(map_id))
+    m.visibility = "public"
+    await test_db_session.commit()
+
+    resp = await client.get(
+        f"/maps/{map_id}/visibility-check/", headers=attacker_headers
+    )
+
+    assert resp.status_code == 403, (
+        f"a non-owner editor read a public map's visibility-check "
+        f"(non-public dataset titles), got {resp.status_code}: {resp.text}"
+    )

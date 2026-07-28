@@ -184,11 +184,18 @@ async def visibility_check_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> VisibilityCheckResponse:
-    """Check if a map has non-public datasets. Informational only."""
+    """Check if a map has non-public datasets. Informational only.
+
+    Owner-or-admin like the other sharing mutations: the response names
+    non-public dataset titles, which read access alone must not reveal.
+    Read access is checked first so unreadable maps keep answering 404
+    (SEC-007 existence-hiding); readable non-owners get 403.
+    """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
     await _check_map_read_access(map_obj, user, db)
+    await check_map_ownership(map_obj, user, db)
     non_public_names = await validate_public_visibility(db, map_id)
     return VisibilityCheckResponse(
         non_public_datasets=non_public_names,

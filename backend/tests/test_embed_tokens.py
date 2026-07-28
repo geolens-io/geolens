@@ -2238,3 +2238,30 @@ class TestBulkRevokeTenantFilter:
             f"belonging to tenant_b (token id={token_b_id}). Expected 0 — "
             "cross-tenant revocation must be blocked."
         )
+
+
+@pytest.mark.anyio
+async def test_embed_token_endpoints_require_edit_metadata(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Embed tokens are anonymous tile capabilities that outrank the share
+    link they accompany, so every CRUD endpoint carries the same
+    edit_metadata gate as share-link creation. A viewer gets 403 from the
+    permission dependency before any map lookup (404 would mean the gate is
+    missing and ownership answered instead)."""
+    from .conftest import _create_test_user
+
+    viewer_headers, _ = await _create_test_user(client, admin_auth_header, "viewer")
+    base = f"/maps/{uuid.uuid4()}/embed-tokens"
+    token_id = uuid.uuid4()
+
+    resp = await client.post(f"{base}/", json={}, headers=viewer_headers)
+    assert resp.status_code == 403, resp.text
+    resp = await client.get(f"{base}/", headers=viewer_headers)
+    assert resp.status_code == 403, resp.text
+    resp = await client.patch(
+        f"{base}/{token_id}/", json={"allowed_origins": None}, headers=viewer_headers
+    )
+    assert resp.status_code == 403, resp.text
+    resp = await client.delete(f"{base}/{token_id}/", headers=viewer_headers)
+    assert resp.status_code == 403, resp.text

@@ -154,9 +154,10 @@ dump**. Schema migrations move forward only.
 # 1. Re-pin the previous version in .env (edit the GEOLENS_VERSION= line):
 #    GEOLENS_VERSION=1.2.3      # the version you upgraded FROM
 
-# 2. Restore the pre-upgrade dump. scripts/restore.sh validates the dump with
-#    `pg_restore --list`, stops api/worker, and runs `pg_restore` (it always
-#    restarts api/worker afterward). Pass the dump file the upgrade created:
+# 2. Restore the pre-upgrade dump. scripts/restore.sh validates the dump
+#    end-to-end (`pg_restore -f /dev/null`), stops api/worker, and runs
+#    `pg_restore` (it always restarts api/worker afterward). Pass the dump
+#    file the upgrade created:
 ./scripts/restore.sh backups/pre-upgrade/<db>_pre_<old>_to_<new>_<timestamp>.dump
 
 # 3. Bring the previous version back up:
@@ -192,6 +193,14 @@ Notes:
   they reference. The staging archive captures the local `upload_staging` volume
   only; deployments that offload objects to an external S3/MinIO bucket must back
   that bucket up separately.
+- The backup service **fails fast on misconfiguration** (since 1.6.0): a
+  `BACKUP_RETENTION_DAILY`/`BACKUP_RETENTION_WEEKLY` below 1 makes the
+  container exit at boot (it would delete each backup as soon as it was
+  written), and `BACKUP_S3_ENABLED=true` with `S3_BUCKET`,
+  `S3_ACCESS_KEY_ID`, or `S3_SECRET_ACCESS_KEY` unset fails the backup cycle
+  instead of silently skipping the offsite upload. Either misconfiguration
+  surfaces as a restarting/unhealthy `backup` container after an upgrade —
+  fix the `.env` values; the rest of the stack is unaffected.
 - The upgrade flow takes its own **pre-upgrade** dump under
   `backups/pre-upgrade/` independently of the scheduled backup service, so you
   always have a known-good restore point for the upgrade you just ran.
