@@ -230,8 +230,10 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // the dropzone validated against nothing (or stale values) during the fetch
   // window: extension and per-file size are re-checked per file with the same
   // rejection toast react-dropzone shows (Codex P2 round 2 on PR #432), then
-  // the batch cap with the fresh quota. Over-cap batches are rejected whole,
-  // matching react-dropzone's maxFiles behavior.
+  // the batch cap with the fresh quota. Over-cap batches are trimmed to the
+  // cap and the overflow rejected per file, matching react-dropzone v19's
+  // maxFiles behavior (v19 accepts files up to the limit instead of
+  // rejecting the batch wholesale).
   useEffect(() => {
     if (configFetching || !pendingFiles || phase !== 'idle') return;
     setPendingFiles(null);
@@ -251,11 +253,10 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     });
     if (files.length === 0) return;
     const limit = effectiveBatchLimit(uploadConfig?.remaining_dataset_quota ?? null);
-    if (files.length > limit) {
-      toast.error(t('dropzone.batchLimit', { max: limit }));
-      return;
+    for (const f of files.slice(limit)) {
+      toast.error(t('dropzone.fileRejected', { filename: f.name, reason: t('dropzone.batchLimit', { max: limit }) }));
     }
-    void processFiles(files);
+    void processFiles(files.slice(0, limit));
     // processFiles is recreated per render; the pendingFiles/configFetching
     // guards make re-runs no-ops, so listing it is safe.
   }, [configFetching, pendingFiles, phase, uploadConfig?.remaining_dataset_quota, allowedExtensions, maxSizeMb, processFiles, t]);
