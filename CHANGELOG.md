@@ -61,11 +61,10 @@ and releases use semantic versioning.
   before committing, and leaving public warns that existing share links
   will stop working. Changes that don't cross that boundary keep their
   one-click behavior. (#778)
-- **Admin AI status surfaces respect multi-tenant permissions** — they
-  now gate on the same mode-aware capability the backend checks
-  (`manage_tenants` in multi-tenant, `manage_users` otherwise), so fleet
-  operators see the AI status card and user-managers no longer fire
-  requests the backend rejects. (#653)
+- **Admin AI status surfaces gate on the same capability the backend
+  checks**, so operators who can read AI status always see the card, and
+  users without that capability no longer fire requests the backend
+  rejects. (#653)
 - **Feature popups open from the keyboard in the shared-map viewer**,
   matching the builder.
 - **A cancelled or fenced-off analysis job cleans up its orphan output
