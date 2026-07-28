@@ -9,6 +9,7 @@ import { RasterLayerControls } from './RasterLayerControls';
 import { InlineDeleteConfirm } from './row-chrome';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { getGeometryTypeLabel } from '@/i18n/labels';
 import { getRenderAsOptions, getCurrentRenderAs, hasCustomizedRenderAsStyle, type RenderAsId } from './renderAs';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
@@ -73,6 +74,7 @@ interface LayerEditorPanelProps {
 // LayerEditorTypePill — small inline chip showing layer type in the header
 // ---------------------------------------------------------------------------
 function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
+  const { t } = useTranslation('builder');
   const caps = getLayerCapabilities(layer);
   const geometryType = layer.dataset_geometry_type;
   const renderMode = (layer.style_config as Record<string, unknown> | null)?.render_mode as string | undefined;
@@ -80,12 +82,20 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
   let label: string;
   if (caps.kind === 'raster' || caps.kind === 'vrt') {
     if (layer.is_dem) {
-      label = renderMode ? `DEM · ${renderMode}` : 'DEM';
+      // i18n: was the raw internal render_mode enum ('hillshade'/'terrain').
+      const modeLabel = renderMode === 'hillshade'
+        ? t('layerEditor.typePill.hillshade', { defaultValue: 'Hillshade' })
+        : renderMode === 'terrain'
+          ? t('layerEditor.typePill.terrain', { defaultValue: 'Terrain' })
+          : renderMode;
+      label = modeLabel ? `DEM · ${modeLabel}` : 'DEM';
     } else {
-      label = caps.kind === 'vrt' ? 'VRT' : 'Raster';
+      label = caps.kind === 'vrt' ? 'VRT' : t('search.raster', { defaultValue: 'Raster' });
     }
   } else {
-    label = geometryType ?? 'Vector';
+    label = geometryType
+      ? getGeometryTypeLabel(t, geometryType)
+      : t('search.vector', { defaultValue: 'Vector' });
   }
 
   return (

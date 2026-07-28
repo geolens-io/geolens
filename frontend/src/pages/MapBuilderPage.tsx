@@ -2004,7 +2004,14 @@ export function MapBuilderPage() {
                   disabled={btn.disabled}
                   data-unavailable={btn.unavailable || undefined}
                   title={btn.label}
-                  aria-label={btn.label}
+                  // MAP-22 rework: notes-presence folds into the button's own
+                  // accessible name (aria-label replaces the subtree, so a
+                  // label on the dot span was never exposed).
+                  aria-label={
+                    btn.id === 'notes' && dockNotes.trim().length > 0
+                      ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
+                      : btn.label
+                  }
                   aria-pressed={railPanel === btn.id}
                   // fix(#760): mirrors BuilderRail's feat(#682) job signal.
                   aria-busy={btn.id === 'analysis' && analysisJobRunning}
@@ -2022,12 +2029,14 @@ export function MapBuilderPage() {
                   ) : (
                     <btn.icon className="h-4 w-4" aria-hidden="true" />
                   )}
-                  {/* MAP-22: presence dot on mobile Notes button — mirrors BuilderRail.tsx:105-110.
-                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps MAP-22
-                      parity at 414×896. */}
+                  {/* MAP-22: presence dot on mobile Notes button — mirrors the
+                      BuilderRail rail-button dot (search for MAP-22 there).
+                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps
+                      MAP-22 parity at 414×896. Decorative: the state is announced via
+                      the button's conditional aria-label above. */}
                   {btn.id === 'notes' && dockNotes.trim().length > 0 && (
                     <span
-                      aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
+                      aria-hidden="true"
                       className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
                     />
                   )}

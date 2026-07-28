@@ -187,6 +187,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.haloWidth')}</span>
             <Slider
+              aria-label={t('labels.haloWidth')}
               value={[labelConfig.haloWidth ?? 1.5]}
               min={0}
               max={4}
@@ -247,6 +248,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground w-20">{t('labels.offsetX')}</span>
                 <Slider
+                  aria-label={t('labels.offsetX')}
                   value={[effectiveOffset[0]]}
                   min={-3}
                   max={3}
@@ -261,6 +263,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground w-20">{t('labels.offsetY')}</span>
                 <Slider
+                  aria-label={t('labels.offsetY')}
                   value={[effectiveOffset[1]]}
                   min={-3}
                   max={3}
@@ -291,6 +294,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.minZoom')}</span>
             <Slider
+              aria-label={t('labels.minZoom')}
               value={[labelConfig.minZoom ?? 0]}
               min={0}
               max={(labelConfig.maxZoom ?? 22) - 1}
@@ -305,6 +309,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.maxZoom')}</span>
             <Slider
+              aria-label={t('labels.maxZoom')}
               value={[labelConfig.maxZoom ?? 22]}
               min={(labelConfig.minZoom ?? 0) + 1}
               max={22}

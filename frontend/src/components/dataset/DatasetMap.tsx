@@ -1018,7 +1018,7 @@ export const DatasetMap = memo(function DatasetMap({
               {t('map.deleteFeatureDescription')}
               {selectedFeature?.gid != null && (
                 <span className="block mt-1 text-xs text-muted-foreground">
-                  Feature ID: {selectedFeature.gid}
+                  {t('map.featureId', { id: selectedFeature.gid, defaultValue: 'Feature ID: {{id}}' })}
                 </span>
               )}
             </AlertDialogDescription>

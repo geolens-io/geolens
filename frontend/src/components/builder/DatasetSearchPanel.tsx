@@ -65,13 +65,15 @@ function isRasterRecord(recordType: RecordType | undefined) {
   return recordType === 'raster_dataset' || recordType === 'vrt_dataset';
 }
 
-function typeMeta(record: OGCRecordResponse) {
+// i18n: was hardcoded English ('Raster'/'Table'/'Vector') plus the raw
+// geometry enum (e.g. MULTIPOLYGON) — localize like the result-row badges.
+function typeMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   const props = record.properties;
   const recordType = props.record_type ?? 'vector_dataset';
-  if (isRasterRecord(recordType)) return 'Raster';
-  if (recordType === 'table') return 'Table';
-  if (props.geometry_type) return props.geometry_type;
-  return 'Vector';
+  if (isRasterRecord(recordType)) return t('search.raster', { defaultValue: 'Raster' });
+  if (recordType === 'table') return t('search.table', { defaultValue: 'Table' });
+  if (props.geometry_type) return getGeometryTypeLabel(t, props.geometry_type);
+  return t('search.vector', { defaultValue: 'Vector' });
 }
 
 // fix(#788): "1 features" — the counts were hardcoded English with no plural
@@ -142,7 +144,7 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
   const { t } = useTranslation('builder');
   const props = record.properties;
   const rows = [
-    [t('search.metadata.type', { defaultValue: 'Type' }), typeMeta(record)],
+    [t('search.metadata.type', { defaultValue: 'Type' }), typeMeta(record, t)],
     [t('search.metadata.source', { defaultValue: 'Source' }), props.source_organization],
     [t('search.metadata.count', { defaultValue: 'Count' }), featureMeta(record, t)],
     [t('search.metadata.crs', { defaultValue: 'CRS' }), props.epsg ? `EPSG:${props.epsg}` : props.crs],
@@ -527,51 +529,56 @@ export function DatasetSearchPanel({
         <div className="h-0.5 w-full bg-[var(--primary)] animate-pulse" />
       )}
 
-      {/* State A: Unfiltered empty — catalog is empty */}
-      {!isLoading && !isFetching && !isError
-        && debouncedQuery.trim().length === 0 && results.length === 0 && (
-        <div role="status" className="flex flex-col items-center gap-2 px-4 py-6">
-          <Inbox className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <p className="text-center text-sm font-semibold">
-            {t('search.catalogEmpty', { defaultValue: 'Your catalog is empty. Upload a dataset to get started.' })}
-          </p>
-          {/* builder-audit #338 SEARCH-01: only show the Upload CTA when the session can upload. */}
-          {canImport && (
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/import">
-                {t('search.uploadCta', { defaultValue: 'Upload a file →' })}
+      {/* Empty states — ONE permanently-mounted live region whose content
+          toggles. Conditionally-mounted role="status" regions appear
+          pre-populated, so assistive tech never announced them. */}
+      <div role="status">
+        {/* State A: Unfiltered empty — catalog is empty */}
+        {!isLoading && !isFetching && !isError
+          && debouncedQuery.trim().length === 0 && results.length === 0 && (
+          <div className="flex flex-col items-center gap-2 px-4 py-6">
+            <Inbox className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="text-center text-sm font-semibold">
+              {t('search.catalogEmpty', { defaultValue: 'Your catalog is empty. Upload a dataset to get started.' })}
+            </p>
+            {/* builder-audit #338 SEARCH-01: only show the Upload CTA when the session can upload. */}
+            {canImport && (
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/import">
+                  {t('search.uploadCta', { defaultValue: 'Upload a file →' })}
+                </Link>
+              </Button>
+            )}
+            <Button variant="link" size="sm" className="text-muted-foreground text-xs" asChild>
+              <Link to="/collections">
+                {t('search.browseCatalogCta', { defaultValue: 'Browse public catalog →' })}
               </Link>
             </Button>
-          )}
-          <Button variant="link" size="sm" className="text-muted-foreground text-xs" asChild>
-            <Link to="/collections">
-              {t('search.browseCatalogCta', { defaultValue: 'Browse public catalog →' })}
-            </Link>
-          </Button>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* State B: Zero-result — query entered, no matches */}
-      {!isLoading && !isFetching && !isError
-        && debouncedQuery.trim().length > 0 && results.length === 0 && (
-        <div role="status" className="flex flex-col items-center gap-2 px-4 py-6">
-          <SearchX className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <p className="text-center text-sm font-semibold">
-            {t('search.zeroResultHeading', { defaultValue: "No datasets match '{{query}}'", query: debouncedQuery.trim() })}
-          </p>
-          <p className="text-center text-xs text-muted-foreground">
-            {t('search.zeroResultBody', { defaultValue: 'Try a different search term, or browse all datasets.' })}
-          </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={t('search.clearSearch', { defaultValue: 'Clear search and show all datasets' })}
-            onClick={() => setQuery('')}
-          >
-            {t('search.clearSearch', { defaultValue: 'Clear search' })}
-          </Button>
-        </div>
-      )}
+        {/* State B: Zero-result — query entered, no matches */}
+        {!isLoading && !isFetching && !isError
+          && debouncedQuery.trim().length > 0 && results.length === 0 && (
+          <div className="flex flex-col items-center gap-2 px-4 py-6">
+            <SearchX className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="text-center text-sm font-semibold">
+              {t('search.zeroResultHeading', { defaultValue: "No datasets match '{{query}}'", query: debouncedQuery.trim() })}
+            </p>
+            <p className="text-center text-xs text-muted-foreground">
+              {t('search.zeroResultBody', { defaultValue: 'Try a different search term, or browse all datasets.' })}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={t('search.clearSearch', { defaultValue: 'Clear search and show all datasets' })}
+              onClick={() => setQuery('')}
+            >
+              {t('search.clearSearch', { defaultValue: 'Clear search' })}
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* ux(#776): no pointer-events/opacity freeze during debounced
           refetches — the pulse band above already signals them, and the

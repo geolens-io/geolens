@@ -44,7 +44,10 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
   const activeStep = PHASE_TO_STEP[phase];
 
   return (
-    <aside className="sticky top-28 flex flex-col gap-4">
+    <aside
+      aria-label={t('rail.asideLabel', { defaultValue: 'Import workflow' })}
+      className="sticky top-28 flex flex-col gap-4"
+    >
       {/* Workflow steps */}
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="eyebrow mb-3">
@@ -122,7 +125,12 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
   const isStac = mode === 'stac';
 
   return (
-    <aside className="sticky top-28 flex flex-col gap-4">
+    // Same label as the upload-mode aside above — they are alternative
+    // branches of the one import-workflow sidebar landmark.
+    <aside
+      aria-label={t('rail.asideLabel', { defaultValue: 'Import workflow' })}
+      className="sticky top-28 flex flex-col gap-4"
+    >
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="eyebrow mb-2">
           {isRegister
