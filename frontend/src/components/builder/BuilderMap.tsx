@@ -856,12 +856,18 @@ export const BuilderMap = memo(function BuilderMap({
     if (!tileConfigReady) return;
 
     const onStyleLoad = () => {
-      const { layers: l, tokenMap: t } = syncInputsRef.current;
+      const { layers: l, tokenMap: t, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
       lastOrderKeyRef.current = '';
       // Gate on tokenMap presence so a later token arrival is picked up by the
       // main sync effect's tokenMap dep — no separate retry needed.
-      if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
+      if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) {
+        // fix(#845 Codex P2 r5 on #848): the swap reset the style's projection
+        // and basemap appearance; restore them even while the token gate
+        // defers layer sync, so token availability never controls projection.
+        applyMapBasemapAppearance({ map, basemapConfig: bc, showBasemapLabels: sbl });
+        return;
+      }
       // Post-basemap-swap: defer terrain to the next idle (immediateTerrain=false).
       composeSync(map, { immediateTerrain: false });
     };

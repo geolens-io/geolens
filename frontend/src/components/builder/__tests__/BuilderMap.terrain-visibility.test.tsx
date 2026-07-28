@@ -13,8 +13,8 @@
 
 import type { ReactNode } from 'react';
 import { act, render } from '@/test/test-utils';
-import { TERRAIN_SOURCE_ID } from '../map-sync';
-import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
+import { TERRAIN_SOURCE_ID, applyBasemapConfigToMap, syncLayersToMap } from '../map-sync';
+import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { RasterTileToken } from '@/api/tiles';
 import { BuilderMap } from '../BuilderMap';
 
@@ -91,6 +91,7 @@ type FakeMap = {
   isStyleLoaded: ReturnType<typeof vi.fn>;
   getCanvas: ReturnType<typeof vi.fn>;
   setTerrain: ReturnType<typeof vi.fn>;
+  setProjection: ReturnType<typeof vi.fn>;
   triggerRepaint: ReturnType<typeof vi.fn>;
   getSource: ReturnType<typeof vi.fn>;
   getLayer: ReturnType<typeof vi.fn>;
@@ -125,6 +126,7 @@ const mapState = vi.hoisted(() => {
     isStyleLoaded: vi.fn(() => true),
     getCanvas: vi.fn(() => ({ style: { cursor: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     setTerrain: vi.fn(),
+    setProjection: vi.fn(),
     triggerRepaint: vi.fn(),
     // Pre-register the TERRAIN_SOURCE_ID source so ensureRasterDemTerrainSource's
     // internal source-exists check passes (belt-and-suspenders; the mock is a no-op).
@@ -152,6 +154,7 @@ const mapState = vi.hoisted(() => {
       fakeMap.isStyleLoaded.mockClear();
       fakeMap.getCanvas.mockClear();
       fakeMap.setTerrain.mockClear();
+      fakeMap.setProjection.mockClear();
       fakeMap.triggerRepaint.mockClear();
       fakeMap.getSource.mockClear();
       fakeMap.getLayer.mockClear();
@@ -379,5 +382,50 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
     const setTerrainCalls = mapState.fakeMap.setTerrain.mock.calls;
     expect(setTerrainCalls.length).toBeGreaterThan(0);
     expect(setTerrainCalls[setTerrainCalls.length - 1][0]).toMatchObject({ source: TERRAIN_SOURCE_ID });
+  });
+});
+
+describe('BuilderMap style.load token gate (fix(#845 Codex P2 r5 on #848))', () => {
+  beforeEach(() => {
+    mapState.reset();
+    vi.mocked(applyBasemapConfigToMap).mockClear();
+    vi.mocked(syncLayersToMap).mockClear();
+  });
+
+  it('restores basemap appearance and projection when the token gate defers layer sync', async () => {
+    // Token still loading → tokenMap has no entry for the layer's dataset,
+    // so onStyleLoad hits the missing-token early return.
+    tileTokenState.tokens = [{ data: undefined, isLoading: true, isError: false }];
+    const basemapConfig = { projection: 'globe' } as MapBasemapConfig;
+
+    await act(async () => {
+      render(
+        <BuilderMap
+          layers={[makeDemLayer(true)]}
+          basemapStyle="openfreemap-positron"
+          terrainConfig={null}
+          basemapConfig={basemapConfig}
+        />,
+      );
+    });
+    vi.mocked(applyBasemapConfigToMap).mockClear();
+    vi.mocked(syncLayersToMap).mockClear();
+    mapState.fakeMap.setProjection.mockClear();
+
+    // Basemap swap resets the style's projection/appearance.
+    await act(async () => {
+      mapState.fakeMap.emit('style.load');
+    });
+
+    // Layer sync stays deferred (no token yet)…
+    expect(syncLayersToMap).not.toHaveBeenCalled();
+    // …but the live appearance, including the saved projection, is restored.
+    expect(applyBasemapConfigToMap).toHaveBeenCalledWith(
+      expect.anything(),
+      basemapConfig,
+      true,
+      'source-',
+    );
+    expect(mapState.fakeMap.setProjection).toHaveBeenCalledWith({ type: 'globe' });
   });
 });
