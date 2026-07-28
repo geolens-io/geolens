@@ -53,6 +53,15 @@ vi.mock('@/stores/auth-store', async () => {
   return { useAuthStore: store };
 });
 
+// fix(#816): the Settings CTA gates on can('manage_settings') — the
+// capability the /admin/settings route enforces — not the isAdmin flag.
+const permMocks = vi.hoisted(() => ({ capabilities: new Set<string>() }));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    can: (capability: string) => permMocks.capabilities.has(capability),
+  }),
+}));
+
 function RailHarness({ showRail = true, aiAvailable = true }: { showRail?: boolean; aiAvailable?: boolean }) {
   const [activePanel, setActivePanel] = useState<RailPanel>(null);
   return (
@@ -319,56 +328,62 @@ describe('BuilderRail — disabled-state taxonomy (Phase 1135 AI-02)', () => {
       status: 'success',
     } as never);
     useAuthStore.setState({ token: null, user: null });
+    permMocks.capabilities = new Set();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders 'AI is disabled' + 'Go to Settings' CTA when reason='env_disabled' and isAdmin", () => {
+  it("renders 'AI is disabled' + 'Go to Settings' CTA when reason='env_disabled' and caller holds manage_settings", () => {
     vi.spyOn(availabilityModule, 'useAIAvailability').mockReturnValue({
       data: { enabled: false, configured: false } as never,
       isLoading: false,
       isAIAvailable: false,
       reason: 'env_disabled',
     } as never);
+    permMocks.capabilities = new Set(['manage_settings']);
     useAuthStore.setState({ token: 't', user: { roles: ['admin'] } } as never);
     render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
     expect(screen.getByText(/AI is disabled/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /go to settings/i })).toBeInTheDocument();
+    const cta = screen.getByRole('link', { name: /go to settings/i });
+    // fix(#816): the ?tab=ai form bounced to the General tab via the bare-path redirect.
+    expect(cta).toHaveAttribute('href', '/admin/settings/ai');
   });
 
-  it("renders 'AI is disabled' but NO CTA when reason='env_disabled' and NOT isAdmin", () => {
+  it("renders 'AI is disabled' but NO CTA without manage_settings (even for the admin role flag)", () => {
     vi.spyOn(availabilityModule, 'useAIAvailability').mockReturnValue({
       data: { enabled: false } as never,
       isLoading: false,
       isAIAvailable: false,
       reason: 'env_disabled',
     } as never);
-    useAuthStore.setState({ token: 't', user: { roles: ['member'] } } as never);
+    useAuthStore.setState({ token: 't', user: { roles: ['admin'] } } as never);
     render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
     expect(screen.getByText(/AI is disabled/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /go to settings/i })).not.toBeInTheDocument();
   });
 
-  it("renders 'AI not configured' + 'Configure in Settings' CTA when reason='no_key' and isAdmin", () => {
+  it("renders 'AI not configured' + 'Configure in Settings' CTA when reason='no_key' and caller holds manage_settings", () => {
     vi.spyOn(availabilityModule, 'useAIAvailability').mockReturnValue({
       isLoading: false,
       isAIAvailable: false,
       reason: 'no_key',
     } as never);
+    permMocks.capabilities = new Set(['manage_settings']);
     useAuthStore.setState({ token: 't', user: { roles: ['admin'] } } as never);
     render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
     expect(screen.getByText(/AI not configured/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /configure in settings/i })).toBeInTheDocument();
   });
 
-  it("renders 'AI unavailable' + NO CTA when reason='permission' regardless of isAdmin", () => {
+  it("renders 'AI unavailable' + NO CTA when reason='permission' regardless of capabilities", () => {
     vi.spyOn(availabilityModule, 'useAIAvailability').mockReturnValue({
       isLoading: false,
       isAIAvailable: false,
       reason: 'permission',
     } as never);
+    permMocks.capabilities = new Set(['manage_settings']);
     useAuthStore.setState({ token: 't', user: { roles: ['admin'] } } as never);
     render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
     // The status container has the 'AI unavailable' title; use data-ai-reason to scope

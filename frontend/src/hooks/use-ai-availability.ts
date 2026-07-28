@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAIStatus } from '@/hooks/use-admin';
 import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
+import { useEdition } from '@/hooks/use-edition';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAIAvailability } from '@/api/maps';
@@ -54,17 +55,22 @@ export function useAIAvailability() {
   // fix(#815): branch on the backend's actual gate (mode-aware capability),
   // not the isAdmin flag — the flag both over- and under-selected.
   const canReadStatus = useAIStatusReader();
+  // fix(#816): canReadStatus derives from the edition query's tenancy mode,
+  // which reads as single-tenant until that query settles — probing before
+  // then can hit the wrong endpoint (a 403 that lands in error telemetry).
+  // Hold both probes until the edition is known.
+  const editionResolved = !useEdition().isLoading;
   const { can } = usePermissions();
   const canUse = can('use_ai_chat');
 
   // Status readers get the detailed admin status (provider/key info for the reason taxonomy).
-  const adminStatus = useAIStatus({ enabled: !!token && canReadStatus });
+  const adminStatus = useAIStatus({ enabled: !!token && editionResolved && canReadStatus });
   // Other editors holding use_ai_chat read the public-safe availability signal.
   // Viewers (!canUse) fire nothing — avoids 403 console noise.
   const availabilityQuery = useQuery({
     queryKey: queryKeys.maps.aiAvailability,
     queryFn: getAIAvailability,
-    enabled: !!token && !canReadStatus && canUse,
+    enabled: !!token && editionResolved && !canReadStatus && canUse,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
   });
@@ -95,7 +101,9 @@ export function useAIAvailability() {
   // Surface the loading/error state of whichever query is actually active so the
   // disabled-state UI can show a spinner instead of premature "unavailable" copy.
   const activeQuery = canReadStatus ? adminStatus : availabilityQuery;
-  const isLoading = canUse && activeQuery.fetchStatus !== 'idle' && activeQuery.isLoading;
+  const isLoading =
+    canUse &&
+    (!editionResolved || (activeQuery.fetchStatus !== 'idle' && activeQuery.isLoading));
 
   return {
     ...activeQuery,
