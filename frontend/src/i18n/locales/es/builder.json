@@ -1192,6 +1192,7 @@
     "listboxLabel": "Capas del mapa",
     "searchPlaceholder": "Filtrar capas…",
     "searchAriaLabel": "Filtrar capas por nombre",
+    "searchNoMatches": "Ninguna capa coincide con «{{query}}»",
     "emptyRegionLabel": "Sin capas — empezar",
     "emptySearchButton": "Buscar y abrir el cuadro Agregar datos",
     "emptySearchInput": "Buscar conjuntos de datos para agregar",

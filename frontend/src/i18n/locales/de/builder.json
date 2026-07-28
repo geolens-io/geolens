@@ -1192,6 +1192,7 @@
     "listboxLabel": "Karten-Layer",
     "searchPlaceholder": "Layer filtern…",
     "searchAriaLabel": "Layer nach Name filtern",
+    "searchNoMatches": "Keine Layer entsprechen „{{query}}“",
     "emptyRegionLabel": "Keine Layer — loslegen",
     "emptySearchButton": "Suchen und Dialog „Daten hinzufügen“ öffnen",
     "emptySearchInput": "Datensätze zum Hinzufügen suchen",

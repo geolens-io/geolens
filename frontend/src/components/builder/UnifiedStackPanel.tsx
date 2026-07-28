@@ -557,6 +557,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     [visibleStackLayers, groupMeta, layerSearch],
   );
 
+  // fix(v1.6.0 audit D2): a filter that matches nothing used to render a blank
+  // panel with no explanation. renderedRowIds covers DATA rows only — the
+  // basemap row is exempt from filtering and always renders — so size === 0
+  // while a search is active is exactly "no layer matches"; the basemap row
+  // stays visible below the message.
+  const noSearchMatches = !isEmpty && isSearchActive && renderedRowIds.size === 0;
+
   // ---------------------------------------------------------------------------
   // Basemap dock row — rendered in both empty and populated states.
   // In empty state it sits below the EmptyStackState content with a "BASEMAP"
@@ -720,6 +727,20 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           </>
         ) : (
           <>
+            {/* fix(v1.6.0 audit D2): "no layers match" empty state — announced
+                via role="status" so screen readers hear the result count change. */}
+            {noSearchMatches && (
+              <p
+                data-testid="layer-search-no-matches"
+                role="status"
+                className="px-3 py-4 text-center text-xs text-muted-foreground"
+              >
+                {t('unifiedStack.searchNoMatches', {
+                  query: layerSearch.trim(),
+                  defaultValue: 'No layers match “{{query}}”',
+                })}
+              </p>
+            )}
             <SortableContext
               items={sortableIds}
               strategy={verticalListSortingStrategy}

@@ -1196,6 +1196,7 @@
     "listboxLabel": "Map layers",
     "searchPlaceholder": "Filter layers…",
     "searchAriaLabel": "Filter layers by name",
+    "searchNoMatches": "No layers match “{{query}}”",
     "emptyRegionLabel": "No layers — get started",
     "emptySearchButton": "Search and open Add Data modal",
     "emptySearchInput": "Search datasets to add",

@@ -1192,6 +1192,7 @@
     "listboxLabel": "Couches de la carte",
     "searchPlaceholder": "Filtrer les couches…",
     "searchAriaLabel": "Filtrer les couches par nom",
+    "searchNoMatches": "Aucune couche ne correspond à « {{query}} »",
     "emptyRegionLabel": "Aucune couche — commencer",
     "emptySearchButton": "Rechercher et ouvrir la fenêtre Ajouter des données",
     "emptySearchInput": "Rechercher des jeux de données à ajouter",
