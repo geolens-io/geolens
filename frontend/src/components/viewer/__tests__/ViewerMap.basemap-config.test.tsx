@@ -108,11 +108,26 @@ const mapState = vi.hoisted(() => {
 vi.mock('@vis.gl/react-maplibre', async () => {
   const React = await import('react');
   return {
-    Map: ({ children, onLoad }: { children?: ReactNode; onLoad?: (event: { target: FakeMap }) => void }) => {
+    Map: ({
+      children,
+      onLoad,
+      projection,
+    }: {
+      children?: ReactNode;
+      onLoad?: (event: { target: FakeMap }) => void;
+      projection?: string | { type: string };
+    }) => {
       React.useEffect(() => {
         onLoad?.({ target: mapState.fakeMap });
       }, [onLoad]);
-      return <div data-testid="mapgl">{children}</div>;
+      return (
+        <div
+          data-testid="mapgl"
+          data-projection={typeof projection === 'string' ? projection : projection?.type}
+        >
+          {children}
+        </div>
+      );
     },
     NavigationControl: () => null,
     ScaleControl: () => null,
@@ -396,6 +411,15 @@ describe('ViewerMap basemap config runtime', () => {
       showBasemapLabels: true,
       basemapPosition: 'top',
     });
+  });
+
+  it('passes the saved projection to MapGL for cold-mount application (feat(#845))', () => {
+    const globe = renderViewer({ ...BASEMAP_CONFIG, projection: 'globe' });
+    expect(screen.getByTestId('mapgl')).toHaveAttribute('data-projection', 'globe');
+    globe.unmount();
+
+    renderViewer(null);
+    expect(screen.getByTestId('mapgl')).toHaveAttribute('data-projection', 'mercator');
   });
 
   it('syncs duplicate sort-order layers with stable viewer layer IDs', async () => {

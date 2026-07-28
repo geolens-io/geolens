@@ -1089,6 +1089,12 @@ export const ViewerMap = memo(function ViewerMap({
         initialViewState={defaultView}
         mapStyle={mapStyle}
         styleDiffing={false}
+        // feat(#845): the prop covers the cold-mount window — react-maplibre
+        // applies it on the initial style.load, before our onLoad-captured
+        // appearance sync can run. Later basemap switches reset the style's
+        // projection without a prop change, so applyMapBasemapAppearance
+        // still re-applies it directly.
+        projection={basemapConfig?.projection ?? 'mercator'}
         style={{ width: '100%', height: '100%' }}
         attributionControl={false}
         minZoom={1}

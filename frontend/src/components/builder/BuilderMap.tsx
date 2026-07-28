@@ -1389,6 +1389,8 @@ export const BuilderMap = memo(function BuilderMap({
         initialViewState={defaultView}
         mapStyle={mapStyle}
         styleDiffing={false}
+        // feat(#845): cold-mount projection, see ViewerMap's MapGL for rationale.
+        projection={basemapConfig?.projection ?? 'mercator'}
         // PERF-08 (Phase 274): preserveDrawingBuffer dropped — captures use
         // map.triggerRepaint() + synchronous toDataURL() in use-builder-save.ts
         // doCapture / handleExportPNG so the WebGL canvas keeps its default
