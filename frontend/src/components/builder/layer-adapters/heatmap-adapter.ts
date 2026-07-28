@@ -18,8 +18,8 @@ function finiteNumber(value: unknown): number | null {
 /** Build the default heatmap-color interpolation expression using a named ramp.
  *  The expression has transparent (rgba 0,0,0,0) at density 0 so low-density
  *  areas are fully transparent. */
-export function buildHeatmapColorExpression(rampName: string): unknown[] {
-  const colors = getRampColors(rampName, 5);
+export function buildHeatmapColorExpression(rampName: string, reversed = false): unknown[] {
+  const colors = getRampColors(rampName, 5, reversed);
   return [
     'interpolate', ['linear'], ['heatmap-density'],
     0,   MAP_COLORS.transparent,
@@ -73,7 +73,7 @@ export const heatmapAdapter: LayerAdapter = {
     const heatmapOpacity = storedHeatmapOpacity * (opacity ?? 1);
 
     // Use stored color expression or build the default
-    const heatmapColor: unknown = rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP);
+    const heatmapColor: unknown = rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP, builder.heatmapReversed ?? false);
 
     try {
       map.addLayer({
@@ -107,7 +107,7 @@ export const heatmapAdapter: LayerAdapter = {
       'heatmap-radius': rawPaint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'],
       'heatmap-weight': rawPaint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'],
       'heatmap-intensity': rawPaint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'],
-      'heatmap-color': rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP),
+      'heatmap-color': rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP, builder.heatmapReversed ?? false),
     }, { ownedProperties: HEATMAP_OWNED_PAINT_PROPERTIES.filter((prop) => prop !== 'heatmap-opacity') });
 
     // Compound stored heatmap-opacity with master opacity. Single source of truth.

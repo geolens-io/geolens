@@ -881,6 +881,8 @@ export interface BuilderStyleConfig {
   outlineColor?: string;
   outlineWidth?: number;
   heatmapRamp?: string;
+  /** Heatmap color-ramp direction. Builder-private; true renders the ramp reversed. */
+  heatmapReversed?: boolean;
   heatmapWeightColumn?: string;
   heightColumn?: string;
   /** Multiplier applied to numeric heightColumn values for fill extrusions. */
@@ -941,6 +943,8 @@ export interface BuilderStyleConfig {
   hypso_enabled?: boolean;
   /** DEM hypsometric color-ramp name. Builder-private; read back into paint['_hypso-ramp'] on load. */
   hypso_ramp?: string;
+  /** DEM hypsometric ramp direction. Builder-private; read back into paint['_hypso-reversed'] on load. */
+  hypso_reversed?: boolean;
   /** Virtual builder folder-group membership. Stored on real layers; folder rows are reconstructed client-side. */
   folderGroupId?: string;
   folderGroupName?: string;

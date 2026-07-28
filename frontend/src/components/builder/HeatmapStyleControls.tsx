@@ -30,6 +30,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
 
   const weightColumn = (paint['_heatmap-weight-column'] as string) ?? NONE_VALUE;
   const rampName = (paint['_heatmap-ramp'] as string) ?? 'YlOrRd';
+  const reversed = paint['_heatmap-reversed'] === true;
   const radius = typeof paint['heatmap-radius'] === 'number' ? (paint['heatmap-radius'] as number) : 30;
   const intensity = typeof paint['heatmap-intensity'] === 'number' ? (paint['heatmap-intensity'] as number) : 1;
 
@@ -50,9 +51,20 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
     onPaintChange(layer.id, {
       ...paint,
       '_heatmap-ramp': name,
-      'heatmap-color': buildHeatmapColorExpression(name),
+      'heatmap-color': buildHeatmapColorExpression(name, reversed),
     });
-  }, [paint, layer.id, onPaintChange]);
+  }, [paint, layer.id, reversed, onPaintChange]);
+
+  // Reverse toggle: rebuild heatmap-color so the rendered ramp actually flips,
+  // and store the flag so the checkbox round-trips (was an inert default-false
+  // checkbox with no callback wired).
+  const handleReversedChange = useCallback((next: boolean) => {
+    onPaintChange(layer.id, {
+      ...paint,
+      '_heatmap-reversed': next,
+      'heatmap-color': buildHeatmapColorExpression(rampName, next),
+    });
+  }, [paint, layer.id, rampName, onPaintChange]);
 
   const handleRadiusChange = useCallback((val: number) => {
     onPaintChange(layer.id, { ...paint, 'heatmap-radius': val });
@@ -85,7 +97,13 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
       {/* Color ramp */}
       <div className="space-y-1">
         <div className="text-xs font-medium">{t('style.heatmap.colorRamp')}</div>
-        <ColorRampPicker rampName={rampName} onChange={handleRampChange} mode="graduated" />
+        <ColorRampPicker
+          rampName={rampName}
+          onChange={handleRampChange}
+          mode="graduated"
+          reversed={reversed}
+          onReversedChange={handleReversedChange}
+        />
       </div>
 
       {/* Radius */}
@@ -137,6 +155,10 @@ interface SliderRowProps {
   max: number;
   step: number;
   onChange: (val: number) => void;
+  /** Fired on Radix onValueCommit (pointer-up / key release). Lets debounced
+   *  consumers flush the final value immediately instead of losing it when the
+   *  component unmounts before the debounce timer fires. */
+  onCommit?: (val: number) => void;
   /** Pre-computed display string. Takes precedence over `format`. */
   display?: string;
   /** Format shorthand: percent (0-1 → "50%"), px ("5px"), zoom ("3"). */
@@ -153,7 +175,7 @@ function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string 
 }
 
 /** Shared slider row component used by heatmap controls and style editor. */
-export function SliderRow({ label, value, min, max, step, display, format, onChange }: SliderRowProps) {
+export function SliderRow({ label, value, min, max, step, display, format, onChange, onCommit }: SliderRowProps) {
   const displayValue = display ?? formatValue(value, format);
   return (
     <div className="flex items-center gap-2">
@@ -169,6 +191,7 @@ export function SliderRow({ label, value, min, max, step, display, format, onCha
         max={max}
         step={step}
         onValueChange={([v]) => onChange(v)}
+        onValueCommit={onCommit ? ([v]) => onCommit(v) : undefined}
         className="flex-1"
       />
       <span className="text-xs text-muted-foreground w-10 text-end">

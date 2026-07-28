@@ -94,6 +94,7 @@ const PAINT_FALLBACK_FIELDS: PaintFallbackField[] = [
   { paintKeys: ['_outline-color', 'outline-color'], builderKey: 'outlineColor', type: 'string' },
   { paintKeys: ['_outline-width', 'outline-width'], builderKey: 'outlineWidth', type: 'number' },
   { paintKeys: ['_height_column'], builderKey: 'heightColumn', type: 'string' },
+  { paintKeys: ['_heatmap-reversed'], builderKey: 'heatmapReversed', type: 'boolean' },
 ];
 
 function resolvePaintFallback(
@@ -354,6 +355,7 @@ export function normalizeLayerStyleState(
     if (typeof builder.sigma === 'number') cleanPaint._sigma = builder.sigma;
     if (typeof builder.hypso_enabled === 'boolean') cleanPaint['_hypso-enabled'] = builder.hypso_enabled;
     if (typeof builder.hypso_ramp === 'string') cleanPaint['_hypso-ramp'] = builder.hypso_ramp;
+    if (typeof builder.hypso_reversed === 'boolean') cleanPaint['_hypso-reversed'] = builder.hypso_reversed;
   }
   return { style_config, paint: cleanPaint };
 }

@@ -8,9 +8,9 @@ export const CUSTOM_PAINT_PROPS = new Set([
   'outline-width', 'outline-color',
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
-  '_heatmap-ramp', '_heatmap-weight-column',
+  '_heatmap-ramp', '_heatmap-reversed', '_heatmap-weight-column',
   '_height_column',
-  '_hypso-enabled', '_hypso-ramp',
+  '_hypso-enabled', '_hypso-ramp', '_hypso-reversed',
 ]);
 
 /** Canonical geometry family. `other` covers null/empty and tokens that are
