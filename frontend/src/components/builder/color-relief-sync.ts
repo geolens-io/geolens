@@ -60,7 +60,7 @@ export function buildElevationExpression(
   elevMin = DEFAULT_ELEV_MIN,
   elevMax = DEFAULT_ELEV_MAX,
   reversed = false,
-): unknown[] {
+): import('maplibre-gl').ExpressionSpecification {
   const colors = getRampColors(rampName, STOP_COUNT, reversed);
   const step = (elevMax - elevMin) / (colors.length - 1);
   const expr: unknown[] = ['interpolate', ['linear'], ['elevation']];
@@ -75,7 +75,9 @@ export function buildElevationExpression(
   colors.forEach((color, i) => {
     expr.push(elevMin + i * step, color);
   });
-  return expr;
+  // Built by dynamic pushes, so the interpolate tuple shape can't be inferred —
+  // one cast at the boundary the callers consume.
+  return expr as import('maplibre-gl').ExpressionSpecification;
 }
 
 /**
@@ -120,12 +122,10 @@ export function syncColorReliefLayer(
     map.removeLayer(reliefLayerId);
   }
 
-  // builder-audit #338 MAINT-02: pin a narrow local shape for the color-relief layer and cast
-  // ONCE at the addLayer boundary, instead of `as unknown as` on both the type string and
-  // the whole object. 'color-relief' is a native MapLibre 5.24 layer type whose paint keys
-  // (color-relief-color / -opacity) the @maplibre/maplibre-gl-style-spec LayerSpecification
-  // union does not yet model, so this local type is the typed contract for those fields.
-  const reliefLayer: ColorReliefLayerSpec = {
+  // builder-audit #338 MAINT-02 (resolved by #744): the style-spec bump to 26.x
+  // models the color-relief layer natively, so the former local shape + double
+  // cast are gone and addLayer typechecks the paint keys for real.
+  const reliefLayer: import('maplibre-gl').AddLayerObject = {
     id: reliefLayerId,
     type: 'color-relief',
     source: input.sourceId, // existing raster-dem source from hillshade-adapter
@@ -137,23 +137,8 @@ export function syncColorReliefLayer(
   };
 
   map.addLayer(
-    reliefLayer as unknown as import('maplibre-gl').AddLayerObject,
+    reliefLayer,
     // Insert BELOW the hillshade layer so shading renders on top of the tint.
     input.layerId,
   );
-}
-
-/**
- * builder-audit #338 MAINT-02: narrow local type for the native MapLibre 5.24 `color-relief`
- * layer, which the maplibre-gl-style-spec LayerSpecification union does not yet include.
- */
-interface ColorReliefLayerSpec {
-  id: string;
-  type: 'color-relief';
-  source: string;
-  layout: { visibility: 'visible' | 'none' };
-  paint: {
-    'color-relief-color': unknown[];
-    'color-relief-opacity': number;
-  };
 }
