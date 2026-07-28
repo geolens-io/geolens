@@ -21,8 +21,11 @@ set -euo pipefail
 #   S3_ACCESS_KEY_ID       S3 access key
 #   S3_SECRET_ACCESS_KEY   S3 secret key
 #   S3_REGION              S3 region (default: us-east-1)
-#   S3_ALLOW_HTTP          Allow HTTP for S3 (default: false)
 #   S3_ADDRESSING_STYLE    S3 addressing style: auto, path, virtual (default: auto)
+#
+# The uploader (awscli) follows whatever scheme S3_ENDPOINT carries — use an
+# http:// endpoint for plain-HTTP MinIO. There is no separate allow-http knob
+# here; S3_ALLOW_HTTP only affects the app's own object-storage client.
 # ==============================================================================
 
 BACKUP_DIR="/backups"
@@ -41,13 +44,31 @@ BACKUP_RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
 BACKUP_RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
 BACKUP_S3_ENABLED="${BACKUP_S3_ENABLED:-false}"
 S3_REGION="${S3_REGION:-us-east-1}"
-S3_ALLOW_HTTP="${S3_ALLOW_HTTP:-false}"
 
 mkdir -p "$DAILY_DIR" "$WEEKLY_DIR"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
+
+# Retention must be a positive integer: prune keeps only the newest N files,
+# so a retention of 0 would delete the dump this very cycle just produced and
+# then mark the cycle successful — a backup service that retains nothing.
+# Checked on every invocation (startup and cron --run-backup re-entry).
+for _ret_var in BACKUP_RETENTION_DAILY BACKUP_RETENTION_WEEKLY; do
+    eval "_ret_val=\$$_ret_var"
+    case "$_ret_val" in
+        ''|*[!0-9]*)
+            log "ERROR: ${_ret_var}='${_ret_val}' is not a plain integer"
+            exit 1
+            ;;
+    esac
+    if [ "$_ret_val" -lt 1 ]; then
+        log "ERROR: ${_ret_var}='${_ret_val}' must be >= 1 — a retention of 0 would delete each backup as soon as it is written"
+        exit 1
+    fi
+done
+unset _ret_var _ret_val
 
 # ---------------------------------------------------------------------------
 # pg_dump
@@ -61,14 +82,19 @@ run_backup() {
     log "Starting backup: ${filename}"
 
     export PGPASSWORD="${POSTGRES_PASSWORD}"
+    # Dump to a .tmp name and rename only on success: if pg_dump is killed
+    # mid-write (prod mem_limit OOM, container stop, disk full) a truncated
+    # file under the final name would sit in the retention window looking like
+    # a complete backup. The rename makes a *.dump file appear only atomically.
     if pg_dump -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        -Fc --no-owner --no-acl -f "$filepath"; then
+        -Fc --no-owner --no-acl -f "${filepath}.tmp"; then
+        mv "${filepath}.tmp" "$filepath"
         local size
         size="$(du -h "$filepath" | cut -f1)"
         log "Backup complete: ${filename} (${size})"
     else
         log "ERROR: pg_dump failed"
-        rm -f "$filepath"
+        rm -f "${filepath}.tmp"
         return 1
     fi
 
@@ -209,9 +235,13 @@ upload_to_s3() {
     local filepath="$1"
     local s3_key="$2"
 
+    # BACKUP_S3_ENABLED=true is a promise of an offsite copy; missing bucket
+    # or credentials mean that promise cannot be kept, so fail the cycle
+    # (keeping .last-success stale and the healthcheck honest) instead of
+    # skipping quietly and reporting success.
     if [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY_ID:-}" ] || [ -z "${S3_SECRET_ACCESS_KEY:-}" ]; then
-        log "WARNING: S3 upload enabled but credentials missing — skipping"
-        return 0
+        log "ERROR: BACKUP_S3_ENABLED=true but S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are not all set — offsite upload impossible"
+        return 1
     fi
 
     # Pass credentials via environment — not on argv (prevents secret leakage
@@ -383,10 +413,16 @@ sched_min="$(echo "$CRON_EXPR" | awk '{print $1}')"
 sched_hour="$(echo "$CRON_EXPR" | awk '{print $2}')"
 
 while true; do
-    sleep 60
+    # Sleep to just past the next minute boundary rather than a fixed 60s: a
+    # fixed sleep drifts by the loop's own per-iteration cost and can
+    # eventually skip the scheduled minute entirely.
+    sleep $((61 - 10#$(date '+%S')))
     current_hour="$(date '+%-H')"
     current_min="$(date '+%-M')"
-    if [ "$current_hour" = "$sched_hour" ] && [ "$current_min" = "$sched_min" ]; then
+    # Compare numerically in base 10 on both sides: a schedule written with a
+    # zero-padded minute (e.g. "05 2 * * *") passes validation but would never
+    # string-match date's unpadded "5".
+    if [ "$((10#$current_hour))" -eq "$((10#$sched_hour))" ] && [ "$((10#$current_min))" -eq "$((10#$sched_min))" ]; then
         run_backup || log "ERROR: Scheduled backup failed"
         sleep 60  # Avoid double-trigger within the same minute
     fi

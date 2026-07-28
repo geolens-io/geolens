@@ -84,7 +84,10 @@ S3_REGION=us-east-1
 ```
 
 Also set `S3_SECRET_ACCESS_KEY` to your access secret. See `.env.example` for all
-available S3 options including `S3_ALLOW_HTTP`.
+available S3 options including `S3_ADDRESSING_STYLE`. The backup uploader follows
+whatever scheme `S3_ENDPOINT` carries — use an `http://` endpoint for a
+plain-HTTP MinIO (`S3_ALLOW_HTTP` only affects the app's own object-storage
+client, not the backup uploader).
 
 The built-in uploader signs requests with **AWS Signature V4** (awscli), compatible
 with Cloudflare R2, modern AWS S3, and MinIO. A failed upload is logged as
