@@ -142,7 +142,9 @@ and releases use semantic versioning.
   admin-configurable Site Banner (Settings → General) already covers,
   with custom text, a color choice, and per-session dismissal. A set
   `DEMO_MODE` environment variable is now ignored — deployments that
-  relied on it should enable the Site Banner instead. The
+  relied on it should enable the Site Banner instead, which is now also
+  configurable by environment (`BANNER_ENABLED`, `BANNER_TEXT`,
+  `BANNER_COLOR`) so env-only deployments keep a banner path. The
   `/api/auth/config` response no longer includes the `demo_mode` field.
 
 ### Dependencies

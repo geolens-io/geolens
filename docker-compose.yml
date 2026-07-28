@@ -104,6 +104,9 @@ x-notification-env: &notification-env
 
 x-app-runtime-env: &app-runtime-env
   LANDING_FIRST: "${LANDING_FIRST:-false}"
+  BANNER_ENABLED: "${BANNER_ENABLED:-false}"
+  BANNER_TEXT: "${BANNER_TEXT:-}"
+  BANNER_COLOR: "${BANNER_COLOR:-warning}"
   TITILER_BASE_URL: "${TITILER_BASE_URL:-http://titiler:8000}"
 
 # Shared hardening profile for the FastAPI-image trio (api, worker, migrate).

@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     # visitors to the login page as the product landing surface.
     # Default False — self-hosters see zero change on upgrade.
     landing_first: bool = False
+    # fix(#838): site-banner env defaults. With ENV_ONLY_CONFIG=true the
+    # admin UI cannot store overrides, so these env vars are the only way
+    # to show the banner there (they replaced the env-backed DEMO_MODE).
+    banner_enabled: bool = False
+    banner_text: str = ""
+    banner_color: str = "warning"
 
     cors_allowed_origins: str = ""
     upload_max_size_mb: int = Field(default=500, gt=0)

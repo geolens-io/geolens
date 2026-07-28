@@ -510,7 +510,7 @@ LANDING_FIRST = PersistentConfig[bool](
 BANNER_ENABLED = PersistentConfig[bool](
     key="banner_enabled",
     type_=bool,
-    env_default=False,
+    env_default_factory=lambda: settings.banner_enabled,
     tab="general",
     label="Site Banner Enabled",
 )
@@ -518,7 +518,7 @@ BANNER_ENABLED = PersistentConfig[bool](
 BANNER_TEXT = PersistentConfig[str](
     key="banner_text",
     type_=str,
-    env_default="",
+    env_default_factory=lambda: settings.banner_text,
     tab="general",
     label="Site Banner Text",
 )
@@ -526,7 +526,7 @@ BANNER_TEXT = PersistentConfig[str](
 BANNER_COLOR = PersistentConfig[str](
     key="banner_color",
     type_=str,
-    env_default="warning",
+    env_default_factory=lambda: settings.banner_color,
     tab="general",
     label="Site Banner Color",
 )
