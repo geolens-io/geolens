@@ -234,7 +234,8 @@
       "type": "Typ",
       "spatial": "Räumlich",
       "nonSpatial": "Nicht räumlich"
-    }
+    },
+    "tablesSidebarLabel": "Erkannte Tabellen"
   },
   "layerPicker": {
     "title": "Layer auswählen",
@@ -483,7 +484,8 @@
     "comparedToUpload": "Im Vergleich zum Upload",
     "compareRegister": "Upload nimmt aus einer Datei auf. Registrieren zeigt auf eine vorhandene Tabelle — keine Duplizierung, aber die Tabelle muss in Ihrer Datenbank bleiben.",
     "compareStac": "Upload nimmt lokale Dateien auf. STAC-Import erkennt zuerst Remote-Assets und stellt ausgewählte Elemente dann für den Katalog bereit.",
-    "compareService": "Upload nimmt aus einer Datei auf. Service-URL ruft von einer Remote-API ab und importiert die Daten in GeoLens zur lokalen Kachelung und Abfrage."
+    "compareService": "Upload nimmt aus einer Datei auf. Service-URL ruft von einer Remote-API ab und importiert die Daten in GeoLens zur lokalen Kachelung und Abfrage.",
+    "asideLabel": "Import-Workflow"
   },
   "status": {
     "uploading": "Hochladen",

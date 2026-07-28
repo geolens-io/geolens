@@ -446,7 +446,8 @@
     "featureNotSelectable": "Esta entidad no se puede seleccionar para edición.",
     "fullscreen": "Pantalla completa",
     "exitFullscreen": "Salir de pantalla completa",
-    "changeBasemap": "Cambiar mapa base"
+    "changeBasemap": "Cambiar mapa base",
+    "featureId": "ID de entidad: {{id}}"
   },
   "validation": {
     "title": "Estado de validación",

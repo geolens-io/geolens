@@ -396,7 +396,10 @@
       "parseError": "Ungültiges JSON",
       "structureError": "Ausdruck muss ein Array sein, das mit einem bekannten Operator beginnt"
     },
-    "validatorUnavailable": "Dieses JSON konnte nicht validiert werden – vereinfachen Sie den Wert und versuchen Sie es erneut."
+    "validatorUnavailable": "Dieses JSON konnte nicht validiert werden – vereinfachen Sie den Wert und versuchen Sie es erneut.",
+    "resetConfirmMessage": "Stil dieses Layers zurücksetzen? Rendermodus und datengesteuerter Stil gehen verloren.",
+    "resetConfirmAction": "Stil zurücksetzen",
+    "resetConfirmCancel": "Stil behalten"
   },
   "filters": {
     "title": "Filter",
@@ -594,7 +597,8 @@
       "count": "Anzahl",
       "crs": "KRS",
       "attribution": "Namensnennung"
-    }
+    },
+    "table": "Tabelle"
   },
   "share": {
     "title": "Teilen",
@@ -677,7 +681,11 @@
     "regenerate": "Neu generieren",
     "regenerateLink": "Link neu generieren",
     "embedTokenForDomains": "Erstellen Sie ein Einbettungs-Token, um diese Einbettung auf bestimmte Domains zu beschränken.",
-    "createEmbedToken": "Einbettungs-Token erstellen"
+    "createEmbedToken": "Einbettungs-Token erstellen",
+    "revokeConfirmTitle": "Freigabelink widerrufen?",
+    "revokeConfirmDescription": "Der Link funktioniert sofort nicht mehr und alle Einbettungs-Tokens dieser Karte werden ungültig. Das kann nicht rückgängig gemacht werden.",
+    "revokeConfirmCancel": "Abbrechen",
+    "revokeConfirmAction": "Link widerrufen"
   },
   "chat": {
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
@@ -1215,7 +1223,6 @@
     "aiUnavailable": "KI nicht verfügbar",
     "aiUnavailableTitle": "KI ist nicht verfügbar",
     "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann.",
-    "notesPresent": "Karte hat Notizen",
     "aiDisabledTitle": "Die KI ist deaktiviert",
     "aiDisabledBody": "Ein Administrator hat die KI für diese Instanz deaktiviert.",
     "aiNoKeyTitle": "KI nicht konfiguriert",
@@ -1224,7 +1231,8 @@
     "aiPermissionBody": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
     "aiGoToSettings": "Zu den Einstellungen",
     "aiConfigureSettings": "In den Einstellungen konfigurieren",
-    "closePanel": "Panel schließen"
+    "closePanel": "Panel schließen",
+    "notesButtonWithNotes": "Notizen (Karte hat Notizen)"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -1380,7 +1388,11 @@
     "deleteLayer": "Ebene löschen",
     "deleteLayerConfirmMessage": "Diese Ebene löschen? Das kann nicht rückgängig gemacht werden.",
     "deleteLayerConfirmAction": "Löschen",
-    "deleteLayerConfirmCancel": "Ebene behalten"
+    "deleteLayerConfirmCancel": "Ebene behalten",
+    "typePill": {
+      "hillshade": "Schummerung",
+      "terrain": "Gelände"
+    }
   },
   "settings": {
     "regionLabel": "Karteneinstellungen",

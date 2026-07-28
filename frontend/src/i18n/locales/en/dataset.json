@@ -397,7 +397,8 @@
     "zoomToExtent": "Zoom to dataset extent",
     "fullscreen": "Enter fullscreen",
     "exitFullscreen": "Exit fullscreen",
-    "changeBasemap": "Change basemap"
+    "changeBasemap": "Change basemap",
+    "featureId": "Feature ID: {{id}}"
   },
   "contacts": {
     "title": "Contacts",

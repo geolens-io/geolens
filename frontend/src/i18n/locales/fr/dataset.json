@@ -446,7 +446,8 @@
     "featureNotSelectable": "Cette entité ne peut pas être sélectionnée pour l'édition.",
     "fullscreen": "Plein écran",
     "exitFullscreen": "Quitter le plein écran",
-    "changeBasemap": "Changer le fond de carte"
+    "changeBasemap": "Changer le fond de carte",
+    "featureId": "ID d’entité : {{id}}"
   },
   "validation": {
     "title": "Statut de validation",

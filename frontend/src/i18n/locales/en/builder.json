@@ -396,7 +396,10 @@
       "parseError": "Invalid JSON",
       "structureError": "Expression must be an array starting with a known operator"
     },
-    "validatorUnavailable": "This JSON could not be validated — simplify the value and try again."
+    "validatorUnavailable": "This JSON could not be validated — simplify the value and try again.",
+    "resetConfirmMessage": "Reset this layer’s style? Render mode and data-driven styling will be lost.",
+    "resetConfirmAction": "Reset style",
+    "resetConfirmCancel": "Keep style"
   },
   "filters": {
     "title": "Filters",
@@ -594,7 +597,8 @@
       "count": "Count",
       "crs": "CRS",
       "attribution": "Attribution"
-    }
+    },
+    "table": "Table"
   },
   "share": {
     "title": "Share",
@@ -677,7 +681,11 @@
     "regenerate": "Regenerate",
     "regenerateLink": "Regenerate link",
     "embedTokenForDomains": "Create an embed token to restrict this embed to specific domains.",
-    "createEmbedToken": "Create embed token"
+    "createEmbedToken": "Create embed token",
+    "revokeConfirmTitle": "Revoke share link?",
+    "revokeConfirmDescription": "The link will stop working immediately and any embed tokens for this map will be invalidated. This cannot be undone.",
+    "revokeConfirmCancel": "Cancel",
+    "revokeConfirmAction": "Revoke link"
   },
   "chat": {
     "emptyState": "Describe changes to your map using natural language.",
@@ -1220,7 +1228,6 @@
     "aiUnavailable": "AI unavailable",
     "aiUnavailableTitle": "AI is unavailable",
     "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder.",
-    "notesPresent": "Map has notes",
     "aiDisabledTitle": "AI is disabled",
     "aiDisabledBody": "An administrator has disabled AI for this instance.",
     "aiNoKeyTitle": "AI not configured",
@@ -1228,7 +1235,8 @@
     "aiPermissionTitle": "AI unavailable",
     "aiPermissionBody": "You don't have permission to use AI chat.",
     "aiGoToSettings": "Go to Settings",
-    "aiConfigureSettings": "Configure in Settings"
+    "aiConfigureSettings": "Configure in Settings",
+    "notesButtonWithNotes": "Notes (map has notes)"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
@@ -1384,6 +1392,10 @@
       "title": "0 features in view — check your filter",
       "help": "The current filter matches nothing in the visible map area. Matches may exist off-screen — pan or zoom out, adjust a condition, or clear the filter.",
       "clear": "Clear filter"
+    },
+    "typePill": {
+      "hillshade": "Hillshade",
+      "terrain": "Terrain"
     }
   },
   "errors": {

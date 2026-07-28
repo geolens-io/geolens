@@ -396,7 +396,10 @@
       "parseError": "JSON invalide",
       "structureError": "L'expression doit être un tableau commençant par un opérateur connu"
     },
-    "validatorUnavailable": "Ce JSON n'a pas pu être validé — simplifiez la valeur et réessayez."
+    "validatorUnavailable": "Ce JSON n'a pas pu être validé — simplifiez la valeur et réessayez.",
+    "resetConfirmMessage": "Réinitialiser le style de cette couche ? Le mode de rendu et le style basé sur les données seront perdus.",
+    "resetConfirmAction": "Réinitialiser le style",
+    "resetConfirmCancel": "Conserver le style"
   },
   "filters": {
     "title": "Filtres",
@@ -594,7 +597,8 @@
       "count": "Nombre",
       "crs": "SCR",
       "attribution": "Attribution"
-    }
+    },
+    "table": "Table"
   },
   "share": {
     "title": "Partager",
@@ -677,7 +681,11 @@
     "regenerate": "Régénérer",
     "regenerateLink": "Régénérer le lien",
     "embedTokenForDomains": "Créez un jeton d’intégration pour limiter cette intégration à des domaines spécifiques.",
-    "createEmbedToken": "Créer un jeton d’intégration"
+    "createEmbedToken": "Créer un jeton d’intégration",
+    "revokeConfirmTitle": "Révoquer le lien de partage ?",
+    "revokeConfirmDescription": "Le lien cessera de fonctionner immédiatement et les jetons d’intégration de cette carte seront invalidés. Cette action est irréversible.",
+    "revokeConfirmCancel": "Annuler",
+    "revokeConfirmAction": "Révoquer le lien"
   },
   "chat": {
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
@@ -1215,7 +1223,6 @@
     "aiUnavailable": "IA indisponible",
     "aiUnavailableTitle": "L'IA est indisponible",
     "aiUnavailableDescription": "Un administrateur doit activer un fournisseur d'IA avant d'utiliser Demander à l'IA dans ce builder.",
-    "notesPresent": "La carte a des notes",
     "aiDisabledTitle": "L'IA est désactivée",
     "aiDisabledBody": "Un administrateur a désactivé l'IA pour cette instance.",
     "aiNoKeyTitle": "IA non configurée",
@@ -1224,7 +1231,8 @@
     "aiPermissionBody": "Vous n'avez pas l'autorisation d'utiliser le chat IA.",
     "aiGoToSettings": "Aller aux paramètres",
     "aiConfigureSettings": "Configurer dans les paramètres",
-    "closePanel": "Fermer le panneau"
+    "closePanel": "Fermer le panneau",
+    "notesButtonWithNotes": "Notes (la carte a des notes)"
   },
   "stackRow": {
     "dragHandle": "Glisser pour réorganiser {{name}}",
@@ -1380,7 +1388,11 @@
     "deleteLayer": "Supprimer le calque",
     "deleteLayerConfirmMessage": "Supprimer ce calque ? Cette action est irréversible.",
     "deleteLayerConfirmAction": "Supprimer",
-    "deleteLayerConfirmCancel": "Conserver le calque"
+    "deleteLayerConfirmCancel": "Conserver le calque",
+    "typePill": {
+      "hillshade": "Ombrage",
+      "terrain": "Terrain"
+    }
   },
   "settings": {
     "regionLabel": "Paramètres de carte",
