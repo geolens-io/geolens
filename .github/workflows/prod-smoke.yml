@@ -33,7 +33,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a tag smoke: release.yml fires only on this workflow's
+  # SUCCESS, and a cancelled run (which is not a failure — nothing goes red)
+  # would silently withhold the GitHub Release for the tag.
+  cancel-in-progress: false
 
 jobs:
   prod-smoke:
@@ -45,13 +48,18 @@ jobs:
 
       - name: Resolve image tag to smoke
         id: ver
+        env:
+          # Free-text dispatch input: pass via env and reference as "$VAR"
+          # (same pattern as the .env step below) — never interpolate it into
+          # the script body, where it would be evaluated as shell.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           # On a tag push, github.ref_name is the tag (vX.Y.Z). On manual
           # dispatch, use the input (default latest).
           if [ "${{ github.event_name }}" = "push" ]; then
             VER="${{ github.ref_name }}"
           else
-            VER="${{ github.event.inputs.version }}"
+            VER="$INPUT_VERSION"
           fi
           # publish.yml tags images via `type=semver,pattern={{version}}`, which
           # STRIPS the leading `v` (a `v1.3.0` tag push publishes `geolens-api:1.3.0`).
@@ -150,7 +158,7 @@ jobs:
       # success (workflow_run), so a failing tag E2E withholds the GitHub Release
       # (the "latest" pointer the website + release API follow).
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: 22
           cache: npm
