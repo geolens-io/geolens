@@ -180,6 +180,9 @@ export const ViewerMap = memo(function ViewerMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  // feat(#845): mount-time projection for the MapGL prop; see the comment at
+  // the <MapGL projection> site for why it must never change after mount.
+  const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
 
   // Tile token management (fetch, auto-refresh, error toast)
@@ -1091,10 +1094,11 @@ export const ViewerMap = memo(function ViewerMap({
         styleDiffing={false}
         // feat(#845): the prop covers the cold-mount window — react-maplibre
         // applies it on the initial style.load, before our onLoad-captured
-        // appearance sync can run. Later basemap switches reset the style's
-        // projection without a prop change, so applyMapBasemapAppearance
-        // still re-applies it directly.
-        projection={basemapConfig?.projection ?? 'mercator'}
+        // appearance sync can run. Frozen at mount: a CHANGED projection prop
+        // goes through react-maplibre's unguarded _updateSettings setter,
+        // which throws mid style-swap (Codex P2 r4 on #848). Runtime changes
+        // and basemap switches go through applyMapBasemapAppearance instead.
+        projection={initialProjection}
         style={{ width: '100%', height: '100%' }}
         attributionControl={false}
         minZoom={1}

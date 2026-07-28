@@ -239,6 +239,11 @@ export const BuilderMap = memo(function BuilderMap({
   const { t } = useTranslation('builder');
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
+  // feat(#845): mount-time projection for the MapGL prop, frozen because a
+  // CHANGED prop hits react-maplibre's unguarded _updateSettings setter which
+  // throws mid style-swap (Codex P2 r4 on #848); runtime toggles go through
+  // applyMapBasemapAppearance instead.
+  const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
   const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
   // builder-audit #338 SYNC-08: hold the dataloading/idle handlers so unmount detaches
@@ -1390,7 +1395,7 @@ export const BuilderMap = memo(function BuilderMap({
         mapStyle={mapStyle}
         styleDiffing={false}
         // feat(#845): cold-mount projection, see ViewerMap's MapGL for rationale.
-        projection={basemapConfig?.projection ?? 'mercator'}
+        projection={initialProjection}
         // PERF-08 (Phase 274): preserveDrawingBuffer dropped — captures use
         // map.triggerRepaint() + synchronous toDataURL() in use-builder-save.ts
         // doCapture / handleExportPNG so the WebGL canvas keeps its default
