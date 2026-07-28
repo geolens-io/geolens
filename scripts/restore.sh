@@ -69,18 +69,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE SCHEMA IF NOT EXISTS catalog;
 CREATE SCHEMA IF NOT EXISTS data;
 
--- Read-only role for data schema access
-DO \$\$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
-        CREATE ROLE geolens_reader NOLOGIN;
-    END IF;
-END
-\$\$;
-GRANT USAGE ON SCHEMA data TO geolens_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
-
 EOSQL
 
 echo "Stopping API to prevent write conflicts during restore..."
@@ -142,6 +130,41 @@ if [ "$RESTORE_RC" -ne 0 ]; then
     fi
 fi
 rm -f "$RESTORE_STDERR"
+
+# Re-apply geolens_reader grants AFTER pg_restore, not before: --clean drops
+# schema `data` (taking its ACLs and default privileges with it) and the dump
+# is -Fc --no-owner --no-acl, so nothing inside it re-grants. Granting before
+# the restore only decorated a schema that was about to be dropped, and the
+# reader role silently lost SELECT on every restored table.
+echo ""
+echo "Re-applying geolens_reader grants..."
+"${COMPOSE[@]}" exec -T db \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+        CREATE ROLE geolens_reader NOLOGIN;
+    END IF;
+END
+\$\$;
+GRANT USAGE ON SCHEMA data TO geolens_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
+EOSQL
+
+# Assert the grant actually took — a restore that leaves the reader role
+# without schema access breaks every read-only consumer until someone
+# notices, so fail loudly here instead.
+READER_USAGE="$("${COMPOSE[@]}" exec -T db \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+    "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');" | tr -d '[:space:]')"
+if [ "$READER_USAGE" != "t" ]; then
+    echo "ERROR: geolens_reader has no USAGE on schema data after restore." >&2
+    echo "Re-run the grant block above manually and re-check with:" >&2
+    echo "  SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');" >&2
+    exit 1
+fi
+echo "geolens_reader grants verified."
 
 # Post-restore validation
 echo ""

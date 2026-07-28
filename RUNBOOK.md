@@ -121,9 +121,13 @@ self-hosted Docker Compose deployment).
 2. Creates required extensions and schemas in the database.
 3. Stops `api` and `worker` to prevent write conflicts.
 4. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
-5. Restarts `api` and `worker` on exit (including on failure — via a trap).
-6. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
-7. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and
+5. Re-applies the `geolens_reader` grants on schema `data` and asserts they took
+   (`has_schema_privilege`). `--clean` drops the schema together with its ACLs
+   and default privileges, and the dump carries no ACLs (`--no-acl`), so the
+   grants must be rebuilt after every restore.
+6. Restarts `api` and `worker` on exit (including on failure — via a trap).
+7. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
+8. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and
    prints the exact manual object-storage extract command.
 
 **Never** use `psql < <dump>` on a custom-format (`-Fc`) dump file — it is binary,
@@ -132,7 +136,11 @@ not plain SQL, and will fail.
 ### Multi-tenant role reconstruction after a fresh-cluster restore
 
 PostgreSQL roles are cluster objects and are not included in a database-only
-`pg_dump`. A same-cluster restore normally retains them. When restoring a
+`pg_dump`. A same-cluster restore normally retains the roles themselves — but
+not the ACLs on schemas that `--clean` drops and recreates: those (including
+default privileges) die with the schema and must be re-granted after the
+restore, which is why `restore.sh` re-applies the `geolens_reader` grants as a
+post-restore step. When restoring a
 multi-tenant dump into a brand-new cluster, restore without ACL entries (the old
 tenant role names do not exist yet), then rebuild the guarded topology with the
 0019 migration before starting API, worker, or tile traffic:

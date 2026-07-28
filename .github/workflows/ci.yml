@@ -385,7 +385,10 @@ jobs:
              CREATE TABLE catalog.records (id serial PRIMARY KEY, name text);
              CREATE TABLE catalog.datasets (id serial PRIMARY KEY, slug text);
              INSERT INTO catalog.records (name) SELECT 'img-r-'||g FROM generate_series(1, 113) g;
-             INSERT INTO catalog.datasets (slug) SELECT 'img-d-'||g FROM generate_series(1, 57) g;"
+             INSERT INTO catalog.datasets (slug) SELECT 'img-d-'||g FROM generate_series(1, 57) g;
+             CREATE SCHEMA IF NOT EXISTS data;
+             CREATE TABLE data.ci_probe (id int PRIMARY KEY);
+             INSERT INTO data.ci_probe VALUES (1);"
           SRC_R=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -tAc "SELECT COUNT(*) FROM catalog.records;")
           SRC_D=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -tAc "SELECT COUNT(*) FROM catalog.datasets;")
 
@@ -441,6 +444,27 @@ jobs:
           # Hard row-count asserts — must not be weakened with || true (T-1247-09).
           [ "$SRC_R" = "$DST_R" ] || { echo "FAIL: bundled-mode records count mismatch: $SRC_R != $DST_R"; exit 1; }
           [ "$SRC_D" = "$DST_D" ] || { echo "FAIL: bundled-mode datasets count mismatch: $SRC_D != $DST_D"; exit 1; }
+
+          # geolens_reader grant round-trip: --clean drops schema `data` with
+          # its ACLs and the dump is --no-acl, so restore.sh re-grants AFTER
+          # pg_restore. Mirror that re-grant here, then prove the reader can
+          # actually select from a restored table in schema `data`.
+          psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -v ON_ERROR_STOP=1 -c \
+            "DO \$\$
+             BEGIN
+                 IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+                     CREATE ROLE geolens_reader NOLOGIN;
+                 END IF;
+             END
+             \$\$;
+             GRANT USAGE ON SCHEMA data TO geolens_reader;
+             GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;"
+          READER_CNT=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc \
+            "SET ROLE geolens_reader; SELECT COUNT(*) FROM data.ci_probe;")
+          [ "$READER_CNT" = "1" ] || { echo "FAIL: geolens_reader cannot select restored data.ci_probe (got '${READER_CNT}')"; exit 1; }
+          echo "  geolens_reader post-restore grant verified (data.ci_probe readable)"
+
           echo "PASS [BUNDLED MODE]: image backup→SigV4-S3→restore, records=${SRC_R} datasets=${SRC_D}"
           dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$SRC"
           dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$DST"
