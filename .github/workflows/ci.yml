@@ -14,7 +14,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Include the event name so daily dependabot pushes stop cancelling the
+  # scheduled run — every nightly for a week was cancelled this way, which is
+  # how the e2e suite silently rotted (v1.6.0 audit N2 family).
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 # Least-privilege default for every job; no job needs write (publishing lives
