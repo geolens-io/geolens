@@ -161,7 +161,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          # Node 24 ships npm 11.x — OIDC Trusted Publishing requires npm >= 11.5.1.
+          # fix(#819): Node 24 ships npm 11.x — OIDC Trusted Publishing requires npm >= 11.5.1.
           # Node 22 (npm 10.x) cannot authenticate; there is no NODE_AUTH_TOKEN
           # fallback on the publish step, so the npm version IS the auth path.
           node-version: 24

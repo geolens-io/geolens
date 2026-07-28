@@ -70,7 +70,7 @@ router = APIRouter(
 async def create_embed_token_endpoint(
     map_id: uuid.UUID,
     body: EmbedTokenCreate,
-    # Same permission gate as share_map_endpoint: an embed token outranks the
+    # fix(#819): same permission gate as share_map_endpoint — an embed token outranks the
     # share link it accompanies (anonymous tile capability), so minting or
     # managing one must never be gated weaker than creating the share link.
     user: Identity = Depends(require_permission("edit_metadata")),

@@ -4,7 +4,7 @@ import { useCallback, useRef } from 'react';
 // can fire dozens of tile errors per pan, and a mint that just failed will not
 // succeed milliseconds later.
 const REMINT_COOLDOWN_MS = 30_000;
-// Settle window: how long after kicking a re-mint we keep treating errors as
+// fix(#819): settle window — how long after kicking a re-mint we keep treating errors as
 // "the same burst the re-mint is about to cure". MapLibre fires one error per
 // failing tile, so tiles 2..N of the burst that *triggered* the re-mint arrive
 // while the mint request + token→setTiles plumbing are still in flight.
