@@ -1073,7 +1073,8 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,
         # fix(#526 B-048): the card-route SPA-redirect fallback shell.
-        "backend/app/modules/catalog/maps/router_sharing.py": 380,
+        # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
+        "backend/app/modules/catalog/maps/router_sharing.py": 387,
         "backend/app/modules/catalog/search/query_params.py": 225,
         "backend/app/modules/catalog/search/router_saved.py": 100,
         "backend/app/modules/admin/router_operations.py": 275,
