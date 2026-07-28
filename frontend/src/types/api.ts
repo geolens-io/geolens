@@ -663,9 +663,6 @@ export interface AuthConfigResponse {
    *  visitors from "/" to "/login".  Default false on the server; the
    *  field may be absent on older server versions (treat as false). */
   landing_first?: boolean;
-  /** DEMO-03 (Phase 1226): when true, logged-in users see a persistent
-   *  demo-account banner.  Default false — self-hosters see no banner. */
-  demo_mode?: boolean;
   /** Admin-configured site-wide announcement banner; shown only when
    *  enabled AND text is non-empty (both default off/empty). Color is a
    *  theme token: warning | info | success | destructive (unknown values

@@ -2255,12 +2255,6 @@ export type ConfigResponse = {
      */
     banner_text?: string;
     /**
-     * Demo Mode
-     *
-     * When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
-     */
-    demo_mode?: boolean;
-    /**
      * Email Verification Required
      *
      * When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.

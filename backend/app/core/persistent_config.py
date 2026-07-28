@@ -502,18 +502,6 @@ LANDING_FIRST = PersistentConfig[bool](
     label="Login-as-Landing Page",
 )
 
-# DEMO-03 (Phase 1226): demo-mode banner flag. Default OFF so self-hosters
-# see no change. When ON, logged-in users see a persistent "demo account"
-# notice. tab="general" (not "auth") — it is a UX/display toggle, not an
-# auth policy.
-DEMO_MODE = PersistentConfig[bool](
-    key="demo_mode",
-    type_=bool,
-    env_default_factory=lambda: settings.demo_mode,
-    tab="general",
-    label="Demo Mode Banner",
-)
-
 # Generic site-wide announcement banner. Disabled by default and empty text
 # also means "no banner" — so existing deployments see no change. The enabled
 # flag lets admins stage or pause a message without deleting the text. Color
@@ -522,7 +510,7 @@ DEMO_MODE = PersistentConfig[bool](
 BANNER_ENABLED = PersistentConfig[bool](
     key="banner_enabled",
     type_=bool,
-    env_default=False,
+    env_default_factory=lambda: settings.banner_enabled,
     tab="general",
     label="Site Banner Enabled",
 )
@@ -530,7 +518,7 @@ BANNER_ENABLED = PersistentConfig[bool](
 BANNER_TEXT = PersistentConfig[str](
     key="banner_text",
     type_=str,
-    env_default="",
+    env_default_factory=lambda: settings.banner_text,
     tab="general",
     label="Site Banner Text",
 )
@@ -538,7 +526,7 @@ BANNER_TEXT = PersistentConfig[str](
 BANNER_COLOR = PersistentConfig[str](
     key="banner_color",
     type_=str,
-    env_default="warning",
+    env_default_factory=lambda: settings.banner_color,
     tab="general",
     label="Site Banner Color",
 )

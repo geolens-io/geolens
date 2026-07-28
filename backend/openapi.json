@@ -3755,12 +3755,6 @@
             "title": "Banner Text",
             "type": "string"
           },
-          "demo_mode": {
-            "default": false,
-            "description": "When true, logged-in users see a persistent demo-account banner. Default false \u2014 self-hosters see no banner.",
-            "title": "Demo Mode",
-            "type": "boolean"
-          },
           "email_verification_required": {
             "default": false,
             "description": "When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.",

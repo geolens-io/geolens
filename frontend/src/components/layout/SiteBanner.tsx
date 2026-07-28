@@ -10,8 +10,8 @@
  * sessionStorage, so it stays hidden until the tab session ends or the admin
  * changes the text.
  *
- * Reuses the same /auth/config query-cache entry as DemoBanner — no
- * additional network request.
+ * Reuses the same /auth/config query-cache entry that LandingFirstGuard
+ * populates — no additional network request.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';

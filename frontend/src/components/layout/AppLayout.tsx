@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { Outlet, useMatch, useLocation, useNavigationType } from 'react-router';
 import { Navbar } from './Navbar';
 import { AppFooter } from './AppFooter';
-import { DemoBanner } from './DemoBanner';
 import { SiteBanner } from './SiteBanner';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
@@ -50,7 +49,6 @@ export function AppLayout() {
           the banner instead of overflowing the viewport */}
       <SiteBanner />
       <Navbar />
-      <DemoBanner />
       <main
         id="main-content"
         tabIndex={-1}

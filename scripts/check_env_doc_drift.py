@@ -74,7 +74,15 @@ NOTIFICATION_KEYS = frozenset(
         "NOTIFICATION_ADMIN_EMAIL",
     }
 )
-APP_RUNTIME_KEYS = frozenset({"LANDING_FIRST", "DEMO_MODE", "TITILER_BASE_URL"})
+APP_RUNTIME_KEYS = frozenset(
+    {
+        "LANDING_FIRST",
+        "BANNER_ENABLED",
+        "BANNER_TEXT",
+        "BANNER_COLOR",
+        "TITILER_BASE_URL",
+    }
+)
 AZURE_APP_KEYS = frozenset(
     {
         "AZURE_STORAGE_CONTAINER",

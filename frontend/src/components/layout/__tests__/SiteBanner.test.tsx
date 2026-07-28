@@ -24,7 +24,6 @@ function renderBanner(config: Partial<AuthConfigResponse> = {}) {
   const fullConfig: AuthConfigResponse = {
     registration_enabled: false,
     landing_first: false,
-    demo_mode: false,
     auth_methods: [],
     banner_enabled: true,
     ...config,
