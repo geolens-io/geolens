@@ -772,7 +772,17 @@ def _find_route_handler_with_lazy_includes(routes, scope):
         return handler
     from fastapi.routing import iter_route_contexts
 
+    # Route regexes never include the ASGI root_path, and starlette's own
+    # matching strips it (starlette._utils.get_route_path — mirrored here to
+    # avoid the private import). Without this, rewrite-less deployments that
+    # keep the /api prefix via ROOT_PATH would silently lose the global
+    # default rate limit again (Codex P2 on #747).
     path = scope.get("path", "")
+    root_path = scope.get("root_path", "")
+    if root_path and path.startswith(root_path):
+        stripped = path[len(root_path) :]
+        if not stripped or stripped.startswith("/"):
+            path = stripped
     method = scope.get("method", "")
     for ctx in iter_route_contexts(list(routes)):
         path_regex = getattr(ctx, "path_regex", None)
