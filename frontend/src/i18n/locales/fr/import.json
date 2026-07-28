@@ -423,7 +423,7 @@
     "columnCount_other": "{{value}} colonnes",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Progression de l'importation",
-    "readyTitle_one": "1 jeu de données prêt",
+    "readyTitle_one": "{{count}} jeu de données prêt",
     "readyTitle_other": "{{count}} jeux de données prêts",
     "readyDescription": "Ouvrez directement les jeux terminés ou continuez à téléverser pendant que les autres tâches se terminent.",
     "kindRaster": "Jeu raster",

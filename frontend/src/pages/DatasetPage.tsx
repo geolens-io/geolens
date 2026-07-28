@@ -223,6 +223,7 @@ export function DatasetPage() {
 
   const {
     isRasterOrVrt,
+    tracksHero,
     heroState,
     retryCount,
     mapKey,
@@ -533,7 +534,7 @@ export function DatasetPage() {
             isDrawing ? 'h-[60vh]' : 'h-72 lg:h-96'
           )}
         >
-          {isRasterOrVrt && heroState === 'loading' && (
+          {tracksHero && heroState === 'loading' && (
             <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
           )}
           <MapErrorBoundary>
@@ -563,7 +564,7 @@ export function DatasetPage() {
                 rasterTileUrl={dataset.raster?.tile_url}
                 tileVersion={dataset.updated_at}
                 onFeatureClick={setReadOnlyFeatureGid}
-                {...(isRasterOrVrt ? {
+                {...(tracksHero ? {
                   onMapReady,
                   onTileError,
                 } : {})}
@@ -575,7 +576,7 @@ export function DatasetPage() {
               {t('raster.noTiles')}
             </div>
           )}
-          {isRasterOrVrt && heroState === 'error' && (
+          {tracksHero && heroState === 'error' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
               <AlertTriangle className="size-8 text-destructive mb-2" />
               <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>

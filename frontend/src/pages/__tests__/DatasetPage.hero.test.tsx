@@ -344,13 +344,24 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.getByText('Tiles may still be processing')).toBeInTheDocument();
   });
 
-  it('vector datasets do not pass onMapReady/onTileError to DatasetMap', () => {
+  it('vector datasets pass onMapReady/onTileError to DatasetMap', () => {
     setup({ record_type: 'vector_dataset' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
     const map = screen.getByTestId('dataset-map');
-    expect(map).toHaveAttribute('data-has-on-map-ready', 'false');
-    expect(map).toHaveAttribute('data-has-on-tile-error', 'false');
+    expect(map).toHaveAttribute('data-has-on-map-ready', 'true');
+    expect(map).toHaveAttribute('data-has-on-tile-error', 'true');
+  });
+
+  it('table datasets do not pass onMapReady/onTileError to DatasetMap', () => {
+    setup({ record_type: 'table' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    const map = screen.queryByTestId('dataset-map');
+    if (map) {
+      expect(map).toHaveAttribute('data-has-on-map-ready', 'false');
+      expect(map).toHaveAttribute('data-has-on-tile-error', 'false');
+    }
   });
 });
 

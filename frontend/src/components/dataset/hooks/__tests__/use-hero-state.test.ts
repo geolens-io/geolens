@@ -46,9 +46,9 @@ describe('useHeroState', () => {
     expect(result.current.heroState).toBe('error');
   });
 
-  it('does not timeout for non-raster datasets', () => {
+  it('does not timeout for table datasets', () => {
     const { result } = renderHook(() =>
-      useHeroState({ datasetId: 'd1', recordType: 'vector_dataset', hasTileUrl: false }),
+      useHeroState({ datasetId: 'd1', recordType: 'table', hasTileUrl: false }),
     );
 
     act(() => {
@@ -56,6 +56,18 @@ describe('useHeroState', () => {
     });
 
     expect(result.current.heroState).toBe('loading');
+  });
+
+  it('times out for vector datasets that never report ready', () => {
+    const { result } = renderHook(() =>
+      useHeroState({ datasetId: 'd1', recordType: 'vector_dataset', hasTileUrl: false }),
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(result.current.heroState).toBe('error');
   });
 
   it('transitions to loaded via onMapReady', () => {

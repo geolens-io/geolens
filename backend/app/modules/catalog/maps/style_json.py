@@ -805,9 +805,13 @@ _COLOR_RELIEF_RAMPS: dict[str, list[str]] = {
 }
 
 
-def _color_relief_color_expression(ramp_name: str) -> list[Any]:
+def _color_relief_color_expression(
+    ramp_name: str, reversed_: bool = False
+) -> list[Any]:
     """Build a MapLibre ``color-relief-color`` interpolate-over-elevation expression."""
     colors = _COLOR_RELIEF_RAMPS.get(ramp_name, _COLOR_RELIEF_RAMPS["YlOrRd"])
+    if reversed_:
+        colors = list(reversed(colors))
     step = (COLOR_RELIEF_ELEV_MAX - COLOR_RELIEF_ELEV_MIN) / (len(colors) - 1)
     expr: list[Any] = ["interpolate", ["linear"], ["elevation"]]
     for index, color in enumerate(colors):
@@ -816,12 +820,13 @@ def _color_relief_color_expression(ramp_name: str) -> list[Any]:
     return expr
 
 
-def _hypso_config_for_layer(layer: MapLayerResponse) -> tuple[bool, str]:
-    """Resolve (enabled, ramp_name) for a DEM layer's color-relief companion.
+def _hypso_config_for_layer(layer: MapLayerResponse) -> tuple[bool, str, bool]:
+    """Resolve (enabled, ramp_name, reversed) for a DEM layer's color-relief companion.
 
     Reads the builder-private hypsometric flags from either the builder block
-    (snake_case ``hypso_enabled``/``hypso_ramp`` after the paint->builder split,
-    or camelCase if a client sent it that way) or the raw ``_hypso-*`` paint keys.
+    (snake_case ``hypso_enabled``/``hypso_ramp``/``hypso_reversed`` after the
+    paint->builder split, or camelCase if a client sent it that way) or the raw
+    ``_hypso-*`` paint keys.
     """
     builder = _builder_style_config(layer.style_config)
     paint = layer.paint or {}
@@ -838,7 +843,12 @@ def _hypso_config_for_layer(layer: MapLayerResponse) -> tuple[bool, str]:
     )
     if not isinstance(ramp, str) or not ramp:
         ramp = COLOR_RELIEF_DEFAULT_RAMP
-    return enabled, ramp
+    reversed_ = bool(
+        builder.get("hypso_reversed")
+        or builder.get("hypsoReversed")
+        or paint.get("_hypso-reversed")
+    )
+    return enabled, ramp, reversed_
 
 
 def _color_relief_companion_layer(
@@ -853,7 +863,7 @@ def _color_relief_companion_layer(
     paint keys are already stripped from the primary paint by ``_clean_paint``; this
     reconstructs the visible tint as a spec-valid layer that re-imports cleanly.
     """
-    enabled, ramp = _hypso_config_for_layer(layer)
+    enabled, ramp, reversed_ = _hypso_config_for_layer(layer)
     if not enabled:
         return None
     return {
@@ -870,7 +880,7 @@ def _color_relief_companion_layer(
         },
         "layout": _companion_visibility(layer),
         "paint": {
-            "color-relief-color": _color_relief_color_expression(ramp),
+            "color-relief-color": _color_relief_color_expression(ramp, reversed_),
             "color-relief-opacity": COLOR_RELIEF_DEFAULT_OPACITY,
         },
     }

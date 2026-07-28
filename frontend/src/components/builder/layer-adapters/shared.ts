@@ -529,6 +529,7 @@ export const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   outline_color: 'outlineColor',
   outline_width: 'outlineWidth',
   heatmap_ramp: 'heatmapRamp',
+  heatmap_reversed: 'heatmapReversed',
   heatmap_weight_column: 'heatmapWeightColumn',
   height_column: 'heightColumn',
   height_scale: 'heightScale',

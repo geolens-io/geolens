@@ -35,6 +35,7 @@ LEGACY_BUILDER_PAINT_KEYS = {
     "_fill-opacity-saved": "fill_opacity_saved",
     "_outline-width-saved": "outline_width_saved",
     "_heatmap-ramp": "heatmap_ramp",
+    "_heatmap-reversed": "heatmap_reversed",
     "_heatmap-weight-column": "heatmap_weight_column",
     "_height_column": "height_column",
     # Raster colormap/stretch builder-private keys (v1031/v1032/v1034). The
@@ -53,6 +54,7 @@ LEGACY_BUILDER_PAINT_KEYS = {
     # stays clean and the round-trip persists across save/reload.
     "_hypso-enabled": "hypso_enabled",
     "_hypso-ramp": "hypso_ramp",
+    "_hypso-reversed": "hypso_reversed",
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
@@ -82,6 +84,7 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "outlineColor": "outline_color",
     "outlineWidth": "outline_width",
     "heatmapRamp": "heatmap_ramp",
+    "heatmapReversed": "heatmap_reversed",
     "heatmapWeightColumn": "heatmap_weight_column",
     "heightColumn": "height_column",
     "heightScale": "height_scale",
