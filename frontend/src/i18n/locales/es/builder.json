@@ -685,7 +685,14 @@
     "revokeConfirmTitle": "¿Revocar el enlace compartido?",
     "revokeConfirmDescription": "El enlace dejará de funcionar de inmediato y se invalidarán los tokens de inserción de este mapa. No se puede deshacer.",
     "revokeConfirmCancel": "Cancelar",
-    "revokeConfirmAction": "Revocar enlace"
+    "revokeConfirmAction": "Revocar enlace",
+    "visibilityConfirmCancel": "Cancelar",
+    "makePublicConfirmTitle": "¿Hacer público este mapa?",
+    "makePublicConfirmDescription": "Cualquier persona con el enlace podrá ver este mapa.",
+    "makePublicConfirmAction": "Hacer público",
+    "leavePublicConfirmTitle": "¿Dejar de compartir públicamente?",
+    "leavePublicConfirmDescription": "Los enlaces para compartir y los códigos de inserción existentes dejarán de funcionar de inmediato.",
+    "leavePublicConfirmAction": "Dejar de compartir públicamente"
   },
   "chat": {
     "emptyState": "Describa cambios en su mapa usando lenguaje natural.",
