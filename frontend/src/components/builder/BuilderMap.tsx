@@ -251,6 +251,11 @@ export const BuilderMap = memo(function BuilderMap({
   const tilesIdleIdleHandlerRef = useRef<(() => void) | null>(null);
   // SF-08: latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
+  // audit(w3-maps): true when a 5xx/unknown tile error fired since the last
+  // 'dataloading'. Lets the idle handler clear the 'tiles' basemap notice
+  // only after a clean load cycle — the notice previously latched for the
+  // whole session because nothing ever reset it.
+  const sawTileErrorSinceLoadingRef = useRef(false);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
   // Phase 1051 WR-04: state mirror of mapRef.current so MapCoordReadout consumes
@@ -625,8 +630,21 @@ export const BuilderMap = memo(function BuilderMap({
 
       // Tile loading indicator. builder-audit #338 SYNC-08: keep references so the
       // unmount cleanup can detach them symmetrically.
-      dataLoadingHandlerRef.current = () => setTilesLoading(true);
-      idleHandlerRef.current = () => setTilesLoading(false);
+      dataLoadingHandlerRef.current = () => {
+        setTilesLoading(true);
+        sawTileErrorSinceLoadingRef.current = false;
+      };
+      idleHandlerRef.current = () => {
+        setTilesLoading(false);
+        // audit(w3-maps): a load cycle finished without a hard tile error —
+        // the 'tiles' notice's condition has passed, so clear it (the 'style'
+        // notice has its own clearing path in the style-fetch effect). During
+        // an ongoing outage the errors that precede idle re-arm the flag, so
+        // the banner does not flap.
+        if (!sawTileErrorSinceLoadingRef.current) {
+          setBasemapNotice((notice) => (notice === 'tiles' ? null : notice));
+        }
+      };
       map.on('dataloading', dataLoadingHandlerRef.current);
       map.on('idle', idleHandlerRef.current);
 
@@ -719,6 +737,7 @@ export const BuilderMap = memo(function BuilderMap({
           // masking ongoing outages.
           const loadedAt = basemapLoadedAtRef.current;
           if (loadedAt !== null && Date.now() - loadedAt < 3000) return;
+          sawTileErrorSinceLoadingRef.current = true;
           setBasemapNotice('tiles');
           // Name the failing layer when the error carries a sourceId.
           // MapLibre attaches the source id to tile/source errors as they
@@ -937,6 +956,28 @@ export const BuilderMap = memo(function BuilderMap({
       return null;
     };
 
+    // Shared by mouse click and the keyboard handler below so keyboard users
+    // get the same non-cluster feature popups as mouse users.
+    const mapFeatureHits = (hits: ReturnType<MaplibreMap['queryRenderedFeatures']>): FeatureInfo[] => {
+      const mapped: FeatureInfo[] = [];
+      for (const feature of hits) {
+        const hit = lookupHitLayer(feature.layer.id);
+        if (!hit) continue;
+        const layer = hit.layer;
+        const cfg = hit.layer.popup_config;
+        const props = (feature.properties ?? {}) as Record<string, unknown>;
+        mapped.push({
+          properties: props,
+          layerName: layer.display_name || layer.dataset_name || fallbackName,
+          columnInfo: layer.dataset_column_info ?? null,
+          title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
+          visibleFields: cfg?.visible_fields ?? null,
+          zoomAtClick: map.getZoom(),
+        });
+      }
+      return mapped;
+    };
+
     const handleClick = (e: MapMouseEvent) => {
       if (!map.isStyleLoaded()) return;
       if (measureActiveRef.current || drawActiveRef.current) return;
@@ -954,22 +995,7 @@ export const BuilderMap = memo(function BuilderMap({
         return;
       }
 
-      const mapped: FeatureInfo[] = [];
-      for (const feature of hits) {
-        const hit = lookupHitLayer(feature.layer.id);
-        if (!hit) continue;
-        const layer = hit.layer;
-        const cfg = hit.layer.popup_config;
-        const props = (feature.properties ?? {}) as Record<string, unknown>;
-        mapped.push({
-          properties: props,
-          layerName: layer.display_name || layer.dataset_name || fallbackName,
-          columnInfo: layer.dataset_column_info ?? null,
-          title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
-          visibleFields: cfg?.visible_fields ?? null,
-          zoomAtClick: map.getZoom(),
-        });
-      }
+      const mapped = mapFeatureHits(hits);
 
       if (mapped.length > 0) {
         setPopupInfo({
@@ -1035,9 +1061,25 @@ export const BuilderMap = memo(function BuilderMap({
       ];
       const hits = map.queryRenderedFeatures(point, { layers: queryLayers });
       const clusterHit = findClusterHit(hits);
-      if (!clusterHit) return;
+      if (clusterHit) {
+        event.preventDefault();
+        handleClusterHit(clusterHit.feature, clusterHit.hit, null);
+        return;
+      }
+      // audit(w3-maps): the popup was mouse-only for non-cluster features —
+      // the early return above made Enter/Space a no-op unless the
+      // centre-of-canvas hit happened to be a cluster. Mirror handleClick's
+      // mapping so keyboard users can open the same feature popup.
+      const mapped = mapFeatureHits(hits);
+      if (mapped.length === 0) return;
       event.preventDefault();
-      handleClusterHit(clusterHit.feature, clusterHit.hit, null);
+      const lngLat = map.unproject(point);
+      setPopupInfo({
+        longitude: lngLat.lng,
+        latitude: lngLat.lat,
+        features: mapped,
+      });
+      onFeatureSelect?.(mapped[0]);
     };
 
     map.on('click', handleClick);
