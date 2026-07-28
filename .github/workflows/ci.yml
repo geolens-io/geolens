@@ -506,8 +506,9 @@ jobs:
              GRANT USAGE ON SCHEMA data TO geolens_reader;
              GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
              ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;"
+          # tail -1: -tA still prints the SET command tag ahead of the count
           READER_CNT=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc \
-            "SET ROLE geolens_reader; SELECT COUNT(*) FROM data.ci_probe;")
+            "SET ROLE geolens_reader; SELECT COUNT(*) FROM data.ci_probe;" | tail -n 1)
           [ "$READER_CNT" = "1" ] || { echo "FAIL: geolens_reader cannot select restored data.ci_probe (got '${READER_CNT}')"; exit 1; }
           echo "  geolens_reader post-restore grant verified (data.ci_probe readable)"
 

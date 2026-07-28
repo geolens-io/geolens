@@ -59,6 +59,8 @@ Frontend tests use Vitest and Testing Library as `*.test.ts(x)` files or under `
 
 New `t()` translation keys must be added to all four locales (en/es/fr/de); a `defaultValue` alone fails the `npm run test:i18n` locale-parity CI gate.
 
+Plural-suffix keys follow the same all-four-or-none rule, with two i18next facts to respect: there is no `_many`→`_other` fallback (a `_many` added to es/fr alone renders the raw key or English for exact millions), and French resolves count 0 to `_one` — so `_one` values must interpolate `{{count}}`, never hardcode "1".
+
 ## Commit & Pull Request Guidelines
 
 History follows a Conventional Commit-like pattern, for example `feat(sharing): add schema gates for advanced sharing` or `docs(readme): clarify the install steps`. Use an imperative subject and meaningful scope.
