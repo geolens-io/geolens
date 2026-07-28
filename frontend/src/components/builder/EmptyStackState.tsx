@@ -236,7 +236,11 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           <Search className="h-4 w-4" aria-hidden="true" />
         </button>
         <input
-          role="searchbox"
+          // fix(v1.6.0 audit D12): type="search" gives the searchbox role
+          // natively plus the browser's built-in Escape-clear, instead of the
+          // hand-rolled role="searchbox" on a plain text input. The manual
+          // Escape handler stays for engines (and jsdom) without native clear.
+          type="search"
           aria-label={t('unifiedStack.emptySearchInput', { defaultValue: 'Search datasets to add' })}
           placeholder={t('unifiedStack.emptySearchPlaceholder', { defaultValue: 'Search datasets, URLs, or files…' })}
           value={inlineQuery}

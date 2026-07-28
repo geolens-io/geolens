@@ -139,6 +139,17 @@ describe('EmptyStackState', () => {
     expect(onOpenAddData).not.toHaveBeenCalled();
   });
 
+  // fix(v1.6.0 audit D12): the searchbox role comes natively from
+  // type="search" (plus the browser's built-in Escape-clear) instead of a
+  // hand-rolled role attribute on a text input.
+  it('Test 4b (D12): the inline search is a native type="search" input, not role="searchbox"', () => {
+    render(<EmptyStackState {...defaultProps()} />);
+
+    const input = screen.getByRole('searchbox');
+    expect(input).toHaveAttribute('type', 'search');
+    expect(input).not.toHaveAttribute('role');
+  });
+
   it('Test 5: renders SUGGESTED eyebrow label and list with correct aria attributes', async () => {
     render(<EmptyStackState {...defaultProps()} />);
 
