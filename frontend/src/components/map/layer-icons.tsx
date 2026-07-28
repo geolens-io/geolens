@@ -94,9 +94,16 @@ interface IconSubProps {
 /**
  * ux(#840): a categorical style is a set of discrete classes — its icon must
  * not blur them into a continuous ramp. Heatmaps keep their smooth ramp icon.
+ * codex(#841): symbol mode keeps the top-level column/categories only for
+ * round-tripping back to points while rendering marker icons (possibly
+ * categorized on a different column via builder.symbol) — exclude it too.
  */
 export function isDiscreteColorStyle(styleConfig: MapLayerResponse['style_config']): boolean {
-  return !!styleConfig?.categories?.length && styleConfig.render_mode !== 'heatmap';
+  return (
+    !!styleConfig?.categories?.length
+    && styleConfig.render_mode !== 'heatmap'
+    && styleConfig.render_mode !== 'symbol'
+  );
 }
 
 // ux(#840): bands inside the existing glyph, not separate chips — keeps the
