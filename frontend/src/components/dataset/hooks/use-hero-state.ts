@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export type HeroState = 'loading' | 'loaded' | 'error';
 
@@ -33,8 +33,13 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     setMapKey(prev => prev + 1);
   }, []);
 
-  // Reset hero state when dataset changes
+  // Reset hero state when the dataset CHANGES — skip the initial mount, where
+  // state is already fresh and a map that reports ready in the same commit
+  // (cached lazy chunk) would be clobbered back to 'loading'.
+  const mountedForRef = useRef(datasetId);
   useEffect(() => {
+    if (mountedForRef.current === datasetId) return;
+    mountedForRef.current = datasetId;
     setHeroState('loading');
     setRetryCount(0);
     setMapKey(0);

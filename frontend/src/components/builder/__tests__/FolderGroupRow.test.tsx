@@ -116,6 +116,9 @@ describe('FolderGroupRow keyboard operability (v1.6.0 audit A7)', () => {
 
     fireEvent.dblClick(screen.getByText('My Group'));
     const input = screen.getByRole('textbox', { name: 'Group name' });
+    // Let the hook's deferred focus+select() run before typing — otherwise it
+    // fires mid-type and the select() swallows already-typed characters.
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
     await user.clear(input);
     await user.type(input, 'a b');
     expect(input).toHaveValue('a b');
@@ -140,8 +143,14 @@ describe('FolderGroupRow keyboard operability (v1.6.0 audit A7)', () => {
 
     // The confirm mounts INSIDE the row div — its buttons' Enter/Space used to
     // bubble to the container keydown and be preventDefaulted (mouse-only).
+    // Radix returns focus to the kebab trigger asynchronously on menu close;
+    // wait it out so our focus() isn't stolen back before the keypress.
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
     const deleteBtn = screen.getByRole('button', { name: 'Delete all' });
-    deleteBtn.focus();
+    await vi.waitFor(() => {
+      deleteBtn.focus();
+      expect(deleteBtn).toHaveFocus();
+    });
     await user.keyboard('{Enter}');
 
     expect(props.onDeleteGroup).toHaveBeenCalledOnce();

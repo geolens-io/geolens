@@ -304,11 +304,16 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.getByTestId('dataset-map')).toBeInTheDocument();
   });
 
-  it('renders DatasetMap directly for vector datasets (no skeleton, no error overlay)', () => {
+  it('vector datasets use the hero state machine: skeleton until onMapReady', async () => {
+    mockMapConfig.autoFireMapReady = true;
     setup({ record_type: 'vector_dataset' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(screen.getByTestId('dataset-map')).toBeInTheDocument();
+    // Flush the lazy DatasetMap import so the mock mounts and auto-fires
+    // onMapReady; running the 10s timeout timer here would race it.
+    await act(async () => {});
+
+    expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-has-on-map-ready', 'true');
     expect(screen.queryByTestId('hero-skeleton')).not.toBeInTheDocument();
     expect(screen.queryByText('Preview unavailable')).not.toBeInTheDocument();
   });

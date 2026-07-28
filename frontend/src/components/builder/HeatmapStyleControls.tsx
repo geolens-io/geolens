@@ -155,10 +155,6 @@ interface SliderRowProps {
   max: number;
   step: number;
   onChange: (val: number) => void;
-  /** Fired on Radix onValueCommit (pointer-up / key release). Lets debounced
-   *  consumers flush the final value immediately instead of losing it when the
-   *  component unmounts before the debounce timer fires. */
-  onCommit?: (val: number) => void;
   /** Pre-computed display string. Takes precedence over `format`. */
   display?: string;
   /** Format shorthand: percent (0-1 → "50%"), px ("5px"), zoom ("3"). */
@@ -175,7 +171,7 @@ function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string 
 }
 
 /** Shared slider row component used by heatmap controls and style editor. */
-export function SliderRow({ label, value, min, max, step, display, format, onChange, onCommit }: SliderRowProps) {
+export function SliderRow({ label, value, min, max, step, display, format, onChange }: SliderRowProps) {
   const displayValue = display ?? formatValue(value, format);
   return (
     <div className="flex items-center gap-2">
@@ -191,7 +187,6 @@ export function SliderRow({ label, value, min, max, step, display, format, onCha
         max={max}
         step={step}
         onValueChange={([v]) => onChange(v)}
-        onValueCommit={onCommit ? ([v]) => onCommit(v) : undefined}
         className="flex-1"
       />
       <span className="text-xs text-muted-foreground w-10 text-end">

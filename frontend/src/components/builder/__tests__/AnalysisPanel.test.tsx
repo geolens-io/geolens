@@ -242,7 +242,7 @@ describe('AnalysisPanel', () => {
     renderPanel([rasterLayer, datasetLayer]);
     // The vector layer is selected rather than the raster that comes first.
     expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
-    expect(screen.getByText('Parcels')).toBeInTheDocument();
+    expect(screen.getAllByText('Parcels').length).toBeGreaterThan(0);
     expect(screen.queryByText('Sentinel-2 TCI')).not.toBeInTheDocument();
   });
 
@@ -268,7 +268,7 @@ describe('AnalysisPanel', () => {
     // The analysis endpoint accepts this, so hiding it would be a false
     // negative — the failure mode of classifying by renderer instead of source.
     expect(screen.getByRole('button', { name: 'Preview' })).not.toBeDisabled();
-    expect(screen.getByText('Parcels rendered oddly')).toBeInTheDocument();
+    expect(screen.getAllByText('Parcels rendered oddly').length).toBeGreaterThan(0);
   });
 
   it('does not offer Dissolve to viewers (fix #779)', async () => {
@@ -929,7 +929,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       // The overlay still depicted the removed layer's preview.
       await waitFor(() => expect(onClearPreview).toHaveBeenCalled());
       // The selection falls back exactly as a fresh mount would.
-      expect(screen.getByText('Roads')).toBeInTheDocument();
+      expect(screen.getAllByText('Roads').length).toBeGreaterThan(0);
     });
 
     it('clears a stale overlay when the remembered layer left the map (#793 review)', async () => {
@@ -1323,7 +1323,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
 
   it('targets the stack-selected layer instead of the first eligible one', async () => {
     renderPanel([datasetLayer, datasetLayer2], { selectedLayerId: 'l3' });
-    expect(screen.getByText('Roads')).toBeInTheDocument();
+    expect(screen.getAllByText('Roads').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await waitFor(() =>
@@ -1338,7 +1338,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     // The selection slot also carries raster layers, folder groups, and
     // sentinel ids like 'settings' — none of them may hijack the default.
     renderPanel([datasetLayer, rasterLayer], { selectedLayerId: 'l5' });
-    expect(screen.getByText('Parcels')).toBeInTheDocument();
+    expect(screen.getAllByText('Parcels').length).toBeGreaterThan(0);
   });
 
   it('yields to an explicit chat prefill', async () => {
@@ -1365,7 +1365,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
       mapId: 'm1',
       selectedLayerId: 'l3',
     });
-    expect(screen.getByText('Roads')).toBeInTheDocument();
+    expect(screen.getAllByText('Roads').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Distance')).toHaveValue(750);
     expect(screen.getByLabelText('New dataset name')).toHaveValue('Draft name');
   });

@@ -232,11 +232,24 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     if (localOpacity === opacityFromPropRef.current) return;
     clearTimeout(opacityTimerRef.current);
     opacityTimerRef.current = setTimeout(() => {
+      opacityTimerRef.current = undefined;
       onOpacityChange(layer.id, localOpacity);
     }, 100);
     return () => clearTimeout(opacityTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- push opacity only on local/layer change; the sync setter is stable
   }, [localOpacity, layer.id]);
+  // B10: flush a still-debouncing value on unmount — the bare clearTimeout
+  // alone discarded the final slider movement when the editor closed before
+  // the 100ms window elapsed. (Commit-on-release was rejected: Radix fires
+  // onValueCommit per keyboard step, which reintroduces the PB-02 spam.)
+  const opacityFlushRef = useRef<(() => void) | undefined>(undefined);
+  opacityFlushRef.current = () => {
+    if (opacityTimerRef.current === undefined) return;
+    clearTimeout(opacityTimerRef.current);
+    opacityTimerRef.current = undefined;
+    onOpacityChange?.(layer.id, localOpacity);
+  };
+  useEffect(() => () => opacityFlushRef.current?.(), []);
 
   // builder-audit #338 DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS
   // table (builder-paint-map.ts), which also backs handlePaintProp's reverse router
@@ -537,15 +550,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
               step={0.01}
               format="percent"
               onChange={setLocalOpacity}
-              // B10: commit the final value immediately on pointer-up/key
-              // release — the 100ms debounce alone discarded the last drag
-              // when the editor unmounted before the timer fired.
-              onCommit={(v) => {
-                clearTimeout(opacityTimerRef.current);
-                opacityFromPropRef.current = v;
-                setLocalOpacity(v);
-                onOpacityChange?.(layer.id, v);
-              }}
             />
           </>
         )}
