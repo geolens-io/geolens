@@ -166,7 +166,7 @@ describe('UploadForm — queued drops during config fetch', () => {
     await waitFor(() => expect(mockUploadFile).toHaveBeenCalledTimes(3));
   });
 
-  it('rejects a queued batch that exceeds the fresh quota, whole, with a toast', async () => {
+  it('trims a queued batch to the fresh quota and rejects the overflow per file', async () => {
     mockConfig = { data: null, isFetching: true };
     const { rerender } = render(<UploadForm />);
 
@@ -174,16 +174,16 @@ describe('UploadForm — queued drops during config fetch', () => {
       screen.getByTestId('drop-two').click();
     });
 
-    // Fresh quota allows only 1 dataset — the 2-file batch is over the cap.
+    // Fresh quota allows only 1 dataset — the first file uploads and the
+    // second gets a per-file rejection toast, matching react-dropzone v19's
+    // maxFiles behavior (accept up to the limit, not wholesale rejection).
     mockConfig = { data: { remaining_dataset_quota: 1 }, isFetching: false };
     await act(async () => {
       rerender(<UploadForm />);
     });
 
-    expect(mockUploadFile).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockUploadFile).toHaveBeenCalledTimes(1));
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
-    // Form stays idle so the user can retry immediately.
-    expect(screen.getByTestId('file-dropzone')).toBeInTheDocument();
   });
 
   it('re-applies extension and size gates from the settled config to queued drops', async () => {
