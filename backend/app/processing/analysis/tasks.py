@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -91,9 +92,11 @@ def _user_error_message(exc: Exception) -> str:
     if isinstance(exc, SQLAlchemyError):
         exc_text = str(exc).lower()
         if "querycancelederror" in exc_text or "statement timeout" in exc_text:
+            # fix(v1.6.0 audit D11): name the configured limit so the user
+            # knows what budget was exceeded.
             return (
-                "The analysis exceeded its processing time limit. "
-                "Try a smaller dataset or area."
+                f"The analysis exceeded its {MATERIALIZE_TIMEOUT} processing "
+                "time limit. Try a smaller dataset or area."
             )
         if isinstance(exc, (DataError, InternalError)):
             return "The analysis failed while processing this data"
@@ -156,6 +159,10 @@ async def _fail_cancelled_job(
                 "error_message": (
                     "The worker shut down before this analysis finished. Run it again."
                 ),
+                # fix(v1.6.0 audit B12): terminal writes must stamp
+                # completed_at (the ingest tasks all do) — without it the
+                # jobs UI renders '-' and retention ages on queue time.
+                "completed_at": datetime.now(timezone.utc),
             },
         ):
             await session.rollback()
@@ -220,7 +227,7 @@ async def _recheck_size_caps(
 
 
 async def _enforce_output_size(
-    session: AsyncSession, schema: str, table_name: str
+    session: AsyncSession, schema: str, table_name: str, *, operation: str
 ) -> None:
     """Fail the build when the output relation is over MAX_OUTPUT_BYTES.
 
@@ -241,10 +248,17 @@ async def _enforce_output_size(
     )
     size_bytes = result.scalar_one_or_none()
     if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
+        # fix(v1.6.0 audit D11): only buffer has a distance to reduce —
+        # telling a clip/centroid/dissolve user to shrink a buffer they
+        # never set is a dead end.
+        advice = (
+            "Reduce the buffer distance or run it on a smaller dataset."
+            if operation == "buffer"
+            else "Run it on a smaller dataset or area."
+        )
         raise ValueError(
             f"The analysis output exceeded the "
-            f"{MAX_OUTPUT_BYTES // 1024**3} GB size limit. Reduce the "
-            "buffer distance or run it on a smaller dataset."
+            f"{MAX_OUTPUT_BYTES // 1024**3} GB size limit. {advice}"
         )
 
 
@@ -271,7 +285,12 @@ async def _complete_job_for_attempt(
         session,
         uuid.UUID(job_id),
         attempt_id,
-        values={"status": "complete", "dataset_id": dataset_id},
+        values={
+            "status": "complete",
+            "dataset_id": dataset_id,
+            # fix(v1.6.0 audit B12): stamp completion time like ingest does.
+            "completed_at": datetime.now(timezone.utc),
+        },
     ):
         await session.commit()
         ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
@@ -287,6 +306,31 @@ async def _complete_job_for_attempt(
         await session.commit()
     except Exception:  # broad: best-effort cleanup of the orphaned output
         await session.rollback()
+
+
+async def _output_table_adopted(session: AsyncSession, out_table: str) -> bool:
+    """Whether a dataset row has adopted ``out_table`` (fix(v1.6.0 audit B13)).
+
+    Index-backed: ``catalog.datasets`` carries two partial unique indexes on
+    ``table_name`` (global and per-tenant). Tenant-scoped in multi_tenant —
+    an unscoped probe could match another tenant's dataset of the same name
+    and skip a legitimate drop (the IN-01 pattern from the ingest discover
+    query). With no tenant context in multi_tenant, report adopted: the
+    caller then prefers leaking a table over dropping one it can't attribute.
+    """
+    tid = current_tenant_var.get() if is_multi_tenant() else None
+    if is_multi_tenant():
+        if tid is None:
+            return True
+        stmt = text(
+            "SELECT 1 FROM catalog.datasets"
+            " WHERE table_name = :out AND tenant_id = :tenant_id"
+        ).bindparams(out=out_table, tenant_id=tid)
+    else:
+        stmt = text(
+            "SELECT 1 FROM catalog.datasets WHERE table_name = :out"
+        ).bindparams(out=out_table)
+    return (await session.execute(stmt)).first() is not None
 
 
 async def _mark_job_failed(
@@ -308,7 +352,9 @@ async def _mark_job_failed(
     before the connection dropped, leaving the row 'complete'). A successful
     fence proves the row was still 'running', so the registration commit has
     not happened and any committed output table is an unregistered orphan —
-    safe to drop. If the fence misses, the row AND the table are left alone.
+    safe to drop. If the fence misses, the row is left alone; the table is
+    dropped only when the adoption probe proves no dataset registered it
+    (fix(v1.6.0 audit B13)).
     """
     await session.rollback()
     if not await update_ingest_job_for_attempt(
@@ -319,10 +365,34 @@ async def _mark_job_failed(
             "status": "failed",
             # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
             "error_message": _user_error_message(exc),
+            # fix(v1.6.0 audit B12): stamp completion time like ingest does.
+            "completed_at": datetime.now(timezone.utc),
         },
     ):
         await session.rollback()
         logger.warning("analysis.failed_write_superseded", job_id=job_id)
+        # fix(v1.6.0 audit B13): a fence miss means some other actor set a
+        # terminal state, but only a completed job has adopted the table —
+        # a swept row leaves an unregistered orphan that used to leak
+        # permanently. Probe for an adopting dataset row; no row means the
+        # DROP is safe. Failure direction stays safe: if the probe itself
+        # errors, prefer leaking the table to dropping a registered
+        # dataset's storage.
+        if out_table is not None:
+            adopted = True
+            try:
+                adopted = await _output_table_adopted(session, out_table)
+            except Exception:  # broad: prefer leak over loss
+                logger.warning("analysis.adoption_probe_failed", job_id=job_id)
+                await session.rollback()
+            if not adopted:
+                try:
+                    await session.execute(
+                        text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
+                    )
+                    await session.commit()
+                except Exception:  # broad: best-effort cleanup of the orphan
+                    await session.rollback()
         return
     await session.commit()
     if out_table is not None:
@@ -564,6 +634,14 @@ async def _materialize(
                     **(job.user_metadata or {}),
                     "collision_warning": collision_warning,
                 }
+            # INVARIANT: from the user_metadata/current_step assignments above
+            # to the commit after ANALYZE, every statement must stay text() —
+            # SQLAlchemy autoflushes only for ORM queries, so the dirty job
+            # row is flushed (and its row lock taken) only microseconds inside
+            # that commit. A single ORM select() added in this stretch would
+            # autoflush the dirty row and hold the job-row lock across the
+            # CTAS, blocking renew_ingest_job_heartbeat (separate session,
+            # same row) for the entire build.
             out_ref = f'"{_schema}"."{out_table}"'
 
             carry_cols = (
@@ -596,7 +674,7 @@ async def _materialize(
             # Early exit only — a table already over the ceiling must not
             # hold the single worker slot through the rewrite phases. The
             # authoritative check runs after add_4326_column below.
-            await _enforce_output_size(session, _schema, out_table)
+            await _enforce_output_size(session, _schema, out_table, operation=operation)
             # Rows with nothing to show are excluded inside the CTAS for
             # EVERY shape (fix(#786), extending fix(#719 review)'s clip
             # rule via _wrap_not_empty): buffer/centroid map NULL source
@@ -632,7 +710,7 @@ async def _materialize(
             # payload, rewrites every row, and adds the GIST index — the
             # post-CTAS probe undercounts the final footprint by a multiple,
             # so the ceiling is enforced here, on the finished relation.
-            await _enforce_output_size(session, _schema, out_table)
+            await _enforce_output_size(session, _schema, out_table, operation=operation)
             # In-transaction ANALYZE (fix(#692)): the table only becomes
             # visible to autovacuum at the commit below, and the first tile
             # queries land before its pass — without statistics the planner

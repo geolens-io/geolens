@@ -20,7 +20,10 @@ import app.core.db as core_db
 from app.modules.catalog.datasets.api import router_analysis
 from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import (
+    MATERIALIZE_TIMEOUT,
+    _enforce_output_size,
     _fail_cancelled_job,
+    _mark_job_failed,
     _materialize,
     _user_error_message,
 )
@@ -673,6 +676,9 @@ class TestMaterializeWorker:
         await test_db_session.refresh(job)
         assert job.status == "complete", job.error_message
         assert job.dataset_id is not None
+        # fix(v1.6.0 audit B12): the terminal write must stamp completed_at —
+        # without it the jobs UI renders '-' and retention ages on queue time.
+        assert job.completed_at is not None
         # fix(#682 review): without started_at the row carries no liveness
         # signal, so the platform's stale-job sweep (which matches on
         # coalesce(heartbeat_at, started_at)) could never recover a crashed
@@ -913,9 +919,9 @@ class TestMaterializeWorker:
         """fix(#786): _mark_job_failed is fenced like _fail_cancelled_job —
         when another actor already moved the row to a terminal state, this
         worker's later failure must not clobber the message the user saw.
-        And since the failure path cannot tell a swept row from a completed
-        one, it must leave the output table alone (the name generator
-        self-heals around the orphan, fix(#692))."""
+        fix(v1.6.0 audit B13): the failure path CAN now tell a swept row
+        from a completed one — no dataset row adopted the table here, so it
+        is a provable orphan and gets dropped instead of leaking forever."""
         import app.processing.ingest.service as ingest_service
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -952,11 +958,58 @@ class TestMaterializeWorker:
         assert job.error_message == "Stale: heartbeat lease expired"
         assert job.dataset_id is None
         assert out_tables, "materialize never reached registration"
+        # fix(v1.6.0 audit B13): the sweep never registered a dataset for the
+        # table, so the fence-missed failure path drops it as an orphan.
         left = (
             await test_db_session.execute(
                 text("SELECT to_regclass(:ref)").bindparams(
                     ref=f'data."{out_tables[0]}"'
                 )
+            )
+        ).scalar_one()
+        assert left is None
+
+    async def test_fence_missed_failure_keeps_adopted_table(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(v1.6.0 audit B13): the other side of the adoption probe — a
+        final commit that reached the server before the connection dropped
+        leaves the row 'complete' with a registered dataset. The late
+        _mark_job_failed fence-misses AND finds the adopting dataset row, so
+        it must leave the table (a live dataset's storage) alone."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} (gid SERIAL PRIMARY KEY)")
+        )
+        await test_db_session.commit()
+        await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+        )
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "complete"
+        await test_db_session.commit()
+        assert job.attempt_id is not None
+
+        async with core_db.async_session() as session:
+            await _mark_job_failed(
+                session,
+                job_id=str(job.id),
+                attempt_id=job.attempt_id,
+                exc=RuntimeError("late failure after commit"),
+                schema="data",
+                out_table=table_name,
+                operation="centroid",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+        left = (
+            await test_db_session.execute(
+                text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_name}")
             )
         ).scalar_one()
         assert left is not None
@@ -1173,6 +1226,8 @@ class TestMaterializeWorker:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert job.error_message
+        # fix(v1.6.0 audit B12): the failure path stamps completed_at too.
+        assert job.completed_at is not None
 
     async def test_result_dataset_is_private_and_owned_by_requester(
         self,
@@ -2056,6 +2111,29 @@ class TestMaterializeWorker:
         assert "size limit" in (job.error_message or "")
         assert job.dataset_id is None
 
+    async def test_oversized_message_advice_matches_operation(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(v1.6.0 audit D11): only buffer has a distance to reduce —
+        clip/centroid/dissolve users must not be told to shrink a buffer
+        they never set."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+
+        with patch("app.processing.analysis.tasks.MAX_OUTPUT_BYTES", 1):
+            with pytest.raises(ValueError) as clip_exc:
+                await _enforce_output_size(
+                    test_db_session, "data", ds.table_name, operation="clip"
+                )
+            with pytest.raises(ValueError) as buffer_exc:
+                await _enforce_output_size(
+                    test_db_session, "data", ds.table_name, operation="buffer"
+                )
+        assert "buffer" not in str(clip_exc.value)
+        assert "smaller dataset" in str(clip_exc.value)
+        assert "buffer distance" in str(buffer_exc.value)
+
     async def test_mixed_geometry_dissolve_stays_typed(
         self,
         test_db_session: AsyncSession,
@@ -2176,6 +2254,8 @@ class TestUserErrorMessage:
         )
         msg = _user_error_message(exc)
         assert "time limit" in msg
+        # fix(v1.6.0 audit D11): the message names the configured limit.
+        assert MATERIALIZE_TIMEOUT in msg
         assert "big_output" not in msg
 
     def test_domain_errors_pass_through(self):
