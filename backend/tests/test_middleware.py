@@ -110,6 +110,33 @@ async def test_rate_limiting(client: AsyncClient):
         limiter._default_limits = original_limits
 
 
+def test_lazy_route_handler_resolution_strips_root_path():
+    """fix(#747 Codex P2): rewrite-less ROOT_PATH deployments keep the /api
+    prefix in scope['path']; the lazy-include fallback must strip root_path
+    the way starlette's matcher does, or nested routes resolve to no handler
+    and the global default rate limit silently stops applying to them."""
+    from app.api.main import _find_route_handler_with_lazy_includes, app
+
+    plain = {
+        "type": "http",
+        "method": "GET",
+        "path": "/conformance",
+        "root_path": "",
+        "headers": [],
+    }
+    prefixed = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/conformance",
+        "root_path": "/api",
+        "headers": [],
+    }
+    assert _find_route_handler_with_lazy_includes(app.routes, plain) is not None
+    assert _find_route_handler_with_lazy_includes(
+        app.routes, prefixed
+    ) is _find_route_handler_with_lazy_includes(app.routes, plain)
+
+
 @pytest.mark.anyio
 async def test_rate_limit_health_excluded(client: AsyncClient):
     """GET /health is not subject to the tight global default rate limit.
