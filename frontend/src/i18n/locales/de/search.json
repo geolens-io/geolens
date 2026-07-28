@@ -140,6 +140,7 @@
     "saveShort": "Speichern"
   },
   "bbox": {
+    "mapAriaLabel": "Karte des Begrenzungsrahmens",
     "noExtent": "Keine Ausdehnung",
     "instruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen",
     "loading": "Karte wird geladen..."
@@ -188,6 +189,7 @@
   "workspaceTitle": "GeoLens-Katalog durchsuchen",
   "spatial": {
     "title": "Suchbereich",
+    "mapAriaLabel": "Karte des Suchbereichs",
     "description": "Rechteck oder Polygon zeichnen, um Suchergebnisse auf einen bestimmten Bereich zu begrenzen.",
     "close": "Schließen",
     "rectangle": "Rechteck",

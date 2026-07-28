@@ -1350,6 +1350,12 @@ export const BuilderMap = memo(function BuilderMap({
   return (
     <div
       className="relative h-full w-full"
+      // audit(w3-maps): aria-label on <MapGL> is silently dropped —
+      // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
+      // labels its canvas "Map". Label the wrapper region instead (same
+      // pattern as DatasetMap's shell).
+      role="region"
+      aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
       // RESP-02-FOLLOWUP (Phase 1051): marker consumed by the
       // `[data-builder-canvas="true"] .maplibregl-ctrl-top-left` rule in
@@ -1394,7 +1400,6 @@ export const BuilderMap = memo(function BuilderMap({
         // tile-auth 401/403 (GUARD-03 re-sign / #621 re-mint in handleLoad's
         // error handler) stops double-logging a red AJAXError console row.
         onError={logUnhandledMapError}
-        aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       >
         {/* RESP-01 (Phase 1051): NavigationControl anchored top-left so it does not
             collide with the right-side BuilderRail (Notes/History/Ask AI buttons) at

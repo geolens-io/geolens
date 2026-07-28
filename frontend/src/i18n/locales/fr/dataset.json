@@ -424,6 +424,7 @@
     "noChanges": "Aucune modification de schéma détectée."
   },
   "map": {
+    "ariaLabel": "Carte du jeu de données",
     "featureSaved": "Entité enregistrée",
     "featureSaveFailed": "Échec de l'enregistrement de l'entité",
     "featureUpdated": "Entité mise à jour",

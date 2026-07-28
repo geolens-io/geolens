@@ -424,6 +424,7 @@
     "noChanges": "Keine Schemaänderungen erkannt."
   },
   "map": {
+    "ariaLabel": "Datensatzkarte",
     "featureSaved": "Feature gespeichert",
     "featureSaveFailed": "Feature konnte nicht gespeichert werden",
     "featureUpdated": "Feature aktualisiert",

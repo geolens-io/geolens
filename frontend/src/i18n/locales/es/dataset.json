@@ -424,6 +424,7 @@
     "noChanges": "No se detectaron cambios de esquema."
   },
   "map": {
+    "ariaLabel": "Mapa del conjunto de datos",
     "featureSaved": "Entidad guardada",
     "featureSaveFailed": "Error al guardar la entidad",
     "featureUpdated": "Entidad actualizada",

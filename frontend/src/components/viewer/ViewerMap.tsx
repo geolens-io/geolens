@@ -1046,6 +1046,12 @@ export const ViewerMap = memo(function ViewerMap({
   return (
     <div
       className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      // audit(w3-maps): aria-label on <MapGL> is silently dropped —
+      // @vis.gl/react-maplibre v8 forwards only id/ref/style, and MapLibre
+      // labels its canvas "Map". Label the wrapper region instead (same
+      // pattern as DatasetMap's shell).
+      role="region"
+      aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
       data-terrain-ready={terrainReady ? 'true' : 'false'}
     >
@@ -1062,7 +1068,6 @@ export const ViewerMap = memo(function ViewerMap({
         // handleLoad's error handler) stops double-logging a red AJAXError
         // console row.
         onError={logUnhandledMapError}
-        aria-label={t('viewer.map.ariaLabel', { defaultValue: 'Map viewer' })}
       >
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />
