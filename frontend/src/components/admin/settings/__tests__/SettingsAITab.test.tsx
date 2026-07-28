@@ -179,6 +179,8 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
 
   // fix(#652): require_ai_status_reader switches to manage_tenants in
   // multi-tenant mode — the button gate must switch with it.
+  // fix(#653): the gate now flows through the shared useAIStatusReader hook;
+  // these tests exercise the real hook via the mocked permission/edition hooks.
   it('multi-tenant: manage_users alone does NOT show the button', () => {
     hoisted.isMultiTenant = true;
     hoisted.canManageUsers = true;
@@ -193,6 +195,19 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     hoisted.canManageTenants = true;
     renderTab();
     expect(screen.getByRole('button', { name: /Test Connection/ })).toBeInTheDocument();
+  });
+
+  // fix(#653): /admin/embedding-stats + /admin/backfill-embeddings require
+  // manage_users in BOTH tenancy modes — unlike the ai-status reader gate,
+  // the coverage block must NOT unlock for a manage_tenants-only operator.
+  it('multi-tenant: manage_tenants alone keeps embedding coverage disabled', () => {
+    hoisted.isMultiTenant = true;
+    hoisted.canManageUsers = false;
+    hoisted.canManageTenants = true;
+    renderTab();
+    expect(hoisted.useEmbeddingStats).toHaveBeenCalledWith({ enabled: false });
+    expect(screen.queryByText('Embedding Coverage')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Generate Missing' })).not.toBeInTheDocument();
   });
 
   // fix(#652): the probe tests PERSISTED settings — a dirty form must not

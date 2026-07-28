@@ -914,6 +914,44 @@ export function ShareDialog({
   const isPublic = visibility === 'public';
   const canUseAdvancedSharing = isEnterprise;
 
+  // fix(#778): visibility change awaiting user confirmation. Non-null only while
+  // the confirm AlertDialog is open; the radio's checked state stays on the
+  // current `visibility` prop until the mutation actually succeeds, so
+  // cancelling leaves the old selection intact.
+  const [pendingVisibility, setPendingVisibility] = useState<MapVisibility | null>(null);
+
+  // fix(#778): layers hidden from the audience of the visibility being confirmed
+  // (not the current one — before a private→public change the current-visibility
+  // list is always empty). Same predicate as the post-change warning below.
+  const pendingAudienceHiddenLayers = useMemo(
+    () =>
+      pendingVisibility
+        ? layers
+            .filter((layer) => isLayerHiddenFromMapAudience(layer, pendingVisibility))
+            .map((layer) => layer.display_name ?? layer.dataset_name)
+        : [],
+    [layers, pendingVisibility],
+  );
+
+  function handleVisibilitySelect(newVisibility: MapVisibility) {
+    if (newVisibility === visibility) return;
+    // fix(#778): transitions that cross the public boundary need explicit
+    // confirmation — going public exposes the map to anyone with a link, and
+    // leaving public kills existing share links (clearSharedState below).
+    // Private↔internal keeps the original one-click behavior.
+    if (newVisibility === 'public' || visibility === 'public') {
+      setPendingVisibility(newVisibility);
+      return;
+    }
+    void handleVisibilityChange(newVisibility);
+  }
+
+  async function handleConfirmVisibilityChange() {
+    const next = pendingVisibility;
+    setPendingVisibility(null);
+    if (next) await handleVisibilityChange(next);
+  }
+
   async function handleVisibilityChange(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
     try {
@@ -1072,7 +1110,7 @@ export function ShareDialog({
                         ? 'ring-2 ring-ring border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',
                     )}
-                    onClick={() => handleVisibilityChange(opt.value)}
+                    onClick={() => handleVisibilitySelect(opt.value)}
                     disabled={publishMap.isPending}
                   >
                     <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
@@ -1088,6 +1126,66 @@ export function ShareDialog({
               <p className="text-xs text-muted-foreground mt-2">{t('share.makePublicHint', { defaultValue: 'Make this map public to generate a share link' })}</p>
             )}
           </div>
+
+          {/* fix(#778): crossing the public boundary is confirmed before the
+              mutation runs — going public was previously one un-confirmed click,
+              and leaving public silently killed existing share links. Same
+              AlertDialog structure as the revoke confirm above; only the
+              leave-public action is destructive-styled (it breaks live links). */}
+          <AlertDialog
+            open={pendingVisibility !== null}
+            onOpenChange={(dialogOpen) => {
+              if (!dialogOpen) setPendingVisibility(null);
+            }}
+          >
+            <AlertDialogContent>
+              {pendingVisibility === 'public' ? (
+                <>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('share.makePublicConfirmTitle')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('share.makePublicConfirmDescription')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  {pendingAudienceHiddenLayers.length > 0 && (
+                    <div
+                      data-testid="share-confirm-audience-hidden-warning"
+                      className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
+                    >
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                      <p>
+                        {t('share.audienceHiddenWarning', {
+                          count: pendingAudienceHiddenLayers.length,
+                          layers: pendingAudienceHiddenLayers.join(', '),
+                        })}
+                      </p>
+                    </div>
+                  )}
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirmVisibilityChange}>
+                      {t('share.makePublicConfirmAction')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </>
+              ) : (
+                <>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('share.leavePublicConfirmTitle')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('share.leavePublicConfirmDescription')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
+                    <AlertDialogAction variant="destructive" onClick={handleConfirmVisibilityChange}>
+                      {t('share.leavePublicConfirmAction')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </>
+              )}
+            </AlertDialogContent>
+          </AlertDialog>
 
           {publishMap.isPending && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">

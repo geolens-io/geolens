@@ -247,7 +247,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         // ------------------------------------------------------------------
         // Confirmation state
         // ------------------------------------------------------------------
-        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
           ref={confirmRef}
           role="alertdialog"

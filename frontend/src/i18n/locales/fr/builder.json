@@ -685,7 +685,14 @@
     "revokeConfirmTitle": "Révoquer le lien de partage ?",
     "revokeConfirmDescription": "Le lien cessera de fonctionner immédiatement et les jetons d’intégration de cette carte seront invalidés. Cette action est irréversible.",
     "revokeConfirmCancel": "Annuler",
-    "revokeConfirmAction": "Révoquer le lien"
+    "revokeConfirmAction": "Révoquer le lien",
+    "visibilityConfirmCancel": "Annuler",
+    "makePublicConfirmTitle": "Rendre cette carte publique ?",
+    "makePublicConfirmDescription": "Toute personne disposant du lien pourra voir cette carte.",
+    "makePublicConfirmAction": "Rendre publique",
+    "leavePublicConfirmTitle": "Arrêter le partage public ?",
+    "leavePublicConfirmDescription": "Les liens de partage et les codes d'intégration existants cesseront de fonctionner immédiatement.",
+    "leavePublicConfirmAction": "Arrêter le partage public"
   },
   "chat": {
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",

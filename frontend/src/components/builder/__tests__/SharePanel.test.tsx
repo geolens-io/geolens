@@ -84,6 +84,9 @@ function setup({
   updateShareTokenFn = vi.fn().mockResolvedValue({}),
   shareExpires = null,
   createEmbedTokenFn,
+  visibility = 'public',
+  layers,
+  publishMapFn = vi.fn().mockResolvedValue({}),
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -98,6 +101,10 @@ function setup({
   shareExpires?: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createEmbedTokenFn?: (...args: any[]) => any;
+  visibility?: ComponentProps<typeof ShareDialog>['visibility'];
+  layers?: ComponentProps<typeof ShareDialog>['layers'];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  publishMapFn?: (...args: any[]) => any;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -120,7 +127,8 @@ function setup({
     isMultiTenant: false,
     isLoading: false,
   });
-  mockedUsePublishMap.mockReturnValue(mutationResult());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUsePublishMap.mockReturnValue(mutationResult(publishMapFn as any));
   mockedUseCreateShareToken.mockReturnValue(mutationResult(createShareToken));
   mockedUseRevokeShareToken.mockReturnValue(mutationResult());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,15 +180,16 @@ function setup({
   render(
     <ShareDialog
       mapId="map-1"
-      visibility="public"
+      visibility={visibility}
       open
       onOpenChange={vi.fn()}
       hasUnsavedChanges={hasUnsavedChanges}
       saveStatus={saveStatus}
+      layers={layers}
     />,
   );
 
-  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn };
+  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn, publishMapFn };
 }
 
 describe('ShareDialog edition gates', () => {
@@ -1001,5 +1010,109 @@ describe('P2-01 explicit create-embed-token for public-only embeds', () => {
     await waitFor(() => {
       expect(createEmbedToken).toHaveBeenCalledWith({ mapId: 'map-1' });
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  fix(#778): confirm visibility changes that cross the public        */
+/*  boundary before mutating                                           */
+/* ------------------------------------------------------------------ */
+
+describe('fix(#778) public-boundary visibility confirmation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const privateLayer = {
+    id: 'layer-1',
+    dataset_id: 'ds-1',
+    dataset_name: 'Secret parcels',
+    display_name: null,
+    dataset_visibility: 'private',
+    dataset_status: 'published',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+
+  it('private→public opens the confirm dialog and only mutates on confirm', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({
+      visibility: 'private',
+      hasShareToken: false,
+      layers: [privateLayer],
+    });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+
+    // Dialog is open, nothing has mutated yet.
+    const dialog = await screen.findByRole('alertdialog');
+    expect(publishMapFn).not.toHaveBeenCalled();
+    // The audience-hidden layer list is surfaced inside the dialog body,
+    // computed against the TARGET (public) visibility.
+    expect(screen.getByTestId('share-confirm-audience-hidden-warning')).toHaveTextContent(
+      'Secret parcels',
+    );
+    expect(dialog).toHaveTextContent(/make this map public\?/i);
+
+    await user.click(screen.getByRole('button', { name: /^make public$/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledOnce();
+    });
+    expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'public' });
+  });
+
+  it('cancelling the private→public confirm fires no mutation and keeps the old selection', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({ visibility: 'private', hasShareToken: false });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await screen.findByRole('alertdialog');
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+    expect(publishMapFn).not.toHaveBeenCalled();
+    // Checked state never flipped — the map is still private.
+    expect(screen.getByRole('radio', { name: /only you/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('radio', { name: /anyone with the link/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('leaving public warns that existing share links stop working, with a destructive confirm', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({ visibility: 'public' });
+
+    await user.click(screen.getByRole('radio', { name: /only you/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(publishMapFn).not.toHaveBeenCalled();
+    expect(dialog).toHaveTextContent(/share links and embed codes will stop working/i);
+
+    await user.click(screen.getByRole('button', { name: /stop public sharing/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledOnce();
+    });
+    expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'private' });
+  });
+
+  it('a non-boundary change (private→internal) mutates immediately without a dialog', async () => {
+    const user = userEvent.setup();
+    const { publishMapFn } = setup({ visibility: 'private', hasShareToken: false });
+
+    await user.click(screen.getByRole('radio', { name: /all team members/i }));
+
+    await waitFor(() => {
+      expect(publishMapFn).toHaveBeenCalledOnce();
+    });
+    expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 });

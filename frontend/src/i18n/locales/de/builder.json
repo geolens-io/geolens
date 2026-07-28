@@ -685,7 +685,14 @@
     "revokeConfirmTitle": "Freigabelink widerrufen?",
     "revokeConfirmDescription": "Der Link funktioniert sofort nicht mehr und alle Einbettungs-Tokens dieser Karte werden ungültig. Das kann nicht rückgängig gemacht werden.",
     "revokeConfirmCancel": "Abbrechen",
-    "revokeConfirmAction": "Link widerrufen"
+    "revokeConfirmAction": "Link widerrufen",
+    "visibilityConfirmCancel": "Abbrechen",
+    "makePublicConfirmTitle": "Diese Karte öffentlich machen?",
+    "makePublicConfirmDescription": "Jeder mit dem Link kann diese Karte ansehen.",
+    "makePublicConfirmAction": "Öffentlich machen",
+    "leavePublicConfirmTitle": "Öffentliche Freigabe beenden?",
+    "leavePublicConfirmDescription": "Bestehende Freigabelinks und Einbettungscodes funktionieren sofort nicht mehr.",
+    "leavePublicConfirmAction": "Öffentliche Freigabe beenden"
   },
   "chat": {
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",

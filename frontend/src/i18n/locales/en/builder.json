@@ -685,7 +685,14 @@
     "revokeConfirmTitle": "Revoke share link?",
     "revokeConfirmDescription": "The link will stop working immediately and any embed tokens for this map will be invalidated. This cannot be undone.",
     "revokeConfirmCancel": "Cancel",
-    "revokeConfirmAction": "Revoke link"
+    "revokeConfirmAction": "Revoke link",
+    "visibilityConfirmCancel": "Cancel",
+    "makePublicConfirmTitle": "Make this map public?",
+    "makePublicConfirmDescription": "Anyone with the link will be able to view this map.",
+    "makePublicConfirmAction": "Make public",
+    "leavePublicConfirmTitle": "Stop sharing publicly?",
+    "leavePublicConfirmDescription": "Existing share links and embed codes will stop working immediately.",
+    "leavePublicConfirmAction": "Stop public sharing"
   },
   "chat": {
     "emptyState": "Describe changes to your map using natural language.",

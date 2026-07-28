@@ -73,6 +73,13 @@ Default retention: 7 daily, 4 weekly (set `BACKUP_RETENTION_DAILY` /
 
 ### Offsite (S3) upload
 
+> **Warning — single-disk exposure.** By default the `backup_data` volume lives
+> on the same host (and usually the same disk) as the database volume. Losing
+> that disk loses the data **and every backup of it** in one event. Treat the
+> local dumps as a convenience tier only: enable the S3 offsite upload below,
+> or point `backup_data` at a different physical disk, before relying on this
+> for disaster recovery.
+
 Offsite upload is **opt-in**. To enable it, set in `.env`:
 
 ```

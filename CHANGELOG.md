@@ -56,6 +56,24 @@ and releases use semantic versioning.
 
 ### Changed
 
+- **Crossing the public boundary on a shared map now asks first.** Making
+  a map public shows which layers will stay hidden from the audience
+  before committing, and leaving public warns that existing share links
+  will stop working. Changes that don't cross that boundary keep their
+  one-click behavior. (#778)
+- **Admin AI status surfaces gate on the same capability the backend
+  checks**, so operators who can read AI status always see the card, and
+  users without that capability no longer fire requests the backend
+  rejects. (#653)
+- **Feature popups open from the keyboard in the shared-map viewer**,
+  matching the builder.
+- **A cancelled or fenced-off analysis job cleans up its orphan output
+  table** when no dataset adopted it — and never drops a table another
+  actor did adopt.
+- **The nightly CI run no longer gets cancelled by daily dependency
+  merges**, and the runbook now states plainly that default local
+  backups share the database host's disk, pointing at the offsite
+  upload section. (#798)
 - **The backup container reports unhealthy when backups stop
   succeeding**, not just when its loop dies — operators see a red
   container instead of discovering stale backups during a restore.

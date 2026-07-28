@@ -133,8 +133,9 @@ async def _fail_cancelled_job(
     still 'running', so the final registration commit (which atomically
     persists the dataset and flips the row to 'complete') has not happened,
     and any committed output table is an unregistered orphan — safe to drop.
-    If the fence misses, the job already reached a terminal state and the
-    table must be left alone.
+    If the fence misses, the job already reached a terminal state; the table
+    is dropped only when the adoption probe proves no dataset registered it
+    (fix(v1.6.0 audit B13)).
     """
     from app.core.db import async_session
 
@@ -166,6 +167,27 @@ async def _fail_cancelled_job(
             },
         ):
             await session.rollback()
+            # fix(v1.6.0 audit B13): mirror _mark_job_failed's fence-miss
+            # cleanup — a swept row leaves an unregistered orphan that used
+            # to leak permanently here. Probe for an adopting dataset row;
+            # no row means the DROP is safe. If the probe itself errors,
+            # prefer leaking the table to dropping a registered dataset's
+            # storage.
+            if out_table is not None:
+                adopted = True
+                try:
+                    adopted = await _output_table_adopted(session, out_table)
+                except Exception:  # broad: prefer leak over loss
+                    logger.warning("analysis.adoption_probe_failed", job_id=job_id)
+                    await session.rollback()
+                if not adopted:
+                    try:
+                        await session.execute(
+                            text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
+                        )
+                        await session.commit()
+                    except Exception:  # broad: best-effort cleanup of the orphan
+                        await session.rollback()
             return
         await session.commit()
         if out_table is not None:
@@ -298,14 +320,24 @@ async def _complete_job_for_attempt(
     await session.rollback()
     logger.warning("analysis.complete_write_superseded", job_id=job_id)
     # The build commit made the output table durable, and the rollback above
-    # discarded its only registration. Only this worker registers or
-    # completes the job (retry=0), so the table is a provable orphan — drop
-    # it instead of leaking it.
+    # discarded this attempt's registration. fix(v1.6.0 audit B13): mirror
+    # _mark_job_failed's fence-miss cleanup — gate the drop on the adoption
+    # probe so a dataset row committed by any other actor keeps its storage,
+    # and prefer leaking the table over dropping one the probe can't clear.
+    adopted = True
     try:
-        await session.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"'))
-        await session.commit()
-    except Exception:  # broad: best-effort cleanup of the orphaned output
+        adopted = await _output_table_adopted(session, out_table)
+    except Exception:  # broad: prefer leak over loss
+        logger.warning("analysis.adoption_probe_failed", job_id=job_id)
         await session.rollback()
+    if not adopted:
+        try:
+            await session.execute(
+                text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
+            )
+            await session.commit()
+        except Exception:  # broad: best-effort cleanup of the orphaned output
+            await session.rollback()
 
 
 async def _output_table_adopted(session: AsyncSession, out_table: str) -> bool:

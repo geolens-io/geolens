@@ -21,6 +21,7 @@ from app.modules.catalog.datasets.api import router_analysis
 from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import (
     MATERIALIZE_TIMEOUT,
+    _complete_job_for_attempt,
     _enforce_output_size,
     _fail_cancelled_job,
     _mark_job_failed,
@@ -1007,6 +1008,138 @@ class TestMaterializeWorker:
 
         await test_db_session.refresh(job)
         assert job.status == "complete"
+        left = (
+            await test_db_session.execute(
+                text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_name}")
+            )
+        ).scalar_one()
+        assert left is not None
+
+    async def test_fence_missed_cancel_drops_unadopted_table(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(v1.6.0 audit B13): the cancel path's fence-miss branch used to
+        skip cleanup entirely — a sweep that failed the row before the
+        cancel bookkeeping ran left the committed output table leaking
+        forever. It now runs the same adoption probe as _mark_job_failed and
+        drops the table when no dataset row adopted it."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"orphan_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} (gid SERIAL PRIMARY KEY)")
+        )
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "failed"
+        job.error_message = "Stale: heartbeat lease expired"
+        await test_db_session.commit()
+        assert job.attempt_id is not None
+
+        async with core_db.async_session() as working_session:
+            await _fail_cancelled_job(
+                working_session,
+                job_id=str(job.id),
+                attempt_id=job.attempt_id,
+                schema="data",
+                out_table=table_name,
+                operation="centroid",
+            )
+
+        await test_db_session.refresh(job)
+        # The sweep's terminal state and message survive the fence miss...
+        assert job.status == "failed"
+        assert job.error_message == "Stale: heartbeat lease expired"
+        # ...and the unadopted table was dropped, not leaked.
+        left = (
+            await test_db_session.execute(
+                text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_name}")
+            )
+        ).scalar_one()
+        assert left is None
+
+    async def test_fence_missed_cancel_keeps_adopted_table(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(v1.6.0 audit B13): the leak-over-loss side of the cancel
+        path's new probe — when the row went terminal via a real completion
+        (dataset row adopted the table), the fence-missed cancel must leave
+        the live dataset's storage alone."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} (gid SERIAL PRIMARY KEY)")
+        )
+        await test_db_session.commit()
+        await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+        )
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "complete"
+        await test_db_session.commit()
+        assert job.attempt_id is not None
+
+        async with core_db.async_session() as working_session:
+            await _fail_cancelled_job(
+                working_session,
+                job_id=str(job.id),
+                attempt_id=job.attempt_id,
+                schema="data",
+                out_table=table_name,
+                operation="centroid",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete"
+        left = (
+            await test_db_session.execute(
+                text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_name}")
+            )
+        ).scalar_one()
+        assert left is not None
+
+    async def test_fence_missed_completion_keeps_adopted_table(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(v1.6.0 audit B13): the complete path's fence-miss branch used
+        to drop the output table unconditionally. It is now gated on the
+        same adoption probe — a dataset row committed by another actor for
+        this table name keeps its storage."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{table_name} (gid SERIAL PRIMARY KEY)")
+        )
+        await test_db_session.commit()
+        adopting = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            table_name=table_name,
+        )
+        job = await _create_job(test_db_session, admin_id)
+        job.status = "failed"
+        job.error_message = "Stale: heartbeat lease expired"
+        await test_db_session.commit()
+        assert job.attempt_id is not None
+
+        async with core_db.async_session() as session:
+            await _complete_job_for_attempt(
+                session,
+                job_id=str(job.id),
+                attempt_id=job.attempt_id,
+                dataset_id=adopting.id,
+                schema="data",
+                out_table=table_name,
+                operation="centroid",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "Stale: heartbeat lease expired"
         left = (
             await test_db_session.execute(
                 text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_name}")
