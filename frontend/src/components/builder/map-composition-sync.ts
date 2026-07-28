@@ -14,6 +14,10 @@ import {
 
 type RefBox<T> = { current: T };
 
+// feat(#845): one pending projection idle-retry per map instance, so a newer
+// appearance application can cancel a stale one (Codex P2 on #848).
+const pendingProjectionRetries = new WeakMap<MaplibreMap, () => void>();
+
 function sourcePrefixFor(idPrefix: string | undefined) {
   return idPrefix ? `${idPrefix}source-` : 'source-';
 }
@@ -56,16 +60,29 @@ export function applyMapBasemapAppearance({
   // appearance so viewer/shared surfaces honor the saved value, not just the
   // builder. Globe needs a loaded style, and inside a `style.load` callback
   // isStyleLoaded() still reports false, so fall back to a one-shot idle
-  // retry (same gate MapBuilderPage uses) instead of dropping it.
+  // retry (same gate MapBuilderPage uses) instead of dropping it. Any
+  // previously scheduled retry is canceled first so a projection change
+  // during the load-to-idle window can't be reverted by a stale callback
+  // (Codex P2 on #848).
+  const staleRetry = pendingProjectionRetries.get(map);
+  if (staleRetry) {
+    map.off?.('idle', staleRetry);
+    pendingProjectionRetries.delete(map);
+  }
   const applyProjection = () => {
+    pendingProjectionRetries.delete(map);
     try {
       map.setProjection?.({ type: basemapConfig?.projection ?? 'mercator' });
     } catch {
       // partial map mocks in tests / older maplibre — swallow safely
     }
   };
-  if (map.isStyleLoaded()) applyProjection();
-  else map.once?.('idle', applyProjection);
+  if (map.isStyleLoaded()) {
+    applyProjection();
+  } else {
+    pendingProjectionRetries.set(map, applyProjection);
+    map.once?.('idle', applyProjection);
+  }
 
   if (!map.isStyleLoaded()) {
     applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);

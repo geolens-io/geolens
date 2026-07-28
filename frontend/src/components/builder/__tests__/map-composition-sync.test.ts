@@ -151,14 +151,26 @@ describe('map composition sync', () => {
     // registers a one-shot idle retry instead of dropping the projection.
     setProjection.mockClear();
     const once = vi.fn();
+    const off = vi.fn();
+    const loading = { isStyleLoaded: vi.fn(() => false), setProjection, once, off } as unknown as MaplibreMap;
     applyMapBasemapAppearance({
-      map: { isStyleLoaded: vi.fn(() => false), setProjection, once } as unknown as MaplibreMap,
+      map: loading,
       basemapConfig: { projection: 'globe' } as MapBasemapConfig,
     });
     expect(setProjection).not.toHaveBeenCalled();
     expect(once).toHaveBeenCalledWith('idle', expect.any(Function));
-    (once.mock.calls[0][1] as () => void)();
-    expect(setProjection).toHaveBeenCalledWith({ type: 'globe' });
+    const globeRetry = once.mock.calls[0][1] as () => void;
+
+    // A newer application cancels the stale retry, so a projection change
+    // during the load-to-idle window can't be reverted (Codex P2 on #848).
+    applyMapBasemapAppearance({
+      map: loading,
+      basemapConfig: { projection: 'mercator' } as MapBasemapConfig,
+    });
+    expect(off).toHaveBeenCalledWith('idle', globeRetry);
+    (once.mock.calls[1][1] as () => void)();
+    expect(setProjection).toHaveBeenCalledTimes(1);
+    expect(setProjection).toHaveBeenCalledWith({ type: 'mercator' });
   });
 
   it('lets sublayer override retry logic handle unloaded styles', () => {
