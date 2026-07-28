@@ -99,13 +99,18 @@ run_backup() {
 
     # BKP-01: archive the object-storage staging volume alongside the dump.
     # Named with the SAME timestamp as the dump so restore can pair them.
+    # A tar failure marks the cycle failed (like the S3 path below) rather than
+    # returning early: retention pruning further down must always run, and the
+    # `|| cycle_failed=1` also keeps `set -e` from aborting on the non-zero
+    # command substitution. The cycle then exits non-zero and `.last-success`
+    # is never touched, so the healthcheck sees the missed staging archive.
+    local cycle_failed=0
     local staging_archive=""
-    staging_archive="$(backup_staging "$timestamp")"
+    staging_archive="$(backup_staging "$timestamp")" || cycle_failed=1
 
     # S3 upload — record any failure but DON'T return yet. The local dump (and
     # the staging archive, if any) already landed on disk; retention pruning
     # below must still run so a transient S3 outage can't let them accumulate.
-    local cycle_failed=0
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
         local upload_failed=0
         upload_to_s3 "$filepath" "daily/${filename}" || upload_failed=1
@@ -169,8 +174,11 @@ backup_staging() {
         return 0
     fi
 
+    # tar's own stderr is left attached so its diagnostic (e.g. "file changed
+    # as we read it" when api/worker write temp files mid-archive) reaches the
+    # container log instead of vanishing.
     log "Archiving object storage: $(basename "$archive")" >&2
-    if tar czf "$archive" -C "$STAGING_DIR" . 2>/dev/null; then
+    if tar czf "$archive" -C "$STAGING_DIR" .; then
         local size
         size="$(du -h "$archive" | cut -f1)"
         log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
@@ -180,8 +188,9 @@ backup_staging() {
         fi
         printf '%s\n' "$archive"
     else
-        log "WARNING: object-storage archive failed — staging backup skipped" >&2
+        log "ERROR: object-storage archive failed — this cycle will be reported as failed" >&2
         rm -f "$archive"
+        return 1
     fi
 }
 
