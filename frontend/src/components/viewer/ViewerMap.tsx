@@ -653,19 +653,9 @@ export const ViewerMap = memo(function ViewerMap({
       return null;
     };
 
-    const handleClick = (e: MapMouseEvent) => {
-      const hits = queryInteractiveFeatures(map, e.point);
-      if (hits === null) {
-        setPopupInfo(null);
-        return;
-      }
-
-      const clusterHit = findClusterHit(hits);
-      if (clusterHit) {
-        handleClusterHit(clusterHit.feature, clusterHit.hit, e.lngLat);
-        return;
-      }
-
+    // Shared by mouse click and the keyboard handler below so keyboard users
+    // get the same non-cluster feature popups as mouse users.
+    const mapFeatureHits = (hits: ReturnType<MaplibreMap['queryRenderedFeatures']>): FeatureInfo[] => {
       const mapped: FeatureInfo[] = [];
       for (const feature of hits) {
         const hit = lookupHitLayer(feature.layer.id);
@@ -682,6 +672,23 @@ export const ViewerMap = memo(function ViewerMap({
           zoomAtClick: map.getZoom(),
         });
       }
+      return mapped;
+    };
+
+    const handleClick = (e: MapMouseEvent) => {
+      const hits = queryInteractiveFeatures(map, e.point);
+      if (hits === null) {
+        setPopupInfo(null);
+        return;
+      }
+
+      const clusterHit = findClusterHit(hits);
+      if (clusterHit) {
+        handleClusterHit(clusterHit.feature, clusterHit.hit, e.lngLat);
+        return;
+      }
+
+      const mapped = mapFeatureHits(hits);
 
       if (mapped.length > 0) {
         setPopupInfo({
@@ -710,9 +717,24 @@ export const ViewerMap = memo(function ViewerMap({
       const hits = queryInteractiveFeatures(map, point);
       if (hits === null) return;
       const clusterHit = findClusterHit(hits);
-      if (!clusterHit) return;
+      if (clusterHit) {
+        event.preventDefault();
+        handleClusterHit(clusterHit.feature, clusterHit.hit, null);
+        return;
+      }
+      // Keyboard parity with BuilderMap: the popup was mouse-only for
+      // non-cluster features — Enter/Space was a no-op unless the
+      // centre-of-canvas hit happened to be a cluster. Mirror handleClick's
+      // mapping so keyboard users can open the same feature popup.
+      const mapped = mapFeatureHits(hits);
+      if (mapped.length === 0) return;
       event.preventDefault();
-      handleClusterHit(clusterHit.feature, clusterHit.hit, null);
+      const lngLat = map.unproject(point);
+      setPopupInfo({
+        longitude: lngLat.lng,
+        latitude: lngLat.lat,
+        features: mapped,
+      });
     };
 
     let canvasForKeyboard: HTMLCanvasElement | null = null;
