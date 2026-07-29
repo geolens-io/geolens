@@ -6,6 +6,7 @@ import { useTheme } from '@/components/theme-provider';
 import { useAuth } from '@/hooks/use-auth';
 import { useReportDialog } from '@/lib/report';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { useFeatureFlags } from '@/hooks/use-settings';
 import { Button } from '@/components/ui/button';
 import {
@@ -130,7 +131,10 @@ function UserMenu() {
   // #305: explicit light/dark override (default stays 'system', which
   // already honors prefers-color-scheme). resolvedTheme drives the icon/label.
   const { setTheme, resolvedTheme } = useTheme();
-  const canAccessAdmin = can('manage_users') || can('manage_settings');
+  // fix(#817): also admit a multi-tenant fleet operator (manage_tenants
+  // only) — the admin routes admit them via the same mode-aware predicate.
+  const settingsAdmin = useSettingsAdmin();
+  const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
   // Anonymous: show sign-in button instead of user dropdown
   if (!user) {
@@ -256,7 +260,10 @@ function MobileNav() {
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [vrtOpen, setVrtOpen] = useState(false);
-  const canAccessAdmin = can('manage_users') || can('manage_settings');
+  // fix(#817): also admit a multi-tenant fleet operator (manage_tenants
+  // only) — the admin routes admit them via the same mode-aware predicate.
+  const settingsAdmin = useSettingsAdmin();
+  const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
   // Auto-close sheet on navigation
   useEffect(() => {
@@ -385,7 +392,10 @@ function MobileNav() {
 export function Navbar() {
   const { t } = useTranslation();
   const { can } = usePermissions();
-  const canAccessAdmin = can('manage_users') || can('manage_settings');
+  // fix(#817): also admit a multi-tenant fleet operator (manage_tenants
+  // only) — the admin routes admit them via the same mode-aware predicate.
+  const settingsAdmin = useSettingsAdmin();
+  const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
   return (
     // fix(#522): fixed (not sticky) so the navbar shares the viewport-fixed
