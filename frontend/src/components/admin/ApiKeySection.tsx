@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
+// chore(#835): consolidated into the shared formatter (was written out here
+// and in settings/MyApiKeySection.tsx).
+import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { activeDotColor } from '@/lib/status-colors';
 import type { ApiKeyResponse, ApiKeyCreateResponse } from '@/types/api';
 import { Button } from '@/components/ui/button';
@@ -23,22 +26,6 @@ interface ApiKeySectionProps {
   userId: string;
 }
 
-function relativeTime(
-  dateStr: string | null,
-  t: (key: string, options?: Record<string, unknown>) => string,
-): string {
-  if (!dateStr) return t('apiKeys.neverUsed');
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return t('apiKeys.justNow');
-  if (minutes < 60) return t('apiKeys.minutesAgo', { count: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t('apiKeys.hoursAgo', { count: hours });
-  const days = Math.floor(hours / 24);
-  return t('apiKeys.daysAgo', { count: days });
-}
 
 export function ApiKeySection({ userId }: ApiKeySectionProps) {
   const { t } = useTranslation('admin');
@@ -159,7 +146,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   </span>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {t('apiKeys.created', { date: formatDate(key.created_at) })} · {t('apiKeys.lastUsed')} {relativeTime(key.last_used_at, t)}
+                  {t('apiKeys.created', { date: formatDate(key.created_at) })} · {t('apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}
                 </div>
               </div>
               {key.is_active && (

@@ -19,7 +19,6 @@ import {
   createShareToken,
   revokeShareToken,
   duplicateMap,
-  generateMap,
   fetchColumnValues,
   fetchColumnStats,
   fetchDatasetMaps,
@@ -323,17 +322,6 @@ export function useRevokeShareToken() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
     onError: () => { toast.error(i18n.t('builder:toasts.revokeFailed')); },
-  });
-}
-
-export function useGenerateMap() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: generateMap,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
-    },
-    onError: () => { toast.error(i18n.t('builder:mapCreate.generateFailed')); },
   });
 }
 

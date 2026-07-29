@@ -10,6 +10,7 @@ import {
   hasVisibleBasemapStyle,
   applyBasemapConfigToStyle,
   isKnownMissingRemoteStyleImage,
+  makeStyleImageMissingHandler,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
@@ -635,5 +636,41 @@ describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338
     expect(symbol.paint['text-opacity']).toBeCloseTo(1, 5);
     expect(symbol.paint['icon-opacity']).toBeCloseTo(1, 5);
     expect(raster.paint['raster-opacity']).toBeCloseTo(1, 5);
+  });
+});
+
+// chore(#835): shared styleimagemissing handler; knownImagesOnly parameterizes
+// the builder-vs-viewer/dataset divergence instead of three inline copies.
+describe('makeStyleImageMissingHandler', () => {
+  function fakeImageHost(has = false) {
+    return {
+      hasImage: vi.fn(() => has),
+      addImage: vi.fn(),
+    };
+  }
+
+  it('stubs any missing image when knownImagesOnly is false (viewer/dataset surfaces)', () => {
+    const map = fakeImageHost();
+    makeStyleImageMissingHandler(map, { knownImagesOnly: false })({ id: 'circle_11_black' });
+    expect(map.addImage).toHaveBeenCalledWith('circle_11_black', {
+      width: 1,
+      height: 1,
+      data: expect.any(Uint8Array),
+    });
+  });
+
+  it('stubs only known-noisy ids when knownImagesOnly is true (builder surface)', () => {
+    const map = fakeImageHost();
+    const handler = makeStyleImageMissingHandler(map, { knownImagesOnly: true });
+    handler({ id: 'circle_11_black' });
+    expect(map.addImage).not.toHaveBeenCalled();
+    handler({ id: 'circle-11' });
+    expect(map.addImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('never re-adds an image the map already has', () => {
+    const map = fakeImageHost(true);
+    makeStyleImageMissingHandler(map, { knownImagesOnly: false })({ id: 'circle-11' });
+    expect(map.addImage).not.toHaveBeenCalled();
   });
 });
