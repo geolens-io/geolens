@@ -126,6 +126,14 @@ class User(Base):
     token_version: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
+    # fix(#821): API-key revocation primitive, deliberately separate from
+    # token_version. Bumped only on security events (password change, role
+    # change, SAML-to-local conversion) — NOT on logout, so a web logout does
+    # not kill long-lived API keys (CI, MCP, tile URLs). Keys snapshot this
+    # value at mint and stop resolving when it no longer matches.
+    key_epoch: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
     auth_provider: Mapped[str] = mapped_column(
         String(20), server_default="local", nullable=False
     )
@@ -194,6 +202,17 @@ class ApiKey(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
+    # fix(#821): optional expiry. NULL preserves the pre-0029 forever-key
+    # behavior; at resolution an expired key fails exactly like an invalid one.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # fix(#821): snapshot of the owner's key_epoch at mint time. When the
+    # owner's key_epoch is bumped (password change, role change, SAML-to-local
+    # conversion — NOT logout), keys minted before the bump stop resolving.
+    # Migration 0029 backfills pre-existing keys with each owner's
+    # then-current epoch.
+    key_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

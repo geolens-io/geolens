@@ -38,6 +38,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
         name=key.name,
         fingerprint=key.fingerprint,
         is_active=key.is_active,
+        expires_at=key.expires_at,
         created_at=key.created_at,
         last_used_at=key.last_used_at,
     )
@@ -66,16 +67,26 @@ async def create_api_key(
     The raw key is returned only in this response and cannot be retrieved again.
     """
     from app.modules.auth.service import (
+        ApiKeyTargetUserInactiveError,
         ApiKeyTargetUserNotFoundError,
         create_api_key_for_user,
     )
 
     try:
-        api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
+        api_key, raw_key = await create_api_key_for_user(
+            db, body.user_id, body.name, expires_at=body.expires_at
+        )
     except ApiKeyTargetUserNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
+        ) from exc
+    except ApiKeyTargetUserInactiveError as exc:
+        # fix(#821 codex review): pending/suspended/deactivated owners cannot
+        # receive keys — a pre-approval key must not wake up privileged.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="API keys can only be created for active users",
         ) from exc
     await audit_emit(
         db,
@@ -88,6 +99,9 @@ async def create_api_key(
                 "name": body.name,
                 "fingerprint": api_key.fingerprint,
                 "target_user_id": str(body.user_id),
+                "expires_at": (
+                    api_key.expires_at.isoformat() if api_key.expires_at else None
+                ),
             },
             ip_address=get_client_ip(request),
         ),
@@ -99,6 +113,7 @@ async def create_api_key(
         key=raw_key,
         fingerprint=api_key.fingerprint,
         name=api_key.name,
+        expires_at=api_key.expires_at,
         created_at=api_key.created_at,
     )
 

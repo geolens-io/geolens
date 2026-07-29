@@ -56,6 +56,7 @@ function makeKey(overrides: Partial<MyApiKeyResponse> = {}): MyApiKeyResponse {
     name: 'test-key',
     fingerprint: 'abcd1234…wxyz',
     is_active: true,
+    expires_at: null,
     created_at: '2026-01-01T00:00:00Z',
     last_used_at: null,
     ...overrides,

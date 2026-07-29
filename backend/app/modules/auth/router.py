@@ -634,6 +634,10 @@ async def logout(
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     "logout doesn't invalidate the access JWT" gap.
+
+    fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+    outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+    must not revoke them. Security events (password change, role change) do.
     """
     service = AuthService(db)
     await service.revoke_all_tokens(current_user.id)
@@ -861,6 +865,7 @@ async def list_my_api_keys(
                 name=k.name,
                 fingerprint=k.fingerprint,
                 is_active=k.is_active,
+                expires_at=k.expires_at,
                 created_at=k.created_at,
                 last_used_at=k.last_used_at,
             )
@@ -898,7 +903,9 @@ async def create_my_api_key(
     )  # LAZY — preserved per D-17
     from app.modules.auth.service import create_api_key_for_user
 
-    api_key, raw_key = await create_api_key_for_user(db, current_user.id, body.name)
+    api_key, raw_key = await create_api_key_for_user(
+        db, current_user.id, body.name, expires_at=body.expires_at
+    )
 
     ip = get_client_ip(request)
     await audit_emit(
@@ -908,7 +915,13 @@ async def create_my_api_key(
             action="api_key.create",
             resource_type="api_key",
             resource_id=api_key.id,
-            details={"name": body.name, "fingerprint": api_key.fingerprint},
+            details={
+                "name": body.name,
+                "fingerprint": api_key.fingerprint,
+                "expires_at": (
+                    api_key.expires_at.isoformat() if api_key.expires_at else None
+                ),
+            },
             ip_address=ip,
         ),
     )
@@ -920,6 +933,7 @@ async def create_my_api_key(
         key=raw_key,
         fingerprint=api_key.fingerprint,
         name=api_key.name,
+        expires_at=api_key.expires_at,
         created_at=api_key.created_at,
     )
 
@@ -1007,12 +1021,16 @@ async def change_password(
     # for this user are invalidated on their next request. Password rotation
     # should force re-auth on every other device.
     #
+    # fix(#821): bump_key_epoch=True — a password change is a credential
+    # reset, so previously minted API keys are invalidated too (unlike plain
+    # logout, which leaves API keys alone).
+    #
     # commit=False: fold the token revocation into the same transaction as the
     # password hash mutation and audit row so all three land atomically. A crash
     # between commits would otherwise leave the user with bumped token_version
     # (all tokens rejected) but the new password not recorded, locking them out.
     service = AuthService(db)
-    await service.revoke_all_tokens(current_user.id, commit=False)
+    await service.revoke_all_tokens(current_user.id, commit=False, bump_key_epoch=True)
 
     ip = get_client_ip(request)
     await audit_emit(

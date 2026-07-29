@@ -60,7 +60,14 @@ def log_permission_denial(
 
 
 async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
-    """Try to resolve a user from X-Api-Key header or api_key query parameter."""
+    """Try to resolve a user from X-Api-Key header or api_key query parameter.
+
+    The ``?api_key=`` query-parameter lane is DEPRECATED (#821): a credential
+    in the URL is written into access logs and any upstream proxy logs. It is
+    kept for external clients that cannot set headers (e.g. XYZ tile URLs in
+    desktop GIS tools) but new integrations must use the ``X-Api-Key`` header.
+    Resolution precedence is unchanged: header > query param.
+    """
     api_key = request.headers.get("X-Api-Key")
     if not api_key:
         api_key = request.query_params.get("api_key")
@@ -75,15 +82,26 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     api_key_obj = result.scalar_one_or_none()
     if api_key_obj is None:
         return None
+    now = datetime.now(timezone.utc)
+    # fix(#821): an expired key behaves exactly like an invalid one (and must
+    # not bump last_used_at below).
+    if api_key_obj.expires_at is not None and api_key_obj.expires_at <= now:
+        return None
+    # fix(#821): staleness gate on the owner's key_epoch — the API-key
+    # analogue of the JWT token_version check (SEC-S15), but on a dedicated
+    # counter bumped only by security events (password change, role change,
+    # SAML-to-local conversion). Logout bumps token_version, NOT key_epoch,
+    # so signing out of the web UI never kills long-lived API keys.
     user = api_key_obj.user
-    if user is None or not user.is_active or user.status != "active":
+    if user is None or api_key_obj.key_epoch != user.key_epoch:
+        return None
+    if not user.is_active or user.status != "active":
         return None
     # Only update last_used_at if it's been more than 60 seconds (reduce write amplification).
     # Use a separate session so we don't flush the request-scoped session early —
     # an early commit on `db` would release advisory locks the route handler
     # may still need, and would persist any uncommitted state from prior
     # dependencies before the route's own logic decides whether to commit.
-    now = datetime.now(timezone.utc)
     if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(
         seconds=60
     ):

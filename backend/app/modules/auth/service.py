@@ -278,7 +278,7 @@ class AuthService:
         return new_access, new_refresh
 
     async def revoke_all_tokens(
-        self, user_id: uuid.UUID, *, commit: bool = True
+        self, user_id: uuid.UUID, *, commit: bool = True, bump_key_epoch: bool = False
     ) -> int:
         """Revoke all active refresh tokens AND bump User.token_version (logout).
 
@@ -293,6 +293,10 @@ class AuthService:
                 revocation is durable. Pass commit=False when the caller wants to
                 fold revocation into a larger transaction (e.g. change_password,
                 where the password hash and audit row must land in the same commit).
+            bump_key_epoch: fix(#821) — also bump User.key_epoch, invalidating
+                every API key minted before the bump. Default False so plain
+                logout (session hygiene) never kills long-lived API keys; pass
+                True only from security-event callers (password change).
 
         Returns the new token_version value.
         """
@@ -306,11 +310,16 @@ class AuthService:
             .values(revoked=True)
         )
 
-        # 2. Atomically increment token_version so prior access JWTs are rejected.
+        # 2. Atomically increment token_version so prior access JWTs are
+        #    rejected (and key_epoch in the same UPDATE when requested, so a
+        #    security event revokes JWTs and API keys atomically).
+        values: dict = {"token_version": User.token_version + 1}
+        if bump_key_epoch:
+            values["key_epoch"] = User.key_epoch + 1
         version_result = await self.db.execute(
             update(User)
             .where(User.id == user_id)
-            .values(token_version=User.token_version + 1)
+            .values(**values)
             .returning(User.token_version)
         )
         new_version = version_result.scalar_one_or_none()
@@ -404,28 +413,55 @@ class ApiKeyTargetUserNotFoundError(LookupError):
     """The target user is absent from the caller's RLS-visible scope."""
 
 
+class ApiKeyTargetUserInactiveError(ValueError):
+    """The target user is not active, so an API key must not be minted.
+
+    fix(#821 codex review): a key minted for a pending account would be
+    blocked by the resolution-time status check while pending, then wake up
+    with the approved role's privileges at approval. Refusing the mint closes
+    that door at the earliest point (approve_user's key_epoch bump is the
+    belt-and-suspenders for keys that predate this guard).
+    """
+
+
 async def create_api_key_for_user(
     db: AsyncSession,
     user_id: uuid.UUID,
     name: str,
+    expires_at: datetime | None = None,
 ) -> tuple[ApiKey, str]:
     """Create an API key for a user. Returns (api_key, raw_key).
 
     The raw key is only available at creation time. Flushes but does
     NOT commit — caller controls the transaction.
+
+    fix(#821): ``expires_at=None`` mints a non-expiring key (legacy behavior);
+    the key also snapshots the owner's current key_epoch so a later security
+    event (password change, role change, SAML-to-local conversion — NOT
+    logout) invalidates it. Minting requires an active owner.
     """
-    visible_user_id = await db.scalar(select(User.id).where(User.id == user_id))
-    if visible_user_id is None:
+    owner = (
+        await db.execute(
+            select(User.id, User.key_epoch, User.status).where(User.id == user_id)
+        )
+    ).one_or_none()
+    if owner is None:
         raise ApiKeyTargetUserNotFoundError("User not found")
+    if owner.status != "active":
+        raise ApiKeyTargetUserInactiveError(
+            "API keys can only be created for active users"
+        )
 
     raw_key = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     fingerprint = f"{raw_key[:8]}…{raw_key[-4:]}"
     api_key = ApiKey(
-        user_id=visible_user_id,
+        user_id=owner.id,
         key_hash=key_hash,
         fingerprint=fingerprint,
         name=name,
+        expires_at=expires_at,
+        key_epoch=owner.key_epoch,
     )
     db.add(api_key)
     await db.flush()
