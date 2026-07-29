@@ -12,13 +12,17 @@ pre-tag audit:
 - ``processing/`` is excluded from the hook's ``files:`` pattern.
 
 This module closes those gaps structurally. It walks the real FastAPI route
-table, inspects each handler's source (plus one level of directly-called
-``app.*`` helper functions), and asserts that any handler whose effective
-source fetches a guarded model (``Record``, ``Dataset``, ``Map``,
-``RecordEmbedding``) also references one of the sanctioned guards. Handlers
-that are unguarded by design live in ``ALLOWLIST`` with a per-entry
-justification; the allowlist is asserted exact in both directions so entries
-cannot go stale.
+table, parses each handler's source (plus one level of directly-called
+``app.*`` helper functions) into an AST, and asserts that any handler whose
+effective source fetches a guarded model (``Record``, ``Dataset``, ``Map``,
+``RecordEmbedding``) also CALLS one of the sanctioned guards. Model names are
+resolved by class identity through the function's module globals and its
+function-local imports, so aliases like ``Dataset as DatasetModel`` or
+``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
+expressions match because detection works on call nodes, not source lines
+(codex review on #863). Handlers that are unguarded by design live in
+``ALLOWLIST`` with a per-entry justification; the allowlist is asserted exact
+in both directions so entries cannot go stale.
 
 fastapi 0.140 trap: ``include_router`` is lazy, so ``app.routes`` holds only
 the top-level entries (~89) and a plain ``isinstance(route, APIRoute)`` scan
@@ -36,16 +40,19 @@ Known limits (accepted trade-offs, mirrored in the PR for #822):
   deeper call chains are invisible; domain guard helpers that themselves
   delegate (``_check_record_ownership``) are sanctioned by name instead and
   integrity-checked by ``test_delegated_guards_still_enforce_access``.
-- A guard reference anywhere in the effective source satisfies the check.
-  That is handler-scoped (much tighter than the hook's file scope) but a
-  handler doing two fetches, one guarded and one not, would still pass.
+- Model aliases created through ``sqlalchemy.orm.aliased(Model)`` or fully
+  dynamic factories are not resolved.
+- A sanctioned guard CALL anywhere in the effective source satisfies the
+  check. That is handler-scoped (much tighter than the hook's file scope)
+  but a handler doing two fetches, one guarded and one not, would still
+  pass.
 """
 
 from __future__ import annotations
 
 import ast
 import inspect
-import re
+import sys
 import textwrap
 from functools import lru_cache
 from typing import Any, NamedTuple
@@ -53,16 +60,8 @@ from typing import Any, NamedTuple
 import pytest
 
 # ---------------------------------------------------------------------------
-# Detection patterns
+# Detection
 # ---------------------------------------------------------------------------
-
-# Fetch shapes for the four guarded models. ``select(Model`` also matches
-# column selects like ``select(Map.id, ...)`` via the word boundary.
-_FETCH_RE = re.compile(
-    r"\bget_dataset\("
-    r"|\b(?:db|session)\.get\(\s*(?:Dataset|Record|Map|RecordEmbedding)\b"
-    r"|\bselect\(\s*(?:Dataset|Record|Map|RecordEmbedding)\b"
-)
 
 # Core guards from app/modules/catalog/authorization.py (AGENTS.md Rule 1).
 _CORE_GUARDS = (
@@ -80,12 +79,18 @@ _DELEGATED_GUARDS = (
     "check_map_ownership",
     "_check_map_read_access",
     "_apply_map_visibility_filter",
+    # maps: app/modules/catalog/maps/service_layers.py — bulk variant of
+    # check_dataset_access, kept in sync with can_access_dataset.
+    "bulk_check_dataset_access",
     # records: app/modules/catalog/records/router.py
     "_check_record_read_access",
     "_check_record_ownership",
+    # tiles: app/processing/tiles/router.py — the vector-tile access model
+    # (embed token, HMAC signature for non-public, published-status gating).
+    "_authorize_vector_tile_request",
 )
 
-_GUARD_RE = re.compile("|".join(re.escape(g) for g in _CORE_GUARDS + _DELEGATED_GUARDS))
+_GUARD_NAMES = frozenset(_CORE_GUARDS + _DELEGATED_GUARDS)
 
 # ---------------------------------------------------------------------------
 # Allowlist — handlers that touch a guarded model without a sanctioned guard,
@@ -161,12 +166,136 @@ def _source_of(fn: Any) -> str:
         return ""
 
 
-def _called_names(source: str) -> list[tuple[str, ...]]:
-    """Plain and single-dotted names invoked as calls in the source."""
+def _parse(source: str) -> ast.Module | None:
     try:
-        tree = ast.parse(source)
+        return ast.parse(source)
     except SyntaxError:
-        return []
+        return None
+
+
+@lru_cache(maxsize=1)
+def _guarded_model_classes() -> tuple[type, ...]:
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.modules.catalog.maps.models import Map
+    from app.processing.embeddings.models import RecordEmbedding
+
+    return (Dataset, Record, Map, RecordEmbedding)
+
+
+# ProcessingPort accessors that hand a guarded ORM class to processing/ code
+# (test_layering forbids module-level catalog imports there). An assignment
+# like ``Dataset = get_processing_port().get_dataset_orm_class()`` binds the
+# guarded class under a local name.
+_PORT_MODEL_ACCESSORS = frozenset({"get_dataset_orm_class", "get_record_orm_class"})
+
+
+def _model_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
+    """Names bound to a guarded model class, resolved by CLASS IDENTITY.
+
+    Covers module-level bindings (``from ...models import Dataset as
+    DatasetModel`` lands in the module globals), function-local imports
+    (``from app...models import Map as MapORM`` inside the body), and
+    ProcessingPort ORM-class accessor assignments, so aliased fetches are
+    detected structurally instead of by literal class name (codex P1 on
+    #863). ``sqlalchemy.orm.aliased(Model)`` constructs remain invisible.
+    """
+    classes = _guarded_model_classes()
+    names: set[str] = set()
+    for name, value in getattr(fn, "__globals__", {}).items():
+        if any(value is cls for cls in classes):
+            names.add(name)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            value = node.value
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, (ast.Name, ast.Attribute))
+                and (
+                    value.func.id
+                    if isinstance(value.func, ast.Name)
+                    else value.func.attr
+                )
+                in _PORT_MODEL_ACCESSORS
+            ):
+                names.update(
+                    target.id for target in node.targets if isinstance(target, ast.Name)
+                )
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        module_name = node.module or ""
+        if node.level:  # relative import — resolve against the function's module
+            try:
+                base = fn.__module__.rsplit(".", node.level)[0]
+            except (AttributeError, IndexError):
+                continue
+            module_name = f"{base}.{module_name}" if module_name else base
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        for alias in node.names:
+            value = getattr(module, alias.name, None)
+            if any(value is cls for cls in classes):
+                names.add(alias.asname or alias.name)
+    return frozenset(names)
+
+
+def _root_name(expr: ast.expr) -> str | None:
+    """The base Name of an expression: ``Map`` for ``Map``, ``Map.id``, etc."""
+    while isinstance(expr, ast.Attribute):
+        expr = expr.value
+    if isinstance(expr, ast.Name):
+        return expr.id
+    return None
+
+
+def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
+    """AST-scan one function's source for model fetches and guard CALLS.
+
+    Fetch shapes (all matched on call nodes, so formatting across multiple
+    lines is irrelevant — codex P2 on #863):
+    - ``select(<model or model attribute>, ...)``
+    - ``<anything>.select_from(<model>)``
+    - ``<anything>.get(<model>, ...)`` (AsyncSession.get)
+    - ``get_dataset(...)`` / ``<module>.get_dataset(...)``
+
+    A guard counts only when it is actually INVOKED; imports, docstrings,
+    and comments naming a guard do not (codex P2 on #863).
+    """
+    tree = _parse(source)
+    if tree is None:
+        return [], False
+    aliases = _model_aliases(fn, tree)
+    lines = source.splitlines()
+    evidence: list[str] = []
+    guard_called = False
+
+    def _mark(node: ast.Call) -> None:
+        line = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
+        evidence.append(f"{label}:{node.lineno}: {line}")
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        called = func.id if isinstance(func, ast.Name) else None
+        attr = func.attr if isinstance(func, ast.Attribute) else None
+
+        if (called or attr) in _GUARD_NAMES:
+            guard_called = True
+        if (called or attr) == "get_dataset":
+            _mark(node)
+        elif called == "select" or attr == "select_from":
+            if any(_root_name(arg) in aliases for arg in node.args):
+                _mark(node)
+        elif attr == "get" and node.args and _root_name(node.args[0]) in aliases:
+            _mark(node)
+
+    return evidence, guard_called
+
+
+def _called_names(tree: ast.Module) -> list[tuple[str, ...]]:
+    """Plain and single-dotted names invoked as calls in the tree."""
     names: list[tuple[str, ...]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -178,17 +307,21 @@ def _called_names(source: str) -> list[tuple[str, ...]]:
     return names
 
 
-def _one_level_expansion(fn: Any, source: str) -> dict[str, str]:
-    """Sources of app.* plain functions called directly from the handler.
+def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str]]:
+    """app.* plain functions called directly from the handler, with sources.
 
     Exactly one level deep, and only plain functions (classes and bound
     methods are skipped — expanding a class would pull every method of e.g.
     AdminService into scope and recreate the file-scope blind spot at class
-    scope).
+    scope). Each helper is returned WITH its function object so it can be
+    analyzed against its own module globals and local imports.
     """
+    tree = _parse(source)
+    if tree is None:
+        return {}
     module_globals = getattr(fn, "__globals__", {})
-    expansion: dict[str, str] = {}
-    for parts in _called_names(source):
+    expansion: dict[str, tuple[Any, str]] = {}
+    for parts in _called_names(tree):
         obj = module_globals.get(parts[0])
         for attr in parts[1:]:
             obj = getattr(obj, attr, None) if obj is not None else None
@@ -202,16 +335,8 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, str]:
             continue
         key = f"{module}.{target.__qualname__}"
         if key not in expansion:
-            expansion[key] = _source_of(target)
+            expansion[key] = (target, _source_of(target))
     return expansion
-
-
-def _fetch_evidence(label: str, source: str) -> list[str]:
-    return [
-        f"{label}:{lineno}: {line.strip()}"
-        for lineno, line in enumerate(source.splitlines(), start=1)
-        if _FETCH_RE.search(line)
-    ]
 
 
 @lru_cache(maxsize=1)
@@ -241,17 +366,21 @@ def _analyze_routes() -> tuple[int, tuple[_HandlerReport, ...]]:
             # twice; analyze it once.
             continue
         source = _source_of(fn)
-        expansion = _one_level_expansion(fn, source)
-        fetch_lines: list[str] = _fetch_evidence("handler", source)
-        for helper_key, helper_source in expansion.items():
-            fetch_lines.extend(_fetch_evidence(helper_key, helper_source))
-        effective = "\n".join([source, *expansion.values()])
+        fetch_lines, guarded = _analyze_source(fn, source, "handler")
+        for helper_key, (helper_fn, helper_source) in _one_level_expansion(
+            fn, source
+        ).items():
+            helper_evidence, helper_guard = _analyze_source(
+                helper_fn, helper_source, helper_key
+            )
+            fetch_lines.extend(helper_evidence)
+            guarded = guarded or helper_guard
         reports[key] = _HandlerReport(
             key=key,
             path=ctx.path or route.path,
             methods=tuple(sorted(route.methods or ())),
             fetch_lines=tuple(fetch_lines),
-            guarded=bool(_GUARD_RE.search(effective)),
+            guarded=guarded,
         )
     return context_count, tuple(reports.values())
 
@@ -294,8 +423,8 @@ def test_fetch_and_guard_detection_are_alive() -> None:
     guarded = [r for r in reports if r.fetch_lines and r.guarded]
     assert len(guarded) >= 60, (
         f"only {len(guarded)} handlers matched fetch+guard patterns (expected "
-        ">=60). Either the fetch regex or the guard list no longer matches the "
-        "codebase — update _FETCH_RE / guard names in this module."
+        ">=60). Either the fetch detection or the guard list no longer matches "
+        "the codebase — update _analyze_source / guard names in this module."
     )
     guarded_modules = {r.key.rsplit(".", 1)[0] for r in guarded}
     for anchor in ("app.standards.ogc.router", "app.standards.stac.router"):
@@ -310,8 +439,8 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
     """AGENTS.md Rule 1, enforced per handler across the whole route table.
 
     A handler whose effective source (own body + one level of directly-called
-    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding must reference
-    one of the sanctioned guards. Anything else must be a reviewed ALLOWLIST
+    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding must CALL one
+    of the sanctioned guards. Anything else must be a reviewed ALLOWLIST
     entry — and the allowlist must stay exact, so guarded-later or renamed
     handlers cannot leave stale entries behind.
     """
@@ -359,15 +488,19 @@ def test_delegated_guards_still_enforce_access() -> None:
     from app.modules.catalog.maps import _router_helpers, service_crud, service_shared
     from app.modules.catalog.records import router as records_router
 
-    read_access = _source_of(records_router._check_record_read_access)
-    assert "check_dataset_access_or_anonymous" in read_access, (
-        "records _check_record_read_access no longer delegates to "
+    def _calls_in(fn: Any) -> set[str]:
+        tree = _parse(_source_of(fn))
+        return {name[-1] for name in _called_names(tree)} if tree is not None else set()
+
+    assert "check_dataset_access_or_anonymous" in _calls_in(
+        records_router._check_record_read_access
+    ), (
+        "records _check_record_read_access no longer calls "
         "check_dataset_access_or_anonymous"
     )
-    ownership = _source_of(records_router._check_record_ownership)
-    assert "_check_record_read_access" in ownership, (
-        "records _check_record_ownership no longer calls _check_record_read_access"
-    )
+    assert "_check_record_read_access" in _calls_in(
+        records_router._check_record_ownership
+    ), "records _check_record_ownership no longer calls _check_record_read_access"
 
     map_read = _source_of(_router_helpers._check_map_read_access)
     assert "visibility" in map_read and "404" in map_read, (
@@ -380,4 +513,27 @@ def test_delegated_guards_still_enforce_access() -> None:
     map_filter = _source_of(service_shared._apply_map_visibility_filter)
     assert "visibility" in map_filter and "created_by" in map_filter, (
         "maps _apply_map_visibility_filter no longer filters by visibility/ownership"
+    )
+
+    from app.modules.catalog.maps import service_layers
+    from app.processing.tiles import router as tiles_router
+
+    bulk = _source_of(service_layers.bulk_check_dataset_access)
+    assert all(term in bulk for term in ("visibility", "created_by", "DatasetGrant")), (
+        "maps bulk_check_dataset_access no longer filters by "
+        "visibility/ownership/grants"
+    )
+
+    tile_auth_calls = _calls_in(tiles_router._authorize_vector_tile_request)
+    assert {
+        "verify_tile_signature",
+        "validate_embed_token_access",
+    } <= tile_auth_calls, (
+        "tiles _authorize_vector_tile_request no longer verifies tile "
+        "signatures / embed tokens"
+    )
+    tile_auth = _source_of(tiles_router._authorize_vector_tile_request)
+    assert "visibility" in tile_auth and "403" in tile_auth, (
+        "tiles _authorize_vector_tile_request no longer gates non-public "
+        "datasets with a 403"
     )
