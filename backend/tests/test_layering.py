@@ -1005,7 +1005,9 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # south<=north bbox check, limit clamping). Ratchet stays exact.
     "backend/app/standards/stac/router.py": 1795,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
-    "backend/app/processing/tiles/router.py": 2043,
+    # fix(#868): +3 lines for the cluster cache-key SQL-semantics version
+    # ("v2") so deploys that change cluster tile geometry invalidate Valkey.
+    "backend/app/processing/tiles/router.py": 2046,
 }
 
 

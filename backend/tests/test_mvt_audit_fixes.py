@@ -185,6 +185,62 @@ def test_cluster_query_emits_positive_offset_gid():
 
 
 # ---------------------------------------------------------------------------
+# fix(#868): cluster bucket grid — px->extent conversion + absolute anchoring
+# ---------------------------------------------------------------------------
+
+
+def test_cluster_query_converts_px_radius_to_extent_units():
+    """fix(#868): $6 arrives in CSS/screen pixels but the grid lives in MVT
+    extent units. At 512 px tile display one pixel is 4096/512 = 8 extent
+    units; the old math skipped the factor and built a ~8x-too-fine grid
+    (overlapping clusters + unclustered singles leaking at low zoom)."""
+    assert service._CLUSTER_PX_TO_EXTENT_UNITS == 4096 / 512
+    query = _build_cluster_tile_query("places")
+    assert f"$6::float8 * {service._CLUSTER_PX_TO_EXTENT_UNITS}" in query
+
+
+def test_cluster_query_buckets_on_absolute_3857_grid():
+    """fix(#868): the bucket grid anchors to absolute EPSG:3857 coordinates,
+    not the tile's own minx/miny. Bucket size at a fixed zoom is identical
+    for every tile, so absolute anchoring is what makes adjacent tiles at
+    one zoom share a single aligned grid (no cluster seams at borders)."""
+    query = _build_cluster_tile_query("places")
+    assert "bounds.minx" not in query
+    assert "bounds.miny" not in query
+    assert "ST_X(candidates.geom_3857)" in query
+    assert "ST_Y(candidates.geom_3857)" in query
+    # The degenerate-size guard must survive the rework.
+    assert "GREATEST(bounds.width * $6::float8" in query
+    # codex P2 rounds (#872): straddling cells — expanded candidate scan,
+    # deterministic membership under the cap, and cell-ORIGIN anchor
+    # ownership (pure grid geometry, never dependent on the scanned subset).
+    assert "ST_Expand(" in query
+    assert "ORDER BY t.gid" in query
+    assert "anchored.anchor_x >= ST_XMin(bounds.geom)" in query
+    # codex round 3 (#872): the grid anchors to the WORLD MINIMUM, so every
+    # in-world point yields an in-world cell origin (a 0-anchored grid lost
+    # cells straddling lon -180 to ownership rejection).
+    assert "ST_XMin(ST_TileEnvelope(0, 0, 0)) AS world_min_x" in query
+    assert "(ST_X(candidates.geom_3857) - grid.world_min_x)" in query
+    assert "grid.world_min_x + bucketed.bucket_x * grid.bucket_w" in query
+    # codex round 3 (#872): no scan expansion past cluster max zoom — ring
+    # rows would only burn the candidate cap before ownership drops them.
+    assert "ELSE 0.0" in query
+    # World-edge tiles own boundary anchors via inclusive upper bounds.
+    assert "(1 << $1::integer) - 1" in query  # east edge: x = 2^z - 1
+    assert "$3::integer = 0" in query  # north edge: y = 0
+    # codex round 4 (#872): ownership must filter BEFORE the feature cap so
+    # neighbor-owned cells cannot consume the output budget.
+    assert query.index("anchored.anchor_x >= ST_XMin(bounds.geom)") < query.index(
+        "GROUP BY bucket_x, bucket_y"
+    )
+    # codex round 4 (#872): emitted geometry is clamped into the owning
+    # tile — an out-of-tile centroid would be invisible to a client whose
+    # viewport never requests the owner tile.
+    assert "LEAST(GREATEST(ST_X(grouped.geom_3857)" in query
+
+
+# ---------------------------------------------------------------------------
 # fix(#394) B-019/VT-01: reupload purges the MVT tile cache post-commit
 # ---------------------------------------------------------------------------
 
