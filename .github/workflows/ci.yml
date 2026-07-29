@@ -128,10 +128,23 @@ jobs:
             mcp:
               - 'mcp/**'
               - 'sdks/python/**'
-              # fix(#827): the MCP tools read the backend's REST contract, so
-              # an API-shape change must run the MCP suite (incl. its live
-              # tier) even when the regenerated SDK output is byte-identical.
-              - 'backend/openapi.json'
+              # fix(#827, #866 review): the live tier tests backend BEHAVIOR,
+              # not just schema — a runtime regression in the handlers the
+              # five tools read (or in the auth/config paths the tier relies
+              # on) can ship with a byte-identical openapi.json, so the whole
+              # backend tree must trigger the suite, plus the compose
+              # build/boot inputs the job uses (same set as the e2e filter).
+              - 'backend/**'
+              - 'docker-compose*.yml'
+              - 'Dockerfile*'
+              - '.dockerignore'
+              - '.env.example'
+              - 'db/**'
+              - 'scripts/init-db.sh'
+              # Same rationale as the backend filter's #561 entry — a change
+              # to this workflow alters HOW the mcp job runs (incl. the live
+              # tier's boot recipe), so the job must run on PRs that touch it.
+              - '.github/workflows/ci.yml'
             # fix(#709): a PR that only touches the SDKs' own toolchain
             # (generator, package.json, tsconfig) ran neither drift gate,
             # so generator breakage merged green and reddened main on push.

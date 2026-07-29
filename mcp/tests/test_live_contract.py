@@ -8,7 +8,8 @@ invisibly. The mock tier (test_client.py / test_server.py) pins paths, params,
 and registration; only this tier sees the actual response bodies.
 
 Skipped unless ``RUN_MCP_LIVE=1`` (mirrors the ``RUN_AI_EVALS`` gate for the
-backend's live evals). Environment:
+backend's live evals); once explicitly enabled, an unreachable target FAILS
+the tier rather than skipping it back to green. Environment:
 
     GEOLENS_INSTANCE          target instance (default http://localhost:8080,
                               the dev stack)
@@ -70,7 +71,10 @@ def live():
             "/auth/login", data={"username": username, "password": password}
         )
     except httpx.HTTPError as exc:
-        pytest.skip(f"no reachable GeoLens API at {base}: {exc}")
+        # The tier was EXPLICITLY enabled (RUN_MCP_LIVE=1) — an unreachable
+        # target must fail loudly, never skip-to-green (#866 review). The only
+        # skip path is the env-var-absent pytestmark above.
+        pytest.fail(f"RUN_MCP_LIVE=1 but no reachable GeoLens API at {base}: {exc}")
     assert resp.status_code == 200, f"admin login failed: HTTP {resp.status_code}"
     token = resp.json()["access_token"]
     http.headers["Authorization"] = f"Bearer {token}"
