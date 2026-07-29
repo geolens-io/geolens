@@ -1051,7 +1051,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.
-    "backend/app/processing/tiles/router.py": 2044,
+    # fix(#868): +3 lines for the cluster cache-key SQL-semantics version
+    # ("v2") so deploys that change cluster tile geometry invalidate Valkey.
+    # Merge of the two carve-outs: 2043 base + 3 + 1. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2047,
 }
 
 

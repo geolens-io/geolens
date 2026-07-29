@@ -1589,7 +1589,10 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
 def _cluster_cache_table_key(
     table_name: str, *, cluster_radius: int, cluster_max_zoom: int
 ) -> str:
-    return f"{table_name}:cluster:r{cluster_radius}:z{cluster_max_zoom}"
+    # fix(#868): "v2" versions the cluster SQL semantics. Bump it whenever
+    # _build_cluster_tile_query changes the emitted tile geometry/properties,
+    # or a deploy keeps serving stale-geometry cluster tiles until TTL expiry.
+    return f"{table_name}:cluster:v2:r{cluster_radius}:z{cluster_max_zoom}"
 
 
 async def _acquire_and_serve_tile(
