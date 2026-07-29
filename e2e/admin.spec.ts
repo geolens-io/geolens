@@ -188,6 +188,65 @@ test.describe('Admin Panel', () => {
     await expect(page.getByText('Map Plugins')).toBeVisible();
   });
 
+  // test(#828): the AI and appearance settings pages were never visited by the
+  // admin e2e — their gating (edition, capability, env-key notice) was pinned
+  // only by unit tests.
+  test('settings: ai page loads with provider config and env-key notice', async ({ page }) => {
+    await page.goto('/admin/settings/ai');
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'AI', exact: true }),
+    ).toBeVisible();
+
+    // The env-key notice copy is the point: keys are env-only and cannot be
+    // edited from this page.
+    await expect(
+      page.getByText('API keys can only be set via environment variables'),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Key status rows render for both providers regardless of configured
+    // state, and either status is valid — CI runs keyless while a dev stack
+    // may have real keys. Fully anchored "<KEY> <status>" regexes scope the
+    // match to the status-row span alone: a start-only anchor also matched
+    // the keyless-stack warning ("OPENAI_API_KEY is not set. Embedding…")
+    // and strict-mode-failed in CI.
+    await expect(page.getByText(/^ANTHROPIC_API_KEY (configured|not set)$/)).toBeVisible();
+    await expect(page.getByText(/^OPENAI_API_KEY (configured|not set)$/)).toBeVisible();
+
+    // Provider config controls are present.
+    await expect(page.locator('#ai-toggle')).toBeVisible();
+    await expect(page.locator('#llm-provider')).toBeVisible();
+    await expect(page.locator('#semantic-toggle')).toBeVisible();
+
+    // The admin (manage_users, single-tenant) passes useAIStatusReader, so the
+    // probe button is offered. Deliberately NOT clicked — it spends live
+    // provider tokens.
+    await expect(page.getByRole('button', { name: 'Test Connection' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+  });
+
+  test('settings: appearance URL never renders the appearance tab on community', async ({ page }) => {
+    await page.goto('/admin/settings/appearance');
+
+    // fix(#871): /admin/settings/appearance is currently shadowed by a static
+    // legacy redirect to /map for EVERY edition; the intended fix removes that
+    // route, after which AdminSettingsPage's edition gate sends community
+    // users to /general instead. This assertion is written as the INVARIANT
+    // that holds on both sides of that fix: a community admin never sees the
+    // appearance (branding) tab and lands on another valid settings tab. The
+    // exact destinations (community → general, enterprise → appearance) are
+    // pinned at the unit level in AdminSettingsPage.test.tsx — a community
+    // dev stack can only ever exhibit one edition in e2e.
+    await page.waitForURL(/\/admin\/settings\/(map|general)$/);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 });
+    // The appearance tab's branding toggle must never render for community.
+    await expect(page.locator('#show-badge')).toHaveCount(0);
+
+    // Community edition gating that IS observable here: the sidebar offers no
+    // Appearance entry (AdminSidebar hides enterprise-only tabs).
+    await expect(page.locator('a[href="/admin/settings/appearance"]')).toHaveCount(0);
+  });
+
   test('published maps page loads', async ({ page }) => {
     await page.goto('/admin/shared-maps');
 

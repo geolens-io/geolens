@@ -1,4 +1,5 @@
 import { render, screen } from '@/test/test-utils';
+import { Route, Routes } from 'react-router';
 import { AdminSettingsPage } from '@/pages/admin/AdminSettingsPage';
 
 // AdminSettingsPage composes 8 SettingsXxxTab components on top of TanStack
@@ -49,8 +50,9 @@ vi.mock('@/hooks/use-unsaved-guard', () => ({
   useUnsavedGuard: () => ({ state: 'unblocked', proceed: vi.fn(), reset: vi.fn() }),
 }));
 
+const mockUseEdition = vi.fn();
 vi.mock('@/hooks/use-edition', () => ({
-  useEdition: () => ({ isEnterprise: false }),
+  useEdition: () => mockUseEdition(),
 }));
 
 const mockUseAllSettings = vi.fn();
@@ -85,6 +87,7 @@ describe('AdminSettingsPage', () => {
     mockUseConfigMode.mockReturnValue({ data: { env_only: false } });
     mockUseUpdateSettings.mockReturnValue({ mutate: vi.fn(), isPending: false });
     mockUseResetSettings.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    mockUseEdition.mockReturnValue({ isEnterprise: false });
   });
 
   it('renders the active tab from the route param when settings are loaded', () => {
@@ -133,5 +136,52 @@ describe('AdminSettingsPage', () => {
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
     // Tab content not rendered on error
     expect(screen.queryByTestId('settings-general-tab')).not.toBeInTheDocument();
+  });
+
+  // test(#828): the appearance tab's edition gate lives here (visibleTabs
+  // excludes 'appearance' unless isEnterprise). It is only testable at the
+  // unit level: e2e on a community stack never reaches this component for
+  // tab=appearance because a static legacy redirect in App.tsx (appearance →
+  // map) outranks the `admin/settings/:tab` route for every edition (see the
+  // PR #870 review finding). Both edition contexts are pinned below.
+  describe('appearance tab edition gating (#828)', () => {
+    function renderAppearanceRoute() {
+      mockUseParams.mockReturnValue({ tab: 'appearance' });
+      return render(
+        <Routes>
+          <Route path="/admin/settings/general" element={<div data-testid="redirect-target-general" />} />
+          <Route path="/admin/settings/:tab" element={<AdminSettingsPage />} />
+        </Routes>,
+        { route: '/admin/settings/appearance' },
+      );
+    }
+
+    it('enterprise: renders the appearance tab for tab=appearance', () => {
+      mockUseEdition.mockReturnValue({ isEnterprise: true });
+      mockUseAllSettings.mockReturnValue({
+        data: { env_only: false, tabs: { appearance: [] } },
+        isLoading: false,
+        isError: false,
+      });
+
+      renderAppearanceRoute();
+
+      expect(screen.getByTestId('settings-appearance-tab')).toBeInTheDocument();
+      expect(screen.queryByTestId('redirect-target-general')).not.toBeInTheDocument();
+    });
+
+    it('community: redirects tab=appearance to the general settings route', () => {
+      mockUseEdition.mockReturnValue({ isEnterprise: false });
+      mockUseAllSettings.mockReturnValue({
+        data: { env_only: false, tabs: { appearance: [] } },
+        isLoading: false,
+        isError: false,
+      });
+
+      renderAppearanceRoute();
+
+      expect(screen.getByTestId('redirect-target-general')).toBeInTheDocument();
+      expect(screen.queryByTestId('settings-appearance-tab')).not.toBeInTheDocument();
+    });
   });
 });
