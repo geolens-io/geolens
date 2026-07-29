@@ -184,6 +184,57 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(false);
     });
 
+    it('reads pristine when a save canonicalized the submitted value', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('  Bob  '));
+      expect(result.current.hasDirty).toBe(true);
+
+      // The backend trims/normalizes on save; the refetch returns the
+      // canonical value, which differs from both the old baseline and
+      // the draft. The server value must win or the form stays dirty
+      // forever and a re-save repeats the request.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)] });
+
+      expect(result.current.values.name).toBe('Bob');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('restores the server value when an edited field is reset', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+
+      // Reset on 'name' persisted the default; its refetched value changed,
+      // so the stale draft is replaced by the authoritative server value.
+      rerender({ s: [makeSetting('name', 'Default'), makeSetting('flag', false)] });
+
+      expect(result.current.values.name).toBe('Default');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('resolves a concurrent change to the edited field as server-wins', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+
+      // Another admin changed 'name' underneath the edit: the field's
+      // server value moved, so the server value replaces the draft.
+      rerender({ s: [makeSetting('name', 'Carol'), makeSetting('flag', false)] });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
     it('keeps a json-compare draft through a refetch', () => {
       const jsonFields = [
         { key: 'basemaps', defaultValue: [], compare: 'json' as const },

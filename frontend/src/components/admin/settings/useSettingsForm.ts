@@ -54,9 +54,13 @@ export function useSettingsForm<K extends string>(
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
-  // A field the user edited (differs from the previous server baseline)
-  // keeps its draft; everything else follows the new server values. After
-  // a save the draft equals the new baseline, so the form reads pristine.
+  // A field keeps its draft only while the server value for it is
+  // unchanged; when the refetch reports a NEW server value for a field,
+  // the server wins. That covers save/reset refetches where the backend
+  // canonicalized the submitted value (settings/router.py trims and
+  // normalizes some values), so an acknowledged save reads pristine
+  // instead of staying dirty forever, and a concurrent external change
+  // to the same field resolves as a server-wins conflict.
   const baselineRef = useRef(initialValues);
   useEffect(() => {
     const prevBaseline = baselineRef.current;
@@ -65,7 +69,10 @@ export function useSettingsForm<K extends string>(
       const next: Record<string, unknown> = { ...initialValues };
       for (const f of fields) {
         const key = f.key as K;
-        if (!isEqual(prev[key], prevBaseline[key], f.compare ?? 'strict')) {
+        const mode = f.compare ?? 'strict';
+        const touched = !isEqual(prev[key], prevBaseline[key], mode);
+        const serverChanged = !isEqual(initialValues[key], prevBaseline[key], mode);
+        if (touched && !serverChanged) {
           next[f.key] = prev[key];
         }
       }
