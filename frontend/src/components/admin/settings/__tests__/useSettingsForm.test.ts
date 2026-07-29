@@ -130,10 +130,13 @@ describe('useSettingsForm', () => {
       { key: 'flag', defaultValue: false },
     ] as const;
 
+    type Props = { s: SettingItem[]; saving?: boolean };
+
     function renderWithSettings(settings: SettingItem[]) {
-      return renderHook(({ s }) => useSettingsForm(s, fields), {
-        initialProps: { s: settings },
-      });
+      return renderHook(
+        ({ s, saving }: Props) => useSettingsForm(s, fields, saving),
+        { initialProps: { s: settings } as Props },
+      );
     }
 
     it('keeps dirty fields and the guard armed when an unrelated field refetches', () => {
@@ -198,6 +201,62 @@ describe('useSettingsForm', () => {
       // the draft. The server value must win or the form stays dirty
       // forever and a re-save repeats the request.
       rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)] });
+
+      expect(result.current.values.name).toBe('Bob');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps an edit typed while the save was in flight', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+
+      // Save clicked: mutation goes pending with the draft 'Bob'. The
+      // query data itself is unchanged (same identity) at this point.
+      rerender({ s: initial, saving: true });
+
+      // Inputs stay enabled while saving; the user keeps typing.
+      act(() => result.current.setters.name('Carol'));
+
+      // The save's refetch acknowledges 'Bob' — it must not clobber the
+      // newer draft 'Carol' or silently mark the form pristine.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: false });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.hasDirty).toBe(true);
+      expect(result.current.dirty).toEqual({ name: 'Carol' });
+    });
+
+    it('keeps a post-submit edit even when an unrelated refetch races the save', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true });
+      act(() => result.current.setters.name('Carol'));
+
+      // An unrelated invalidation lands while the save is still pending —
+      // it must not consume the submitted snapshot.
+      rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)], saving: true });
+      expect(result.current.values.name).toBe('Carol');
+
+      // Then the save's own refetch acknowledges 'Bob'.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', true)], saving: false });
+
+      expect(result.current.values.name).toBe('Carol');
+      expect(result.current.hasDirty).toBe(true);
+    });
+
+    it('reads pristine after a pending save when the draft was not edited again', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('  Bob  '));
+      rerender({ s: initial, saving: true });
+
+      // Refetch returns the canonicalized value for the acknowledged draft.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)], saving: false });
 
       expect(result.current.values.name).toBe('Bob');
       expect(result.current.hasDirty).toBe(false);

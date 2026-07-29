@@ -53,7 +53,7 @@ function ChannelResult({ result }: { result: NotificationTestChannelResult }) {
 
 export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving);
 
   // Phase 1229 Plan 03 — notification channel status + test-send (NOTIF-06).
   const { data: notifStatus, isLoading: notifLoading } = useNotificationStatus();

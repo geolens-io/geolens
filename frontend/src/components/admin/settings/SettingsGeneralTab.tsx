@@ -32,7 +32,7 @@ const FIELDS = [
 
 export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving);
 
   return (
     <div className="space-y-6">

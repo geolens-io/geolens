@@ -742,7 +742,7 @@ const AUTH_FIELDS = [
 
 export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS, isSaving);
 
   // Local input state for the domain allowlist add-input (not part of form state).
   const [domainInput, setDomainInput] = useState('');

@@ -60,7 +60,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   const backfill = useBackfillEmbeddings();
   const semanticToggle = useUpdateSemanticSearch();
 
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isProbing, setIsProbing] = useState(false);
   const [probe, setProbe] = useState<AIProbeReport | null>(null);

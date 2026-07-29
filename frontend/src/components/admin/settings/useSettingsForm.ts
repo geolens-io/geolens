@@ -32,6 +32,9 @@ function isEqual(a: unknown, b: unknown, mode: 'strict' | 'json' = 'strict'): bo
 export function useSettingsForm<K extends string>(
   settings: SettingItem[],
   fields: readonly FieldDef[] & { readonly [i: number]: { key: K } },
+  /** The save mutation's pending flag; lets the hook snapshot what was
+   *  submitted so a post-submit edit survives the save's own refetch. */
+  isSaving = false,
 ) {
   type Values = Record<K, unknown>;
 
@@ -52,27 +55,47 @@ export function useSettingsForm<K extends string>(
     setValues(initialValues);
   }, [initialValues]);
 
+  // Snapshot the draft the moment a save starts, so the save's own refetch
+  // can tell an acknowledged submission apart from an edit typed while the
+  // save was in flight (inputs stay enabled during isSaving).
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const isSavingRef = useRef(isSaving);
+  isSavingRef.current = isSaving;
+  const submittedRef = useRef<Values | null>(null);
+  useEffect(() => {
+    if (isSaving) submittedRef.current = valuesRef.current;
+  }, [isSaving]);
+
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
-  // A field keeps its draft only while the server value for it is
-  // unchanged; when the refetch reports a NEW server value for a field,
-  // the server wins. That covers save/reset refetches where the backend
-  // canonicalized the submitted value (settings/router.py trims and
-  // normalizes some values), so an acknowledged save reads pristine
-  // instead of staying dirty forever, and a concurrent external change
-  // to the same field resolves as a server-wins conflict.
+  // A field keeps its draft while the server value for it is unchanged.
+  // When the refetch reports a NEW server value for a field, the server
+  // wins — covering save/reset refetches where the backend canonicalized
+  // the submitted value (settings/router.py trims and normalizes some
+  // values), so an acknowledged save reads pristine instead of staying
+  // dirty forever — UNLESS the draft moved again after the save was
+  // submitted, in which case the newer edit survives and stays dirty.
   const baselineRef = useRef(initialValues);
   useEffect(() => {
     const prevBaseline = baselineRef.current;
     baselineRef.current = initialValues;
+    const submitted = submittedRef.current;
+    // Consume the snapshot only once the save is no longer pending — an
+    // unrelated refetch racing an in-flight save must leave it for the
+    // save's own refetch.
+    if (!isSavingRef.current) submittedRef.current = null;
     setValues((prev) => {
       const next: Record<string, unknown> = { ...initialValues };
       for (const f of fields) {
         const key = f.key as K;
         const mode = f.compare ?? 'strict';
         const touched = !isEqual(prev[key], prevBaseline[key], mode);
+        if (!touched) continue;
         const serverChanged = !isEqual(initialValues[key], prevBaseline[key], mode);
-        if (touched && !serverChanged) {
+        const editedAfterSubmit =
+          submitted !== null && !isEqual(prev[key], submitted[key], mode);
+        if (!serverChanged || editedAfterSubmit) {
           next[f.key] = prev[key];
         }
       }

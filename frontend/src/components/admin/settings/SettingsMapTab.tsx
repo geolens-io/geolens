@@ -101,7 +101,7 @@ const MAP_FIELDS = [
 
 export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, MAP_FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, MAP_FIELDS, isSaving);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newAttribution, setNewAttribution] = useState('');
