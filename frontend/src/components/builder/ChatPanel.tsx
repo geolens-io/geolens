@@ -15,7 +15,7 @@ import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { ChatInput } from './ChatInput';
-import { getSmartSuggestions, stripMentionMarkup, type ViewportContext } from './chat-suggestions';
+import { getSmartSuggestions, type ChatSuggestion, type ViewportContext } from './chat-suggestions';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -1091,22 +1091,27 @@ export function ChatPanel({
             </p>
             <div className="flex flex-wrap gap-1.5 px-1 justify-center">
               {(layers.length === 0
-                ? [t('chat.suggestions.searchDatasets')]
+                ? [
+                    {
+                      label: t('chat.suggestions.searchDatasets'),
+                      payload: t('chat.suggestions.searchDatasets'),
+                    } satisfies ChatSuggestion,
+                  ]
                 : getSmartSuggestions(layers, t, viewport)
               ).map((suggestion) => (
                 <button
-                  key={suggestion}
+                  key={suggestion.payload}
                   type="button"
                   className="cursor-pointer text-xs px-2.5 py-1 rounded-md border border-border hover:bg-accent hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => {
-                    setInput(suggestion);
+                    setInput(suggestion.payload);
                     requestAnimationFrame(() => {
                       containerRef.current?.querySelector('textarea')?.focus();
                     });
                   }}
                 >
-                  {/* fix(#832): strip mention markup from the visible suggestion label */}
-                  {stripMentionMarkup(suggestion)}
+                  {/* fix(#832): label shows the plain layer name; payload keeps mention markup */}
+                  {suggestion.label}
                 </button>
               ))}
             </div>
