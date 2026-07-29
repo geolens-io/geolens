@@ -20,7 +20,10 @@ resolved by class identity through the function's module globals and its
 function-local imports, so aliases like ``Dataset as DatasetModel`` or
 ``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
 expressions match because detection works on call nodes, not source lines
-(codex review on #863). Filter-returning guards (``apply_visibility_filter``
+(codex review on #863). Service accessors (``get_dataset`` / ``get_record``
+/ ``get_map`` and the ProcessingPort method forms) count as fetches, and
+guard calls are credited only when they resolve to the sanctioned guard
+objects by identity. Filter-returning guards (``apply_visibility_filter``
 and friends) count only when their result is consumed — a bare call leaves
 the original statement unfiltered. Handlers that are unguarded by design
 live in ``ALLOWLIST`` with a per-entry justification; the allowlist is
@@ -90,6 +93,10 @@ _DELEGATED_GUARDS = (
     # tiles: app/processing/tiles/router.py — the vector-tile access model
     # (embed token, HMAC signature for non-public, published-status gating).
     "_authorize_vector_tile_request",
+    # tiles: app/processing/tiles/router.py — the SEC-01 status-aware gate
+    # for the tile-token minting endpoints; delegates non-public RBAC to
+    # port.check_dataset_access and 404s unpublished-public for non-owners.
+    "_enforce_tile_token_access",
 )
 
 # Guards that deny by RAISING (404/403) — a bare ``await guard(...)``
@@ -104,6 +111,7 @@ _RAISING_GUARDS = frozenset(
         "_check_record_read_access",
         "_check_record_ownership",
         "_authorize_vector_tile_request",
+        "_enforce_tile_token_access",
     }
 )
 
@@ -126,16 +134,14 @@ assert not (_RAISING_GUARDS & _VALUE_GUARDS)
 
 
 @lru_cache(maxsize=1)
-def _guards_requiring_await() -> frozenset[str]:
-    """Sanctioned guards that are coroutine functions.
+def _guard_objects() -> dict[str, Any]:
+    """The sanctioned guard FUNCTION OBJECTS, keyed by canonical name.
 
-    Calling a coroutine guard WITHOUT ``await`` only creates a coroutine —
-    no authorization runs and no denial ever raises — so for these the call
-    must sit under an ``ast.Await`` to count (codex P1 on #863, round 4).
-    Keyed on ``inspect.iscoroutinefunction`` of the real guard objects
-    rather than a hardcoded list, so a guard changing between sync and
-    async updates the requirement automatically. Also fails loudly here if
-    a sanctioned guard is renamed or moved.
+    Guard calls are credited only when the called name resolves to one of
+    these objects by identity (codex P2 on #863, round 5) — a handler
+    defining its own ``check_dataset_access`` or calling
+    ``some_service.check_dataset_access(...)`` on an unrelated object does
+    not count. Fails loudly here if a sanctioned guard is renamed or moved.
     """
     from app.modules.catalog import authorization
     from app.modules.catalog.maps import (
@@ -161,11 +167,41 @@ def _guards_requiring_await() -> frozenset[str]:
         "_check_record_read_access": records_router._check_record_read_access,
         "_check_record_ownership": records_router._check_record_ownership,
         "_authorize_vector_tile_request": tiles_router._authorize_vector_tile_request,
+        "_enforce_tile_token_access": tiles_router._enforce_tile_token_access,
     }
     assert set(guard_objects) == _RAISING_GUARDS | _VALUE_GUARDS
+    return guard_objects
+
+
+@lru_cache(maxsize=1)
+def _guards_requiring_await() -> frozenset[str]:
+    """Sanctioned guards that are coroutine functions.
+
+    Calling a coroutine guard WITHOUT ``await`` only creates a coroutine —
+    no authorization runs and no denial ever raises — so for these the call
+    must sit under an ``ast.Await`` to count (codex P1 on #863, round 4).
+    Keyed on ``inspect.iscoroutinefunction`` of the real guard objects
+    rather than a hardcoded list, so a guard changing between sync and
+    async updates the requirement automatically.
+    """
     return frozenset(
-        name for name, obj in guard_objects.items() if inspect.iscoroutinefunction(obj)
+        name
+        for name, obj in _guard_objects().items()
+        if inspect.iscoroutinefunction(obj)
     )
+
+
+# ProcessingPort guard wrappers: processing/ code cannot import catalog
+# authorization at module level (test_layering), so it calls the guards as
+# methods on a ProcessingPort — ``await port.check_dataset_access(...)``.
+# Those attribute calls cannot be identity-resolved (the port is a local),
+# so they are credited by method name ONLY when the receiver is provably a
+# port: a parameter annotated ProcessingPort or a get_processing_port()
+# result. The default implementation's delegation to the real guards is
+# pinned by test_delegated_guards_still_enforce_access.
+_PORT_GUARD_METHODS = frozenset(
+    {"check_dataset_access", "check_dataset_write_access", "apply_visibility_filter"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -265,17 +301,20 @@ def _guarded_model_classes() -> tuple[type, ...]:
 _PORT_MODEL_ACCESSORS = frozenset({"get_dataset_orm_class", "get_record_orm_class"})
 
 
-def _bound_names(fn: Any, tree: ast.Module, targets: tuple[Any, ...]) -> set[str]:
-    """Names bound to any of ``targets``, resolved by OBJECT IDENTITY.
+def _bound_objects(
+    fn: Any, tree: ast.Module, targets: tuple[Any, ...]
+) -> dict[str, Any]:
+    """Local names bound to any of ``targets``, resolved by OBJECT IDENTITY.
 
     Covers module-level bindings (which land in the function's module
     globals) and function-local ``from X import Y as Z`` statements
     (resolved through ``sys.modules``, including relative imports).
+    Returns name -> matched target object.
     """
-    names: set[str] = set()
+    bound: dict[str, Any] = {}
     for name, value in getattr(fn, "__globals__", {}).items():
         if any(value is target for target in targets):
-            names.add(name)
+            bound[name] = value
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom):
             continue
@@ -292,8 +331,12 @@ def _bound_names(fn: Any, tree: ast.Module, targets: tuple[Any, ...]) -> set[str
         for alias in node.names:
             value = getattr(module, alias.name, None)
             if any(value is target for target in targets):
-                names.add(alias.asname or alias.name)
-    return names
+                bound[alias.asname or alias.name] = value
+    return bound
+
+
+def _bound_names(fn: Any, tree: ast.Module, targets: tuple[Any, ...]) -> set[str]:
+    return set(_bound_objects(fn, tree, targets))
 
 
 def _model_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
@@ -337,6 +380,102 @@ def _select_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
     ``select_from`` are always recognized in addition to these.
     """
     return frozenset(_bound_names(fn, tree, _select_functions()))
+
+
+@lru_cache(maxsize=1)
+def _accessor_functions() -> tuple[Any, ...]:
+    """Domain service accessors that fetch-and-return a guarded model.
+
+    Calls to these (resolved by identity, so function-local imports and
+    aliases count) are fetch evidence just like a raw select — they are the
+    normal by-ID service paths Rule 1 exists for (codex P1 on #863, round 5).
+    """
+    from app.modules.catalog.datasets.domain.service import get_dataset
+    from app.modules.catalog.maps.service_crud import get_map, get_map_with_layers
+    from app.modules.catalog.records.service import get_record
+
+    return (get_dataset, get_map, get_map_with_layers, get_record)
+
+
+# Accessor METHOD names for attribute calls whose receiver cannot be
+# identity-resolved (the ProcessingPort protocol, service facades bound to
+# locals). Name-based and fail-closed: a same-named method on an unrelated
+# object at worst adds fetch evidence, never a guard.
+_ACCESSOR_METHOD_NAMES = frozenset(
+    {
+        "get_dataset",
+        "get_record",
+        "get_dataset_with_attributes",
+        "get_map",
+        "get_map_with_layers",
+    }
+)
+
+
+def _port_base_names(tree: ast.Module) -> set[str]:
+    """Names that provably hold a ProcessingPort in this source.
+
+    Two shapes: a parameter annotated ``ProcessingPort`` (Name or string
+    annotation) and an assignment from ``get_processing_port()``.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]:
+                ann = arg.annotation
+                if isinstance(ann, ast.Name) and ann.id == "ProcessingPort":
+                    names.add(arg.arg)
+                elif (
+                    isinstance(ann, ast.Constant)
+                    and isinstance(ann.value, str)
+                    and "ProcessingPort" in ann.value
+                ):
+                    names.add(arg.arg)
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            fname = (
+                func.id
+                if isinstance(func, ast.Name)
+                else (func.attr if isinstance(func, ast.Attribute) else None)
+            )
+            if fname == "get_processing_port":
+                names.update(
+                    target.id for target in node.targets if isinstance(target, ast.Name)
+                )
+    return names
+
+
+def _is_port_base(expr: ast.expr, port_names: set[str]) -> bool:
+    """True when ``expr`` is provably a ProcessingPort receiver."""
+    if isinstance(expr, ast.Name):
+        return expr.id in port_names
+    if isinstance(expr, ast.Call):
+        func = expr.func
+        fname = (
+            func.id
+            if isinstance(func, ast.Name)
+            else (func.attr if isinstance(func, ast.Attribute) else None)
+        )
+        return fname == "get_processing_port"
+    return False
+
+
+def _attr_chain_object(fn: Any, func: ast.Attribute) -> Any:
+    """Resolve ``mod.attr1.attr2`` through the function's module globals."""
+    parts: list[str] = []
+    node: ast.expr = func
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    obj = getattr(fn, "__globals__", {}).get(node.id)
+    for attr in reversed(parts):
+        if obj is None:
+            return None
+        obj = getattr(obj, attr, None)
+    return obj
 
 
 def _root_name(expr: ast.expr) -> str | None:
@@ -387,9 +526,19 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     - ``<anything>.get(<model>, ...)`` (AsyncSession.get, incl. keyword form)
     - ``get_dataset(...)`` / ``<module>.get_dataset(...)``
 
-    A guard counts only when it is actually INVOKED; imports, docstrings,
-    and comments naming a guard do not (codex P2 on #863). Value-returning
-    guards (``_VALUE_GUARDS``) additionally require the call result to be
+    Accessor calls count as fetches too: domain service accessors resolved
+    by identity (``get_dataset`` / ``get_record`` / ``get_map`` /
+    ``get_map_with_layers``, including function-local imports) and the
+    matching method names on any receiver (``port.get_record(db, id)``)
+    (codex P1, round 5).
+
+    A guard counts only when it is actually INVOKED and the called name
+    RESOLVES to a sanctioned guard object by identity (codex P2 on #863,
+    rounds 2 and 5) — imports, docstrings, comments, shadowing local
+    definitions, and same-named methods on unrelated objects do not count.
+    The one non-identity path is a ``_PORT_GUARD_METHODS`` call on a
+    provable ProcessingPort receiver. Value-returning guards
+    (``_VALUE_GUARDS``) additionally require the call result to be
     CONSUMED — a bare expression statement discards the filtered Select and
     is not a guard (codex P1, round 3). Coroutine guards additionally
     require the call to be AWAITED — an un-awaited call only creates a
@@ -398,52 +547,97 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     tree = _parse(source)
     if tree is None:
         return [], False
-    aliases = _model_aliases(fn, tree)
-    select_names = _select_aliases(fn, tree)
+    ctx = _AnalysisContext(
+        fn=fn,
+        aliases=_model_aliases(fn, tree),
+        select_names=_select_aliases(fn, tree),
+        accessor_names=frozenset(_bound_names(fn, tree, _accessor_functions())),
+        guard_bound=_bound_objects(fn, tree, tuple(_guard_objects().values())),
+        port_names=frozenset(_port_base_names(tree)),
+        discarded=frozenset(_discarded_call_ids(tree)),
+        awaited=frozenset(_awaited_call_ids(tree)),
+    )
     lines = source.splitlines()
     evidence: list[str] = []
     guard_called = False
-    discarded = _discarded_call_ids(tree)
-    awaited = _awaited_call_ids(tree)
-    needs_await = _guards_requiring_await()
-
-    def _mark(node: ast.Call) -> None:
-        line = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
-        evidence.append(f"{label}:{node.lineno}: {line}")
-
-    def _any_model_arg(candidates: list[ast.expr]) -> bool:
-        return any(_root_name(candidate) in aliases for candidate in candidates)
-
-    def _is_effective_guard(name: str | None, node: ast.Call) -> bool:
-        if name not in _RAISING_GUARDS and name not in _VALUE_GUARDS:
-            return False
-        if name in needs_await and id(node) not in awaited:
-            return False  # un-awaited coroutine: the check never runs
-        if name in _VALUE_GUARDS and id(node) in discarded:
-            return False  # filtered statement / id set discarded
-        return True
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        func = node.func
-        called = func.id if isinstance(func, ast.Name) else None
-        attr = func.attr if isinstance(func, ast.Attribute) else None
-        name = called or attr
-
-        if _is_effective_guard(name, node):
+        if _is_effective_guard(ctx, node):
             guard_called = True
-
-        keyword_values = [kw.value for kw in node.keywords]
-        if name == "get_dataset":
-            _mark(node)
-        elif name in ("select", "select_from") or called in select_names:
-            if _any_model_arg([*node.args, *keyword_values]):
-                _mark(node)
-        elif attr == "get" and _any_model_arg([*node.args[:1], *keyword_values]):
-            _mark(node)
+        if _is_fetch(ctx, node):
+            line = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
+            evidence.append(f"{label}:{node.lineno}: {line}")
 
     return evidence, guard_called
+
+
+class _AnalysisContext(NamedTuple):
+    """Per-source resolution state shared by the call-node predicates."""
+
+    fn: Any
+    aliases: frozenset[str]
+    select_names: frozenset[str]
+    accessor_names: frozenset[str]
+    guard_bound: dict[str, Any]
+    port_names: frozenset[str]
+    discarded: frozenset[int]
+    awaited: frozenset[int]
+
+
+def _resolve_guard(ctx: _AnalysisContext, node: ast.Call) -> tuple[str, Any] | None:
+    """(canonical name, guard object or None for port wrappers)."""
+    guard_by_id = {id(obj): name for name, obj in _guard_objects().items()}
+    func = node.func
+    if isinstance(func, ast.Name):
+        obj = ctx.guard_bound.get(func.id)
+        return (guard_by_id[id(obj)], obj) if obj is not None else None
+    if isinstance(func, ast.Attribute):
+        obj = _attr_chain_object(ctx.fn, func)
+        if obj is not None and id(obj) in guard_by_id:
+            return guard_by_id[id(obj)], obj
+        if func.attr in _PORT_GUARD_METHODS and _is_port_base(
+            func.value, ctx.port_names
+        ):
+            return func.attr, None
+    return None
+
+
+def _is_effective_guard(ctx: _AnalysisContext, node: ast.Call) -> bool:
+    resolved = _resolve_guard(ctx, node)
+    if resolved is None:
+        return False
+    name, obj = resolved
+    is_coro = (
+        inspect.iscoroutinefunction(obj)
+        if obj is not None
+        else name in _guards_requiring_await()
+    )
+    if is_coro and id(node) not in ctx.awaited:
+        return False  # un-awaited coroutine: the check never runs
+    if name in _VALUE_GUARDS and id(node) in ctx.discarded:
+        return False  # filtered statement / id set discarded
+    return True
+
+
+def _is_fetch(ctx: _AnalysisContext, node: ast.Call) -> bool:
+    func = node.func
+    called = func.id if isinstance(func, ast.Name) else None
+    attr = func.attr if isinstance(func, ast.Attribute) else None
+    name = called or attr
+
+    def _any_model_arg(candidates: list[ast.expr]) -> bool:
+        return any(_root_name(candidate) in ctx.aliases for candidate in candidates)
+
+    keyword_values = [kw.value for kw in node.keywords]
+    if name in _ACCESSOR_METHOD_NAMES or called in ctx.accessor_names:
+        return True
+    if name in ("select", "select_from") or called in ctx.select_names:
+        return _any_model_arg([*node.args, *keyword_values])
+    if attr == "get":
+        return _any_model_arg([*node.args[:1], *keyword_values])
+    return False
 
 
 def _called_names(tree: ast.Module) -> list[tuple[str, ...]]:
@@ -658,6 +852,12 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
         return None
 
     imp = "from app.modules.catalog.datasets.domain.models import Dataset as DsX\n"
+    # Function-local imports of the REAL guards: guard credit requires the
+    # called name to resolve to the sanctioned object by identity, and the
+    # dummy function's module globals do not bind the guards.
+    imp_access = "from app.modules.catalog.authorization import check_dataset_access\n"
+    imp_avf = "from app.modules.catalog.authorization import apply_visibility_filter\n"
+    imp_bulk = "from app.modules.catalog.maps.service_layers import bulk_check_dataset_access\n"
 
     # Qualified select: sa.select(Model) is a fetch (codex P2, round 3).
     evidence, guarded = _analyze_source(
@@ -676,6 +876,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     evidence, guarded = _analyze_source(
         _dummy,
         imp
+        + imp_avf
         + "def f(db, u, r):\n"
         + "    stmt = select(DsX)\n"
         + "    apply_visibility_filter(stmt, u, r, DsX, None)\n"
@@ -687,10 +888,11 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
         "statement and must NOT count as a guard"
     )
 
-    # ...while consuming the result IS a guard.
+    # ...while consuming the result IS a guard (sync guard, no await needed).
     evidence, guarded = _analyze_source(
         _dummy,
         imp
+        + imp_avf
         + "def f(db, u, r):\n"
         + "    stmt = apply_visibility_filter(select(DsX), u, r, DsX, None)\n"
         + "    return db.execute(stmt)\n",
@@ -705,6 +907,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     evidence, guarded = _analyze_source(
         _dummy,
         imp
+        + imp_access
         + "async def f(db, ds, i, u):\n"
         + "    await check_dataset_access(db, ds, i, u)\n"
         + "    return await db.get(DsX, i)\n",
@@ -719,6 +922,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     evidence, guarded = _analyze_source(
         _dummy,
         imp
+        + imp_access
         + "async def f(db, ds, i, u):\n"
         + "    check_dataset_access(db, ds, i, u)\n"
         + "    return await db.get(DsX, i)\n",
@@ -734,6 +938,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     evidence, guarded = _analyze_source(
         _dummy,
         imp
+        + imp_bulk
         + "async def f(db, ids, u, r):\n"
         + "    ok = bulk_check_dataset_access(db, ids, u, r)\n"
         + "    return await db.get(DsX, ids[0]), ok\n",
@@ -742,9 +947,6 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     assert evidence and not guarded, (
         "an un-awaited bulk_check_dataset_access(...) must NOT count as a guard"
     )
-
-    # Sync value guards need no await — the consumed-result checks above
-    # (apply_visibility_filter is a plain function) already exercise that.
 
     # Aliased select import: the fetch is still detected by callable identity.
     evidence, guarded = _analyze_source(
@@ -756,6 +958,76 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
     assert evidence and not guarded, (
         "select imported under an alias must still be detected as a fetch"
+    )
+
+    # A SHADOWED guard name — locally defined, never imported — must not
+    # count: guard credit requires identity resolution (codex P2, round 5).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "async def check_dataset_access(db, ds, i, u):\n"
+        + "    return None\n"
+        + "async def f(db, ds, i, u):\n"
+        + "    await check_dataset_access(db, ds, i, u)\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "a locally shadowed check_dataset_access(...) has no relationship to "
+        "the authorization module and must NOT count as a guard"
+    )
+
+    # ProcessingPort accessor: port.get_record(db, id) is a fetch even
+    # though the receiver is a local (codex P1, round 5).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        'async def f(db, i, port: "ProcessingPort"):\n'
+        + "    return await port.get_record(db, i)\n",
+        "t",
+    )
+    assert evidence and not guarded, "port.get_record(...) must be detected as a fetch"
+
+    # ProcessingPort guard wrapper: credited only on a provable port
+    # receiver (annotated parameter / get_processing_port() result).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        'async def f(db, i, u, port: "ProcessingPort"):\n'
+        + "    ds = await port.get_dataset(db, i)\n"
+        + "    await port.check_dataset_access(db, ds, i, u)\n"
+        + "    return ds\n",
+        "t",
+    )
+    assert evidence and guarded, (
+        "await port.check_dataset_access(...) on a ProcessingPort-annotated "
+        "parameter must count as a guard"
+    )
+
+    # The same method name on an unrelated receiver must NOT count.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "async def f(db, i, u, svc):\n"
+        + "    ds = await db.get(DsX, i)\n"
+        + "    await svc.check_dataset_access(db, ds, i, u)\n"
+        + "    return ds\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "svc.check_dataset_access(...) on an unproven receiver must NOT "
+        "count as a guard"
+    )
+
+    # Function-locally imported service accessor: a fetch by identity.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        "from app.modules.catalog.records.service import get_record as load\n"
+        + "async def f(db, i):\n"
+        + "    return await load(db, i)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "a function-locally imported (and aliased) get_record must be "
+        "detected as a fetch"
     )
 
 
@@ -820,3 +1092,31 @@ def test_delegated_guards_still_enforce_access() -> None:
         "tiles _authorize_vector_tile_request no longer gates non-public "
         "datasets with a 403"
     )
+
+    token_gate_calls = _calls_in(tiles_router._enforce_tile_token_access)
+    assert "check_dataset_access" in token_gate_calls, (
+        "tiles _enforce_tile_token_access no longer delegates non-public "
+        "datasets to check_dataset_access"
+    )
+    token_gate = _source_of(tiles_router._enforce_tile_token_access)
+    assert "visibility" in token_gate and "record_status" in token_gate, (
+        "tiles _enforce_tile_token_access no longer gates on visibility and "
+        "published status"
+    )
+
+    # ProcessingPort guard wrappers are credited by method name on provable
+    # port receivers, so the default implementation must keep delegating to
+    # the real authorization functions (codex P2, round 5).
+    from app.platform.extensions.defaults import DefaultProcessingPort
+
+    for method_name in sorted(_PORT_GUARD_METHODS):
+        method = getattr(DefaultProcessingPort, method_name)
+        method_source = _source_of(method)
+        assert method_name in _calls_in(method), (
+            f"DefaultProcessingPort.{method_name} no longer calls the "
+            f"authorization-module {method_name}"
+        )
+        assert "from app.modules.catalog.authorization import" in method_source, (
+            f"DefaultProcessingPort.{method_name} no longer imports its "
+            "delegate from app.modules.catalog.authorization"
+        )
