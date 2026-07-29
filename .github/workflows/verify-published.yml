@@ -25,9 +25,9 @@ on:
         required: false
         type: string
         default: 'latest'
-  # Auto-run after a gated publish completes. The two publish workflows finish at
-  # different times; the concurrency group below collapses the duplicate triggers
-  # into a single verify run once both are done.
+  # Auto-run after a gated publish completes. The publish workflows finish at
+  # different times; the concurrency group below queues duplicate triggers for
+  # the same version behind the in-flight verify (never cancelling it).
   workflow_run:
     workflows: ["Publish SDKs", "Publish CLI", "Publish MCP Server"]
     types: [completed]
@@ -35,11 +35,18 @@ on:
 permissions:
   contents: read
 
-# Collapse the two publish-completion triggers (and any manual run) for the same
-# version into one in-flight verify; a later trigger supersedes an earlier one.
+# Collapse the publish-completion triggers (and any manual run) for the same
+# version into the same group. cancel-in-progress stays FALSE (fix #829): with
+# `true`, a late-finishing publish job or a re-run could cancel the in-flight
+# verify for that version — masking exactly the publish-failure class this
+# workflow exists to catch (this bit during the 1.6.0 npm OIDC incident).
+# Duplicate triggers now queue behind the running verify (GitHub keeps only the
+# newest pending run per group), so an in-flight verify always finishes.
+# Verifying two different versions concurrently is fine — the group is
+# per-version.
 concurrency:
   group: verify-published-${{ inputs.version || github.event.workflow_run.head_branch || github.run_id }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   # Manual dispatch → the version input. workflow_run after a tag publish →
