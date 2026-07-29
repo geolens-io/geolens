@@ -1117,6 +1117,20 @@ jobs:
       - name: ESLint
         run: npm run lint
 
+      # fix(#836): the four sec lint pins existed in package.json but nothing ran
+      # them. The *-regression scripts strip inline eslint-disable comments and
+      # assert the security rule still FIRES on its fixture (exit != 0); the
+      # *-no-false-positive scripts assert the sanitized fixture stays clean.
+      # Without this step, an eslint-config change that silently drops
+      # SEC-S14 (token-in-localStorage ban) or SEC-FU-03 (react/no-danger)
+      # would land unnoticed.
+      - name: ESLint security-rule regression pins
+        run: |
+          npm run lint:sec-s14-regression
+          npm run lint:sec-s14-no-false-positive
+          npm run lint:sec-fu-03-regression
+          npm run lint:sec-fu-03-no-false-positive
+
       - name: TypeScript check
         # `npx tsc --noEmit` is a no-op here: the solution-style root tsconfig has an
         # empty `files`/`include`, so it compiles nothing and always exits 0. The real
