@@ -763,3 +763,100 @@ class TestExportFeatureCap:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Colon inside a where string literal — fix(#823)
+# ---------------------------------------------------------------------------
+
+
+class TestExportWhereColonLiteral:
+    """fix(#823): SQLAlchemy text() reads ":name" as a bind parameter, so a
+    validated where clause containing a colon inside a string literal (e.g.
+    name = 'A:B' or an ISO timestamp) used to blow up the bounded-count query
+    in _count_selected_features with an unbound-parameter error → 500.
+
+    parquet.py already escaped colons to text()'s literal form; the router's
+    count path now mirrors it. These tests lower the cap so the count query
+    actually executes against a real table.
+    """
+
+    @pytest.fixture
+    async def capped_text_dataset(self, test_db_session, monkeypatch):
+        """Real 3-row table with a varchar column, cap lowered to 2 so the
+        bounded filtered COUNT (the code path that 500'd) runs for real."""
+        from sqlalchemy import text
+
+        from app.processing.export import router as export_router
+
+        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+
+        table_name = f"exp_colon_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, name varchar, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        # Values with a colon preceded by a NON-word character: SQLAlchemy's
+        # bind-param regex has a negative lookbehind for word chars, so
+        # '12:34' never misparsed — ' :34' is the shape that did. Inserted via
+        # real bind params so this fixture doesn't trip the same text() parse.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (name, geom, geom_4326) VALUES "
+                "(:n1, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(:n2, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                " ST_SetSRID(ST_MakePoint(1, 1), 4326)), "
+                "(:n3, ST_SetSRID(ST_MakePoint(2, 2), 4326), "
+                " ST_SetSRID(ST_MakePoint(2, 2), 4326))"
+            ).bindparams(n1=" :34", n2=" :78", n3=" :12")
+        )
+        await test_db_session.commit()
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="ColonWhereDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=3,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "name", "type": "varchar"},
+            ],
+        )
+        yield ds
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_colon_in_string_literal_not_500(
+        self, client: AsyncClient, admin_auth_header: dict, capped_text_dataset
+    ):
+        """A colon inside a quoted literal selects 1 of 3 rows (under the cap
+        of 2) and must export cleanly — previously this 500'd as an unbound
+        bind parameter in the count query."""
+        resp = await client.get(
+            f"/datasets/{capped_text_dataset.id}/export",
+            params={"where": "name = ' :34'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.anyio
+    async def test_colon_literal_selecting_over_cap_413(
+        self, client: AsyncClient, admin_auth_header: dict, capped_text_dataset
+    ):
+        """A colon literal that fails to narrow the selection still hits the
+        cap's 413 (proves the escaped clause executes, not that it is
+        silently dropped)."""
+        resp = await client.get(
+            f"/datasets/{capped_text_dataset.id}/export",
+            params={"where": "name != ' :99'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413

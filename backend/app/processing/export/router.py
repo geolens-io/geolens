@@ -90,6 +90,12 @@ async def _count_selected_features(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             )
+        # fix(#823): mirror parquet.py — text() reads ":name" as a bind param,
+        # so a colon inside a validated string literal (e.g. name = 'A:B' or an
+        # ISO timestamp) misparsed as an unbound parameter and 500'd. Escape to
+        # text()'s literal-colon form (\:); the real :limit/:minx binds below
+        # are added separately and stay unescaped.
+        safe_where = safe_where.replace(":", "\\:")
         clauses.append(f"({safe_where})")
     if bbox is not None and has_geometry and bbox[0] <= bbox[2]:
         # Envelope && only (superset of exact intersects) — errs toward 413.
