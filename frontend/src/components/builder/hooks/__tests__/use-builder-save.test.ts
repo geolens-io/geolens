@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
 import { buildLayerDiff, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
+import { stampPersistedFolderGroupExpanded } from '@/components/builder/folder-groups';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { MapLayerResponse } from '@/types/api';
 import { queryKeys } from '@/lib/query-keys';
@@ -373,6 +374,81 @@ describe('buildLayerDiff', () => {
         },
       },
     ]);
+  });
+
+  // fix(#833 codex): collapse→save→expand→save round-trip. The post-save
+  // baseline used to be a verbatim copy of localLayers, whose markers still
+  // said "expanded" from load — so the collapse-save left a baseline the
+  // following expand-save could not diff against, and reload restored the
+  // stale collapsed state.
+  it('an expand saved after a saved collapse still reaches the diff (baseline round-trip)', () => {
+    const group = {
+      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const child = {
+      ...makeLayer({
+        id: 'layer-1',
+        sort_order: 1,
+        style_config: {
+          builder: {
+            folderGroupId: 'group-1',
+            folderGroupName: 'Field layers',
+            folderGroupExpanded: true,
+          },
+        } as MapLayerResponse['style_config'],
+      }),
+      parent_group_id: 'group-1',
+    } as MapLayerResponse;
+
+    // Save 1 — collapse-only: the diff persists expanded=false.
+    const collapseSave = buildLayerDiff(
+      [group, child],
+      [group, child],
+      { 'group-1': { expanded: false } },
+    );
+    expect(collapseSave.diff.updated?.[0]?.style_config).toEqual({
+      builder: {
+        folderGroupId: 'group-1',
+        folderGroupName: 'Field layers',
+        folderGroupExpanded: false,
+      },
+    });
+
+    // Successful save snapshots the baseline with the SENT collapse state
+    // (stampPersistedFolderGroupExpanded — what handleSave and the
+    // baseline-refresh effect store), not the loaded markers.
+    const postSaveBaseline = stampPersistedFolderGroupExpanded(
+      [group, child],
+      { 'group-1': { expanded: false } },
+    );
+
+    // Save 2 — expand-only: must diff back to expanded=true.
+    const expandSave = buildLayerDiff(
+      postSaveBaseline,
+      [group, child],
+      { 'group-1': { expanded: true } },
+    );
+    expect(expandSave.diff.updated).toEqual([
+      {
+        id: 'layer-1',
+        style_config: {
+          builder: {
+            folderGroupId: 'group-1',
+            folderGroupName: 'Field layers',
+            folderGroupExpanded: true,
+          },
+        },
+      },
+    ]);
+
+    // And a same-state save after that stays empty (no #805 regression).
+    const noop = buildLayerDiff(
+      stampPersistedFolderGroupExpanded([group, child], { 'group-1': { expanded: true } }),
+      [group, child],
+      { 'group-1': { expanded: true } },
+    );
+    expect(noop.diff).toEqual({});
   });
 
   it('returns an empty diff for no-op layers', () => {

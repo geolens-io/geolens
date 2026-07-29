@@ -175,6 +175,31 @@ export function hydrateFolderGroupLayers(
   };
 }
 
+// fix(#833 codex): snapshot helper for the Save-diff baseline. The baseline
+// keeps the hydrated/local layer shape, but its persisted folderGroupExpanded
+// markers must reflect the collapse state that was just SAVED (the live
+// groupMeta), not the state the map loaded with — copying localLayers
+// verbatim after a collapse→save left the baseline saying "expanded", so the
+// following expand→save diffed empty and reload restored the stale collapse.
+// Layers without persisted markers, and groups without a groupMeta entry,
+// pass through as plain copies.
+export function stampPersistedFolderGroupExpanded(
+  layers: MapLayerResponse[],
+  groupMeta: Record<string, FolderGroupMeta> = {},
+): MapLayerResponse[] {
+  return layers.map((layer) => {
+    const persisted = getPersistedFolderGroup(layer);
+    const expanded = persisted ? groupMeta[persisted.id]?.expanded : undefined;
+    if (!persisted || expanded === undefined || persisted.expanded === expanded) {
+      return { ...layer };
+    }
+    return {
+      ...layer,
+      style_config: withPersistedFolderGroup(layer.style_config, { ...persisted, expanded }),
+    };
+  });
+}
+
 export function prepareLayersForPersistence(
   layers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
