@@ -684,6 +684,27 @@ export function MapBuilderPage() {
     const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
     const selectable = new Set(selectableRowIds);
     const parked = searchHiddenSelectionRef.current;
+    // fix(#833 codex round 3): park only rows the SEARCH itself hides, not any
+    // unselectable row while a search happens to be active — a child hidden by
+    // its collapsed group must stay pruned (restoring it on a later expand
+    // would resurrect a selection the collapse discarded). Recomputing the
+    // selectable set with every group forced expanded isolates the search
+    // predicate (computeSelectableRowIds stays the single source of truth):
+    // a live row absent from THIS set fails the search; one present here but
+    // missing from selectableRowIds is hidden by collapse alone.
+    let searchHiddenIds: Set<string> | null = null;
+    if (layerSearch.trim() !== '') {
+      const allExpanded: Record<string, { expanded: boolean }> = {};
+      for (const layer of layers.localLayers) {
+        if (isFolderGroupLayer(layer)) allExpanded[layer.id] = { expanded: true };
+      }
+      const matching = new Set(
+        computeSelectableRowIds(layers.localLayers, allExpanded, layerSearch),
+      );
+      searchHiddenIds = new Set(
+        layers.localLayers.filter((layer) => !matching.has(layer.id)).map((layer) => layer.id),
+      );
+    }
     const restored: string[] = [];
     for (const rowId of Array.from(parked)) {
       if (!liveIds.has(rowId)) { parked.delete(rowId); continue; }
@@ -696,10 +717,10 @@ export function MapBuilderPage() {
       for (const rowId of prev) {
         if (liveIds.has(rowId) && selectable.has(rowId)) { next.add(rowId); continue; }
         changed = true;
-        // Park only live rows hidden while a search is active (an add-only
-        // mutation, safe under a double-invoked updater); rows removed from
-        // the map or swallowed by a collapsed group with no search stay pruned.
-        if (liveIds.has(rowId) && layerSearch) parked.add(rowId);
+        // Park only live, search-hidden rows (an add-only mutation, safe under
+        // a double-invoked updater); rows removed from the map or swallowed by
+        // a collapsed group stay pruned for good.
+        if (liveIds.has(rowId) && searchHiddenIds?.has(rowId)) parked.add(rowId);
       }
       for (const rowId of restored) {
         if (!next.has(rowId)) { next.add(rowId); changed = true; }
