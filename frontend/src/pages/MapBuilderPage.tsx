@@ -705,15 +705,22 @@ export function MapBuilderPage() {
         layers.localLayers.filter((layer) => !matching.has(layer.id)).map((layer) => layer.id),
       );
     }
+    // fix(#833 codex rounds 5+6): a row stays parked only while it would be
+    // selectable the moment the search cleared — the search must be what
+    // hides it AND its group must be expanded under the REAL group state. A
+    // collapse is a discarding gesture wherever it happens: after parking,
+    // while the search is active (even though the force-expanded
+    // searchHiddenIds still lists the row), or ordered the other way.
+    const selectableWithoutSearch = new Set(
+      computeSelectableRowIds(layers.localLayers, layers.groupMeta, ''),
+    );
     const restored: string[] = [];
     for (const rowId of Array.from(parked)) {
       if (!liveIds.has(rowId)) { parked.delete(rowId); continue; }
       if (selectable.has(rowId)) { parked.delete(rowId); restored.push(rowId); continue; }
-      // fix(#833 codex round 5): a row stays parked only while the SEARCH
-      // hides it. If it is now hidden by a collapsed group instead (folder
-      // collapsed after parking, or the search cleared while collapsed), the
-      // collapse discards the selection — same rule as unparked rows above.
-      if (!searchHiddenIds?.has(rowId)) parked.delete(rowId);
+      if (!searchHiddenIds?.has(rowId) || !selectableWithoutSearch.has(rowId)) {
+        parked.delete(rowId);
+      }
     }
     setSelectedIds((prev) => {
       if (prev.size === 0 && restored.length === 0) return prev;
@@ -732,7 +739,7 @@ export function MapBuilderPage() {
       }
       return changed ? next : prev;
     });
-  }, [layers.localLayers, layers.isDeleting, selectableRowIds, layerSearch]);
+  }, [layers.localLayers, layers.groupMeta, layers.isDeleting, selectableRowIds, layerSearch]);
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
