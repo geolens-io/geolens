@@ -15,6 +15,16 @@ import without an ``__all__`` entry as unused and deletes it under ``--fix``.
 
 from __future__ import annotations
 
+# fix(#873 review r4): pre-#836, defaults.py imported these two helpers at
+# module scope, which made them incidentally importable from this path. The
+# canonical homes are unchanged; the redundant-alias re-exports keep the
+# pre-split import surface intact for any out-of-tree caller.
+from app.core.db.tenant_session import (
+    defer_async_with_tenant as defer_async_with_tenant,
+)
+from app.platform.ai_tool_payloads import (
+    model_safe_tool_result as model_safe_tool_result,
+)
 from app.platform.extensions.defaults_ai_anthropic import DefaultAnthropicProvider
 from app.platform.extensions.defaults_ai_openai import (
     DefaultOpenAICompatibleProvider,

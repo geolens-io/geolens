@@ -236,6 +236,70 @@ class TestProtocolDefaults:
         assert isinstance(get_audit_extension(), DefaultAuditExtension)
         assert get_audit_extension().get_export_formats() == []
 
+    def test_pre_pr_import_surface_is_intact(self):
+        """fix(#873 review r4): the #836 split must not shrink the importable surface.
+
+        Computed mechanically: the runtime-importable public names of
+        ``app.platform.extensions`` (package root), ``.defaults``, and
+        ``.protocols`` were AST-diffed against origin/main; every name present
+        pre-split must import from its old path and be the SAME object as the
+        canonical symbol. Extend this list rather than letting a review round
+        find the next stripped name; delete the audit-seam rows with the
+        aliases at the next EXTENSION_API_VERSION bump.
+        """
+        import importlib
+
+        surface = [
+            # (legacy import path, name, canonical module, canonical name)
+            (
+                "app.platform.extensions",
+                "AuditExtension",
+                "app.platform.extensions.protocols",
+                "AuditExtension",
+            ),
+            (
+                "app.platform.extensions",
+                "DefaultAuditExtension",
+                "app.platform.extensions.defaults_extensions",
+                "DefaultAuditExtension",
+            ),
+            (
+                "app.platform.extensions.defaults",
+                "DefaultAuditExtension",
+                "app.platform.extensions.defaults_extensions",
+                "DefaultAuditExtension",
+            ),
+            (
+                "app.platform.extensions.defaults",
+                "defer_async_with_tenant",
+                "app.core.db.tenant_session",
+                "defer_async_with_tenant",
+            ),
+            (
+                "app.platform.extensions.defaults",
+                "model_safe_tool_result",
+                "app.platform.ai_tool_payloads",
+                "model_safe_tool_result",
+            ),
+        ]
+        for legacy_module, name, canonical_module, canonical_name in surface:
+            legacy = getattr(importlib.import_module(legacy_module), name, None)
+            assert legacy is not None, (
+                f"{legacy_module}.{name} was importable before #836 and must "
+                "stay importable until the next EXTENSION_API_VERSION bump"
+            )
+            canonical = getattr(
+                importlib.import_module(canonical_module), canonical_name
+            )
+            assert legacy is canonical, (
+                f"{legacy_module}.{name} is not the canonical "
+                f"{canonical_module}.{canonical_name}"
+            )
+        # The accessor is a callable, not a re-export — assert it separately.
+        from app.platform.extensions import get_audit_extension
+
+        assert callable(get_audit_extension)
+
     def test_audit_alias_dispatch_still_honors_a_registered_overlay(self):
         """fix(#873 review r3): the v2 slot must BEHAVE, not merely import.
 

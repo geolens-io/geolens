@@ -15,6 +15,10 @@ import structlog
 from app.platform.extensions.version import check_extension_api_version
 from app.platform.extensions.defaults import (
     DefaultAnthropicProvider,  # NEW (Phase 226)
+    # fix(#873 review r4): deprecated alias — importable from the package root
+    # pre-#836, so it stays here (and behind get_audit_extension) until the
+    # next EXTENSION_API_VERSION bump removes the audit seam wholesale.
+    DefaultAuditExtension,
     DefaultAuditSink,  # NEW (Phase 222)
     DefaultAuthExtension,
     DefaultBillingExtension,  # NEW (Phase 223)
@@ -328,8 +332,6 @@ def get_audit_extension() -> AuditExtension:
     wholesale. An overlay registered under ``audit`` is returned; otherwise the
     no-op community default.
     """
-    from app.platform.extensions.defaults import DefaultAuditExtension
-
     ext = _extensions.get("audit")
     if ext is None:
         return DefaultAuditExtension()

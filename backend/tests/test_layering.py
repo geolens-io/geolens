@@ -824,7 +824,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
-        "backend/app/platform/extensions/defaults.py": 60,
+        # fix(#873 review r4): +10 — the two incidental pre-split helper
+        # bindings (defer_async_with_tenant, model_safe_tool_result) restored
+        # as redundant-alias re-exports. Cap 60 -> 70, exact.
+        "backend/app/platform/extensions/defaults.py": 70,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
