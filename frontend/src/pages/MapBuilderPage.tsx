@@ -181,9 +181,10 @@ export function MapBuilderPage() {
   const lastToggleAnchor = useRef<string | null>(null);
   // fix(#833): selected rows the layer search hides are parked here instead of
   // being pruned outright, and rejoin the selection when the search stops
-  // hiding them. Cleared on every explicit selection reset (Escape/outside
-  // click, drag-start, bulk actions) so stale parked rows cannot resurrect a
-  // selection the user already dismissed.
+  // hiding them. Cleared on every explicit selection interaction — Escape/
+  // outside click, drag-start, bulk actions, and (codex round 2) cmd/shift
+  // clicks, which replace the selection — so stale parked rows cannot
+  // resurrect a selection the user's gesture already discarded.
   const searchHiddenSelectionRef = useRef<Set<string>>(new Set());
   // fix(#771): the layer-search query is lifted here (hybrid-controlled on
   // UnifiedStackPanel) so selectableRowIds below can be derived from the
@@ -712,6 +713,10 @@ export function MapBuilderPage() {
   // so plain/shift/cmd clicks all coordinate from the same authoritative source.
   const handleCmdClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
+    // fix(#833 codex round 2): an explicit selection gesture supersedes any
+    // search-parked rows — keeping them would resurrect rows the gesture
+    // discarded once the search clears (and a later bulk op would hit them).
+    searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
       const { selection, anchor } = computeNextSelection(
         selectableRowIds,
@@ -727,6 +732,9 @@ export function MapBuilderPage() {
 
   const handleShiftClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
+    // fix(#833 codex round 2): same as handleCmdClick — a range gesture
+    // replaces the selection, so parked rows must not outlive it.
+    searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
       const { selection, anchor } = computeNextSelection(
         selectableRowIds,
