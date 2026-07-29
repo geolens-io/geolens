@@ -69,4 +69,57 @@ describe('useViewerTokens retry scheduling', () => {
 
     unmount();
   });
+
+  // fix(#850): a cancelled generation whose request rejects late must not
+  // clear the newer generation's valid refresh timer from the shared ref.
+  it('preserves the new generation timer when a stale request rejects late', async () => {
+    type BatchResult = Awaited<ReturnType<typeof getTileTokensBatch>>;
+    const deferreds: Array<{
+      resolve: (value: BatchResult) => void;
+      reject: (reason: unknown) => void;
+    }> = [];
+    mockedGetTileTokensBatch.mockImplementation(
+      () =>
+        new Promise<BatchResult>((resolve, reject) => {
+          deferreds.push({ resolve, reject });
+        }),
+    );
+
+    const layersB = [{ dataset_id: 'dataset-2' }] as unknown as SharedLayerResponse[];
+    const { rerender, unmount } = renderHook(
+      ({ l }: { l: SharedLayerResponse[] }) => useViewerTokens({ layers: l }),
+      { initialProps: { l: layers } },
+    );
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
+
+    // Deps change while the first request is still in flight: the old
+    // generation is cancelled and the new generation starts its own fetch.
+    rerender({ l: layersB });
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(2);
+
+    // The new generation succeeds and arms its 80%-of-TTL refresh timer
+    // (300s * 800 = 240s).
+    await act(async () => {
+      deferreds[1].resolve({
+        tokens: {
+          'dataset-2': { kind: 'vector', sig: 's', exp: 1, scope: 'dataset-2', expires_in: 300 },
+        },
+      } as BatchResult);
+    });
+    expect(vi.getTimerCount()).toBe(1);
+
+    // The stale generation's request rejects late. It must not clear the new
+    // generation's timer or replace it with a dead (cancelled) callback.
+    await act(async () => {
+      deferreds[0].reject(new Error('stale request failed'));
+    });
+
+    // The refresh timer must survive and actually fire the next fetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(240_000);
+    });
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(3);
+
+    unmount();
+  });
 });

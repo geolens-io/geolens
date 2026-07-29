@@ -100,6 +100,10 @@ export function useViewerTokens({
           }, refreshMs);
         }
       } catch (err) {
+        // fix(#850): a cancelled generation rejecting late must not touch the
+        // shared timer ref — a newer effect generation may already own it, and
+        // clearing here would kill that generation's valid refresh timer.
+        if (cancelled) return;
         if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
         setTokenError(true);
         // Exponential backoff retry: 5s, 10s, 20s, 40s, capped at 60s
