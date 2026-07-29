@@ -58,6 +58,16 @@ Known limits (accepted trade-offs, mirrored in the PR for #822):
   what actually reaches ``execute()`` — assigned-and-reloaded while the
   raw statement is executed still passes. Deeper dataflow findings in
   this family are documented limits, not bugs in this test.
+- Execution-path credit is an approximation, not a control-flow graph.
+  Two known residual shapes: a SYNC ``app.*`` helper whose only call site
+  sits inside a never-invoked nested def or lambda is still expanded and
+  may over-credit its internal guard (the executed-call-site restriction
+  applies to direct guard calls, not to sync helper expansion); and the
+  awaited-argument execution proof accepts a coroutine passed as a direct
+  argument of ANY awaited call, not only known schedulers like
+  ``asyncio.gather`` — ``await store(helper())`` could retain the
+  coroutine without running it. Neither shape occurs in the codebase;
+  both are accepted trade-offs of staying deterministic and CFG-free.
 """
 
 from __future__ import annotations
