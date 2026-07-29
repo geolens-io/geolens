@@ -57,3 +57,29 @@ export const analysisAddToMap: {
   current: ((datasetId: string) => void) | null;
   mapId: string | null;
 } = { current: null, mapId: null };
+
+/**
+ * fix(#833): dataset ids already added to a map through an analysis
+ * "Add to map" affordance. A completed run raises TWO affordances (the
+ * watcher's toast action and the Analysis panel's button); each used to keep
+ * its own single-use flag, so clicking both added the layer twice. Shared
+ * here so either click retires both. A store (not a module Set) so the panel
+ * button re-renders to its "Added to map" state when the toast action does
+ * the add. Session-scoped and keyed on dataset id on purpose: a NEW run's
+ * completion re-enables both affordances, and adding the same dataset again
+ * via other surfaces stays legitimate.
+ */
+interface AnalysisAddedState {
+  addedDatasetIds: string[];
+  markAdded: (datasetId: string) => void;
+}
+
+export const useAnalysisAddedStore = create<AnalysisAddedState>()((set) => ({
+  addedDatasetIds: [],
+  markAdded: (datasetId) =>
+    set((s) =>
+      s.addedDatasetIds.includes(datasetId)
+        ? s
+        : { addedDatasetIds: [...s.addedDatasetIds, datasetId] },
+    ),
+}));

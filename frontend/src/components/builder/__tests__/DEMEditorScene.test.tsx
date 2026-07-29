@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { DEMEditorScene } from '../DEMEditorScene';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -505,6 +505,20 @@ describe('DEMEditorScene', () => {
     // The DEMEditorScene renders a footer with a delete layer button
     const deleteBtn = screen.getByRole('button', { name: /Delete layer/i });
     expect(deleteBtn).toBeInTheDocument();
+  });
+
+  // fix(#833): the inline confirm owns focus (autofocused Cancel) —
+  // cancelling must hand focus back to the Delete-layer trigger instead of
+  // dropping it on <body>. (Confirm removes the whole scene, so there is no
+  // surviving trigger on that path.)
+  it('cancelling the delete confirm returns focus to the Delete layer button', async () => {
+    render(<DEMEditorScene {...defaultProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Delete layer/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Keep layer/i }));
+
+    // Focus returns on the next animation frame (the trigger remounts).
+    const deleteBtn = screen.getByRole('button', { name: /Delete layer/i });
+    await waitFor(() => expect(deleteBtn).toHaveFocus());
   });
 
   // --- CONTOUR LINES section: REMOVED in v1032 (CONTOUR-02 cut) ---

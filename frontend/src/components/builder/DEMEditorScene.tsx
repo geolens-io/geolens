@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
@@ -156,6 +156,11 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // fix(#833): the inline confirm owns focus (autofocused Cancel), so
+  // dismissing it must hand focus back to the trigger instead of <body> —
+  // same return StackRow's delete confirm does. rAF: the button remounts on
+  // the state flip, so it does not exist yet at onCancel time.
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
   // 'hillshade' = visible relief overlay on; 'terrain' is the legacy persisted
   // value meaning "no visual overlay" — it does NOT control the 3D mesh, which
   // is bound separately through map-level terrain_config (isTerrainBound).
@@ -523,6 +528,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
       <footer className="shrink-0 border-t p-3 mt-auto">
         {!confirmDelete ? (
           <Button
+            ref={deleteButtonRef}
             type="button"
             variant="ghost"
             className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
@@ -542,7 +548,13 @@ export const DEMEditorScene = memo(function DEMEditorScene({
               onRemove(layer.id);
               setConfirmDelete(false);
             }}
-            onCancel={() => setConfirmDelete(false)}
+            onCancel={() => {
+              setConfirmDelete(false);
+              // fix(#833): hand focus back to the Delete-layer button instead
+              // of dropping to <body> (confirm removes the whole scene, so
+              // there is no surviving trigger to return to on that path).
+              requestAnimationFrame(() => deleteButtonRef.current?.focus());
+            }}
             className="mx-0 mb-0"
           />
         )}

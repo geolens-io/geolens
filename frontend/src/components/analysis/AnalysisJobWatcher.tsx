@@ -7,7 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
-import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
+import { analysisAddToMap, useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
 
 /**
  * Global notifier for a materialize-analysis job (renders nothing).
@@ -66,10 +66,11 @@ export function AnalysisJobWatcher() {
         !!analysisAddToMap.current && analysisAddToMap.mapId === job.mapId;
       // Sonner dismisses a toast when its action is clicked, but the exit
       // animation leaves a window for a second click — and the panel's own
-      // "Add to map" button is a second affordance for the same add. Each
-      // affordance goes single-use after its click; the add itself stays
-      // repeatable elsewhere (adding a dataset twice is legitimate).
-      let addActionUsed = false;
+      // "Add to map" button is a second affordance for the same add.
+      // fix(#833): the single-use guard is the SHARED useAnalysisAddedStore
+      // (it used to be a local flag per affordance, so toast + panel button
+      // together added the layer twice); the add itself stays repeatable
+      // elsewhere (adding a dataset twice is legitimate).
       toast.success(
         job.title
           ? t('analysisTools.jobCompleteNamed', {
@@ -97,16 +98,18 @@ export function AnalysisJobWatcher() {
                   ? t('analysisTools.addToMap', { defaultValue: 'Add to map' })
                   : t('analysisTools.viewDataset', { defaultValue: 'View dataset' }),
                 onClick: () => {
-                  if (addActionUsed) return;
-                  addActionUsed = true;
                   // Re-check: the builder may have unmounted since this toast
                   // was raised.
                   if (
                     analysisAddToMap.current &&
                     analysisAddToMap.mapId === job.mapId
                   ) {
+                    const added = useAnalysisAddedStore.getState();
+                    if (added.addedDatasetIds.includes(datasetId)) return;
+                    added.markAdded(datasetId);
                     analysisAddToMap.current(datasetId);
                   } else {
+                    // View-dataset path: navigation is idempotent, no guard.
                     navigate(`/datasets/${datasetId}`);
                   }
                 },

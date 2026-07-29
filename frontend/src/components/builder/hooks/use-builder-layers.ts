@@ -25,6 +25,9 @@ import {
   pruneEmptyFolderGroups,
   type GroupedLayer,
 } from '@/components/builder/folder-groups';
+// fix(#833): folder-group collapse dirties the save (its state is persisted
+// on children); the basemap group's does not — the toggle needs to tell them apart.
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 // STATE-02: cohesive handler clusters extracted into focused hooks. This hook
 // composes them and keeps its return surface identical so MapBuilderPage is
 // unchanged. PURE RELOCATION — see each hook for the verbatim handler bodies.
@@ -410,8 +413,15 @@ export function useBuilderLayers(
       ...prev,
       [groupId]: { expanded: !(prev[groupId]?.expanded ?? false) },
     }));
-    // Expansion is a local presentation preference; group membership/name are
-    // persisted when actual grouping changes.
+    // fix(#833): folder-group collapse state IS persisted (the
+    // folderGroupExpanded marker on each child's style_config), but a
+    // collapse-only change never dirtied the save, so it only reached the
+    // backend when another edit rode along and was lost on reload otherwise.
+    // The basemap group stays UI-only — it has no persisted carrier, so
+    // dirtying it would promise a save that stores nothing.
+    if (layersRef.current.some((l) => l.id === groupId && isFolderGroupLayer(l))) {
+      setHasUnsavedChanges(true);
+    }
   }, []);
 
   const handleZoomToLayer = useCallback((layerId: string) => {

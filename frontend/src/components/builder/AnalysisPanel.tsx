@@ -26,7 +26,7 @@ import {
   type SavedAnalysisForm,
 } from '@/stores/analysis-form-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { useAnalysisJobStore } from '@/stores/analysis-job-store';
+import { useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useMapDrawStore } from '@/stores/map-draw-store';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
@@ -289,12 +289,15 @@ export function AnalysisPanel({
       : '';
   });
   // A completed run raises TWO "Add to map" affordances (this button and the
-  // watcher's toast action) and both added — mark this one used after its
-  // click so a second click can't add the layer twice. Keyed on the dataset
-  // id, so a NEW run's completion re-enables it. Deliberately local: adding
-  // a dataset twice via other surfaces is legitimate, so no global
+  // watcher's toast action). fix(#833): the single-use marker is the SHARED
+  // useAnalysisAddedStore — a per-affordance flag deduped each button against
+  // itself but not against the other, so clicking the toast action and then
+  // this button added the layer twice. Keyed on the dataset id, so a NEW
+  // run's completion re-enables it. Scoped to the analysis affordances only:
+  // adding a dataset twice via other surfaces is legitimate, so no global
   // idempotency in onAddDataset.
-  const [addedDatasetId, setAddedDatasetId] = useState<string | null>(null);
+  const addedDatasetIds = useAnalysisAddedStore((s) => s.addedDatasetIds);
+  const markDatasetAdded = useAnalysisAddedStore((s) => s.markAdded);
   // fix(#793 review): a materialize can outlive the panel instance that
   // started it — closed during the POST, reopened before the response lands.
   // The mount-time initializers above see no tracked job yet, so a job that
@@ -1359,18 +1362,19 @@ export function AnalysisPanel({
                 size="sm"
                 className="w-full"
                 // Completion raises this button AND the watcher's toast
-                // action, and both added — mark this one used after its
-                // click. See addedDatasetId.
-                disabled={addedDatasetId === job.dataset_id}
+                // action. fix(#833): both share one single-use marker —
+                // see addedDatasetIds above.
+                disabled={addedDatasetIds.includes(job.dataset_id)}
                 onClick={() => {
                   if (!job.dataset_id) return;
+                  if (addedDatasetIds.includes(job.dataset_id)) return;
+                  markDatasetAdded(job.dataset_id);
                   layerActions.onAddDataset(job.dataset_id);
-                  setAddedDatasetId(job.dataset_id);
                 }}
               >
                 {/* fix(#764): name the dataset this adds — after a rail
                     round-trip or reload the field above may no longer say. */}
-                {addedDatasetId === job.dataset_id
+                {addedDatasetIds.includes(job.dataset_id)
                   ? t('analysisTools.addedToMap', { defaultValue: 'Added to map' })
                   : lastRunTitle
                     ? t('analysisTools.addToMapNamed', {

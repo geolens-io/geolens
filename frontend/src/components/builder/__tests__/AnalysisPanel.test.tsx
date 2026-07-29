@@ -7,7 +7,7 @@ import { AnalysisPanel } from '../AnalysisPanel';
 import { ApiError } from '@/api/client';
 import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
-import { useAnalysisJobStore } from '@/stores/analysis-job-store';
+import { useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { MapLayerResponse, UserResponse } from '@/types/api';
 
@@ -224,7 +224,11 @@ beforeEach(() => {
 });
 
 describe('AnalysisPanel', () => {
-  beforeEach(() => useAnalysisJobStore.setState({ job: null }));
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null });
+    // fix(#833): the add-to-map single-use marker is a module-level store now.
+    useAnalysisAddedStore.setState({ addedDatasetIds: [] });
+  });
 
   it('treats a raster-only map as having no analysable layers (#720)', () => {
     renderPanel([rasterLayer, groupLayer]);
@@ -1672,6 +1676,29 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(usedButton).toBeDisabled();
     fireEvent.click(usedButton);
     expect(onAddDataset).toHaveBeenCalledTimes(1);
+  });
+
+  // fix(#833): the single-use marker is shared with the watcher's toast
+  // action — each affordance used to dedupe only against itself, so clicking
+  // the toast action and then this button added the layer twice.
+  it('disables the panel Add to map when the toast action already added', async () => {
+    mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+    const onAddDataset = vi.fn();
+    // The watcher's toast action performed the add.
+    useAnalysisAddedStore.getState().markAdded('out1');
+    renderPanel([datasetLayer], {
+      mapId: 'm1',
+      layerActions: { onAddDataset } as never,
+    });
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Out' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+
+    const usedButton = await screen.findByRole('button', { name: 'Added to map' });
+    expect(usedButton).toBeDisabled();
+    fireEvent.click(usedButton);
+    expect(onAddDataset).not.toHaveBeenCalled();
   });
 
   it('sets aria-busy on the pending Preview button', async () => {

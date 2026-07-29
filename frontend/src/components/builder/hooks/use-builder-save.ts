@@ -451,12 +451,24 @@ export function buildLayerDiff(
   currentLayers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): LayerDiffResult {
-  // fix(#805): prepare BOTH sides with the same groupMeta. The baseline used to
-  // be prepared without it, so baseline children lacked the folderGroupExpanded
-  // marker while current children carried it — every save of a grouped map then
-  // emitted a spurious per-child style_config PATCH, silently persisting
-  // collapse state that is deliberately non-dirtying (see handleToggleGroupExpand).
-  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers, groupMeta);
+  // fix(#805): prepare BOTH sides through prepareLayersForPersistence so an
+  // unchanged grouped map diffs empty. The baseline used to be prepared
+  // without any groupMeta, so baseline children lacked the folderGroupExpanded
+  // marker while current children carried it — every save of a grouped map
+  // then emitted a spurious per-child style_config PATCH.
+  // fix(#833): the baseline is prepared with its OWN persisted collapse state
+  // (derived from the folderGroupExpanded markers it was loaded with), not the
+  // live groupMeta — stamping the live value on both sides hid every collapse
+  // change from the diff, so collapse-only edits persisted only when another
+  // style_config edit happened to ride along in the same save.
+  const baselineGroupMeta: Record<string, FolderGroupMeta> = {};
+  for (const layer of baselineLayers) {
+    const persisted = getPersistedFolderGroup(layer);
+    if (persisted?.expanded !== undefined) {
+      baselineGroupMeta[persisted.id] = { expanded: persisted.expanded };
+    }
+  }
+  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers, baselineGroupMeta);
   const currentPersistedLayers = prepareLayersForPersistence(currentLayers, groupMeta);
   const baselineById = new Map(baselinePersistedLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
   const currentById = new Map(currentPersistedLayers.map((layer) => [layer.id, layer]));

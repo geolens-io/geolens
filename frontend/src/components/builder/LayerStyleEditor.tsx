@@ -385,10 +385,19 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // Reset destroys render mode + classification — gate it behind the builder's
   // shared inline confirm (same pattern as the DEM editor's delete footer).
   const [confirmReset, setConfirmReset] = useState(false);
+  // fix(#833): the inline confirm owns focus (autofocused Cancel), so both
+  // exits must hand focus back to the always-mounted Reset trigger instead of
+  // <body> — the focus return StackRow's delete confirm does.
+  const resetButtonRef = useRef<HTMLButtonElement>(null);
   const handleConfirmReset = useCallback(() => {
     setConfirmReset(false);
     handleResetStyle();
+    resetButtonRef.current?.focus();
   }, [handleResetStyle]);
+  const handleCancelReset = useCallback(() => {
+    setConfirmReset(false);
+    resetButtonRef.current?.focus();
+  }, []);
 
   // Bumped by handleRevertToSaved to force-remount the data-driven editor.
   const [revertNonce, setRevertNonce] = useState(0);
@@ -513,6 +522,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         )}
         headerAction={
           <Button
+            ref={resetButtonRef}
             type="button"
             variant="ghost"
             size="xs"
@@ -532,7 +542,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
             confirmLabel={t('style.resetConfirmAction')}
             cancelLabel={t('style.resetConfirmCancel')}
             onConfirm={handleConfirmReset}
-            onCancel={() => setConfirmReset(false)}
+            onCancel={handleCancelReset}
             className="mx-0 mb-0"
           />
         )}

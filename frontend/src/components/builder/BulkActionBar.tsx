@@ -72,6 +72,12 @@ export const BulkActionBar = memo(function BulkActionBar({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
   const confirmId = useId();
+  // fix(#833): the overflow items' aria-label overrides their subtree as the
+  // accessible name, so the inline disabled-reason hints were invisible to
+  // assistive tech. Exposing each hint via aria-describedby (only while it
+  // renders) keeps the short label as the name and surfaces the reason as the
+  // description.
+  const hintId = useId();
   const barRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -416,6 +422,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                   data-testid="bulk-action-apply-style"
                   disabled={N < 2}
                   aria-label={t('bulkActions.applyStyleAriaLabel', { count: N })}
+                  aria-describedby={N < 2 ? `${hintId}-apply-style` : undefined}
                   onSelect={() => {
                     if (N >= 2) onBulkApplyStyle(selectedIds);
                   }}
@@ -426,7 +433,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                   <span className="flex flex-col items-start">
                     {t('bulkActions.applyStyle')}
                     {N < 2 && (
-                      <span className="text-2xs text-muted-foreground">
+                      <span id={`${hintId}-apply-style`} className="text-2xs text-muted-foreground">
                         {t('bulkActions.applyStyleHint', { defaultValue: 'Select at least 2 layers' })}
                       </span>
                     )}
@@ -437,6 +444,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                 data-testid="bulk-action-group"
                 disabled={!canGroup}
                 aria-label={t('bulkActions.groupAriaLabel', { count: N })}
+                aria-describedby={!canGroup ? `${hintId}-group` : undefined}
                 onSelect={() => {
                   if (canGroup) onBulkGroup(selectedIds);
                 }}
@@ -445,7 +453,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                 <span className="flex flex-col items-start">
                   {t('bulkActions.group')}
                   {!canGroup && (
-                    <span className="text-2xs text-muted-foreground">
+                    <span id={`${hintId}-group`} className="text-2xs text-muted-foreground">
                       {t('bulkActions.groupHint', { defaultValue: 'Only ungrouped layers can be grouped' })}
                     </span>
                   )}
@@ -455,6 +463,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                 data-testid="bulk-action-ungroup"
                 disabled={!canUngroup}
                 aria-label={t('bulkActions.ungroupAriaLabel', { count: N })}
+                aria-describedby={!canUngroup ? `${hintId}-ungroup` : undefined}
                 onSelect={() => {
                   if (canUngroup) onBulkUngroup(selectedIds);
                 }}
@@ -463,7 +472,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                 <span className="flex flex-col items-start">
                   {t('bulkActions.ungroup')}
                   {!canUngroup && (
-                    <span className="text-2xs text-muted-foreground">
+                    <span id={`${hintId}-ungroup`} className="text-2xs text-muted-foreground">
                       {t('bulkActions.ungroupHint', { defaultValue: 'Select only group rows to ungroup' })}
                     </span>
                   )}
@@ -477,6 +486,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                 // the handler filters them out, so confirming would delete nothing.
                 disabled={deletableCount === 0}
                 aria-label={t('bulkActions.deleteAriaLabel', { count: deletableCount })}
+                aria-describedby={deletableCount === 0 ? `${hintId}-delete` : undefined}
                 onSelect={(e) => {
                   // Keep the row from auto-closing the menu so the inline
                   // confirmation dialog appears in the toolbar below.
@@ -488,7 +498,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                 <span className="flex flex-col items-start">
                   {t('bulkActions.delete')}
                   {deletableCount === 0 && (
-                    <span className="text-2xs text-muted-foreground">
+                    <span id={`${hintId}-delete`} className="text-2xs text-muted-foreground">
                       {t('bulkActions.deleteHint', { defaultValue: 'Group rows are deleted from their row menu' })}
                     </span>
                   )}

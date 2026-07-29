@@ -329,10 +329,11 @@ describe('buildLayerDiff', () => {
     expect(result.diff).toEqual({});
   });
 
-  // fix(#805): collapse/expand is deliberately non-dirtying (see
-  // handleToggleGroupExpand) — a collapse-state-only change between the
-  // persisted marker and the live groupMeta must not produce a patch either.
-  it('a collapse-state-only change stays out of the diff (non-dirtying by design)', () => {
+  // fix(#833): collapse state is persisted on children, so a collapse-only
+  // change MUST reach the diff — it used to be stamped identically on both
+  // sides (the #805 fix over-corrected) and only persisted when another
+  // style_config edit rode along in the same save.
+  it('a collapse-state-only change emits the per-child style_config patch', () => {
     const group = {
       ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
       layer_type: 'group:folder',
@@ -360,7 +361,18 @@ describe('buildLayerDiff', () => {
       { 'group-1': { expanded: false } },
     );
 
-    expect(result.diff).toEqual({});
+    expect(result.diff.updated).toEqual([
+      {
+        id: 'layer-1',
+        style_config: {
+          builder: {
+            folderGroupId: 'group-1',
+            folderGroupName: 'Field layers',
+            folderGroupExpanded: false,
+          },
+        },
+      },
+    ]);
   });
 
   it('returns an empty diff for no-op layers', () => {
