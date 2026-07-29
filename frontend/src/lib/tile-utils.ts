@@ -1,4 +1,5 @@
 import { getEnvConfig } from '@/lib/env';
+import { useAuthStore } from '@/stores/auth-store';
 
 /**
  * Resolve the tile base URL from env config or tile config CDN setting.
@@ -7,6 +8,85 @@ export function resolveTileBaseUrl(
   tileConfig?: { cdn_base_url?: string | null } | null,
 ): string | undefined {
   return getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
+}
+
+/**
+ * First-party vs third-party request classification for map tile/style
+ * requests. chore(#835): extracted from ViewerMap's inline classifier so all
+ * three map surfaces share one implementation.
+ *
+ * First-party means: our own origin, or the configured tile CDN origin
+ * (`cdn_base_url` / `TILE_BASE_URL`, resolved via the same
+ * `resolveTileBaseUrl()` helper used to build tile URLs) — self-hosted
+ * deployments commonly serve tiles from a separate CDN origin, so same-origin
+ * alone would misclassify them. When no url is available, default to
+ * first-party to preserve prior behavior. A relative path (single leading
+ * slash) is always first-party; a protocol-relative URL (`//host/path`) is
+ * normalized with the current protocol before the origin check so it isn't
+ * misread as a relative path.
+ */
+export function isThirdPartyTileUrl(
+  url: string | undefined,
+  tileConfig?: { cdn_base_url?: string | null } | null,
+): boolean {
+  if (!url) return false;
+  if (url.startsWith('/') && !url.startsWith('//')) return false;
+  try {
+    const normalized = url.startsWith('//') ? `${window.location.protocol}${url}` : url;
+    const requestOrigin = new URL(normalized, window.location.origin).origin;
+    if (requestOrigin === window.location.origin) return false;
+    const tileBaseUrl = resolveTileBaseUrl(tileConfig);
+    if (tileBaseUrl) {
+      try {
+        if (requestOrigin === new URL(tileBaseUrl, window.location.origin).origin) return false;
+      } catch {
+        // Malformed configured tile base URL — fall through to third-party classification.
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface TileTransformRequestOptions {
+  /** Viewer embed surface: attach `X-Embed-Token` to first-party requests. */
+  embedToken?: string;
+  /** Read the CURRENT tile config at request time (pass a ref-reader so a
+   *  late-arriving `cdn_base_url` is honored without re-registering). */
+  getTileConfig?: () => { cdn_base_url?: string | null } | null | undefined;
+}
+
+/**
+ * chore(#835): the single `map.setTransformRequest` callback builder shared by
+ * BuilderMap, ViewerMap, and DatasetMap. The three copies had drifted — the
+ * viewer's missing raster Bearer (fixed in #819) was this drift biting.
+ *
+ * Behavior: absolutify relative URLs, then attach exactly one credential:
+ * - `X-Embed-Token` on first-party requests when `embedToken` is set
+ *   (fix(#394) SH-02/B-022: the header is a credential — never send it to
+ *   third-party basemap sprite/glyph/tile CDNs),
+ * - otherwise `Authorization: Bearer <jwt>` on first-party `/raster-tiles/`
+ *   requests (raster tiles carry no signed URL, unlike vector tiles — #819).
+ *
+ * NOTE (react-maplibre v8): the `transformRequest` PROP is ignored after
+ * mount — each map must wire this via `onLoad` + `map.setTransformRequest()`.
+ */
+export function buildTileTransformRequest(
+  options: TileTransformRequestOptions = {},
+): (url: string) => { url: string; headers?: Record<string, string> } {
+  return (url: string) => {
+    const absUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    const tileConfig = options.getTileConfig?.() ?? null;
+    const headers: Record<string, string> = {};
+    if (options.embedToken && !isThirdPartyTileUrl(url, tileConfig)) {
+      headers['X-Embed-Token'] = options.embedToken;
+    } else if (absUrl.includes('/raster-tiles/') && !isThirdPartyTileUrl(url, tileConfig)) {
+      const token = useAuthStore.getState().token;
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+    return Object.keys(headers).length > 0 ? { url: absUrl, headers } : { url: absUrl };
+  };
 }
 
 /**

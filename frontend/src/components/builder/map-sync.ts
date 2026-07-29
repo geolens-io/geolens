@@ -524,9 +524,9 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   return true;
 }
 
-export function getSourceId(layerId: string) {
-  return prefixed('source', layerId);
-}
+// chore(#835): `getSourceId(layerId)` was deleted. It had zero callers and was
+// a live footgun: it returned the raw per-layer id, which is WRONG for
+// SF-04-deduped vector sources — use `getSourceIdForLayer(layer)` below.
 
 export function getLayerId(layerId: string) {
   return prefixed('layer', layerId);
