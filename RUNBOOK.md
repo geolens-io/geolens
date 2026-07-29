@@ -433,11 +433,17 @@ docker compose logs -f backup
 | `ERROR: <filename> failed verification (pg_restore could not read it) — discarding the corrupt dump` | The new dump did not read back end-to-end; it was deleted and the cycle failed |
 | `ERROR: BACKUP_RETENTION_DAILY='...' must be >= 1` (or `..._WEEKLY`, or the `is not a plain integer` variant) | The entrypoint refused to start: retention must be an integer of at least 1, because a retention of 0 would delete each backup the moment it is written |
 
-Every backup failure path logs an `ERROR:` marker, so one grep catches them all:
+Every explicitly handled failure path logs an `ERROR:` marker, so one grep
+catches those:
 
 ```bash
 docker compose logs backup | grep 'ERROR:'
 ```
+
+A few raw tool failures are not wrapped (for example the weekly `cp` copies in
+the entrypoint) and surface only as the tool's own stderr, with no `ERROR:`
+marker. When a backup looks wrong but the grep comes back quiet, read the
+unfiltered `docker compose logs backup`.
 
 A backup container that exits immediately at startup (`docker compose ps backup`
 shows it restarting) with the `must be >= 1` line has a retention

@@ -21,7 +21,8 @@ opt-in: nothing in it runs unless you configure it.
 | Remote datasets / COGs / STAC | Per-dataset source URL (set when you register a remote source) | Wherever you register | User-driven | Only fetched if you register remote sources. Uploaded data stays local. |
 | Object storage | `S3_ENDPOINT` (when `STORAGE_PROVIDER=s3`) | S3 / MinIO | Optional | Use the in-cluster MinIO (`--profile cloud-dev`) or `STORAGE_PROVIDER=local` for fully local storage. |
 | Backup offsite upload | `BACKUP_S3_ENABLED` plus the shared `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | S3-compatible endpoint | Optional | Default `false`; backups stay on the local `backup_data` volume with no egress. For an offsite copy without internet, point `S3_ENDPOINT` at an in-network MinIO. |
-| Email notifications | `NOTIFICATIONS_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_ADDRESS` | SMTP server | Optional | Off by default. Use an in-network mail relay, or leave unset. |
+| Email notifications (admin alerts) | `NOTIFICATIONS_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_ADDRESS` | SMTP server | Optional | Off by default; requires `NOTIFICATIONS_ENABLED=true`. Use an in-network mail relay, or leave unset. |
+| Verification emails (self-serve signup) | `SMTP_HOST` (plus the other `SMTP_*` vars) and the admin "email verification required" setting | SMTP server | Optional | Sent whenever email verification is enabled and `SMTP_HOST` is set; `NOTIFICATIONS_ENABLED` does not gate this path. Leave `SMTP_HOST` unset to keep all SMTP egress off. |
 | Webhook notifications | `NOTIFICATIONS_ENABLED`, `NOTIFICATION_WEBHOOK_URL`, `NOTIFICATION_WEBHOOK_SECRET` | Webhook receiver (Slack / Teams / custom) | Optional | Off by default. Point at an in-network receiver, or leave unset. |
 
 ## Air-gap checklist
