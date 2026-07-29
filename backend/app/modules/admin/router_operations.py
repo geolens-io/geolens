@@ -67,6 +67,7 @@ async def create_api_key(
     The raw key is returned only in this response and cannot be retrieved again.
     """
     from app.modules.auth.service import (
+        ApiKeyTargetUserInactiveError,
         ApiKeyTargetUserNotFoundError,
         create_api_key_for_user,
     )
@@ -79,6 +80,13 @@ async def create_api_key(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
+        ) from exc
+    except ApiKeyTargetUserInactiveError as exc:
+        # fix(#821 codex review): pending/suspended/deactivated owners cannot
+        # receive keys — a pre-approval key must not wake up privileged.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="API keys can only be created for active users",
         ) from exc
     await audit_emit(
         db,

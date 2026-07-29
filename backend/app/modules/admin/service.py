@@ -339,6 +339,23 @@ class AdminService:
         if new_role is None:
             raise ValueError(f"Role '{new_role_name}' not found")
 
+        # fix(#821 codex review): an idempotent resubmission of the user's
+        # current role (e.g. a reconciliation-tool PATCH) is not a security
+        # event — skip the delete/recreate AND the key_epoch bump so it does
+        # not revoke the user's API keys. Queried explicitly rather than via
+        # user.roles to avoid depending on relationship load state.
+        current_role_names = set(
+            (
+                await self.db.execute(
+                    select(Role.name)
+                    .join(UserRole, UserRole.role_id == Role.id)
+                    .where(UserRole.user_id == user.id)
+                )
+            ).scalars()
+        )
+        if current_role_names == {new_role_name}:
+            return
+
         if new_role_name != "admin" and not viability_checked:
             await self._ensure_not_last_admin(user, "demote", lock_held=lock_held)
 
@@ -539,6 +556,14 @@ class AdminService:
 
         user.status = "active"
         user.is_active = True
+
+        # fix(#821 codex review): approval assigns the account's authority, so
+        # bump key_epoch — any key that existed while the account was pending
+        # (legacy/manual rows; minting for non-active users is now refused)
+        # must not wake up with the approved role's privileges. The row is
+        # locked (with_for_update above), so the in-place increment is
+        # race-free.
+        user.key_epoch += 1
 
         # A pending account should not normally own a role, but legacy/manual
         # rows may. Replace the complete assignment so the approved role is the

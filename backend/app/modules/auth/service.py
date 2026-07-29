@@ -413,6 +413,17 @@ class ApiKeyTargetUserNotFoundError(LookupError):
     """The target user is absent from the caller's RLS-visible scope."""
 
 
+class ApiKeyTargetUserInactiveError(ValueError):
+    """The target user is not active, so an API key must not be minted.
+
+    fix(#821 codex review): a key minted for a pending account would be
+    blocked by the resolution-time status check while pending, then wake up
+    with the approved role's privileges at approval. Refusing the mint closes
+    that door at the earliest point (approve_user's key_epoch bump is the
+    belt-and-suspenders for keys that predate this guard).
+    """
+
+
 async def create_api_key_for_user(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -427,13 +438,19 @@ async def create_api_key_for_user(
     fix(#821): ``expires_at=None`` mints a non-expiring key (legacy behavior);
     the key also snapshots the owner's current key_epoch so a later security
     event (password change, role change, SAML-to-local conversion — NOT
-    logout) invalidates it.
+    logout) invalidates it. Minting requires an active owner.
     """
     owner = (
-        await db.execute(select(User.id, User.key_epoch).where(User.id == user_id))
+        await db.execute(
+            select(User.id, User.key_epoch, User.status).where(User.id == user_id)
+        )
     ).one_or_none()
     if owner is None:
         raise ApiKeyTargetUserNotFoundError("User not found")
+    if owner.status != "active":
+        raise ApiKeyTargetUserInactiveError(
+            "API keys can only be created for active users"
+        )
 
     raw_key = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()

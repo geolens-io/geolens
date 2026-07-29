@@ -505,6 +505,121 @@ async def test_api_key_invalidated_by_role_change(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_idempotent_role_patch_keeps_api_keys_valid(client: AsyncClient):
+    """Regression (#821 codex review): resubmitting the user's CURRENT role
+    (e.g. a reconciliation-tool PATCH) is not a security event and must not
+    bump key_epoch."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    _editor_headers, editor_id = await _create_test_user(
+        client, admin_headers, "editor"
+    )
+
+    resp = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": editor_id, "name": "Idempotent PATCH Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    raw_key = resp.json()["key"]
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 200
+
+    # PATCH the same role the user already has — a no-op, not a role change.
+    patch_resp = await client.patch(
+        f"/admin/users/{editor_id}",
+        json={"role": "editor"},
+        headers=admin_headers,
+    )
+    assert patch_resp.status_code == 200
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_api_key_mint_rejected_for_pending_user(
+    client: AsyncClient, test_db_session
+):
+    """Regression (#821 codex review): keys cannot be minted for non-active
+    owners — a pre-approval key must not exist to wake up privileged later."""
+    from app.modules.auth.models import User
+
+    suffix = uuid.uuid4().hex[:8]
+    pending = User(
+        username=f"pending_apikey_{suffix}",
+        email=f"pending_apikey_{suffix}@example.com",
+        password_hash="unused",
+        status="pending",
+        is_active=False,
+    )
+    test_db_session.add(pending)
+    await test_db_session.commit()
+
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    resp = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": str(pending.id), "name": "Pending Owner Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_pre_approval_key_does_not_survive_approval(
+    client: AsyncClient, test_db_session
+):
+    """Regression (#821 codex review): a key that existed while the account
+    was pending (legacy row predating the mint guard) must not start working
+    with the approved role's privileges — approve_user bumps key_epoch."""
+    import hashlib
+    import secrets
+
+    from app.modules.auth.models import ApiKey, User
+
+    suffix = uuid.uuid4().hex[:8]
+    pending = User(
+        username=f"pending_legacykey_{suffix}",
+        email=f"pending_legacykey_{suffix}@example.com",
+        password_hash="unused",
+        status="pending",
+        is_active=False,
+    )
+    test_db_session.add(pending)
+    await test_db_session.flush()
+
+    # Simulate a legacy key minted while the account was pending (the mint
+    # guard now refuses this path, so insert the row directly).
+    raw_key = secrets.token_urlsafe(32)
+    test_db_session.add(
+        ApiKey(
+            user_id=pending.id,
+            key_hash=hashlib.sha256(raw_key.encode()).hexdigest(),
+            fingerprint=f"{raw_key[:8]}…{raw_key[-4:]}",
+            name="Legacy Pre-Approval Key",
+            key_epoch=pending.key_epoch,
+        )
+    )
+    await test_db_session.commit()
+
+    # Pending owner: blocked by the status check.
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 401
+
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    approve_resp = await client.post(
+        f"/admin/users/{pending.id}/approve/",
+        json={"role": "viewer"},
+        headers=admin_headers,
+    )
+    assert approve_resp.status_code == 200
+
+    # Approved owner: the epoch bump keeps the pre-approval key dead.
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 401
+
+
+@pytest.mark.anyio
 async def test_logout_does_not_invalidate_api_keys(client: AsyncClient):
     """Regression (#821): plain logout bumps token_version but must leave
     API keys working — keys exist to outlive browser sessions (CI, MCP,
