@@ -1,13 +1,27 @@
+import { useEffect } from 'react';
 import { useRouteError, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { Button } from '@/components/ui/button';
+import { pushReportEntry } from '@/lib/report';
 import { ErrorReportButton } from './ErrorReportButton';
 
 export function RouteErrorBoundary() {
   const error = useRouteError();
   const navigate = useNavigate();
   const { t } = useTranslation('common');
+
+  // fix(#834): feed the problem-report buffer like the other boundaries so a
+  // route crash doesn't produce an empty report.
+  useEffect(() => {
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message:
+        error instanceof Error ? error.message || 'Route error' : 'Route error',
+      detail: error instanceof Error ? error.stack : String(error),
+    });
+  }, [error]);
 
   const message =
     error instanceof Error
