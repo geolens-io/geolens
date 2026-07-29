@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetResponse,
@@ -151,7 +152,7 @@ def dataset_to_response(
     # Build raster metadata for raster_dataset and vrt_dataset records
     raster_metadata = None
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
-    if record_type in ("raster_dataset", "vrt_dataset") and raster_asset is not None:
+    if record_type in RASTER_FAMILY_RECORD_TYPES and raster_asset is not None:
         raster_metadata = _build_raster_metadata(
             dataset,
             raster_asset,

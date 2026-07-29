@@ -36,10 +36,11 @@ dependencies = [
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
     "boto3>=1.43.57",
-    # Azure Blob Storage provider (STOR-01 / Phase 1210). azure-identity is included
-    # for managed-identity / account-URL auth paths (account_url + credential constructor).
+    # Azure Blob Storage provider (STOR-01 / Phase 1210). fix(#836): azure-identity
+    # was dropped — the provider only accepts string credentials (connection string,
+    # SAS token, or account key; see platform/storage/azure.py) and nothing imports
+    # azure.identity. Reintroduce it only alongside a real DefaultAzureCredential path.
     "azure-storage-blob>=12.24.0",
-    "azure-identity>=1.20.0",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
     "cachetools>=7.1.6",
     "redis>=7.4.1",
@@ -127,7 +128,9 @@ max-complexity = 15
 "app/modules/catalog/search/service_records.py" = ["C901"]
 "app/modules/catalog/sources/router.py" = ["C901"]
 "app/modules/embed_tokens/service.py" = ["C901"]
-"app/platform/extensions/defaults.py" = ["C901"]
+# fix(#836): the defaults.py baseline entry follows `complete` (McCabe 20) into
+# the AI-provider sub-module created by the facade split — retargeted, not new.
+"app/platform/extensions/defaults_ai_openai.py" = ["C901"]
 "app/processing/ai/chat_actions.py" = ["C901"]
 "app/processing/ai/metadata_service.py" = ["C901"]
 "app/processing/ai/service.py" = ["C901"]

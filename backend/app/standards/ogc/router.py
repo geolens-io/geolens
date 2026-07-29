@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
@@ -339,7 +340,7 @@ async def get_dataset_collection(
     # feature items. Advertise itemType=coverage and omit the rel=items link so
     # clients are not led into the dead /items endpoint (which 404s, see
     # get_collection_items).
-    is_raster = dataset.record.record_type in ("raster_dataset", "vrt_dataset")
+    is_raster = dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES
 
     links = [
         OGCLink(
@@ -514,7 +515,7 @@ async def get_collection_items(
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
     # Return a fast 404 before any feature query is attempted.
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -763,7 +764,7 @@ async def get_collection_item_feature(
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a
     # feature-by-id query would raise UndefinedTableError -> 500. Return 404
     # before any query is attempted.
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

@@ -12,10 +12,9 @@ from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
-    claim_ingest_job_attempt,
-    maintain_ingest_job_heartbeat,
+    claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
-    resolve_ingest_job_attempt,
+    resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
@@ -141,14 +140,12 @@ async def reupload_file(
     port = get_processing_port()
     Dataset = port.get_dataset_orm_class()
 
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
-        structlog.get_logger().warning(
-            "Tokenless reupload delivery could not adopt pending legacy job",
-            job_id=job_id,
-        )
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="reupload"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     dataset_uuid = uuid.UUID(dataset_id)
     original_file_path = file_path
     final_status: str = "pending"
@@ -188,14 +185,12 @@ async def reupload_file(
                 return
 
             # 1. Update job to running
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
             staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid
             )
+            if heartbeat_task is None:
+                return
 
             # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path
@@ -525,14 +520,12 @@ async def reupload_service(
         "tokens are request-only and are not persisted for retries."
     )
 
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
-        structlog.get_logger().warning(
-            "Tokenless reupload delivery could not adopt pending legacy job",
-            job_id=job_id,
-        )
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="reupload"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     dataset_uuid = uuid.UUID(dataset_id)
     staging_tn: str = ""
     heartbeat_task: asyncio.Task[None] | None = None
@@ -568,14 +561,12 @@ async def reupload_service(
                 )
                 return
 
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
             staging_tn = attempt_scoped_staging_table(dataset.table_name, attempt_uuid)
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid
             )
+            if heartbeat_task is None:
+                return
 
             um = job.user_metadata or {}
             service_type_raw = um.get("service_type", "")

@@ -13,6 +13,7 @@ from starlette.background import BackgroundTask
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
@@ -231,7 +232,7 @@ async def export_dataset_endpoint(
     # real CSV-exportable table and must NOT be blocked. A raster/VRT
     # dataset has a synthetic table_name with no backing table, so letting
     # csv proceed would hit ogr2ogr on a nonexistent table -> raw 500.
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(

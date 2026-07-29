@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.db.sqlstate import BAD_QUERY_INPUT, TABLE_ABSENT, is_operational, sqlstate
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -66,7 +67,7 @@ logger = structlog.get_logger()
 features_router = APIRouter(prefix="/datasets", tags=["Features"])
 
 # Datasets with no PostGIS data table behind them. Any feature write 42P01s.
-_NON_FEATURE_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
+_NON_FEATURE_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
 
 
 def _require_feature_table(dataset) -> None:
@@ -208,7 +209,7 @@ async def get_features_geojson_z_endpoint(
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
     # Return a fast 404 before any feature query is attempted (mirrors OGC contract).
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -305,7 +306,7 @@ async def list_features(
     # query would raise UndefinedTableError. Return a fast 404 before any query
     # (mirrors OGC contract). The ProgrammingError->503 catch below remains a
     # backstop for genuinely-missing tables on non-raster datasets.
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -457,7 +458,7 @@ async def get_single_feature(
     # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a DoS
     # reachable by any authenticated user). Return a fast 404 before any query
     # (mirrors OGC contract).
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

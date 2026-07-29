@@ -821,6 +821,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # invalid action drops with a note instead of failing the whole turn.
         # Cap raised 440 -> 446 (~4 LOC headroom).
         "backend/app/processing/ai/chat_service.py": 446,
+        # fix(#836): defaults.py is the facade over the extensions-defaults
+        # split (defaults_*.py sub-modules discovered below). Pure re-exports —
+        # a new Default* class costs a few lines here.
+        # fix(#873 review r4): +10 — the two incidental pre-split helper
+        # bindings (defer_async_with_tenant, model_safe_tool_result) restored
+        # as redundant-alias re-exports. Cap 60 -> 70, exact.
+        # fix(#873 review r5): +5 — both helpers added to __all__ so the
+        # pre-split wildcard surface survives too. Cap 70 -> 75, exact.
+        "backend/app/platform/extensions/defaults.py": 75,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
@@ -888,7 +897,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # tenant data schema with the same code as a raster dataset's synthetic
         # table, so the code alone cannot tell provisioning drift from normal
         # emptiness. Cap 390 -> 396, no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 396,
+        # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import. Cap 397,
+        # still no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 397,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -914,6 +925,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # chat_*.py glob below, ~142 lines under the 350 default) rather than
         # grown here. Cap 530 → 550 (~14 headroom).
         "backend/app/processing/ai/chat_actions.py": 550,
+        # fix(#836): extensions-defaults sub-modules over the 350 default at
+        # split time. Caps exact (zero headroom): each class moved verbatim
+        # from the 1815-LOC defaults.py, and regrowth toward another god
+        # module should get its own review.
+        "backend/app/platform/extensions/defaults_ai_openai.py": 444,
+        "backend/app/platform/extensions/defaults_catalog_port.py": 398,
+        "backend/app/platform/extensions/defaults_processing_port.py": 406,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -932,6 +950,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         _repo_style_rel(path)
         for path in sorted(_backend_path("app/processing/ai").glob("chat_*.py"))
         if path.name != "chat_service.py"
+    )
+    # fix(#836): extend discovery to the platform/extensions defaults split
+    # (the defaults.py facade is already covered via facade_line_budgets).
+    files_to_check.extend(
+        _repo_style_rel(path)
+        for path in sorted(
+            _backend_path("app/platform/extensions").glob("defaults_*.py")
+        )
     )
 
     violations: list[str] = []
@@ -967,6 +993,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 # sub-routers (per Phase 226 / Phase 238) and lower its cap in the same commit.
 # Lowering a cap is always fine. Raising one needs a written carve-out here.
 #
+# fix(#836): the dict is keyed by PATH, not filename, and no longer holds routers
+# only. The router-glob gate below scans `**/router.py`, so the largest backend
+# modules — ingest/metadata.py, ingest/tasks_common.py, maps/schemas.py,
+# api/main.py — were ungated simply because of their names, and ingest/router.py
+# sat a few lines under the 1500 default cliff where the next feature would trip
+# a gate its author had never seen. All five are now ratcheted exact.
+#
 # History of the previous caps, kept because it records why each file is large:
 #   maps/router.py    1610 → 1700 → 1800 → 1900. Phase 1047 bulk-delete, then PR #118
 #     builder polish took it to 2107; extracting _router_helpers.py brought it back.
@@ -985,7 +1018,18 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
-_ROUTER_LOC_CAPS: dict[str, int] = {
+_MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
+    # matching the #435 convention: growth needs a reviewed carve-out here,
+    # shrinking must lower the cap in the same commit.
+    "backend/app/api/main.py": 1282,
+    "backend/app/modules/catalog/maps/schemas.py": 1312,
+    "backend/app/processing/ingest/metadata.py": 1716,
+    # ingest/router.py is also scanned by the router-glob gate; this exact
+    # ratchet overrides its 1500 default so the remaining ~18-line runway to
+    # the cliff cannot be spent silently.
+    "backend/app/processing/ingest/router.py": 1482,
+    "backend/app/processing/ingest/tasks_common.py": 1606,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
@@ -994,7 +1038,7 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
     # Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1427,
+    "backend/app/modules/catalog/search/router.py": 1428,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -1003,16 +1047,19 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # instead of advertising a fabricated global extent, and stac-api-validator
     # conformance (strict RFC 3339 datetime gate, bbox/intersects exclusivity,
     # south<=north bbox check, limit clamping). Ratchet stays exact.
-    "backend/app/standards/stac/router.py": 1795,
+    "backend/app/standards/stac/router.py": 1796,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
+    # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
+    # pasted family literals. Same +1 on the stac and search routers.
     # fix(#868): +3 lines for the cluster cache-key SQL-semantics version
     # ("v2") so deploys that change cluster tile geometry invalidate Valkey.
-    "backend/app/processing/tiles/router.py": 2046,
+    # Merge of the two carve-outs: 2043 base + 3 + 1. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2047,
 }
 
 
 @pytest.mark.architecture
-def test_router_loc_caps_have_no_headroom() -> None:
+def test_module_loc_caps_have_no_headroom() -> None:
     """Every ratchet must equal its file's current LOC.
 
     A cap above the current size is permission to grow. The audit found 13, 3, and 29
@@ -1022,7 +1069,7 @@ def test_router_loc_caps_have_no_headroom() -> None:
     Shrinking a file fails this too. Lower the cap in the same commit.
     """
     drift: list[str] = []
-    for rel, cap in sorted(_ROUTER_LOC_CAPS.items()):
+    for rel, cap in sorted(_MODULE_LOC_CAPS.items()):
         actual = len(_repo_style_path(rel).read_text().splitlines())
         if actual != cap:
             verb = "shrank below" if actual < cap else "exceeds"
@@ -1030,7 +1077,7 @@ def test_router_loc_caps_have_no_headroom() -> None:
 
     if drift:
         pytest.fail(
-            "Router LOC ratchets are out of sync with the files they track. Set each "
+            "Module LOC ratchets are out of sync with the files they track. Set each "
             "cap to the file's current line count.\n" + "\n".join(drift)
         )
 
@@ -1070,7 +1117,8 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         # fix(#527 B-054/S-05+LB-04): symbol icon-opacity + allow-overlap parity.
         # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
         # companion so exported ramps match the builder's Reverse toggle.
-        "backend/app/modules/catalog/maps/style_json.py": 1431,
+        # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import.
+        "backend/app/modules/catalog/maps/style_json.py": 1432,
         "backend/app/modules/catalog/maps/style_import.py": 450,
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,
@@ -1102,14 +1150,15 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
 
     Catches regrowth of large API-edge modules toward the size cliff that
     triggered the Phase 226 / Phase 238 / Phase 252 decompositions.
-    Allowlisted modules are ratcheted at their current size (see _ROUTER_LOC_CAPS).
+    Allowlisted modules are ratcheted at their current size (see _MODULE_LOC_CAPS).
 
     Scope: ``backend/app/**/router.py`` (all module + standards routers).
     Decomposed service modules (``service_*.py``) are covered separately by
-    ``test_decomposed_service_modules_stay_within_size_budgets``.
+    ``test_decomposed_service_modules_stay_within_size_budgets``; the largest
+    non-``router.py`` modules are path-ratcheted in _MODULE_LOC_CAPS (#836).
     """
     DEFAULT_CAP = 1500
-    allowlist = _ROUTER_LOC_CAPS
+    allowlist = _MODULE_LOC_CAPS
 
     violations: list[str] = []
     for path in sorted((BACKEND_ROOT / "app").rglob("router.py")):
@@ -1148,9 +1197,10 @@ def test_no_log_action_calls_outside_audit_service() -> None:
     Excluded paths:
       - ``backend/app/modules/audit/service.py`` — defines ``log_action()``;
         this is the only application-side caller permitted post-Phase-222.
-      - ``backend/app/platform/extensions/defaults.py`` — ``DefaultAuditSink.emit()``
-        calls ``log_action()`` via deferred import (Phase 222 D-04 / option a
-        from AUDIT-02). The community-edition default sink is the SOLE
+      - ``backend/app/platform/extensions/defaults_extensions.py`` —
+        ``DefaultAuditSink.emit()`` calls ``log_action()`` via deferred import
+        (Phase 222 D-04 / option a from AUDIT-02; moved from defaults.py by the
+        #836 facade split). The community-edition default sink is the SOLE
         consumer of the preserved helper.
       - ``backend/tests/`` — test seeds (e.g., ``test_lifecycle.py:421, 687``)
         may construct audit_logs rows directly via ``log_action()`` for
@@ -1177,7 +1227,7 @@ def test_no_log_action_calls_outside_audit_service() -> None:
             "--",
             "backend/app/",
             ":!backend/app/modules/audit/service.py",
-            ":!backend/app/platform/extensions/defaults.py",
+            ":!backend/app/platform/extensions/defaults_extensions.py",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -1189,7 +1239,7 @@ def test_no_log_action_calls_outside_audit_service() -> None:
         pytest.fail(
             "Phase 222 AUDIT-02 invariant violated: log_action() is called "
             "outside backend/app/modules/audit/service.py and "
-            "backend/app/platform/extensions/defaults.py. All 65 historical "
+            "backend/app/platform/extensions/defaults_extensions.py. All 65 historical "
             "sites must use audit_emit(session, AuditEvent(...)) instead.\n"
             f"Offending lines:\n{result.stdout}"
         )
@@ -2009,5 +2059,96 @@ def test_platform_does_not_import_private_module_names() -> None:
         pytest.fail(
             "platform/ imports a private name from a product module. Promote it to a "
             "public home (core registry, port, or DTO) instead.\n"
+            + "\n".join(offenders)
+        )
+
+
+# fix(#836): the platform->processing axis, mirroring _PLATFORM_MODULE_IMPORT_BURNDOWN
+# above. `platform/extensions/defaults_*.py` delegates INTO app.processing by design
+# (the CatalogPort/AI-provider defaults carried 63 such edges at audit time), but only
+# through deferred function-local imports (D-17). The module-scope edges below are the
+# reviewed exceptions. The list may SHRINK, never grow.
+_PLATFORM_PROCESSING_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    # Upload/config API composition: these platform routers queue ingest work and
+    # reuse the export Content-Disposition sanitizer. Resolvable by moving the
+    # routers under processing/ or crossing via a core port.
+    "config_ops/router.py": {"app.processing.export.service"},
+    "jobs/router.py": {
+        "app.processing.ingest.schemas",
+        "app.processing.ingest.service",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_platform_processing_imports_stay_deferred() -> None:
+    """Module-scope platform->processing imports are enumerated, not tolerated.
+
+    fix(#836): the layering guard scanned the platform->modules axis but not
+    platform->processing, so the port defaults could accrete module-load-time
+    processing dependencies unnoticed. Deferred (function-local) imports remain
+    the sanctioned mechanism, exactly as on the modules axis.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            if node.col_offset != 0:
+                continue
+            key = str(path.relative_to(_PLATFORM_DIR))
+            allowed = _PLATFORM_PROCESSING_IMPORT_BURNDOWN.get(key, set())
+            for module in modules:
+                if module.startswith("app.processing") and module not in allowed:
+                    offenders.append(f"  backend/app/platform/{key}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports app.processing.* at module scope. Defer the import "
+            "into the function body (D-17) or cross via a core port, rather than "
+            "adding an entry to _PLATFORM_PROCESSING_IMPORT_BURNDOWN.\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_platform_never_imports_processing_routers() -> None:
+    """No platform file imports a processing router module, at any scope.
+
+    fix(#836): `DefaultCatalogPort.ingest_part_size` imported PART_SIZE from
+    `app.processing.ingest.router` — importing an API-edge module executes route
+    registration as a side effect and couples the platform seam to the router's
+    import graph. Constants and helpers a port needs must live in a service or
+    schema module; only api/main.py composes routers.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if not module.startswith("app.processing"):
+                    continue
+                leaf = module.rsplit(".", 1)[-1]
+                if leaf == "router" or leaf.endswith("_router"):
+                    rel = path.relative_to(_PLATFORM_DIR)
+                    offenders.append(f"  backend/app/platform/{rel}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports a processing router module. Move the needed name "
+            "into a service/schema module and import that instead.\n"
             + "\n".join(offenders)
         )

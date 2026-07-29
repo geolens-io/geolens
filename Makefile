@@ -270,7 +270,7 @@ publish-mcp: ## Build + publish geolens-mcp to PyPI
 # All 65 historical emit sites must route through audit_emit(session, AuditEvent(...)) instead.
 # This target runs the architecture-guard test in isolation — quick local verification
 # without spinning up the full pytest suite.
-audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults.py
+audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults_extensions.py
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_log_action_calls_outside_audit_service -v
 
 # Invariants:

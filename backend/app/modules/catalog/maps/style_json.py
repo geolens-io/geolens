@@ -35,6 +35,7 @@ from app.modules.catalog.maps.style_sanitizers import (
 )
 from app.platform.extensions import get_catalog_port
 from app.core.tenancy import tenant_bound_scope
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
 __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
 
@@ -277,10 +278,10 @@ def _source_type_for_layer(layer: MapLayerResponse) -> str:
         (layer.style_config or {}).get("render_mode") == "hillshade"
     ):
         return "raster-dem"
-    if layer.layer_type == "raster_geolens" or layer.dataset_record_type in {
-        "raster_dataset",
-        "vrt_dataset",
-    }:
+    if (
+        layer.layer_type == "raster_geolens"
+        or layer.dataset_record_type in RASTER_FAMILY_RECORD_TYPES
+    ):
         return "raster"
     return "vector"
 
@@ -357,10 +358,10 @@ def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
 
 
 def _tile_url_for_layer(layer: MapLayerResponse) -> str:
-    if layer.layer_type == "raster_geolens" or layer.dataset_record_type in {
-        "raster_dataset",
-        "vrt_dataset",
-    }:
+    if (
+        layer.layer_type == "raster_geolens"
+        or layer.dataset_record_type in RASTER_FAMILY_RECORD_TYPES
+    ):
         return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
     port = get_catalog_port()
     exp = port.round_tile_expiry()

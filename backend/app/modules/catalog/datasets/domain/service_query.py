@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import TABLE_ABSENT, sqlstate
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.models import (
@@ -124,7 +125,7 @@ async def get_datasets_list(
     raster_ids = [
         d.id
         for d in datasets
-        if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
+        if getattr(d.record, "record_type", None) in RASTER_FAMILY_RECORD_TYPES
     ]
     raster_assets_by_dataset_id = await get_catalog_port().list_raster_assets(
         db, raster_ids
@@ -198,7 +199,7 @@ async def get_dataset_detail(
     # parallel through CatalogPort so catalog does not import processing-owned
     # raster ORM classes directly.
     record_type = getattr(dataset.record, "record_type", None)
-    needs_raster = record_type in ("raster_dataset", "vrt_dataset")
+    needs_raster = record_type in RASTER_FAMILY_RECORD_TYPES
     needs_vrt_count = record_type == "vrt_dataset"
 
     # Build a labeled-coro list and gather only the ones we need; collapsing

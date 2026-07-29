@@ -12,10 +12,9 @@ from sqlalchemy import text
 from app.core.db.tenant_session import tenant_task
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
-    claim_ingest_job_attempt,
-    maintain_ingest_job_heartbeat,
+    claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
-    resolve_ingest_job_attempt,
+    resolve_ingest_attempt_or_skip,
     update_ingest_job_for_attempt,
     stop_ingest_job_heartbeat,
 )
@@ -296,14 +295,12 @@ async def ingest_file(
     from app.processing.ingest.service import generate_table_name
     from app.platform.jobs.models import IngestJob
 
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
-        structlog.get_logger().warning(
-            "Tokenless ingest delivery could not adopt pending legacy job",
-            job_id=job_id,
-        )
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="ingest"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     original_file_path = file_path
     final_status: str = "pending"
     staging_table_name = ""
@@ -323,19 +320,13 @@ async def ingest_file(
             if job is None:
                 return
 
-            # 1. Update job to running.
-            # REMED-02 / ingest-audit P2-07: stamp current_step + progress
-            # together with status so the polling UI gets a fresh "validating"
-            # signal on the very first poll after the worker picks up the job.
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
-            job.current_step = "validating"
-            job.progress = 0.0
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            # 1. Update job to running (the fresh "validating" stamp rides the
+            # same commit — REMED-02 / ingest-audit P2-07, see the helper).
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid, job=job, current_step="validating"
             )
+            if heartbeat_task is None:
+                return
 
             # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path
@@ -781,14 +772,12 @@ async def ingest_service(
         ) from exc
 
     port = get_processing_port()
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
-        structlog.get_logger().warning(
-            "Tokenless ingest delivery could not adopt pending legacy job",
-            job_id=job_id,
-        )
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="ingest"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     staging_table_name = ""
     heartbeat_task: asyncio.Task[None] | None = None
 
@@ -810,15 +799,11 @@ async def ingest_service(
             # ingests too. The service path has the same step boundaries as
             # the file path (validating -> ogr2ogr -> finalize -> complete)
             # except there is no "archiving" — services don't archive originals.
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
-            job.current_step = "validating"
-            job.progress = 0.0
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid, job=job, current_step="validating"
             )
+            if heartbeat_task is None:
+                return
 
             # 2. Determine service type from job metadata
             um = job.user_metadata or {}

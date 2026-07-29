@@ -120,6 +120,58 @@ async def require_ingest_job_update(
         )
 
 
+async def resolve_ingest_attempt_or_skip(
+    job_id: str,
+    attempt_id: str | uuid.UUID | None,
+    *,
+    task_label: str = "ingest",
+) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """Parse the job id and resolve its delivery token, or signal a skip.
+
+    fix(#836): the parse/resolve/warn prologue was pasted at seven ingest task
+    sites. Returns ``(job_uuid, attempt_uuid)``, or ``None`` when a tokenless
+    legacy delivery could not adopt the pending job — the caller must return
+    without touching the row. ``task_label`` preserves each task family's
+    historical log message ("ingest" / "raster" / "reupload" / "vrt").
+    """
+    job_uuid = uuid.UUID(job_id)
+    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
+    if attempt_uuid is None:
+        structlog.get_logger().warning(
+            f"Tokenless {task_label} delivery could not adopt pending legacy job",
+            job_id=job_id,
+        )
+        return None
+    return job_uuid, attempt_uuid
+
+
+async def claim_job_attempt_and_start_heartbeat(
+    session: AsyncSession,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    job: IngestJob | None = None,
+    current_step: str | None = None,
+) -> "asyncio.Task[None] | None":
+    """Claim the pending attempt, commit, and start the lease heartbeat.
+
+    fix(#836): the claim/stamp/commit/heartbeat prologue was pasted at seven
+    ingest task sites. Rolls back and returns ``None`` when the caller no
+    longer owns the attempt (another actor moved the row). When ``job`` and
+    ``current_step`` are given, stamps the first progress step in the same
+    commit so the polling UI sees a fresh signal on its first poll after
+    pickup (REMED-02 / ingest-audit P2-07).
+    """
+    if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
+        await session.rollback()
+        return None
+    if job is not None and current_step is not None:
+        job.current_step = current_step
+        job.progress = 0.0
+    await session.commit()
+    return asyncio.create_task(maintain_ingest_job_heartbeat(job_uuid, attempt_uuid))
+
+
 async def renew_ingest_job_heartbeat(job_id: uuid.UUID, attempt_id: uuid.UUID) -> bool:
     """Renew a running job's lease and return whether a row was updated."""
     from app.core.db import async_session

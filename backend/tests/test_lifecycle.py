@@ -69,13 +69,11 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.extensions import (
     _extensions,
     _routers,
-    get_audit_extension,
     get_auth_extension,
     get_branding_extension,
     get_identity_extension,
 )
 from app.platform.extensions.defaults import (
-    DefaultAuditExtension,
     DefaultAuthExtension,
     DefaultBrandingExtension,
     DefaultIdentityExtension,
@@ -314,7 +312,6 @@ async def test_overlay_removal_preserves_saml_data(
         )
 
         # 5. Typed accessors fall back to Default* classes when registry is empty.
-        assert isinstance(get_audit_extension(), DefaultAuditExtension)
         assert isinstance(get_branding_extension(), DefaultBrandingExtension)
         assert isinstance(get_auth_extension(), DefaultAuthExtension)
         assert isinstance(get_identity_extension(), DefaultIdentityExtension)

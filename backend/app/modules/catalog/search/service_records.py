@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 import structlog
 
 from app.core.config import settings
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.records.localization import select_localized_record_text
 from app.modules.catalog.datasets.domain.utils import extract_bbox
@@ -110,7 +111,7 @@ def build_assets(
                 "roles": ["data"],
             }
 
-    elif record_type in ("raster_dataset", "vrt_dataset"):
+    elif record_type in RASTER_FAMILY_RECORD_TYPES:
         # Raster tile endpoint -- served at the public APP origin, not /api.
         assets["raster_tiles"] = {
             "href": build_url(
@@ -319,7 +320,7 @@ def dataset_to_ogc_record(
                 raster_meta is not None
                 and raster_meta.get("quicklook_256_uri") is not None
             )
-            if record_type in ("raster_dataset", "vrt_dataset")
+            if record_type in RASTER_FAMILY_RECORD_TYPES
             else (dataset.quicklook_256_uri is not None),
             # Enriched OGC properties (Phase 10-02)
             "formats": (
@@ -327,7 +328,7 @@ def dataset_to_ogc_record(
                 if (
                     getattr(record, "record_type", "vector_dataset") or "vector_dataset"
                 )
-                in ("raster_dataset", "vrt_dataset")
+                in RASTER_FAMILY_RECORD_TYPES
                 else list(_TABLE_FORMAT_MEDIA.values())
                 if getattr(record, "record_type", None) == "table"
                 else list(_FORMAT_MEDIA.values())
@@ -405,7 +406,7 @@ def dataset_to_ogc_record(
     }
 
     # STAC properties for raster/VRT records (record_type already resolved above)
-    if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
+    if raster_meta and record_type in RASTER_FAMILY_RECORD_TYPES:
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:code"] = f"EPSG:{raster_meta['epsg']}"
         if raster_meta.get("width") and raster_meta.get("height"):

@@ -15,6 +15,9 @@ import structlog
 from app.platform.extensions.version import check_extension_api_version
 from app.platform.extensions.defaults import (
     DefaultAnthropicProvider,  # NEW (Phase 226)
+    # fix(#873 review r4): deprecated alias — importable from the package root
+    # pre-#836, so it stays here (and behind get_audit_extension) until the
+    # next EXTENSION_API_VERSION bump removes the audit seam wholesale.
     DefaultAuditExtension,
     DefaultAuditSink,  # NEW (Phase 222)
     DefaultAuthExtension,
@@ -33,7 +36,11 @@ from app.platform.extensions.defaults import (
     DefaultWorkflowExtension,  # NEW (Phase 233)
 )
 from app.platform.extensions.protocols import (
-    AuditExtension,
+    # fix(#873 review r2): deprecated alias, but it must be a RUNTIME re-export —
+    # under TYPE_CHECKING, `from app.platform.extensions import AuditExtension`
+    # raised ImportError for exactly the overlay the alias exists to protect.
+    # Removed with the seam at the next EXTENSION_API_VERSION bump.
+    AuditExtension as AuditExtension,
     AuditSink,  # NEW (Phase 222)
     AuthExtension,
     BillingExtension,  # NEW (Phase 223)
@@ -316,7 +323,15 @@ def get_branding_extension() -> BrandingExtension:
 
 
 def get_audit_extension() -> AuditExtension:
-    """Return the registered AuditExtension or the community default."""
+    """DEPRECATED — scheduled for removal at the next EXTENSION_API_VERSION bump.
+
+    fix(#873 review r1+r3): the whole seam is deprecated (no core caller
+    consumes it and no known overlay registers the ``audit`` slot), but while
+    EXTENSION_API_VERSION == 2 the v2 surface must keep BEHAVING, not merely
+    importing — so the registry dispatch stays until the bump removes the seam
+    wholesale. An overlay registered under ``audit`` is returned; otherwise the
+    no-op community default.
+    """
     ext = _extensions.get("audit")
     if ext is None:
         return DefaultAuditExtension()
@@ -377,8 +392,8 @@ def get_data_serving_extension() -> "DataServingExtension":
 def get_identity_extension() -> "IdentityExtension":
     """Return the registered IdentityExtension or the community default.
 
-    Phase 214 / IDENT-03 — mirrors ``get_branding_extension()``,
-    ``get_audit_extension()``, and ``get_auth_extension()`` exactly.
+    Phase 214 / IDENT-03 — mirrors ``get_branding_extension()``
+    and ``get_auth_extension()`` exactly.
     Enterprise overlays register an implementation under the ``"identity"``
     key via the ``geolens.extensions`` entry-point group; community
     edition gets the no-op ``DefaultIdentityExtension`` whose

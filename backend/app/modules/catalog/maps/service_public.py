@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.text import escape_ilike
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter
@@ -227,7 +228,7 @@ def _build_shared_layer_dict(
     Returns ``(layer_dict, is_non_public)``.
     """
     is_public = ds_visibility == "public"
-    if ds_record_type in ("raster_dataset", "vrt_dataset"):
+    if ds_record_type in RASTER_FAMILY_RECORD_TYPES:
         tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
     else:
         # Phase 273 SEC-16 / L-62: previous public-vs-private branch produced

@@ -28,6 +28,7 @@ from sqlalchemy.orm import selectinload
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 import app.core.db as _db_module
 from app.modules.auth.dependencies import (
     get_optional_user_no_security_schema,
@@ -78,7 +79,7 @@ class GeoJSONResponse(JSONResponse):
 
 
 # Record types eligible for STAC
-_STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
+_STAC_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
 
 # STAC Items must be collection-scoped to remain browsable by machine clients.
 # This virtual collection does not create or mutate a catalog Collection; it is

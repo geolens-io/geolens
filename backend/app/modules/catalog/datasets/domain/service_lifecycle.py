@@ -17,6 +17,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
 from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.platform.storage.titiler_url import resolve_storage_key
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -71,7 +72,7 @@ async def delete_dataset(
 
     record_type = dataset.record.record_type
 
-    if record_type in ("raster_dataset", "vrt_dataset"):
+    if record_type in RASTER_FAMILY_RECORD_TYPES:
         from app.platform.storage.provider import get_storage
 
         if record_type == "raster_dataset":

@@ -15,6 +15,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
 from app.modules.auth.dependencies import (
@@ -220,7 +221,7 @@ async def get_quicklook(
 
     record_type = getattr(dataset.record, "record_type", None)
 
-    if record_type in ("raster_dataset", "vrt_dataset"):
+    if record_type in RASTER_FAMILY_RECORD_TYPES:
         raster_asset = await get_catalog_port().get_raster_asset(db, dataset.id)
         if raster_asset is None:
             raise HTTPException(

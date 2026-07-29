@@ -11,7 +11,9 @@ implementation for STOR-01 (Phase 1210).
 # - Azurite (local emulator): pass the well-known dev connection_string.
 # - Live Azure via connection string: pass connection_string from config.
 # - Live Azure via account URL + credential: pass account_url and credential
-#   (a SAS token string, a storage account key, or an azure-identity credential).
+#   (a SAS token string or a storage account key). fix(#836): azure-identity
+#   credentials are NOT supported — the dependency was removed as unused;
+#   managed identity would need it reintroduced plus a typed credential path.
 
 # Key prefix convention
 # ---------------------

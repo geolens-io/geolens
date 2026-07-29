@@ -40,7 +40,6 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.tenancy import is_multi_tenant
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
-    ALLOWED_EMAIL_DOMAINS,
     BANNER_COLOR,
     BANNER_ENABLED,
     BANNER_TEXT,
@@ -52,7 +51,7 @@ from app.core.persistent_config import (
     get_cached_global_rate_limit,
     get_cached_login_rate_limit,
 )
-from app.modules.auth.domain_validation import is_email_allowed
+from app.modules.auth.domain_policy import enforce_email_domain_gate
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
@@ -116,27 +115,11 @@ async def login(
                 detail="Account not active",
             )
 
-    # DOMAIN-04: enforce allowed_email_domains on password login.
-    # Break-glass: users who hold manage_settings are exempt (admin escape hatch).
-    # Skip the check when user.email is null (no address to gate on).
-    # Cache-bypass (get_uncached): security enforcement must observe the committed
-    # setting, not a value a concurrent reader repopulated into the cache during a
-    # writer's invalidate->commit window (same class as the lockout-guard fix).
-    if user is not None and user.email:
-        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
-        if not is_email_allowed(user.email, domains):
-            # Lazy import to avoid adding DB dep at module top; follows D-17.
-            from app.modules.auth.permissions import (  # LAZY — per D-17
-                MANAGE_SETTINGS,
-                user_has_capability,
-            )
-
-            has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
-            if not has_break_glass:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Email domain is not permitted",
-                )
+    # DOMAIN-04: enforce allowed_email_domains on password login. Null-email
+    # skip, get_uncached cache-bypass, and the manage_settings break-glass all
+    # live in the shared gate (fix(#836)).
+    if user is not None:
+        await enforce_email_domain_gate(db, user.email, break_glass_user=user)
 
     # SSO-01/SSO-02 (Phase 1236 Plan 02): when password_login_enabled is False,
     # reject password login for non-admins.  manage_settings holders are always
@@ -217,21 +200,8 @@ async def refresh(
     #   check (which is an authorization PERIMETER, not a method selector) belongs
     #   at refresh.
     user = await service.get_user_from_refresh_token(body.refresh_token)
-    if user is not None and user.email:
-        # Cache-bypass: security enforcement reads committed state (see login gate).
-        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
-        if not is_email_allowed(user.email, domains):
-            from app.modules.auth.permissions import (  # LAZY — per D-17
-                MANAGE_SETTINGS,
-                user_has_capability,
-            )
-
-            has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
-            if not has_break_glass:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Email domain is not permitted",
-                )
+    if user is not None:
+        await enforce_email_domain_gate(db, user.email, break_glass_user=user)
 
     try:
         access_token, refresh_token = await service.rotate_refresh_token(
@@ -291,18 +261,9 @@ async def register(
             detail="Registration is disabled",
         )
 
-    # DOMAIN-02: enforce allowed_email_domains on self-serve signup.
-    # No principal exists at signup, so no break-glass; the email must satisfy
-    # the allowlist to create an account.  A null/absent email is permitted
-    # (no address to gate on, preserving no-email registration paths).
-    if body.email:
-        # Cache-bypass: security enforcement reads committed state (see login gate).
-        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
-        if not is_email_allowed(body.email, domains):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email domain is not permitted",
-            )
+    # DOMAIN-02: enforce allowed_email_domains on self-serve signup. No
+    # principal exists at signup, so no break-glass user is passed.
+    await enforce_email_domain_gate(db, body.email)
 
     # Phase 279 ADMIN-05 (L-02): emit user.register audit event for funnel
     # visibility (how many users register and from which IP). Lazy import

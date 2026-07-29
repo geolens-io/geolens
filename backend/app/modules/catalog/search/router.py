@@ -16,6 +16,7 @@ from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.platform.extensions import get_catalog_port
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import (
@@ -815,7 +816,7 @@ async def list_collections(
         # fix(#315): raster/VRT have no feature table -> mirror the detail
         # endpoint (itemType=coverage, omit rel=items, add rel=tiles) so crawlers
         # starting from the list skip the dead /items and still find the data.
-        is_raster = ds.record.record_type in ("raster_dataset", "vrt_dataset")
+        is_raster = ds.record.record_type in RASTER_FAMILY_RECORD_TYPES
 
         links: list[dict] = [
             {
@@ -1219,7 +1220,7 @@ async def get_collection_item(
     # transient raster-meta failures must not 500 the entire item endpoint).
     item_raster_meta = None
     rec_type = getattr(dataset.record, "record_type", None)
-    if rec_type in ("raster_dataset", "vrt_dataset"):
+    if rec_type in RASTER_FAMILY_RECORD_TYPES:
         try:
             item_raster_meta = await _build_raster_assets(db, record_id)
         except Exception:  # broad: raster meta enrichment is best-effort; any DB error degrades to no raster props
@@ -1374,7 +1375,7 @@ async def _bulk_fetch_dataset_metadata(
     raster_ids = [
         d.id
         for d in datasets
-        if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
+        if getattr(d.record, "record_type", None) in RASTER_FAMILY_RECORD_TYPES
     ]
     if raster_ids:
         try:

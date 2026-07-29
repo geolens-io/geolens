@@ -75,6 +75,7 @@ from app.processing.ingest.schemas import (
     VrtMutationResponse,
 )
 from app.processing.ingest.service import (
+    PART_SIZE,
     _await_provider_call_draining,
     create_fan_out_jobs,
     create_ingest_job,
@@ -115,8 +116,6 @@ router = APIRouter(
     tags=["Datasets"],
     responses=ERROR_RESPONSES_WRITE,
 )
-
-PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
 # Fallback list used when the persistent_config DB lookup fails (R-7).
 # Kept intentionally conservative: matches the original production default.

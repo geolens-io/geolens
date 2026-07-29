@@ -49,6 +49,11 @@ from app.platform.storage.titiler_url import resolve_current_storage_key
 # request.
 _UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
 
+# Presigned multipart part size. fix(#836): lives here, not in router.py, so the
+# CatalogPort default (platform layer) can read it without importing the API
+# edge — importing a router module executes route registration as a side effect.
+PART_SIZE = 10 * 1024 * 1024  # 10MB per part
+
 
 async def _await_provider_call_draining(awaitable: Any) -> Any:
     """Await provider I/O without abandoning its background SDK thread."""

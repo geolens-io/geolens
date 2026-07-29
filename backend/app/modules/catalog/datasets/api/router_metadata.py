@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -289,7 +290,7 @@ async def get_column_values(
     # with NO backing data.<table>, so get_distinct_values would run SELECT ...
     # FROM a missing table -> UndefinedTableError -> 500 (holding a DB
     # connection). Return a fast 404 before any column query is attempted.
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(

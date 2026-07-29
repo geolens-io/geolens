@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import get_optional_user
 from app.core.config import settings
 from app.core.dependencies import get_db
@@ -688,7 +689,7 @@ async def _resolve_raster_meta(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    if row["record_type"] not in ("raster_dataset", "vrt_dataset"):
+    if row["record_type"] not in RASTER_FAMILY_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Not a raster dataset"
         )
@@ -1189,7 +1190,7 @@ def _build_tile_token_for_dataset(
     token-generation logic (PERF-N5). Does NOT perform auth — caller must
     ensure the dataset is visible to the current user.
     """
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         bounds = None
         if dataset.record.spatial_extent is not None:
             try:
@@ -1309,7 +1310,7 @@ async def get_tile_token(
     await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
 
     raster_asset = None
-    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         raster_asset_result = await db.execute(
             select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
         )
@@ -1358,7 +1359,7 @@ async def get_tile_tokens_batch(
     raster_dataset_ids = [
         ds.id
         for ds in datasets_by_id.values()
-        if ds.record.record_type in ("raster_dataset", "vrt_dataset")
+        if ds.record.record_type in RASTER_FAMILY_RECORD_TYPES
     ]
     raster_assets_by_dataset_id: dict[uuid.UUID, RasterAsset] = {}
     if raster_dataset_ids:
