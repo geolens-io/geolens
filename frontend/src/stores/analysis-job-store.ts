@@ -57,3 +57,55 @@ export const analysisAddToMap: {
   current: ((datasetId: string) => void) | null;
   mapId: string | null;
 } = { current: null, mapId: null };
+
+/**
+ * fix(#833): dataset ids already added to a map through an analysis
+ * "Add to map" affordance. A completed run raises TWO affordances (the
+ * watcher's toast action and the Analysis panel's button); each used to keep
+ * its own single-use flag, so clicking both added the layer twice. Shared
+ * here so either click retires both. A store (not a module Set) so the panel
+ * button re-renders to its "Added to map" state when the toast action does
+ * the add. Session-scoped and keyed on dataset id on purpose: a NEW run's
+ * completion re-enables both affordances, and adding the same dataset again
+ * via other surfaces stays legitimate.
+ */
+interface AnalysisAddedState {
+  /** Confirmed on the map — the add mutation succeeded (any surface). */
+  addedDatasetIds: string[];
+  /**
+   * fix(#833 codex P2): claimed by an analysis affordance whose add mutation
+   * is still in flight. The claim happens BEFORE the mutation starts (so a
+   * double-click can't add twice); success confirms it, failure clears it so
+   * the affordances re-arm. Split from addedDatasetIds so a FAILED add from a
+   * non-analysis surface (catalog/chat/drag never claim a pending entry) can
+   * never un-retire a confirmed one.
+   */
+  pendingAddIds: string[];
+  markPending: (datasetId: string) => void;
+  confirmAdded: (datasetId: string) => void;
+  clearPending: (datasetId: string) => void;
+}
+
+export const useAnalysisAddedStore = create<AnalysisAddedState>()((set) => ({
+  addedDatasetIds: [],
+  pendingAddIds: [],
+  markPending: (datasetId) =>
+    set((s) =>
+      s.pendingAddIds.includes(datasetId)
+        ? s
+        : { pendingAddIds: [...s.pendingAddIds, datasetId] },
+    ),
+  confirmAdded: (datasetId) =>
+    set((s) => ({
+      pendingAddIds: s.pendingAddIds.filter((id) => id !== datasetId),
+      addedDatasetIds: s.addedDatasetIds.includes(datasetId)
+        ? s.addedDatasetIds
+        : [...s.addedDatasetIds, datasetId],
+    })),
+  clearPending: (datasetId) =>
+    set((s) =>
+      s.pendingAddIds.includes(datasetId)
+        ? { pendingAddIds: s.pendingAddIds.filter((id) => id !== datasetId) }
+        : s,
+    ),
+}));

@@ -179,6 +179,13 @@ export function MapBuilderPage() {
   // the Phase 1040 lift-DndContext architecture decision.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastToggleAnchor = useRef<string | null>(null);
+  // fix(#833): selected rows the layer search hides are parked here instead of
+  // being pruned outright, and rejoin the selection when the search stops
+  // hiding them. Cleared on every explicit selection interaction — Escape/
+  // outside click, drag-start, bulk actions, and (codex round 2) cmd/shift
+  // clicks, which replace the selection — so stale parked rows cannot
+  // resurrect a selection the user's gesture already discarded.
+  const searchHiddenSelectionRef = useRef<Set<string>>(new Set());
   // fix(#771): the layer-search query is lifted here (hybrid-controlled on
   // UnifiedStackPanel) so selectableRowIds below can be derived from the
   // RENDERED row set — a shift-click range must never sweep rows the search
@@ -665,27 +672,84 @@ export function MapBuilderPage() {
   // fix(v1.6.0 audit B7): also intersect with selectableRowIds — a row hidden
   // by the layer search or a collapsed group must leave the selection, or the
   // bulk bar keeps acting on rows the user can no longer see.
+  // fix(#833): rows hidden by the layer search leave the ACTIVE selection (B7
+  // stands: the bulk bar must not act on rows the user cannot see) but are
+  // parked and rejoin it when they become visible again — hiding used to
+  // prune them permanently. Parked rows are restored only once selectable
+  // again (search cleared/edited AND not inside a collapsed group); deleted
+  // rows are dropped for good. The park/restore bookkeeping lives outside the
+  // updater where it must be idempotent (StrictMode double-invokes updaters).
   useEffect(() => {
     if (layers.isDeleting) return;
+    const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
+    const selectable = new Set(selectableRowIds);
+    const parked = searchHiddenSelectionRef.current;
+    // fix(#833 codex round 3): park only rows the SEARCH itself hides, not any
+    // unselectable row while a search happens to be active — a child hidden by
+    // its collapsed group must stay pruned (restoring it on a later expand
+    // would resurrect a selection the collapse discarded). Recomputing the
+    // selectable set with every group forced expanded isolates the search
+    // predicate (computeSelectableRowIds stays the single source of truth):
+    // a live row absent from THIS set fails the search; one present here but
+    // missing from selectableRowIds is hidden by collapse alone.
+    let searchHiddenIds: Set<string> | null = null;
+    if (layerSearch.trim() !== '') {
+      const allExpanded: Record<string, { expanded: boolean }> = {};
+      for (const layer of layers.localLayers) {
+        if (isFolderGroupLayer(layer)) allExpanded[layer.id] = { expanded: true };
+      }
+      const matching = new Set(
+        computeSelectableRowIds(layers.localLayers, allExpanded, layerSearch),
+      );
+      searchHiddenIds = new Set(
+        layers.localLayers.filter((layer) => !matching.has(layer.id)).map((layer) => layer.id),
+      );
+    }
+    // fix(#833 codex rounds 5+6): a row stays parked only while it would be
+    // selectable the moment the search cleared — the search must be what
+    // hides it AND its group must be expanded under the REAL group state. A
+    // collapse is a discarding gesture wherever it happens: after parking,
+    // while the search is active (even though the force-expanded
+    // searchHiddenIds still lists the row), or ordered the other way.
+    const selectableWithoutSearch = new Set(
+      computeSelectableRowIds(layers.localLayers, layers.groupMeta, ''),
+    );
+    const restored: string[] = [];
+    for (const rowId of Array.from(parked)) {
+      if (!liveIds.has(rowId)) { parked.delete(rowId); continue; }
+      if (selectable.has(rowId)) { parked.delete(rowId); restored.push(rowId); continue; }
+      if (!searchHiddenIds?.has(rowId) || !selectableWithoutSearch.has(rowId)) {
+        parked.delete(rowId);
+      }
+    }
     setSelectedIds((prev) => {
-      if (prev.size === 0) return prev;
-      const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
-      const selectable = new Set(selectableRowIds);
+      if (prev.size === 0 && restored.length === 0) return prev;
       let changed = false;
       const next = new Set<string>();
       for (const rowId of prev) {
-        if (liveIds.has(rowId) && selectable.has(rowId)) next.add(rowId);
-        else changed = true;
+        if (liveIds.has(rowId) && selectable.has(rowId)) { next.add(rowId); continue; }
+        changed = true;
+        // Park only live, search-hidden rows (an add-only mutation, safe under
+        // a double-invoked updater); rows removed from the map or swallowed by
+        // a collapsed group stay pruned for good.
+        if (liveIds.has(rowId) && searchHiddenIds?.has(rowId)) parked.add(rowId);
+      }
+      for (const rowId of restored) {
+        if (!next.has(rowId)) { next.add(rowId); changed = true; }
       }
       return changed ? next : prev;
     });
-  }, [layers.localLayers, layers.isDeleting, selectableRowIds]);
+  }, [layers.localLayers, layers.groupMeta, layers.isDeleting, selectableRowIds, layerSearch]);
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
   // so plain/shift/cmd clicks all coordinate from the same authoritative source.
   const handleCmdClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
+    // fix(#833 codex round 2): an explicit selection gesture supersedes any
+    // search-parked rows — keeping them would resurrect rows the gesture
+    // discarded once the search clears (and a later bulk op would hit them).
+    searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
       const { selection, anchor } = computeNextSelection(
         selectableRowIds,
@@ -701,6 +765,9 @@ export function MapBuilderPage() {
 
   const handleShiftClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
+    // fix(#833 codex round 2): same as handleCmdClick — a range gesture
+    // replaces the selection, so parked rows must not outlive it.
+    searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
       const { selection, anchor } = computeNextSelection(
         selectableRowIds,
@@ -733,11 +800,18 @@ export function MapBuilderPage() {
     handleCmdClick(id);
   }, [handleCmdClick]);
 
+  // fix(#833): every explicit selection reset also drops the search-parked
+  // rows — a dismissed selection must not resurrect when the search clears.
+  const resetMultiSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    searchHiddenSelectionRef.current.clear();
+  }, []);
+
   // Phase 1041-02: clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
   const handleClearSelection = useCallback(() => {
-    setSelectedIds(new Set());
+    resetMultiSelection();
     lastToggleAnchor.current = null;
-  }, []);
+  }, [resetMultiSelection]);
 
   // Phase 1041-03: real bulk handlers — wired to use-builder-layers bulk ops.
   // Each dep is the specific stable useCallback from use-builder-layers, NOT the
@@ -746,8 +820,8 @@ export function MapBuilderPage() {
   // on every opacity-slider move, which fires at ~60fps (Phase 20260526-builder-audit #338 BLD-20260526-11).
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
     applyBulkVisibility(ids);
-    setSelectedIds(new Set());
-  }, [applyBulkVisibility]);
+    resetMultiSelection();
+  }, [applyBulkVisibility, resetMultiSelection]);
 
   const handleBulkOpacity = useCallback((ids: Set<string>, opacity: number) => {
     // NOTE: Opacity slider fires onValueChange continuously during drag.
@@ -762,32 +836,32 @@ export function MapBuilderPage() {
     // fix(#392): only clear the selection when a group was
     // actually created; an ineligible selection must stay intact so the user
     // can see it, read the toast, and adjust instead of losing it silently. (audit B-004d/LM-04)
-    if (applyBulkGroup(ids)) setSelectedIds(new Set());
-  }, [applyBulkGroup]);
+    if (applyBulkGroup(ids)) resetMultiSelection();
+  }, [applyBulkGroup, resetMultiSelection]);
 
   const handleBulkUngroup = useCallback((ids: Set<string>) => {
     applyBulkUngroup(ids);
-    setSelectedIds(new Set());
-  }, [applyBulkUngroup]);
+    resetMultiSelection();
+  }, [applyBulkUngroup, resetMultiSelection]);
 
   // Phase 1201-01 ENH-03: apply one selected/copied style to compatible peers,
   // then clear the multi-selection (mirrors group/ungroup wrappers).
   const handleBulkApplyStyle = useCallback((ids: Set<string>) => {
     applyBulkApplyStyle(ids);
-    setSelectedIds(new Set());
-  }, [applyBulkApplyStyle]);
+    resetMultiSelection();
+  }, [applyBulkApplyStyle, resetMultiSelection]);
 
   const handleBulkDelete = useCallback((ids: Set<string>) => {
     applyBulkDelete(ids)
       .then((ok) => {
-        if (ok) setSelectedIds(new Set());
+        if (ok) resetMultiSelection();
         // on failure: selection preserved so user can retry
       })
       .catch(() => {
         // Error already toasted inside handleBulkDelete; swallow here to prevent
         // unhandled rejection if invalidateQueries throws after allSettled.
       });
-  }, [applyBulkDelete]);
+  }, [applyBulkDelete, resetMultiSelection]);
 
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
@@ -1097,7 +1171,7 @@ export function MapBuilderPage() {
     setDragActiveId(String(event.active.id));
     handleSelectLayer(null);
     // Phase 1041 POL-10: drag + multi-select are mutually exclusive. Clear selection at drag-start.
-    setSelectedIds(new Set());
+    resetMultiSelection();
     lastToggleAnchor.current = null;
     document.documentElement.classList.add('dragging-active');
     lastOverIdRef.current = null;
@@ -1106,7 +1180,7 @@ export function MapBuilderPage() {
     if (data?.source === 'catalog' && data.name) {
       announce(t('a11y.dragPickup', { name: data.name }));
     }
-  }, [handleSelectLayer, announce, t]);
+  }, [handleSelectLayer, announce, t, resetMultiSelection]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     setDragActiveId(null);

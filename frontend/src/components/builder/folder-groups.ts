@@ -175,6 +175,56 @@ export function hydrateFolderGroupLayers(
   };
 }
 
+// fix(#833 codex): snapshot helper for the Save-diff baseline. The baseline
+// keeps the hydrated/local layer shape, but its persisted folderGroupExpanded
+// markers must reflect the collapse state that was just SAVED (the live
+// groupMeta), not the state the map loaded with — copying localLayers
+// verbatim after a collapse→save left the baseline saying "expanded", so the
+// following expand→save diffed empty and reload restored the stale collapse.
+// Layers without persisted markers, and groups without a groupMeta entry,
+// pass through as plain copies.
+export function stampPersistedFolderGroupExpanded(
+  layers: MapLayerResponse[],
+  groupMeta: Record<string, FolderGroupMeta> = {},
+): MapLayerResponse[] {
+  // fix(#833 codex round 6): children of a group created THIS session carry
+  // only parent_group_id — no persisted marker yet — but the save that this
+  // baseline snapshots just wrote one (prepareLayersForPersistence derives it
+  // from the group row + groupMeta). Derive the same marker here, or every
+  // later save re-diffs those children against a marker-less baseline and
+  // emits a redundant style_config PATCH per child.
+  const groups = new Map<string, PersistedFolderGroup>();
+  for (const layer of layers) {
+    if (!isFolderGroupLayer(layer)) continue;
+    groups.set(layer.id, {
+      id: layer.id,
+      name: layer.display_name?.trim() || 'Group',
+      expanded: groupMeta[layer.id]?.expanded,
+    });
+  }
+  return layers.map((layer) => {
+    const persisted = getPersistedFolderGroup(layer);
+    if (persisted) {
+      const expanded = groupMeta[persisted.id]?.expanded;
+      if (expanded === undefined || persisted.expanded === expanded) {
+        return { ...layer };
+      }
+      return {
+        ...layer,
+        style_config: withPersistedFolderGroup(layer.style_config, { ...persisted, expanded }),
+      };
+    }
+    if (isFolderGroupLayer(layer)) return { ...layer };
+    const parentGroupId = (layer as GroupedLayer).parent_group_id ?? null;
+    const folderGroup = parentGroupId ? groups.get(parentGroupId) ?? null : null;
+    if (!folderGroup) return { ...layer };
+    return {
+      ...layer,
+      style_config: withPersistedFolderGroup(layer.style_config, folderGroup),
+    };
+  });
+}
+
 export function prepareLayersForPersistence(
   layers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},

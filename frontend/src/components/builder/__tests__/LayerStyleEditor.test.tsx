@@ -191,6 +191,9 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     await user.click(screen.getByRole('button', { name: 'Keep style' }));
     expect(onStyleConfigChange).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Reset style' })).toBeNull();
+    // fix(#833): the confirm owned focus (autofocused Cancel) — dismissing it
+    // hands focus back to the Reset trigger instead of dropping to <body>.
+    expect(screen.getByRole('button', { name: 'Reset' })).toHaveFocus();
   });
 });
 

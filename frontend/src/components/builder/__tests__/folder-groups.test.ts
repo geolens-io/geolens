@@ -3,6 +3,7 @@ import {
   hydrateFolderGroupLayers,
   prepareLayersForPersistence,
   pruneEmptyFolderGroups,
+  stampPersistedFolderGroupExpanded,
   resolveDropGroupMembership,
   type GroupedLayer,
 } from '../folder-groups';
@@ -103,6 +104,35 @@ describe('folder group persistence helpers', () => {
       folderGroupExpanded: true,
     });
     expect(persisted[1].style_config?.builder).toEqual({ outlineWidth: 2 });
+  });
+
+  // fix(#833 codex round 6): a group created this session has children with
+  // only parent_group_id — the post-save baseline must derive the marker the
+  // save just wrote, or every later save re-diffs those children against a
+  // marker-less baseline and emits a redundant style_config PATCH per child.
+  it('stamps derived markers onto children of a session-created group', () => {
+    const group = {
+      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const newChild = {
+      ...makeLayer({ id: 'child-1', sort_order: 1 }),
+      parent_group_id: 'group-1',
+    } as GroupedLayer as MapLayerResponse;
+    const groupMeta = { 'group-1': { expanded: false } };
+
+    const stamped = stampPersistedFolderGroupExpanded([group, newChild], groupMeta);
+
+    const stampedChild = stamped.find((layer) => layer.id === 'child-1');
+    expect(stampedChild?.style_config?.builder).toMatchObject({
+      folderGroupId: 'group-1',
+      folderGroupName: 'Field layers',
+      folderGroupExpanded: false,
+    });
+    // The stamped marker must byte-match what prepareLayersForPersistence
+    // sent, so the next diff of an untouched group is empty.
+    const persisted = prepareLayersForPersistence([group, newChild], groupMeta);
+    expect(stampedChild?.style_config).toEqual(persisted[0].style_config);
   });
 });
 

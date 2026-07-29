@@ -605,6 +605,13 @@ describe('BulkActionBar — deletable count excludes group rows (fix #771)', () 
     expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
     // The inline hint states why (disabled menu items show no tooltip).
     expect(deleteItem.textContent).toContain('Group rows are deleted from their row menu');
+    // fix(#833): the item's aria-label overrides its subtree as the accessible
+    // name, so the hint must ALSO be exposed as the accessible description.
+    const hintId = deleteItem.getAttribute('aria-describedby');
+    expect(hintId).toBeTruthy();
+    expect(document.getElementById(hintId!)).toHaveTextContent(
+      'Group rows are deleted from their row menu',
+    );
 
     // Clicking the disabled item must NOT enter the confirmation state.
     fireEvent.click(deleteItem);

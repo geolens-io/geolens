@@ -10,11 +10,23 @@ import { useEffect, useRef } from 'react';
  */
 export function useAbortSignal(): AbortSignal {
   const ref = useRef(new AbortController());
+  const mountedRef = useRef(false);
 
   useEffect(() => {
+    mountedRef.current = true;
     const controller = ref.current;
     return () => {
-      controller.abort();
+      mountedRef.current = false;
+      // fix(#833): under React StrictMode's dev-only unmount/remount, aborting
+      // synchronously here handed every consumer a permanently pre-aborted
+      // signal — no render happens between cleanup and re-setup, so a fresh
+      // controller could never reach them, and the first real request was
+      // silently cancelled. Defer the abort one microtask: StrictMode's
+      // re-setup runs synchronously in the same flush and flips mountedRef
+      // back, so only a real unmount aborts.
+      queueMicrotask(() => {
+        if (!mountedRef.current) controller.abort();
+      });
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import {
@@ -79,6 +79,14 @@ export function BasemapSublayerEditorScene({
   const { t } = useTranslation('builder');
   const [resetOpen, setResetOpen] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  // fix(#833): the inline confirm owns focus (autofocused Cancel), so both
+  // exits must hand focus back to the reappearing "Reset to default" button
+  // instead of <body> — the focus return StackRow's delete confirm does.
+  // rAF: the button remounts on the state flip, so it does not exist yet at
+  // onConfirm/onCancel time.
+  const resetButtonRef = useRef<HTMLButtonElement>(null);
+  const focusResetButton = () =>
+    requestAnimationFrame(() => resetButtonRef.current?.focus());
 
   // Reset confirmingReset and resetOpen when sublayerId changes.
   // Without resetting resetOpen, navigating from sublayer A (with the RESET collapsible
@@ -300,6 +308,7 @@ export function BasemapSublayerEditorScene({
           <div className="px-4 py-2 border-b">
             {!confirmingReset ? (
               <Button
+                ref={resetButtonRef}
                 type="button"
                 variant="ghost"
                 className="w-full"
@@ -321,8 +330,12 @@ export function BasemapSublayerEditorScene({
                 onConfirm={() => {
                   onResetSublayer();
                   setConfirmingReset(false);
+                  focusResetButton();
                 }}
-                onCancel={() => setConfirmingReset(false)}
+                onCancel={() => {
+                  setConfirmingReset(false);
+                  focusResetButton();
+                }}
                 className="mx-0 mb-0"
               />
             )}

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
-import { analysisAddToMap, useAnalysisJobStore } from '@/stores/analysis-job-store';
+import { analysisAddToMap, useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { ApiError } from '@/api/client';
@@ -48,6 +48,7 @@ describe('AnalysisJobWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
     analysisAddToMap.current = null;
     analysisAddToMap.mapId = null;
   });
@@ -213,6 +214,29 @@ describe('AnalysisJobWatcher', () => {
     action.onClick();
     action.onClick();
     expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
+  // fix(#833): the single-use guard is shared with the Analysis panel's own
+  // "Add to map" button — each affordance used to dedupe only against itself,
+  // so clicking the toast action and then the panel button added twice.
+  it('the toast action shares its single-use marker via useAnalysisAddedStore', async () => {
+    const onAdd = vi.fn();
+    analysisAddToMap.current = onAdd;
+    analysisAddToMap.mapId = 'm1';
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+    renderWatcher();
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const action = vi.mocked(toast.success).mock.calls[0][1]?.action as {
+      label: string;
+      onClick: () => void;
+    };
+
+    // The panel button already added this dataset — the toast must not repeat.
+    useAnalysisAddedStore.getState().confirmAdded('ds9');
+    action.onClick();
+    expect(onAdd).not.toHaveBeenCalled();
   });
 
   it('surfaces the persisted warning_message beside the completion toast', async () => {

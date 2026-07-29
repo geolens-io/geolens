@@ -21,7 +21,7 @@ import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@
 // D5: the PNG export legend must render the same effective entry names as the
 // on-screen legend (per-entry legendLabel override > display name > dataset name).
 import { legendEntryName } from '@/components/map-plugins/builtin/LegendPlugin';
-import { getPersistedFolderGroup, prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
+import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
@@ -451,12 +451,24 @@ export function buildLayerDiff(
   currentLayers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): LayerDiffResult {
-  // fix(#805): prepare BOTH sides with the same groupMeta. The baseline used to
-  // be prepared without it, so baseline children lacked the folderGroupExpanded
-  // marker while current children carried it — every save of a grouped map then
-  // emitted a spurious per-child style_config PATCH, silently persisting
-  // collapse state that is deliberately non-dirtying (see handleToggleGroupExpand).
-  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers, groupMeta);
+  // fix(#805): prepare BOTH sides through prepareLayersForPersistence so an
+  // unchanged grouped map diffs empty. The baseline used to be prepared
+  // without any groupMeta, so baseline children lacked the folderGroupExpanded
+  // marker while current children carried it — every save of a grouped map
+  // then emitted a spurious per-child style_config PATCH.
+  // fix(#833): the baseline is prepared with its OWN persisted collapse state
+  // (derived from the folderGroupExpanded markers it was loaded with), not the
+  // live groupMeta — stamping the live value on both sides hid every collapse
+  // change from the diff, so collapse-only edits persisted only when another
+  // style_config edit happened to ride along in the same save.
+  const baselineGroupMeta: Record<string, FolderGroupMeta> = {};
+  for (const layer of baselineLayers) {
+    const persisted = getPersistedFolderGroup(layer);
+    if (persisted?.expanded !== undefined) {
+      baselineGroupMeta[persisted.id] = { expanded: persisted.expanded };
+    }
+  }
+  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers, baselineGroupMeta);
   const currentPersistedLayers = prepareLayersForPersistence(currentLayers, groupMeta);
   const baselineById = new Map(baselinePersistedLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
   const currentById = new Map(currentPersistedLayers.map((layer) => [layer.id, layer]));
@@ -594,9 +606,17 @@ export function useBuilderSave(state: SaveState) {
   const baselineLayersRef = useRef<MapLayerResponse[]>([]);
   useEffect(() => {
     if (!state.hasUnsavedChanges) {
-      baselineLayersRef.current = state.localLayers.map((layer) => ({ ...layer }));
+      // fix(#833 codex): stamp the live groupMeta expansion into the snapshot's
+      // persisted markers. After a save clears the dirty flag, localLayers'
+      // markers still carry the LOADED collapse state, so a verbatim copy made
+      // the just-saved collapse invisible to the next diff (expand→save then
+      // emitted nothing and reload restored the stale state).
+      baselineLayersRef.current = stampPersistedFolderGroupExpanded(
+        state.localLayers,
+        state.groupMeta,
+      );
     }
-  }, [state.hasUnsavedChanges, state.localLayers]);
+  }, [state.hasUnsavedChanges, state.localLayers, state.groupMeta]);
 
   // fix(#756): handleSave destructures `state` once at call time and then
   // awaits the network; this ref always points at the latest rendered state
@@ -734,7 +754,9 @@ export function useBuilderSave(state: SaveState) {
             // a full re-sync occurred. Surface it instead so the user knows to
             // double-check layer styling rather than trusting a clean save.
             await updateMap.mutateAsync({ id, data: fullReplacementPayload });
-            baselineLayersRef.current = localLayers.map((layer) => ({ ...layer }));
+            // fix(#833 codex): baseline carries the SENT collapse state, not
+            // the loaded markers — see the baseline effect above.
+            baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
             }));
@@ -751,7 +773,9 @@ export function useBuilderSave(state: SaveState) {
         await updateMap.mutateAsync({ id, data: metadataPayload });
       }
 
-      baselineLayersRef.current = localLayers.map((layer) => ({ ...layer }));
+      // fix(#833 codex): baseline carries the SENT collapse state, not the
+      // loaded markers — see the baseline effect above.
+      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
       toast.success(t('toasts.mapSaved'));
       // fix(#756): the baseline above is the SENT snapshot; only clear the
       // dirty flag when nothing was edited during the network await —

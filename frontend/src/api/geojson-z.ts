@@ -69,7 +69,11 @@ export async function fetchBoundedGeoJson(
   }
 
   if (options?.apiKey) {
-    const res = await fetch(`${directFetchPath(datasetId)}?api_key=${encodeURIComponent(options.apiKey)}`);
+    // fix(#833): send the key in the X-Api-Key header (same form the embed
+    // path uses above) — a query-string credential lands in server/proxy logs.
+    const res = await fetch(directFetchPath(datasetId), {
+      headers: { 'X-Api-Key': options.apiKey },
+    });
     if (!res.ok) await throwLocalizedResponseError(res);
     return res.json() as Promise<BoundedGeoJsonResponse>;
   }

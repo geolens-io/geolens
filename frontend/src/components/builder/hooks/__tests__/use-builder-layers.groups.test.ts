@@ -45,11 +45,12 @@ function renderBuilderLayers(
 describe('useBuilderLayers — group_meta / groupMeta', () => {
 
   // Test 1: toggle expands
-  // Per CR-02 (commit 116fe289), toggle-expand is treated as a UI-only
-  // affordance and does NOT mark the map as dirty — `group_meta` is not
-  // persisted to the backend schema yet, so a false "unsaved" badge on
-  // expand/collapse was misleading and was removed. Once `group_meta`
-  // joins the API payload, restore the hasUnsavedChanges assertion below.
+  // Per CR-02 (commit 116fe289), the BASEMAP group's toggle-expand is a
+  // UI-only affordance and does NOT mark the map as dirty — it has no
+  // persisted carrier, so a false "unsaved" badge on expand/collapse was
+  // misleading. fix(#833): FOLDER groups do persist collapse state (the
+  // folderGroupExpanded marker), so their toggle DOES dirty — see the
+  // folder-group test below.
   it('handleToggleGroupExpand toggles groupMeta.basemap.expanded between true/false (UI-only; does NOT mark unsaved)', () => {
     const { result } = renderBuilderLayers(makeMapData());
     expect(result.current.groupMeta['basemap']).toBeUndefined();
@@ -76,6 +77,31 @@ describe('useBuilderLayers — group_meta / groupMeta', () => {
       result.current.handleToggleGroupExpand('g1');
     });
     expect(result.current.groupMeta['g1']).toEqual({ expanded: true });
+  });
+
+  // fix(#833): folder-group collapse state is persisted on children, so a
+  // collapse-only change must dirty the save — it used to reach the backend
+  // only when another edit rode along in the same save.
+  it('handleToggleGroupExpand on a FOLDER group marks the map unsaved', () => {
+    const child = makeMockLayer({
+      id: 'layer-1',
+      style_config: {
+        builder: {
+          folderGroupId: 'group-1',
+          folderGroupName: 'Field layers',
+          folderGroupExpanded: true,
+        },
+      } as StyleConfig,
+    });
+    const { result } = renderBuilderLayers(makeMapData([child]));
+    // Hydration synthesizes the group row from the child's persisted markers.
+    expect(result.current.localLayers.some((l) => l.id === 'group-1')).toBe(true);
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    act(() => {
+      result.current.handleToggleGroupExpand('group-1');
+    });
+    expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
   // Test 3: DEM terrain bind sets localTerrainConfig and marks unsaved

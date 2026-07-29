@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { BasemapSublayerEditorScene, BasemapSublayerEditorFooter } from '../BasemapSublayerEditorScene';
 
 vi.mock('react-i18next', () => ({
@@ -153,6 +153,31 @@ describe('BasemapSublayerEditorScene', () => {
     expect(confirmResetBtn).toBeTruthy();
     fireEvent.click(confirmResetBtn!);
     expect(onResetSublayer).toHaveBeenCalledOnce();
+  });
+
+  // fix(#833): the inline confirm owns focus (autofocused Cancel) — both
+  // exits must hand focus back to the reappearing "Reset to default" button
+  // (next animation frame; it remounts) instead of dropping it on <body>.
+  it('dismissing the reset confirm returns focus to the Reset to default button', async () => {
+    render(<BasemapSublayerEditorScene {...defaultProps()} />);
+
+    fireEvent.click(screen.getByText('RESET').closest('button')!);
+    fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Keep customization/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Reset to default/i })).toHaveFocus(),
+    );
+
+    // Confirming also returns to the (reappearing) trigger.
+    fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }));
+    const confirmBtn = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent?.trim() === 'Reset');
+    fireEvent.click(confirmBtn!);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Reset to default/i })).toHaveFocus(),
+    );
   });
 
   it('Test 12: footer renders ONE full-width "Back to basemap" ghost button; click calls onBackToBasemap()', () => {
