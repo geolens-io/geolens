@@ -214,10 +214,18 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
     # codex P2 rounds (#872): straddling cells — expanded candidate scan,
     # deterministic membership under the cap, and cell-ORIGIN anchor
     # ownership (pure grid geometry, never dependent on the scanned subset).
-    assert "ST_Expand(bounds.geom" in query
+    assert "ST_Expand(" in query
     assert "ORDER BY t.gid" in query
-    assert "cells.bucket_x * grid.bucket_w" in query
     assert "grouped.anchor_x >= ST_XMin(bounds.geom)" in query
+    # codex round 3 (#872): the grid anchors to the WORLD MINIMUM, so every
+    # in-world point yields an in-world cell origin (a 0-anchored grid lost
+    # cells straddling lon -180 to ownership rejection).
+    assert "ST_XMin(ST_TileEnvelope(0, 0, 0)) AS world_min_x" in query
+    assert "(ST_X(candidates.geom_3857) - grid.world_min_x)" in query
+    assert "grid.world_min_x + cells.bucket_x * grid.bucket_w" in query
+    # codex round 3 (#872): no scan expansion past cluster max zoom — ring
+    # rows would only burn the candidate cap before ownership drops them.
+    assert "ELSE 0.0" in query
     # World-edge tiles own boundary anchors via inclusive upper bounds.
     assert "(1 << $1::integer) - 1" in query  # east edge: x = 2^z - 1
     assert "$3::integer = 0" in query  # north edge: y = 0

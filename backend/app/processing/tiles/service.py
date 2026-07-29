@@ -304,31 +304,41 @@ def _build_cluster_tile_query(
     semantics; converted to MVT extent units in-query via
     ``_CLUSTER_PX_TO_EXTENT_UNITS`` — fix(#868)).
 
-    fix(#868): the bucket grid is anchored to absolute EPSG:3857 coordinates
-    (``floor(ST_X(geom) / bucket_size)``), not to the tile's own minx/miny.
-    Bucket size at a fixed zoom is identical for every tile, so anchoring
-    absolutely makes the grids of adjacent tiles line up instead of drifting
-    by each tile's origin offset (a seam artifact at tile borders).
+    fix(#868): the bucket grid is anchored to the WORLD MINIMUM in absolute
+    EPSG:3857 coordinates (``floor((ST_X(geom) - world_min) / bucket_size)``),
+    not to the tile's own minx/miny. Bucket size at a fixed zoom is identical
+    for every tile, so absolute anchoring makes the grids of adjacent tiles
+    line up instead of drifting by each tile's origin offset (a seam artifact
+    at tile borders). Anchoring at the world minimum (codex round 3) means
+    every in-world point yields an in-world cell origin: a 0-anchored grid
+    put the origin of a cell straddling the world's west/south edge outside
+    the world, so no tile owned that cell and points near lon -180 vanished.
 
     fix(#868, codex P2 rounds on PR #872): an anchored cell can straddle a
-    tile border, so the candidate scan covers the tile envelope EXPANDED by
-    one full bucket (clamped to the world envelope; see the scan CTE) and
-    each cell is emitted by exactly one tile — the tile whose envelope
-    contains the cell's ownership anchor, the cell ORIGIN (bucket index *
-    bucket size; the point itself past cluster max zoom). The anchor is
-    pure grid geometry, so ownership never depends on which candidates a
-    tile scanned: when the input cap saturates and neighbors see different
-    subsets of a shared cell, the worst case is an undercounted (or
-    missing) cluster from the owner tile — the degradation class any capped
-    per-tile grid has — never a cross-tile double- or zero-emit. Ownership
-    bounds are half-open on internal borders and inclusive on the world's
-    east/north edge tiles (no neighbor exists to own an anchor exactly on
-    the world boundary). Singles that only enter via the expanded ring drop
-    out through the same filter, and the MVT buffer grows with the radius
+    tile border, so at clustering zooms the candidate scan covers the tile
+    envelope EXPANDED by one full bucket (clamped to the world envelope; see
+    the scan CTE) and each cell is emitted by exactly one tile — the tile
+    whose envelope contains the cell's ownership anchor, the cell ORIGIN
+    (``world_min + bucket index * bucket size``; the point itself past
+    cluster max zoom). The anchor is pure grid geometry, so ownership never
+    depends on which candidates a tile scanned: when the input cap
+    saturates and neighbors see different subsets of a shared cell, the
+    worst case is an undercounted (or missing) cluster from the owner tile
+    — the degradation class any capped per-tile grid has — never a
+    cross-tile double- or zero-emit. World-min anchoring keeps every anchor
+    inside [world_min, world_max], so the inclusive lower bounds already
+    cover the west/south world edges; the east/north edge tiles use
+    inclusive UPPER bounds because an anchor can still land exactly on the
+    world maximum (a point at lon 180 past max zoom, or a bucket size that
+    divides the world width exactly). Internal borders stay half-open.
+    Past cluster max zoom the scan uses NO expansion (codex round 3): no
+    cross-tile cells exist there, and ring candidates would only consume
+    the input cap before ownership discards them, starving the tile of its
+    own points. Singles that only enter via the expanded ring drop out
+    through the ownership filter, and the MVT buffer grows with the radius
     so owner-emitted geometry up to one bucket outside the tile is not
     clipped. ``ORDER BY gid`` keeps candidate membership deterministic per
-    envelope. The expansion grows the candidate scan by up to one bucket on
-    each side; the input cap semantics are unchanged.
+    envelope.
 
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
@@ -382,24 +392,38 @@ bounds AS (
     FROM _env
 ),
 -- fix(#868): bucket sizes in 3857 meters. $6 (CSS px) converts to extent
--- units before scaling by tile width, and the grid anchors to absolute 3857
--- coords so adjacent tiles at the same zoom share one grid.
+-- units before scaling by tile width. The grid anchors to the WORLD MINIMUM
+-- (codex round 3 on PR #872): every tile at a zoom shares one grid, and any
+-- in-world point yields an in-world cell origin. A grid anchored at 0 put
+-- the origin of a cell straddling the world's west/south edge OUTSIDE the
+-- world, so no tile owned it and points near lon -180 vanished.
 grid AS (
     SELECT
         GREATEST(bounds.width * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0) AS bucket_w,
-        GREATEST(bounds.height * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0) AS bucket_h
+        GREATEST(bounds.height * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0) AS bucket_h,
+        ST_XMin(ST_TileEnvelope(0, 0, 0)) AS world_min_x,
+        ST_YMin(ST_TileEnvelope(0, 0, 0)) AS world_min_y
     FROM bounds
 ),
 -- fix(#868, codex P2 on PR #872): scan envelope = tile + one full bucket, so
 -- a cell straddling the tile border is seen with its COMPLETE membership.
--- Clamped to the world envelope BEFORE the 4326 transform: past the world
--- edge proj wraps longitude and the transformed bbox inverts, dropping
--- candidates. No data exists outside the world envelope, so the clamp
--- loses nothing.
+-- Expansion applies at clustering zooms ONLY (codex round 3): past cluster
+-- max zoom no cross-tile cells exist, and lower-gid ring candidates would
+-- just consume the input cap before ownership discards them, starving the
+-- tile of its own points. Clamped to the world envelope BEFORE the 4326
+-- transform: past the world edge proj wraps longitude and the transformed
+-- bbox inverts, dropping candidates. No data exists outside the world
+-- envelope, so the clamp loses nothing.
 scan AS (
     SELECT ST_Transform(
         ST_Intersection(
-            ST_Expand(bounds.geom, GREATEST(grid.bucket_w, grid.bucket_h)),
+            ST_Expand(
+                bounds.geom,
+                CASE WHEN $1::integer <= $5::integer
+                    THEN GREATEST(grid.bucket_w, grid.bucket_h)
+                    ELSE 0.0
+                END
+            ),
             ST_TileEnvelope(0, 0, 0)
         ),
         4326
@@ -424,13 +448,13 @@ bucketed AS (
         candidates.geom_3857,
         CASE
             WHEN $1::integer <= $5::integer THEN floor(
-                ST_X(candidates.geom_3857) / grid.bucket_w
+                (ST_X(candidates.geom_3857) - grid.world_min_x) / grid.bucket_w
             )::integer
             ELSE candidates.gid
         END AS bucket_x,
         CASE
             WHEN $1::integer <= $5::integer THEN floor(
-                ST_Y(candidates.geom_3857) / grid.bucket_h
+                (ST_Y(candidates.geom_3857) - grid.world_min_y) / grid.bucket_h
             )::integer
             ELSE candidates.gid
         END AS bucket_y
@@ -460,11 +484,11 @@ grouped AS (
     SELECT
         cells.*,
         CASE WHEN $1::integer <= $5::integer
-            THEN cells.bucket_x * grid.bucket_w
+            THEN grid.world_min_x + cells.bucket_x * grid.bucket_w
             ELSE ST_X(cells.geom_3857)
         END AS anchor_x,
         CASE WHEN $1::integer <= $5::integer
-            THEN cells.bucket_y * grid.bucket_h
+            THEN grid.world_min_y + cells.bucket_y * grid.bucket_h
             ELSE ST_Y(cells.geom_3857)
         END AS anchor_y
     FROM cells, grid

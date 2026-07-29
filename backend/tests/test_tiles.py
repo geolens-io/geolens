@@ -142,12 +142,13 @@ async def _cleanup_data_table(session, table_name: str) -> None:
 
 # fix(#868): coordinates for the cluster bucket-semantics regression test.
 # EPSG:3857 meters. pair_a/pair_b sit ~30 CSS px apart on a z0 tile (512 px
-# display), inside one absolute 48-px bucket; "lone" is far away in its own
-# bucket so it must come through as an unclustered single.
+# display), inside one 48-px bucket of the world-min-anchored grid; "lone"
+# is far away in its own bucket so it must come through as a single.
 _WEB_MERCATOR_WORLD_WIDTH = 40075016.6855785
+_WORLD_MIN = -_WEB_MERCATOR_WORLD_WIDTH / 2
 _CLUSTER_SEMANTICS_POINTS = (
-    ("pair_a", 300_000.0, 300_000.0),
-    ("pair_b", 2_648_145.0, 300_000.0),
+    ("pair_a", -800_000.0, 300_000.0),
+    ("pair_b", 1_548_145.0, 300_000.0),
     ("lone", -10_000_000.0, -5_000_000.0),
 )
 
@@ -765,13 +766,14 @@ class TestClusterBucketSemantics:
         assert 29.0 < pair_px < 31.0  # ~30 CSS px apart
         # Old math: tile-anchored grid, px treated as extent units (~5.5 px).
         old_bucket = _WEB_MERCATOR_WORLD_WIDTH * 48 / 4096
-        half_world = _WEB_MERCATOR_WORLD_WIDTH / 2
-        assert math.floor((xs[0] + half_world) / old_bucket) != math.floor(
-            (xs[1] + half_world) / old_bucket
+        assert math.floor((xs[0] - _WORLD_MIN) / old_bucket) != math.floor(
+            (xs[1] - _WORLD_MIN) / old_bucket
         ), "fixture points no longer demonstrate the pre-#868 split"
-        # New math: absolute grid, 48 real CSS px per bucket.
+        # New math: world-min-anchored grid, 48 real CSS px per bucket.
         new_bucket = _WEB_MERCATOR_WORLD_WIDTH * 48 * (4096 / 512) / 4096
-        assert math.floor(xs[0] / new_bucket) == math.floor(xs[1] / new_bucket)
+        assert math.floor((xs[0] - _WORLD_MIN) / new_bucket) == math.floor(
+            (xs[1] - _WORLD_MIN) / new_bucket
+        )
 
         try:
             pool = get_tile_pool()
@@ -803,8 +805,9 @@ class TestClusterBucketSemantics:
         """fix(#868, codex P2 on PR #872): a bucket cell straddling a tile
         border is computed from its complete membership by both neighbors
         (expanded candidate scan) and emitted by exactly one of them, the
-        tile whose envelope contains the cell centroid. A point in the
-        neighbor's interior never leaks into the other tile's output."""
+        tile whose envelope contains the cell's ownership anchor (the cell
+        origin). A point in the neighbor's interior never leaks into the
+        other tile's output."""
         from app.processing.tiles.pool import get_tile_pool
 
         table_name = f"cluster_seam_{uuid.uuid4().hex[:8]}"
@@ -817,12 +820,13 @@ class TestClusterBucketSemantics:
             ("pair_right", -9_918_754.0, 5_000_000.0),  # tile x=1 side
             ("interior", -5_000_000.0, 5_000_000.0),  # tile x=1 interior
         )
-        # The pair shares one absolute bucket cell that straddles the border,
-        # and the cell ORIGIN (the ownership anchor) falls on the x=0 side:
-        # tile (0,1) owns the cell.
-        assert math.floor(points[0][1] / bucket) == math.floor(points[1][1] / bucket)
+        # The pair shares one world-min-anchored bucket cell that straddles
+        # the border, and the cell ORIGIN (the ownership anchor) falls on the
+        # x=0 side: tile (0,1) owns the cell.
+        cell = math.floor((points[0][1] - _WORLD_MIN) / bucket)
+        assert cell == math.floor((points[1][1] - _WORLD_MIN) / bucket)
         assert points[0][1] < border < points[1][1]
-        assert math.floor(points[0][1] / bucket) * bucket < border
+        assert _WORLD_MIN + cell * bucket < border
         await _create_cluster_semantics_table(
             test_db_session, table_name, points=points
         )
@@ -935,3 +939,64 @@ class TestClusterBucketSemantics:
         # Neighbor: nothing. Anchor ownership does not depend on the scanned
         # subset, so the cell is never double-emitted.
         assert len(neighbor_rows) == 0
+
+    async def test_past_max_zoom_ring_does_not_starve_cap(self, test_db_session):
+        """fix(#868, codex round 3): past cluster max zoom nothing clusters,
+        so the scan uses NO envelope expansion. With expansion, lower-gid
+        neighbor points could consume the whole candidate cap and then all
+        be discarded as ring-only, leaving the tile empty — a starvation
+        mode the pre-PR tile-bounded scan never had."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_ring_{uuid.uuid4().hex[:8]}"
+        points = (
+            # gids 1-3: just west of the z2 x=0/x=1 border — inside the
+            # would-be expansion ring of tile (1,1), outside the tile itself.
+            ("ring_1", -10_118_754.0, 5_000_000.0),
+            ("ring_2", -10_120_000.0, 5_000_000.0),
+            ("ring_3", -10_130_000.0, 5_000_000.0),
+            # gid 4: interior of tile (1,1). Highest gid: an expanded scan
+            # with cap 2 would pick two ring rows and drop this one.
+            ("interior", -5_000_000.0, 5_000_000.0),
+        )
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            # z=2 > cluster_max_zoom=1: unclustered mode, cap saturated at 2.
+            sql = self._rows_sql(table_name, input_cap=2)
+            rows = await pool.fetch(sql, 2, 1, 1, f"data.{table_name}", 1, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        # The tile's own point survives; the un-expanded scan never spends
+        # the cap on neighbor rows that ownership would discard.
+        assert [r["name"] for r in rows] == ["interior"]
+        assert rows[0]["cluster"] is None
+
+    async def test_west_edge_cell_is_owned(self, test_db_session):
+        """fix(#868, codex round 3): the grid anchors at the world minimum,
+        so the cell holding a point near lon -180 has an in-world origin
+        and IS owned by the west edge tile. A 0-anchored grid put that
+        cell's origin outside the world: no tile owned it and the point
+        vanished at clustering zooms."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_west_{uuid.uuid4().hex[:8]}"
+        points = (("west", _WORLD_MIN + 1_000.0, 5_000_000.0),)
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            sql = self._rows_sql(table_name)
+            # Clustering zoom (z=1 <= cmz=14): ownership uses cell origins.
+            rows = await pool.fetch(sql, 1, 0, 0, f"data.{table_name}", 14, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        assert [r["name"] for r in rows] == ["west"]
+        assert rows[0]["cluster"] is None
