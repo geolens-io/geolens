@@ -708,7 +708,12 @@ export function MapBuilderPage() {
     const restored: string[] = [];
     for (const rowId of Array.from(parked)) {
       if (!liveIds.has(rowId)) { parked.delete(rowId); continue; }
-      if (selectable.has(rowId)) { parked.delete(rowId); restored.push(rowId); }
+      if (selectable.has(rowId)) { parked.delete(rowId); restored.push(rowId); continue; }
+      // fix(#833 codex round 5): a row stays parked only while the SEARCH
+      // hides it. If it is now hidden by a collapsed group instead (folder
+      // collapsed after parking, or the search cleared while collapsed), the
+      // collapse discards the selection — same rule as unparked rows above.
+      if (!searchHiddenIds?.has(rowId)) parked.delete(rowId);
     }
     setSelectedIds((prev) => {
       if (prev.size === 0 && restored.length === 0) return prev;
