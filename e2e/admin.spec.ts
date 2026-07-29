@@ -221,18 +221,25 @@ test.describe('Admin Panel', () => {
     await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
   });
 
-  test('settings: appearance is edition-gated — community redirects away', async ({ page }) => {
+  test('settings: appearance URL redirects to map (current routing), sidebar omits it on community', async ({ page }) => {
     await page.goto('/admin/settings/appearance');
 
-    // Community edition must never render the appearance (branding) tab: the
-    // route redirects to the map settings page instead.
+    // NOTE (PR #870 review): this pins the CURRENT routing, not edition
+    // gating. App.tsx keeps a static legacy redirect (appearance → map, from
+    // the old basemaps "Appearance" tab rename) that outranks the
+    // `admin/settings/:tab` route for EVERY edition, so AdminSettingsPage
+    // never receives tab=appearance at this URL and its edition check cannot
+    // fire here. The edition gate itself is pinned at the unit level
+    // (AdminSettingsPage / AdminSidebar tests) — a community dev stack can
+    // only ever exhibit one edition in e2e anyway.
     await page.waitForURL('/admin/settings/map');
     await expect(
       page.getByRole('heading', { level: 1, name: 'Map', exact: true }),
     ).toBeVisible();
     await expect(page.getByText('Basemap Presets')).toBeVisible({ timeout: 10_000 });
 
-    // And the sidebar offers no Appearance entry to navigate there.
+    // Community edition gating that IS observable here: the sidebar offers no
+    // Appearance entry (AdminSidebar hides enterprise-only tabs).
     await expect(page.locator('a[href="/admin/settings/appearance"]')).toHaveCount(0);
   });
 
