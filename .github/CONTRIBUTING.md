@@ -79,9 +79,9 @@ docker compose exec frontend npm run test -- --watch  # Watch mode
 
 **End-to-end (Playwright):**
 
-E2E smoke tests run locally for user-flow changes, and CI keeps the lighter backend, frontend, security, docs-contract, and public-surface checks on the per-PR critical path.
+CI runs the core smoke group (`npm run e2e:smoke:core`) on PRs that touch the stack — `backend/**`, `frontend/**`, `e2e/**`, the compose files, or the Playwright toolchain. The full browser matrix still runs nightly only, and a red nightly opens or refreshes a `nightly-e2e`-labelled tracking issue.
 
-Reviewers and contributors are responsible for running the relevant smoke suite locally before requesting review on changes that touch user flows:
+The remaining smoke groups stay a local responsibility. Reviewers and contributors run the relevant suite before requesting review on changes that touch user flows:
 
 ```bash
 # Make sure docker compose is up first.
