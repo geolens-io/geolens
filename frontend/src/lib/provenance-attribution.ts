@@ -1,3 +1,10 @@
+import { formatRelativeTime } from './relative-time';
+
+// chore(#835): the Intl relative-time implementation moved to
+// `lib/relative-time.ts` (it was written out 4x across the app). Re-exported
+// here so existing importers (e.g. quality-freshness) keep their contract.
+export { formatRelativeTime } from './relative-time';
+
 export interface ProvenanceIdentityLabels {
   unknown: string;
   restricted: string;
@@ -17,12 +24,6 @@ export interface ProvenanceTimeResult {
   hasTimestamp: boolean;
 }
 
-const MINUTE_MS = 60 * 1000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-const MONTH_MS = 30 * DAY_MS;
-const YEAR_MS = 365 * DAY_MS;
-
 function normalizeToken(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -34,40 +35,6 @@ function parseTimestamp(value: string | Date | null | undefined): Date | null {
 
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-export function formatRelativeTime(timestamp: Date, now: Date, locale: string): string {
-  const deltaMs = now.getTime() - timestamp.getTime();
-  const absoluteDeltaMs = Math.abs(deltaMs);
-  const direction = deltaMs >= 0 ? -1 : 1;
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
-
-  if (absoluteDeltaMs < MINUTE_MS) {
-    return rtf.format(0, 'second');
-  }
-
-  if (absoluteDeltaMs < HOUR_MS) {
-    const minutes = Math.round(absoluteDeltaMs / MINUTE_MS);
-    return rtf.format(direction * minutes, 'minute');
-  }
-
-  if (absoluteDeltaMs < DAY_MS) {
-    const hours = Math.round(absoluteDeltaMs / HOUR_MS);
-    return rtf.format(direction * hours, 'hour');
-  }
-
-  if (absoluteDeltaMs < MONTH_MS) {
-    const days = Math.round(absoluteDeltaMs / DAY_MS);
-    return rtf.format(direction * days, 'day');
-  }
-
-  if (absoluteDeltaMs < YEAR_MS) {
-    const months = Math.round(absoluteDeltaMs / MONTH_MS);
-    return rtf.format(direction * months, 'month');
-  }
-
-  const years = Math.round(absoluteDeltaMs / YEAR_MS);
-  return rtf.format(direction * years, 'year');
 }
 
 export function resolveProvenanceIdentity(

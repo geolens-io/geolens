@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, ChevronRight, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/relative-time';
 import type { ReportEntry, ReportSeverity } from '@/lib/report';
 
 function SeverityIcon({ severity }: { severity: ReportSeverity }) {
@@ -10,17 +11,13 @@ function SeverityIcon({ severity }: { severity: ReportSeverity }) {
   return <Info className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />;
 }
 
+// chore(#835): shared formatter; exact seconds + hour cap preserve this
+// session-scoped list's original rendering.
 function formatRelative(ts: number, language: string): string {
-  const seconds = Math.round((ts - Date.now()) / 1000);
-  const abs = Math.abs(seconds);
-  try {
-    const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
-    if (abs < 60) return rtf.format(seconds, 'second');
-    if (abs < 3600) return rtf.format(Math.round(seconds / 60), 'minute');
-    return rtf.format(Math.round(seconds / 3600), 'hour');
-  } catch {
-    return '';
-  }
+  return formatRelativeTime(new Date(ts), new Date(), language, {
+    maxUnit: 'hour',
+    exactSeconds: true,
+  });
 }
 
 function EntryRow({ entry, language }: { entry: ReportEntry; language: string }) {

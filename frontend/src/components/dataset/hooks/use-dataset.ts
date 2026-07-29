@@ -5,7 +5,6 @@ import {
   getDataset,
   getDatasetRows,
   updateDataset,
-  updatePublicationStatus,
   setTargetStatus,
   deleteDataset,
   getDatasetHistory,
@@ -68,21 +67,6 @@ export function useUpdateDataset() {
       // PERF-D1: validation query has a 5-minute staleTime so it wouldn't
       // otherwise refetch after a metadata edit. Force invalidation so the
       // quality-score badge reflects the freshly-computed value.
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
-    },
-  });
-}
-
-export function useUpdatePublicationStatus() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ datasetId, status }: { datasetId: string; status: string }) =>
-      updatePublicationStatus(datasetId, status),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
-      qc.invalidateQueries({ queryKey: queryKeys.search.all });
-      // PERF-D1: keep validation in sync with publication_status changes.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
     },
   });
