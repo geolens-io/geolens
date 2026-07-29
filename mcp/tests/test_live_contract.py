@@ -25,8 +25,10 @@ CI: the mcp-test job boots db+api via compose and runs this tier against it.
 The tier seeds its own fixtures over the API — one empty "created" dataset
 (plus a probe feature when the dataset-editing admin flag is on) and one map —
 and deletes them in teardown, so it is safe against a long-lived dev instance.
-Cleanup is registered per resource as soon as it is created, so a mid-seed
-failure never leaks the earlier resources.
+Cleanup is registered per resource as soon as it is created (a mid-seed
+failure never leaks the earlier resources), a marker-based fallback sweep
+catches resources the API committed before failing to respond, and any
+cleanup delete that is not 204/404 fails the tier loudly.
 """
 
 from __future__ import annotations
@@ -198,23 +200,76 @@ def live():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        # Best-effort cleanup of whatever was actually created; 404s (already
-        # gone) come back as plain responses and are fine.
-        for ds_id, confirm_title in created_datasets:
+        # Loud cleanup (#866 review r3): only 204 (deleted) and 404 (already
+        # gone) are success — anything else is recorded and fails the tier at
+        # the end so pollution of a long-lived target is visible, not silent.
+        problems: list[str] = []
+
+        def _delete_dataset(ds_id: str, confirm_title: str) -> None:
             try:
-                http.request(
+                resp = http.request(
                     "DELETE",
                     f"/datasets/{ds_id}",
                     json={"confirm_title": confirm_title},
                 )
-            except httpx.HTTPError:
-                pass
-        for m_id in created_maps:
+            except httpx.HTTPError as exc:
+                problems.append(f"dataset {ds_id}: {exc}")
+                return
+            if resp.status_code not in (204, 404):
+                problems.append(
+                    f"dataset {ds_id}: HTTP {resp.status_code} {resp.text[:120]}"
+                )
+
+        def _delete_map(map_id_: str) -> None:
             try:
-                http.delete(f"/maps/{m_id}")
-            except httpx.HTTPError:
-                pass
+                resp = http.delete(f"/maps/{map_id_}")
+            except httpx.HTTPError as exc:
+                problems.append(f"map {map_id_}: {exc}")
+                return
+            if resp.status_code not in (204, 404):
+                problems.append(
+                    f"map {map_id_}: HTTP {resp.status_code} {resp.text[:120]}"
+                )
+
+        for ds_id, confirm_title in created_datasets:
+            _delete_dataset(ds_id, confirm_title)
+        for m_id in created_maps:
+            _delete_map(m_id)
+
+        # Fallback sweep (#866 review r3): both creation endpoints commit
+        # BEFORE serializing their response, so a commit-then-500 leaves a
+        # resource the ledger never saw. The run marker is unique, so any
+        # marker-titled resource not in the ledger is ours to delete.
+        ledger_ds = {ds_id for ds_id, _ in created_datasets}
+        ledger_maps = set(created_maps)
+        try:
+            swept = http.get("/search/datasets", params={"q": marker, "limit": 50})
+            if swept.status_code == 200:
+                for feat in swept.json().get("features", []):
+                    props = feat.get("properties") or {}
+                    title = props.get("title") or ""
+                    fid = str(feat.get("id"))
+                    if marker in title and fid not in ledger_ds:
+                        _delete_dataset(fid, title)
+            else:
+                problems.append(f"dataset sweep: HTTP {swept.status_code}")
+            swept_maps = http.get("/maps", params={"search": marker, "limit": 50})
+            if swept_maps.status_code == 200:
+                for m in swept_maps.json().get("maps", []):
+                    mid = str(m.get("id"))
+                    if marker in (m.get("name") or "") and mid not in ledger_maps:
+                        _delete_map(mid)
+            else:
+                problems.append(f"map sweep: HTTP {swept_maps.status_code}")
+        except httpx.HTTPError as exc:
+            problems.append(f"fallback sweep: {exc}")
+
         http.close()
+        if problems:
+            pytest.fail(
+                "live-tier cleanup could not remove seeded resources "
+                f"(marker {marker}): " + "; ".join(problems)
+            )
 
 
 def _assert_feature_collection(fc):
