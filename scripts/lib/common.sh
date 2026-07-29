@@ -158,9 +158,13 @@ iso_to_epoch() {
 # overstates the age of a restart-policy container that restarted mid-wait
 # with a freshly reset health clock; Codex P2 round 2) exceeds that entire
 # window has outlived every verdict Docker could still be working on and
-# fails the wait. Anything (unhealthy), restarting, or exited non-zero fails
-# as before; an unreadable healthcheck config or StartedAt fails open
-# (treated as converging), matching this script's other best-effort probes.
+# fails the wait. The tolerance math only applies while the LIVE
+# .State.Health.Status (read in the same inspect) still says `starting` —
+# a container that flipped to (un)healthy between the compose ps snapshot
+# and the inspect is judged by that verdict instead (round 4). Anything
+# (unhealthy), restarting, or exited non-zero fails as before; an unreadable
+# healthcheck config, StartedAt, or live status fails open (treated as
+# converging), matching this script's other best-effort probes.
 wait_for_healthy() {
   attempts=18
   sleep_s=5
@@ -232,6 +236,14 @@ wait_for_healthy() {
     # start_period — and must not be classified overdue by a wait that
     # started before its life did. Unparseable StartedAt fails open, same as
     # unreadable healthcheck config.
+    #
+    # Codex P2 round 4 (#867): the `remaining` table is a SNAPSHOT — a probe
+    # can complete between that `compose ps` and this inspect and flip the
+    # container out of `starting`. Read the LIVE .State.Health.Status in the
+    # same inspect and apply the tolerance math only while it still says
+    # `starting`: a flip to `unhealthy` fails the service outright (Docker
+    # has ruled; age math must not overrule it), a flip to `healthy` counts
+    # as converged, and an unreadable status fails open like the rest.
     now_epoch=$(date -u +%s)
     overdue=""
     for svc in $(printf '%s\n' "$remaining" | cut -d'|' -f1); do
@@ -239,10 +251,26 @@ wait_for_healthy() {
       hc_line=""
       if [ -n "$cid" ]; then
         hc_line=$(docker inspect --format \
-          '{{.State.StartedAt}} {{.Config.Healthcheck.StartPeriod.Seconds}} {{.Config.Healthcheck.Interval.Seconds}} {{.Config.Healthcheck.Timeout.Seconds}} {{.Config.Healthcheck.Retries}}' \
+          '{{.State.StartedAt}} {{.Config.Healthcheck.StartPeriod.Seconds}} {{.Config.Healthcheck.Interval.Seconds}} {{.Config.Healthcheck.Timeout.Seconds}} {{.Config.Healthcheck.Retries}} {{.State.Health.Status}}' \
           "$cid" 2>/dev/null | head -n 1)
       fi
-      allowed=$(printf '%s\n' "$hc_line" | awk 'NF==5 {
+      live_status="${hc_line##* }"
+      case "$live_status" in
+        healthy)
+          # Raced to healthy between the snapshot and this inspect: converged.
+          continue ;;
+        unhealthy)
+          # Raced to unhealthy: Docker has ruled — fail it outright, no
+          # tolerance math (age inside the window must not overrule a verdict).
+          overdue="${overdue}  ${svc}: reported (health: starting) in the status snapshot but is (unhealthy) on inspection
+"
+          continue ;;
+        starting) : ;;
+        *)
+          # Unreadable live status — fail open like the rest.
+          continue ;;
+      esac
+      allowed=$(printf '%s\n' "$hc_line" | awk 'NF==6 {
         sp = int($2); iv = int($3); to = int($4); rt = int($5)
         if (iv <= 0) iv = 30
         if (to <= 0) to = 30
@@ -267,7 +295,7 @@ wait_for_healthy() {
       return 0
     fi
     printf '\n' >&2
-    warn "timed out after ${budget}s; these services outlived their healthcheck's start_period + retry tolerance without a passing probe:"
+    warn "timed out after ${budget}s; these services are not converging (outlived their healthcheck tolerance, or already ruled unhealthy):"
     printf '%s' "$overdue" >&2
     warn "Inspect with: docker compose ps  /  docker compose logs <service>"
     return 1

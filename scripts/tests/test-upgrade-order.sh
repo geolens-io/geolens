@@ -16,8 +16,10 @@
 #     retries x (interval + timeout), per Docker's verdict semantics: grace
 #     is judged by probe START time, so one in-flight probe's timeout rides
 #     past the boundary (Codex P2 rounds 1+3 on #867) — one that outlived it
-#     fails the wait; an (unhealthy) service at budget end fails the wait;
-#     unreadable config or StartedAt fails open
+#     fails the wait; the LIVE Health.Status read in the same inspect wins
+#     over the snapshot AND the tolerance math in both directions (round 4);
+#     an (unhealthy) service at budget end fails the wait; unreadable
+#     config, StartedAt, or live status fails open
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -135,9 +137,10 @@ fi
 if [ "$1" = "inspect" ]; then
   # --format '{{.State.Status}}' -> exited ; '{{.State.ExitCode}}' -> 0|3.
   # test(#826): the healthcheck format (StartedAt + StartPeriod/Interval/
-  # Timeout/Retries fields) -> "<started_at> <start_period> <interval>
-  # <timeout> <retries>" for the cid-<svc> container, from
-  # DOCKER_STARTED_<svc> + DOCKER_HC_<svc>. Empty/unset HC models an
+  # Timeout/Retries + live Health.Status fields) -> "<started_at>
+  # <start_period> <interval> <timeout> <retries> <live_status>" for the
+  # cid-<svc> container, from DOCKER_STARTED_<svc> + DOCKER_HC_<svc> (the HC
+  # tuple carries the live status as its last field). Empty/unset HC models an
   # unreadable healthcheck (fail-open branch): the real docker's template
   # errors on a nil Healthcheck and prints nothing to stdout. A non-timestamp
   # DOCKER_STARTED_<svc> models an unparseable StartedAt (also fail-open).
@@ -519,11 +522,11 @@ fi
 # declares start_period 10m for its first pg_dump — far beyond the 90s
 # budget — so it must warn and succeed, not fail the upgrade.
 # (sleep is stubbed, so the 18 x 5s poll loop runs instantly.)
-# HC tuple format: "<start_period> <interval> <timeout> <retries>".
+# HC tuple format: "<start_period> <interval> <timeout> <retries> <live_status>".
 # ============================================================================
 seed_prod_env
 PS_STATUS='backup|Up 30 seconds (health: starting)'
-HC_BACKUP='600 30 5 3'   # tolerance 600 + 5 + 3x35 = 710s > container age
+HC_BACKUP='600 30 5 3 starting'   # tolerance 600 + 5 + 3x35 = 710s > container age
 STARTED_BACKUP="$(iso_ago 95)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
@@ -548,7 +551,7 @@ fi
 # the wait, even though its bare start_period (15s) is far below both.
 seed_prod_env
 PS_STATUS='frontend|Up About a minute (health: starting)'
-HC_FRONTEND='15 30 10 3'
+HC_FRONTEND='15 30 10 3 starting'
 STARTED_FRONTEND="$(iso_ago 95)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
@@ -565,7 +568,7 @@ fi
 # upgrade that is actually recovering. Age must win: this PASSES.
 seed_prod_env
 PS_STATUS='backup|Up 5 seconds (health: starting)'
-HC_BACKUP='10 5 5 3'
+HC_BACKUP='10 5 5 3 starting'
 STARTED_BACKUP="$(iso_ago 5)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
@@ -584,7 +587,7 @@ fi
 # 145s bound) was previously misclassified overdue and must PASS.
 seed_prod_env
 PS_STATUS='frontend|Up 2 minutes (health: starting)'
-HC_FRONTEND='15 30 10 3'
+HC_FRONTEND='15 30 10 3 starting'
 STARTED_FRONTEND="$(iso_ago 140)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
@@ -603,7 +606,7 @@ fi
 # ============================================================================
 seed_prod_env
 PS_STATUS='backup|Up 2 minutes (health: starting)'
-HC_BACKUP='10 5 5 3'   # tolerance 10 + 5 + 3x10 = 45s, well under the 120s age
+HC_BACKUP='10 5 5 3 starting'   # tolerance 10 + 5 + 3x10 = 45s, well under the 120s age
 STARTED_BACKUP="$(iso_ago 120)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" != "0" ]; then
@@ -612,7 +615,7 @@ else
   bad "stuck service passed the wait (exit=0)"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
-if grep -q "outlived their healthcheck's start_period + retry tolerance" "$WORK/out.txt" \
+if grep -q 'these services are not converging' "$WORK/out.txt" \
    && grep -q 'ended at 45s' "$WORK/out.txt"; then
   ok "failure names the overdue service with its computed tolerance"
 else
@@ -631,9 +634,9 @@ fi
 seed_prod_env
 PS_STATUS='backup|Up 2 minutes (health: starting)
 api|Up 2 minutes (health: starting)'
-HC_BACKUP='600 30 5 3'
+HC_BACKUP='600 30 5 3 starting'
 STARTED_BACKUP="$(iso_ago 120)"
-HC_API='10 5 5 3'
+HC_API='10 5 5 3 starting'
 STARTED_API="$(iso_ago 120)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'api: still (health: starting)' "$WORK/out.txt"; then
@@ -665,13 +668,48 @@ fi
 # stack — same best-effort posture as unreadable healthcheck config.
 seed_prod_env
 PS_STATUS='backup|Up 2 minutes (health: starting)'
-HC_BACKUP='10 5 5 3'
+HC_BACKUP='10 5 5 3 starting'
 STARTED_BACKUP='garbage-not-a-timestamp'
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -q "within their healthcheck's tolerance" "$WORK/out.txt"; then
   ok "unparseable StartedAt fails open (no age, service treated as converging)"
 else
   bad "unparseable StartedAt blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# Codex P2 round 4 (#867): the `remaining` table is a snapshot — a probe can
+# complete between that `compose ps` and the per-service inspect and flip
+# the container out of `starting`. The tolerance math must yield to the LIVE
+# status read in the same inspect.
+#
+# Flip to (unhealthy): Docker has ruled; the service must FAIL even though
+# its age (5s) is comfortably inside its tolerance — age math must not
+# overrule a verdict.
+seed_prod_env
+PS_STATUS='backup|Up 5 seconds (health: starting)'
+HC_BACKUP='10 5 5 3 unhealthy'
+STARTED_BACKUP="$(iso_ago 5)"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -q 'is (unhealthy) on inspection' "$WORK/out.txt"; then
+  ok "service that flipped to (unhealthy) after the snapshot FAILS the wait (Codex P2 round 4)"
+else
+  bad "raced-to-unhealthy service was not failed (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# Flip to (healthy): converged; the service must PASS even though its age
+# (120s) is far past its 45s tolerance — the verdict wins in both directions.
+seed_prod_env
+PS_STATUS='backup|Up 2 minutes (health: starting)'
+HC_BACKUP='10 5 5 3 healthy'
+STARTED_BACKUP="$(iso_ago 120)"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "service that flipped to (healthy) after the snapshot PASSES the wait (Codex P2 round 4)"
+else
+  bad "raced-to-healthy service was failed by stale tolerance math (exit=$(cat "$WORK/code.txt"))"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 
