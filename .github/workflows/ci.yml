@@ -108,6 +108,17 @@ jobs:
               # a change to this workflow alters HOW the e2e-smoke PR gate
               # runs, so the gate must run on PRs that touch it.
               - '.github/workflows/ci.yml'
+              # fix(#862 review): the smoke job copies .env.example and boots
+              # the compose stack, so its remaining build/boot inputs must
+              # trigger the gate: the root api/worker Dockerfile and the
+              # .dockerignore that trims its context, the db image context
+              # (./db) whose postgresql.conf is also mounted, and the postgres
+              # initdb script.
+              - '.env.example'
+              - 'Dockerfile*'
+              - '.dockerignore'
+              - 'db/**'
+              - 'scripts/init-db.sh'
             cli:
               - 'cli/**'
               - 'sdks/python/**'
