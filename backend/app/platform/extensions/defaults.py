@@ -22,6 +22,7 @@ from app.platform.extensions.defaults_ai_openai import (
 )
 from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 from app.platform.extensions.defaults_extensions import (
+    DefaultAuditExtension,
     DefaultAuditSink,
     DefaultAuthExtension,
     DefaultBillingExtension,
@@ -38,6 +39,9 @@ from app.platform.extensions.defaults_processing_port import DefaultProcessingPo
 
 __all__ = [
     "DefaultAnthropicProvider",
+    # fix(#873 review r1): deprecated import-compatibility alias, removed at
+    # the next EXTENSION_API_VERSION bump.
+    "DefaultAuditExtension",
     "DefaultAuditSink",
     "DefaultAuthExtension",
     "DefaultBillingExtension",

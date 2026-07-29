@@ -17,6 +17,16 @@ class DefaultBrandingExtension:
         return {"show_badge": True}
 
 
+class DefaultAuditExtension:
+    """DEPRECATED compatibility alias — scheduled for removal at the next
+    EXTENSION_API_VERSION bump (fix(#873 review r1); see the AuditExtension
+    protocol for the rationale). No core caller consumes this.
+    """
+
+    def get_export_formats(self) -> list[str]:
+        return []
+
+
 class DefaultAuthExtension:
     """Default auth: no additional auth methods."""
 

@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231 + 1207)
         AIProviderExtension,
+        AuditExtension,  # fix(#873 review r1): deprecated alias, typing only
         ConnectorExtension,
         DataServingExtension,
         EmbeddingProviderExtension,
@@ -311,6 +312,20 @@ def get_branding_extension() -> BrandingExtension:
     if ext is None:
         return DefaultBrandingExtension()
     return ext  # type: ignore[return-value]
+
+
+def get_audit_extension() -> "AuditExtension":
+    """DEPRECATED — scheduled for removal at the next EXTENSION_API_VERSION bump.
+
+    fix(#873 review r1): kept as an import-compatibility alias so an overlay
+    built against API version 2 cannot ImportError into a silent skip. The
+    registry dispatch is gone: no core caller consumes the seam and no known
+    overlay registers the ``audit`` slot, so this always returns the no-op
+    community default.
+    """
+    from app.platform.extensions.defaults import DefaultAuditExtension
+
+    return DefaultAuditExtension()
 
 
 def get_auth_extension() -> AuthExtension:

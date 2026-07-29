@@ -210,8 +210,24 @@ class TestProtocolDefaults:
 
         assert DefaultAuthExtension().get_auth_methods() == []
 
-    # fix(#836): the AuditExtension seam (and its default-shape test) was
-    # deleted — no core caller and no overlay ever consumed get_export_formats.
+    def test_audit_alias_stays_importable_until_version_bump(self):
+        """fix(#836 / #873 review r1): the AuditExtension seam is deprecated.
+
+        Its registry dispatch is gone, but the three public names must stay
+        importable while EXTENSION_API_VERSION == 2 — an overlay built against
+        v2 that imports them would otherwise ImportError into a silent
+        load_extensions() skip. Delete this test with the aliases at the next
+        version bump.
+        """
+        from app.platform.extensions import get_audit_extension
+        from app.platform.extensions.defaults import DefaultAuditExtension
+        from app.platform.extensions.protocols import AuditExtension
+
+        assert isinstance(DefaultAuditExtension(), AuditExtension)
+        # Dispatch is deleted: the accessor returns the no-op default even
+        # though nothing registers the slot; the default advertises nothing.
+        assert isinstance(get_audit_extension(), DefaultAuditExtension)
+        assert get_audit_extension().get_export_formats() == []
 
 
 class TestGetIdentityExtension:
