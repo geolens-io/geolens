@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { findSetting } from './utils';
 import type { SettingItem } from '@/api/settings';
 
@@ -52,9 +52,27 @@ export function useSettingsForm<K extends string>(
     setValues(initialValues);
   }, [initialValues]);
 
+  // fix(#830): only sync untouched fields on refetch — a mid-edit query
+  // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
+  // A field the user edited (differs from the previous server baseline)
+  // keeps its draft; everything else follows the new server values. After
+  // a save the draft equals the new baseline, so the form reads pristine.
+  const baselineRef = useRef(initialValues);
   useEffect(() => {
-    syncFromSettings();
-  }, [syncFromSettings]);
+    const prevBaseline = baselineRef.current;
+    baselineRef.current = initialValues;
+    setValues((prev) => {
+      const next: Record<string, unknown> = { ...initialValues };
+      for (const f of fields) {
+        const key = f.key as K;
+        if (!isEqual(prev[key], prevBaseline[key], f.compare ?? 'strict')) {
+          next[f.key] = prev[key];
+        }
+      }
+      return next as Values;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resync only when the loaded settings change
+  }, [initialValues]);
 
   const setters = useMemo(() => {
     const s: Record<string, (v: unknown) => void> = {};

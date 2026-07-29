@@ -121,4 +121,113 @@ describe('useSettingsForm', () => {
       expect(result.current.hasDirty).toBe(true);
     });
   });
+
+  // fix(#830): a mid-edit settings refetch (new array identity) must not
+  // wipe drafts or disarm the unsaved-changes guard.
+  describe('refetch mid-edit', () => {
+    const fields = [
+      { key: 'name', defaultValue: '' },
+      { key: 'flag', defaultValue: false },
+    ] as const;
+
+    function renderWithSettings(settings: SettingItem[]) {
+      return renderHook(({ s }) => useSettingsForm(s, fields), {
+        initialProps: { s: settings },
+      });
+    }
+
+    it('keeps dirty fields and the guard armed when an unrelated field refetches', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+      expect(result.current.hasDirty).toBe(true);
+
+      // Simulate a query invalidation: new array identity, 'flag' changed
+      // on the server (e.g. the semantic-search toggle), 'name' unchanged.
+      rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)] });
+
+      expect(result.current.values.name).toBe('Bob'); // draft survives
+      expect(result.current.values.flag).toBe(true); // untouched field syncs
+      expect(result.current.hasDirty).toBe(true); // guard stays armed
+      expect(result.current.dirty).toEqual({ name: 'Bob' });
+    });
+
+    it('keeps drafts across a refetch with identical content but new identity', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', false)] });
+
+      expect(result.current.values.name).toBe('Bob');
+      expect(result.current.hasDirty).toBe(true);
+    });
+
+    it('reads pristine after a save lands (server now equals the draft)', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+      expect(result.current.hasDirty).toBe(true);
+
+      // Save persisted the draft; the refetched settings now match it.
+      rerender({ s: [makeSetting('name', 'Bob'), makeSetting('flag', false)] });
+
+      expect(result.current.values.name).toBe('Bob');
+      expect(result.current.hasDirty).toBe(false);
+    });
+
+    it('keeps a json-compare draft through a refetch', () => {
+      const jsonFields = [
+        { key: 'basemaps', defaultValue: [], compare: 'json' as const },
+        { key: 'flag', defaultValue: false },
+      ] as const;
+      const { result, rerender } = renderHook(
+        ({ s }) => useSettingsForm(s, jsonFields),
+        {
+          initialProps: {
+            s: [
+              makeSetting('basemaps', [{ id: '1', enabled: true }]),
+              makeSetting('flag', false),
+            ],
+          },
+        },
+      );
+
+      act(() => result.current.setters.basemaps([{ id: '1', enabled: false }]));
+
+      rerender({
+        s: [
+          makeSetting('basemaps', [{ id: '1', enabled: true }]),
+          makeSetting('flag', true),
+        ],
+      });
+
+      expect(result.current.values.basemaps).toEqual([{ id: '1', enabled: false }]);
+      expect(result.current.values.flag).toBe(true);
+      expect(result.current.hasDirty).toBe(true);
+    });
+
+    it('discard still resets all fields, including drafts, after a refetch', () => {
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: [makeSetting('name', 'Alice'), makeSetting('flag', true)] });
+
+      act(() => result.current.discard());
+      expect(result.current.values.name).toBe('Alice');
+      expect(result.current.values.flag).toBe(true);
+      expect(result.current.hasDirty).toBe(false);
+    });
+  });
 });
