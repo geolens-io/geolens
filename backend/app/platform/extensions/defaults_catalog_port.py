@@ -177,7 +177,9 @@ class DefaultCatalogPort:
         return regenerate_vrt
 
     def ingest_part_size(self) -> int:
-        from app.processing.ingest.router import PART_SIZE
+        # fix(#836): PART_SIZE moved off the router — platform code must never
+        # import an API-edge module (route registration runs at import time).
+        from app.processing.ingest.service import PART_SIZE
 
         return PART_SIZE
 

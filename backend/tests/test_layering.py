@@ -2010,3 +2010,94 @@ def test_platform_does_not_import_private_module_names() -> None:
             "public home (core registry, port, or DTO) instead.\n"
             + "\n".join(offenders)
         )
+
+
+# fix(#836): the platform->processing axis, mirroring _PLATFORM_MODULE_IMPORT_BURNDOWN
+# above. `platform/extensions/defaults_*.py` delegates INTO app.processing by design
+# (the CatalogPort/AI-provider defaults carried 63 such edges at audit time), but only
+# through deferred function-local imports (D-17). The module-scope edges below are the
+# reviewed exceptions. The list may SHRINK, never grow.
+_PLATFORM_PROCESSING_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    # Upload/config API composition: these platform routers queue ingest work and
+    # reuse the export Content-Disposition sanitizer. Resolvable by moving the
+    # routers under processing/ or crossing via a core port.
+    "config_ops/router.py": {"app.processing.export.service"},
+    "jobs/router.py": {
+        "app.processing.ingest.schemas",
+        "app.processing.ingest.service",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_platform_processing_imports_stay_deferred() -> None:
+    """Module-scope platform->processing imports are enumerated, not tolerated.
+
+    fix(#836): the layering guard scanned the platform->modules axis but not
+    platform->processing, so the port defaults could accrete module-load-time
+    processing dependencies unnoticed. Deferred (function-local) imports remain
+    the sanctioned mechanism, exactly as on the modules axis.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            if node.col_offset != 0:
+                continue
+            key = str(path.relative_to(_PLATFORM_DIR))
+            allowed = _PLATFORM_PROCESSING_IMPORT_BURNDOWN.get(key, set())
+            for module in modules:
+                if module.startswith("app.processing") and module not in allowed:
+                    offenders.append(f"  backend/app/platform/{key}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports app.processing.* at module scope. Defer the import "
+            "into the function body (D-17) or cross via a core port, rather than "
+            "adding an entry to _PLATFORM_PROCESSING_IMPORT_BURNDOWN.\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_platform_never_imports_processing_routers() -> None:
+    """No platform file imports a processing router module, at any scope.
+
+    fix(#836): `DefaultCatalogPort.ingest_part_size` imported PART_SIZE from
+    `app.processing.ingest.router` — importing an API-edge module executes route
+    registration as a side effect and couples the platform seam to the router's
+    import graph. Constants and helpers a port needs must live in a service or
+    schema module; only api/main.py composes routers.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if not module.startswith("app.processing"):
+                    continue
+                leaf = module.rsplit(".", 1)[-1]
+                if leaf == "router" or leaf.endswith("_router"):
+                    rel = path.relative_to(_PLATFORM_DIR)
+                    offenders.append(f"  backend/app/platform/{rel}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports a processing router module. Move the needed name "
+            "into a service/schema module and import that instead.\n"
+            + "\n".join(offenders)
+        )
