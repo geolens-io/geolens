@@ -124,12 +124,14 @@ semver_compare() {
 # (e.g. the backup service allows 10m for its first pg_dump of a large DB,
 # far beyond this 90s budget) — there Docker has not judged them yet, and
 # neither should we. test(#826): that claim is now VERIFIED per service, not
-# assumed. A service whose start_period is at or below the time we already
-# waited has been failing probes since the period ended (one passing probe
-# would have flipped it healthy), so it is heading for (unhealthy) and fails
-# the wait. Anything (unhealthy), restarting, or exited non-zero fails as
-# before; an unreadable start_period fails open (treated as converging),
-# matching this script's other best-effort probes.
+# assumed. The full tolerance Docker grants is start_period PLUS retries
+# consecutive failing probes, each taking up to interval + timeout (a service
+# stays `starting` through that whole streak — Codex P2 on #867). A service
+# still `starting` after we already waited past that entire window has
+# outlived every verdict Docker could still be working on and fails the
+# wait. Anything (unhealthy), restarting, or exited non-zero fails as
+# before; an unreadable healthcheck config fails open (treated as
+# converging), matching this script's other best-effort probes.
 wait_for_healthy() {
   attempts=18
   sleep_s=5
@@ -179,35 +181,48 @@ wait_for_healthy() {
   broken=$(printf '%s\n' "$remaining" | grep -v '(health: starting)' || true)
   if [ -z "$broken" ]; then
     budget=$((attempts * sleep_s))
-    # test(#826): verify each straggler really is inside its DECLARED
-    # start_period before letting it pass. `(health: starting)` only means
-    # Docker has not ruled yet — a service with a broken healthcheck can sit
-    # there long after its grace window closed. The container was started at
-    # (or before) the `compose up -d` this wait follows, so the budget we
-    # already spent is a lower bound on its age: start_period <= budget means
-    # the window is over and every probe since has failed.
+    # test(#826): verify each straggler really is inside its healthcheck's
+    # DECLARED tolerance before letting it pass. `(health: starting)` only
+    # means Docker has not ruled yet — a service with a broken healthcheck can
+    # sit there long after its grace ran out. Codex P2 (#867): start_period
+    # alone is NOT the boundary — after it ends, Docker still tolerates
+    # `retries` consecutive failing probes (each taking up to interval +
+    # timeout) before flipping to (unhealthy), and the service honestly
+    # reports `starting` for that whole streak. So the full allowance is
+    # start_period + retries x (interval + timeout); zero config values mean
+    # the daemon defaults (interval/timeout 30s, retries 3). The container
+    # was started at (or before) the `compose up -d` this wait follows, so
+    # the budget we already spent is a lower bound on its age: allowance <=
+    # budget means Docker has had every chance to rule and still has not.
     overdue=""
     for svc in $(printf '%s\n' "$remaining" | cut -d'|' -f1); do
       cid=$(compose ps -q "$svc" 2>/dev/null | head -n 1)
-      sp=""
+      allowed=""
       if [ -n "$cid" ]; then
-        sp=$(docker inspect --format '{{.Config.Healthcheck.StartPeriod.Seconds}}' "$cid" 2>/dev/null \
-          | head -n 1 | cut -d. -f1 | tr -cd '0-9')
+        allowed=$(docker inspect --format \
+          '{{.Config.Healthcheck.StartPeriod.Seconds}} {{.Config.Healthcheck.Interval.Seconds}} {{.Config.Healthcheck.Timeout.Seconds}} {{.Config.Healthcheck.Retries}}' \
+          "$cid" 2>/dev/null | head -n 1 | awk 'NF==4 {
+            sp = int($1); iv = int($2); to = int($3); rt = int($4)
+            if (iv <= 0) iv = 30
+            if (to <= 0) to = 30
+            if (rt <= 0) rt = 3
+            print sp + rt * (iv + to)
+          }')
       fi
-      if [ -n "$sp" ] && [ "$sp" -le "$budget" ]; then
-        overdue="${overdue}  ${svc}: still (health: starting) after ${budget}s, but its declared start_period is only ${sp}s
+      if [ -n "$allowed" ] && [ "$allowed" -le "$budget" ]; then
+        overdue="${overdue}  ${svc}: still (health: starting) after ${budget}s, but its healthcheck tolerance (start_period + retries x (interval + timeout)) ended at ${allowed}s
 "
       fi
     done
     if [ -z "$overdue" ]; then
       printf '\n'
-      warn "these services are still starting after ${budget}s but remain within their declared start_period:"
+      warn "these services are still starting after ${budget}s but remain within their healthcheck's tolerance (start_period + retries x (interval + timeout)):"
       printf '%s\n' "$remaining" | sed 's/^/  /' >&2
       warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
       return 0
     fi
     printf '\n' >&2
-    warn "timed out after ${budget}s; these services outlived their declared start_period without a passing health probe:"
+    warn "timed out after ${budget}s; these services outlived their healthcheck's start_period + retry tolerance without a passing probe:"
     printf '%s' "$overdue" >&2
     warn "Inspect with: docker compose ps  /  docker compose logs <service>"
     return 1
