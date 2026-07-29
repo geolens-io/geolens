@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Route, Navigate, Outlet } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute } from '@/components/auth/AdminRoute';
+import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute } from '@/components/auth/AdminRoute';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -121,6 +121,12 @@ export const appRoutes = (
             <Route element={<AdminCapabilityRoute capability="manage_settings" />}>
               <Route path="admin/audit" element={<AdminAuditPage />} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/saml" element={<AdminSamlPage />} errorElement={<RouteErrorBoundary />} />
+            </Route>
+            {/* fix(#817): the settings and config-ops APIs flip to
+                manage_tenants in multi-tenant mode, so their routes gate
+                mode-aware — plain manage_settings admitted per-tenant admins
+                whose every settings request 403s. */}
+            <Route element={<AdminSettingsRoute />}>
               {/* Settings — each tab is its own route */}
               <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
               <Route path="admin/settings/:tab" element={<AdminSettingsPage />} errorElement={<RouteErrorBoundary />} />

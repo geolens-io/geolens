@@ -41,6 +41,7 @@ import {
 import { useEdition } from '@/hooks/use-edition';
 import { useEnterpriseOnlyTabs } from '@/hooks/use-settings';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import type { Capability } from '@/lib/capabilities';
 
 const overviewItems = [
@@ -121,8 +122,12 @@ export function AdminSidebar() {
   const { data: auditLogCount } = useAuditLogCount(canManageSettings);
   const { data: publishedMapCount } = usePublishedMapCount(canManageUsers);
   const { isEnterprise } = useEdition();
+  // fix(#817): the /settings/* API (including /settings/enterprise-tabs/)
+  // flips to manage_tenants in multi-tenant mode — gate the Settings nav
+  // group and its query on the mode-aware hook, not raw manage_settings.
+  const canAdminSettings = useSettingsAdmin();
   const { data: enterpriseTabsData } = useEnterpriseOnlyTabs({
-    enabled: canManageSettings,
+    enabled: canAdminSettings,
   });
 
   // Phase 279 ADMIN-03 (M-03): derive each Settings-tab's enterpriseOnly flag
@@ -139,7 +144,7 @@ export function AdminSidebar() {
   }));
 
   const visibleOverviewItems = overviewItems.filter(item => can(item.capability));
-  const visibleSettingsItems = canManageSettings
+  const visibleSettingsItems = canAdminSettings
     ? settingsItems.filter(item => !item.enterpriseOnly || isEnterprise)
     : [];
   const visibleOperationsItems = operationsItems.filter(

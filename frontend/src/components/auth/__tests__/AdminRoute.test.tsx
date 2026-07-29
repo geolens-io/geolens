@@ -4,11 +4,18 @@ import {
   AdminCapabilityRoute,
   AdminIndexRoute,
   AdminRoute,
+  AdminSettingsRoute,
 } from '../AdminRoute';
 
 const permissionState = vi.hoisted(() => ({
   manageUsers: false,
   manageSettings: false,
+  manageTenants: false,
+  isLoading: false,
+}));
+
+const editionState = vi.hoisted(() => ({
+  isMultiTenant: false,
   isLoading: false,
 }));
 
@@ -17,9 +24,21 @@ vi.mock('@/hooks/use-permissions', () => ({
     can: (capability: string) =>
       capability === 'manage_users'
         ? permissionState.manageUsers
-        : capability === 'manage_settings' && permissionState.manageSettings,
+        : capability === 'manage_settings'
+          ? permissionState.manageSettings
+          : capability === 'manage_tenants' && permissionState.manageTenants,
     isLoading: permissionState.isLoading,
     permissions: {},
+  }),
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: editionState.isMultiTenant,
+    isLoading: editionState.isLoading,
   }),
 }));
 
@@ -97,6 +116,67 @@ describe('AdminCapabilityRoute', () => {
     renderCapabilityRoute('manage_settings');
 
     expect(screen.getByText('Admin Index')).toBeInTheDocument();
+  });
+});
+
+// fix(#817): the settings/config-ops APIs require manage_settings in
+// single-tenant but manage_tenants in multi-tenant — the route gate must
+// switch the same way so per-tenant admins don't land on tabs whose every
+// request 403s.
+describe('AdminSettingsRoute', () => {
+  function renderSettingsRoute() {
+    return render(
+      <MemoryRouter initialEntries={['/admin/settings/ai']}>
+        <Routes>
+          <Route path="/admin" element={<div>Admin Index</div>} />
+          <Route element={<AdminSettingsRoute />}>
+            <Route path="/admin/settings/ai" element={<div>Settings Content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  beforeEach(() => {
+    permissionState.manageUsers = false;
+    permissionState.manageSettings = false;
+    permissionState.manageTenants = false;
+    permissionState.isLoading = false;
+    editionState.isMultiTenant = false;
+    editionState.isLoading = false;
+  });
+
+  it('single-tenant: admits manage_settings', () => {
+    permissionState.manageSettings = true;
+    renderSettingsRoute();
+
+    expect(screen.getByText('Settings Content')).toBeInTheDocument();
+  });
+
+  it('multi-tenant: redirects a manage_settings-only per-tenant admin to the admin index', () => {
+    editionState.isMultiTenant = true;
+    permissionState.manageSettings = true;
+    renderSettingsRoute();
+
+    expect(screen.getByText('Admin Index')).toBeInTheDocument();
+    expect(screen.queryByText('Settings Content')).not.toBeInTheDocument();
+  });
+
+  it('multi-tenant: admits manage_tenants', () => {
+    editionState.isMultiTenant = true;
+    permissionState.manageTenants = true;
+    renderSettingsRoute();
+
+    expect(screen.getByText('Settings Content')).toBeInTheDocument();
+  });
+
+  it('waits for the edition to load before deciding', () => {
+    editionState.isLoading = true;
+    permissionState.manageSettings = true;
+    renderSettingsRoute();
+
+    expect(screen.queryByText('Settings Content')).not.toBeInTheDocument();
+    expect(screen.queryByText('Admin Index')).not.toBeInTheDocument();
   });
 });
 

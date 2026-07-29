@@ -1,6 +1,8 @@
 import { Navigate, Outlet } from 'react-router';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useEdition } from '@/hooks/use-edition';
+import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import type { Capability } from '@/lib/capabilities';
 
 export function AdminRoute() {
@@ -17,6 +19,21 @@ export function AdminCapabilityRoute({ capability }: { capability: Capability })
 
   if (isLoading) return <LoadingState />;
   if (!can(capability)) return <Navigate to="/admin" replace />;
+
+  return <Outlet />;
+}
+
+// fix(#817): the /settings/* and /config-ops/* APIs are gated mode-aware
+// (manage_settings single-tenant, manage_tenants multi-tenant), so the route
+// gate must switch the same way — a plain manage_settings gate admitted
+// multi-tenant per-tenant admins whose every settings request 403s.
+export function AdminSettingsRoute() {
+  const { isLoading: permissionsLoading } = usePermissions();
+  const { isLoading: editionLoading } = useEdition();
+  const allowed = useSettingsAdmin();
+
+  if (permissionsLoading || editionLoading) return <LoadingState />;
+  if (!allowed) return <Navigate to="/admin" replace />;
 
   return <Outlet />;
 }

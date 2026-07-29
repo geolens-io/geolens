@@ -225,6 +225,30 @@ describe('AdminSidebar', () => {
     expect(useEnterpriseOnlyTabsMock).toHaveBeenCalledWith({ enabled: true });
   });
 
+  // fix(#817): the settings/config-ops APIs require manage_tenants in
+  // multi-tenant mode — a manage_settings-only per-tenant admin must not see
+  // the Settings group (every request behind those links 403s). Audit Log
+  // stays manage_settings in BOTH modes.
+  it('multi-tenant: hides the Settings group for a manage_settings-only admin', () => {
+    const multiTenant = {
+      isEnterprise: true,
+      edition: 'enterprise',
+      isMultiTenant: true,
+      isLoading: false,
+    };
+    // Two queued values: AdminSidebar's own useEdition call, then the
+    // useSettingsAdmin hook's internal call (in component order).
+    useEditionMock
+      .mockReturnValueOnce(multiTenant as never)
+      .mockReturnValueOnce(multiTenant as never);
+    renderSidebar();
+
+    expect(screen.queryByText('General')).toBeNull();
+    expect(screen.queryByText('Config Ops')).toBeNull();
+    expect(useEnterpriseOnlyTabsMock).toHaveBeenCalledWith({ enabled: false });
+    expect(screen.getByText('Audit Log')).toBeInTheDocument();
+  });
+
   it('shows total count badges and caps large counts at 999+ (#347 (ADM-02))', () => {
     counts.users = 62;
     counts.audit = 1500;
