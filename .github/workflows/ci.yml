@@ -5,10 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Nightly E2E signal without per-PR cost: the e2e-test job below runs ONLY on
-  # `schedule`/`workflow_dispatch` (it stays skipped on push/PR), so this cron
-  # gives a recurring browser-suite signal while keeping the free-tier Actions
-  # budget at zero for routine pushes and PRs.
+  # Nightly full-matrix E2E: the e2e-test job below runs ONLY on `schedule`/
+  # `workflow_dispatch` (it stays skipped on push/PR). PRs that can affect the
+  # stack run the small e2e-smoke job instead (fix #825), so this cron remains
+  # the only trigger for the full browser matrix.
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC nightly
   workflow_dispatch:
@@ -104,6 +104,10 @@ jobs:
               # PR #745: the Playwright toolchain lives in the ROOT manifests.
               - 'package.json'
               - 'package-lock.json'
+              # fix(#825): same rationale as the backend filter's #561 entry —
+              # a change to this workflow alters HOW the e2e-smoke PR gate
+              # runs, so the gate must run on PRs that touch it.
+              - '.github/workflows/ci.yml'
             cli:
               - 'cli/**'
               - 'sdks/python/**'
@@ -1254,6 +1258,9 @@ jobs:
       - pre-commit
       - version-coherence
       - docs-contract
+      # fix(#825): PR-only browser gate; skipped (non-stack PRs, push, cron)
+      # counts as pass below, failed blocks the merge.
+      - e2e-smoke
     # always() alone would rubber-stamp: it only guarantees this job RUNS.
     # The step below does the real gating on needs.*.result.
     if: always()
@@ -1282,8 +1289,9 @@ jobs:
   #
   # Trigger scope: push to main + manual dispatch only (pin-sha-probe-push-only
   # decision). This conserves geolens-io free-tier Actions minutes — PRs do not
-  # burn two docker-build+run cycles per push (the existing e2e gate follows the
-  # same minutes-saving convention). References: WORK-04.
+  # burn two docker-build+run cycles per push (the FULL e2e suite follows the
+  # same convention; PRs run only the core smoke subset — #825).
+  # References: WORK-04.
   runtime-extension-image-probe:
     name: "Runtime Extension Image Probe (${{ matrix.target }})"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -1340,11 +1348,12 @@ jobs:
 
   # ---------- E2E (NIGHTLY / ON-DEMAND GATE — see .github/CONTRIBUTING.md "End-to-end (Playwright)") ----------
   # Runs on the nightly `schedule` cron and manual `workflow_dispatch` ONLY — it
-  # stays skipped on push/PR so the dockerized stack + browser fixtures never
-  # burn the free-tier Actions budget per-PR. Reviewers still run
-  # `npm run e2e:smoke[:audit]` locally before approving user-flow changes (PR
-  # description should note which suites passed); the cron provides the recurring
-  # CI signal.
+  # stays skipped on push/PR so the FULL dockerized browser matrix never burns
+  # the free-tier Actions budget per-PR. PRs get the small e2e:smoke:core subset
+  # via the e2e-smoke job below (fix #825). Reviewers still run the remaining
+  # groups (`npm run e2e:smoke[:audit]`) locally before approving user-flow
+  # changes; the cron provides the recurring full-suite signal, and a red
+  # nightly files/refreshes a tracking issue (nightly-e2e-report, end of file).
   e2e-test:
     name: E2E Tests
     # Path-filtered prerequisites may be skipped on a test-only branch. Evaluate
@@ -1417,6 +1426,84 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Docker Compose logs
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+  # ---------- E2E smoke (PR gate) ----------
+  # fix(#825): the browser suites used to run nightly ONLY, so a PR that broke
+  # a core user flow merged green and the breakage surfaced days later — and
+  # compounded when the nightly itself was silently cancelled (see the
+  # concurrency comment at the top of this file). This job runs the small
+  # `e2e:smoke:core` script (root package.json; ~1 min of specs against the
+  # composed stack) on PRs whose changes can affect it, per the `e2e` path
+  # filter. It needs only `changes` so it starts in parallel with the
+  # lint/test jobs instead of stacking on top of them; ci-ok still blocks the
+  # merge if anything on either track fails.
+  e2e-smoke:
+    name: E2E Smoke (core)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # The recipe below mirrors the nightly e2e-test job above — same .env
+      # shape, same compose boot, same toolchain — only the spec set differs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Create .env file
+        run: |
+          cp .env.example .env
+          # Override the dev defaults with CI-distinct values. JWT_SECRET_KEY must
+          # be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+          sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
+          sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=e2e-test-secret-key-padding-32chars-min|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
+          echo "DATABASE_SSL_MODE=disable" >> .env
+
+      - name: Export admin credentials for E2E
+        run: |
+          echo "GEOLENS_ADMIN_USERNAME=admin" >> $GITHUB_ENV
+          echo "GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password" >> $GITHUB_ENV
+
+      - name: Start services
+        run: docker compose up -d --wait --wait-timeout 120
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run core E2E smoke suite
+        run: npm run e2e:smoke:core
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: e2e-smoke-playwright-test-results
+          path: test-results/
+          retention-days: 14
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: e2e-smoke-playwright-report
           path: playwright-report/
           retention-days: 14
 
@@ -1535,9 +1622,10 @@ jobs:
   # release tag push (v*)                         → prod-smoke.yml (e2e:smoke:audit against
   #                                                  published images), gates release.yml via
   #                                                  workflow_run on "Prod Compose Smoke"
-  # pull_request                                  → NO browser jobs; per-PR Actions budget = 0
+  # pull_request (e2e path filter)                → e2e-smoke (e2e:smoke:core only — fix #825)
   # push(main) + nightly + dispatch               → accessibility (axe + keyboard-nav, below)
   # push(main) + nightly + dispatch               → stac-validate (stac-api-validator, below)
+  # nightly cron, e2e-test/accessibility not green → nightly-e2e-report (tracking issue, below)
   accessibility:
     name: Accessibility (axe + keyboard-nav)
     # always() so this still evaluates when the needed jobs are SKIPPED on
@@ -1702,3 +1790,64 @@ jobs:
       - name: Stop services
         if: always()
         run: docker compose down
+
+  # ---------- nightly red-run tracking issue ----------
+  # fix(#825): a red nightly was only visible in the Actions tab, and the cron
+  # was once silently cancelled for a week (see the concurrency comment at the
+  # top of this file) — the two gaps compounded. On scheduled runs this job
+  # files the failure where it cannot be missed: it comments on the open
+  # `nightly-e2e`-labelled tracking issue, or creates it if none is open.
+  # Anything short of success counts — on schedule, e2e-test/accessibility
+  # skip only when an upstream lint/test job failed, and that still means the
+  # nightly produced no browser signal.
+  nightly-e2e-report:
+    name: Nightly E2E Failure Report
+    needs: [e2e-test, accessibility]
+    if: >-
+      always()
+      && github.event_name == 'schedule'
+      && (needs.e2e-test.result != 'success' || needs.accessibility.result != 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or refresh the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          E2E_RESULT: ${{ needs.e2e-test.result }}
+          A11Y_RESULT: ${{ needs.accessibility.result }}
+        run: |
+          # --force makes label creation idempotent (updates in place if the
+          # label already exists instead of erroring).
+          gh label create nightly-e2e \
+            --description "Red nightly E2E/a11y run needs investigation" \
+            --color D93F0B --force
+
+          {
+            echo "The nightly run on $(date -u +%Y-%m-%d) did not produce a green browser signal."
+            echo ""
+            echo "- \`e2e-test\`: $E2E_RESULT"
+            echo "- \`accessibility\`: $A11Y_RESULT"
+            echo "- Run: $RUN_URL"
+            echo ""
+            echo "\`skipped\` means an upstream lint/test job failed on the scheduled run, so the browser suites never started."
+          } > /tmp/nightly-body.md
+
+          existing=$(gh issue list --label nightly-e2e --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/nightly-body.md
+          else
+            {
+              cat /tmp/nightly-body.md
+              echo ""
+              echo "Close this issue once a nightly run is green again. The next red nightly comments here while it stays open, or files a fresh issue after it is closed."
+            } > /tmp/nightly-issue.md
+            gh issue create \
+              --title "Nightly E2E/a11y run is red" \
+              --label nightly-e2e \
+              --body-file /tmp/nightly-issue.md
+          fi
