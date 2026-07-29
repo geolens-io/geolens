@@ -2,8 +2,12 @@ import { renderHook, act } from '@testing-library/react';
 import { useSettingsForm } from '../useSettingsForm';
 import type { SettingItem } from '@/api/settings';
 
-function makeSetting(key: string, value: unknown): SettingItem {
-  return { key, value, source: 'overridden', label: key };
+function makeSetting(
+  key: string,
+  value: unknown,
+  source: SettingItem['source'] = 'overridden',
+): SettingItem {
+  return { key, value, source, label: key };
 }
 
 describe('useSettingsForm', () => {
@@ -246,6 +250,27 @@ describe('useSettingsForm', () => {
 
       expect(result.current.values.name).toBe('Carol');
       expect(result.current.hasDirty).toBe(true);
+    });
+
+    it('honors a reset that only changes the source, not the value', () => {
+      // An overridden setting whose effective value equals the default:
+      // resetting it removes the override, so the refetch reports the same
+      // value with source flipped to 'default'. That is authoritative
+      // server movement and must drop the draft.
+      const { result, rerender } = renderWithSettings([
+        makeSetting('name', 'Alice', 'overridden'),
+        makeSetting('flag', false),
+      ]);
+
+      act(() => result.current.setters.name('Bob'));
+      expect(result.current.hasDirty).toBe(true);
+
+      rerender({
+        s: [makeSetting('name', 'Alice', 'default'), makeSetting('flag', false)],
+      });
+
+      expect(result.current.values.name).toBe('Alice');
+      expect(result.current.hasDirty).toBe(false);
     });
 
     it('drops the snapshot when a save fails, so a later reset wins', () => {

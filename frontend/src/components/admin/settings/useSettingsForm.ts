@@ -52,6 +52,18 @@ export function useSettingsForm<K extends string>(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft only when the loaded settings change
   }, [settings]);
 
+  // Per-field source ('default' | 'overridden' | 'env_only'), tracked so a
+  // reset that removes an override without changing the effective value
+  // (override value == default value) still counts as server movement.
+  const serverSources = useMemo(() => {
+    const src: Record<string, unknown> = {};
+    for (const f of fields) {
+      src[f.key] = findSetting(settings, f.key)?.source;
+    }
+    return src as Record<K, SettingItem['source'] | undefined>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute only when the loaded settings change
+  }, [settings]);
+
   const [values, setValues] = useState<Values>(initialValues);
 
   const syncFromSettings = useCallback(() => {
@@ -84,17 +96,22 @@ export function useSettingsForm<K extends string>(
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
-  // A field keeps its draft while the server value for it is unchanged.
-  // When the refetch reports a NEW server value for a field, the server
-  // wins — covering save/reset refetches where the backend canonicalized
-  // the submitted value (settings/router.py trims and normalizes some
-  // values), so an acknowledged save reads pristine instead of staying
-  // dirty forever — UNLESS the draft moved again after the save was
+  // A field keeps its draft while the server state for it is unchanged.
+  // When the refetch reports a NEW server value OR source for a field,
+  // the server wins — covering save/reset refetches where the backend
+  // canonicalized the submitted value (settings/router.py trims and
+  // normalizes some values) and resets that only remove an override
+  // whose value equals the default (only `source` moves) — so an
+  // acknowledged save or reset reads pristine instead of staying dirty
+  // forever — UNLESS the draft moved again after the save was
   // submitted, in which case the newer edit survives and stays dirty.
   const baselineRef = useRef(initialValues);
+  const sourcesBaselineRef = useRef(serverSources);
   useEffect(() => {
     const prevBaseline = baselineRef.current;
     baselineRef.current = initialValues;
+    const prevSources = sourcesBaselineRef.current;
+    sourcesBaselineRef.current = serverSources;
     const submitted = submittedRef.current;
     // Consume the snapshot only once the save is no longer pending — an
     // unrelated refetch racing an in-flight save must leave it for the
@@ -107,7 +124,9 @@ export function useSettingsForm<K extends string>(
         const mode = f.compare ?? 'strict';
         const touched = !isEqual(prev[key], prevBaseline[key], mode);
         if (!touched) continue;
-        const serverChanged = !isEqual(initialValues[key], prevBaseline[key], mode);
+        const serverChanged =
+          !isEqual(initialValues[key], prevBaseline[key], mode) ||
+          serverSources[key] !== prevSources[key];
         const editedAfterSubmit =
           submitted !== null && !isEqual(prev[key], submitted[key], mode);
         if (!serverChanged || editedAfterSubmit) {
