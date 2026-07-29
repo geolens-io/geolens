@@ -25,6 +25,12 @@ export function useEdition() {
     isEnterprise: data?.edition === 'enterprise',
     isMultiTenant: data?.tenancy_mode === 'multi_tenant',
     isLoading,
+    // fix(#817): true once the edition endpoint has answered (a response
+    // without tenancy_mode IS a resolved single-tenant deployment); false
+    // while loading or after a fetch failure. Consumers that must not guess
+    // the tenancy mode (useSettingsAdmin) fail closed on this instead of
+    // treating "not fetched yet" as single-tenant.
+    isResolved: data !== undefined,
   };
 }
 

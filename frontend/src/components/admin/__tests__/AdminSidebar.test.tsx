@@ -49,7 +49,9 @@ vi.mock('@/hooks/use-permissions', () => ({
 const useEditionMock = vi.fn(() => ({
   isEnterprise: false,
   edition: 'community',
+  isMultiTenant: false,
   isLoading: false,
+  isResolved: true,
 }));
 
 vi.mock('@/hooks/use-edition', () => ({
@@ -235,6 +237,7 @@ describe('AdminSidebar', () => {
       edition: 'enterprise',
       isMultiTenant: true,
       isLoading: false,
+      isResolved: true,
     };
     // Two queued values: AdminSidebar's own useEdition call, then the
     // useSettingsAdmin hook's internal call (in component order).
@@ -277,7 +280,9 @@ describe('AdminSidebar SAML gating (Phase 217 SAML-10)', () => {
     useEditionMock.mockReturnValueOnce({
       isEnterprise: false,
       edition: 'community',
+      isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     renderSidebar();
     // The "SAML SSO" label must NOT render and no <a> should target /admin/saml.
@@ -289,7 +294,9 @@ describe('AdminSidebar SAML gating (Phase 217 SAML-10)', () => {
     useEditionMock.mockReturnValueOnce({
       isEnterprise: true,
       edition: 'enterprise',
+      isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     renderSidebar();
     // Both the human-readable label and the link href must be present.
@@ -326,7 +333,9 @@ describe('AdminSidebar server-driven enterpriseOnly tabs (Phase 279 ADMIN-03)', 
     useEditionMock.mockReturnValueOnce({
       isEnterprise: true,
       edition: 'enterprise',
+      isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     renderSidebar();
     // "Appearance" is enterpriseOnly but enterprise edition sees ALL tabs.

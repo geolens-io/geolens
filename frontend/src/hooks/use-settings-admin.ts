@@ -13,6 +13,12 @@ import { useEdition } from '@/hooks/use-edition';
 // pattern as useAIStatusReader for /admin/ai-status reads, #653).
 export function useSettingsAdmin(): boolean {
   const { can } = usePermissions();
-  const { isMultiTenant } = useEdition();
+  const { isMultiTenant, isResolved } = useEdition();
+  // fix(#817): fail closed until the tenancy mode is actually known. If
+  // permissions resolve before the edition query (or the edition fetch
+  // fails), assuming single-tenant would briefly authorize a multi-tenant
+  // per-tenant admin — recreating the dead links and 403s this hook exists
+  // to prevent.
+  if (!isResolved) return false;
   return isMultiTenant ? can('manage_tenants') : can('manage_settings');
 }

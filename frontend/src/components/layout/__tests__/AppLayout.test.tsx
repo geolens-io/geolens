@@ -62,6 +62,7 @@ describe('AppLayout', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },
@@ -215,6 +216,7 @@ describe('AppLayout', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: false },
@@ -233,6 +235,7 @@ describe('AppLayout', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },

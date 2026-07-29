@@ -145,6 +145,7 @@ describe('PublicViewerPage', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
 
     mockedUseBranding.mockReturnValue({

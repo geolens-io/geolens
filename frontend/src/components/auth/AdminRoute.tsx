@@ -7,11 +7,19 @@ import type { Capability } from '@/lib/capabilities';
 
 export function AdminRoute() {
   const { can, isLoading } = usePermissions();
+  const { isLoading: editionLoading } = useEdition();
+  const settingsAdmin = useSettingsAdmin();
 
   if (isLoading) return <LoadingState />;
-  if (!can('manage_users') && !can('manage_settings')) return <Navigate to="/" replace />;
+  if (can('manage_users') || can('manage_settings')) return <Outlet />;
+  // fix(#817): a multi-tenant fleet operator can hold manage_tenants without
+  // manage_users/manage_settings — admit them so the AdminSettingsRoute they
+  // are authorized for is reachable. Checked after the plain capabilities so
+  // the common single-tenant path never waits on the edition query.
+  if (editionLoading) return <LoadingState />;
+  if (settingsAdmin) return <Outlet />;
 
-  return <Outlet />;
+  return <Navigate to="/" replace />;
 }
 
 export function AdminCapabilityRoute({ capability }: { capability: Capability }) {
@@ -40,9 +48,15 @@ export function AdminSettingsRoute() {
 
 export function AdminIndexRoute() {
   const { can, isLoading } = usePermissions();
+  const { isLoading: editionLoading } = useEdition();
+  const settingsAdmin = useSettingsAdmin();
 
   if (isLoading) return <LoadingState />;
   if (can('manage_users')) return <Navigate to="/admin/overview" replace />;
   if (can('manage_settings')) return <Navigate to="/admin/audit" replace />;
+  // fix(#817): land a manage_tenants-only fleet operator on the settings
+  // pages they are authorized for (neither overview nor audit admits them).
+  if (editionLoading) return <LoadingState />;
+  if (settingsAdmin) return <Navigate to="/admin/settings/general" replace />;
   return <Navigate to="/" replace />;
 }

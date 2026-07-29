@@ -23,6 +23,7 @@ vi.mock('@/hooks/use-edition', () => ({
     isEnterprise: false,
     isMultiTenant: mocks.isMultiTenant,
     isLoading: false,
+    isResolved: true,
   }),
 }));
 

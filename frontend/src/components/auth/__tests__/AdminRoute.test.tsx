@@ -17,7 +17,18 @@ const permissionState = vi.hoisted(() => ({
 const editionState = vi.hoisted(() => ({
   isMultiTenant: false,
   isLoading: false,
+  isResolved: true,
 }));
+
+function resetStates() {
+  permissionState.manageUsers = false;
+  permissionState.manageSettings = false;
+  permissionState.manageTenants = false;
+  permissionState.isLoading = false;
+  editionState.isMultiTenant = false;
+  editionState.isLoading = false;
+  editionState.isResolved = true;
+}
 
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({
@@ -39,6 +50,7 @@ vi.mock('@/hooks/use-edition', () => ({
     isEnterprise: false,
     isMultiTenant: editionState.isMultiTenant,
     isLoading: editionState.isLoading,
+    isResolved: editionState.isResolved,
   }),
 }));
 
@@ -56,11 +68,7 @@ function renderAdminRoute(initialRoute = '/admin') {
 }
 
 describe('AdminRoute', () => {
-  beforeEach(() => {
-    permissionState.manageUsers = false;
-    permissionState.manageSettings = false;
-    permissionState.isLoading = false;
-  });
+  beforeEach(resetStates);
 
   it('redirects a user with no admin capability to the application', () => {
     renderAdminRoute();
@@ -82,6 +90,24 @@ describe('AdminRoute', () => {
 
     expect(screen.getByText('Admin Content')).toBeInTheDocument();
   });
+
+  // fix(#817): a multi-tenant fleet operator can hold manage_tenants alone —
+  // the enclosing admin gate must admit them so AdminSettingsRoute is
+  // reachable.
+  it('multi-tenant: admits a manage_tenants-only fleet operator', () => {
+    editionState.isMultiTenant = true;
+    permissionState.manageTenants = true;
+    renderAdminRoute();
+
+    expect(screen.getByText('Admin Content')).toBeInTheDocument();
+  });
+
+  it('multi-tenant: still redirects a manage_tenants-less user with no other capability', () => {
+    editionState.isMultiTenant = true;
+    renderAdminRoute();
+
+    expect(screen.getByText('App Home')).toBeInTheDocument();
+  });
 });
 
 describe('AdminCapabilityRoute', () => {
@@ -98,11 +124,7 @@ describe('AdminCapabilityRoute', () => {
     );
   }
 
-  beforeEach(() => {
-    permissionState.manageUsers = false;
-    permissionState.manageSettings = false;
-    permissionState.isLoading = false;
-  });
+  beforeEach(resetStates);
 
   it('renders the route when its specific capability is granted', () => {
     permissionState.manageSettings = true;
@@ -137,14 +159,7 @@ describe('AdminSettingsRoute', () => {
     );
   }
 
-  beforeEach(() => {
-    permissionState.manageUsers = false;
-    permissionState.manageSettings = false;
-    permissionState.manageTenants = false;
-    permissionState.isLoading = false;
-    editionState.isMultiTenant = false;
-    editionState.isLoading = false;
-  });
+  beforeEach(resetStates);
 
   it('single-tenant: admits manage_settings', () => {
     permissionState.manageSettings = true;
@@ -172,11 +187,25 @@ describe('AdminSettingsRoute', () => {
 
   it('waits for the edition to load before deciding', () => {
     editionState.isLoading = true;
+    editionState.isResolved = false;
     permissionState.manageSettings = true;
     renderSettingsRoute();
 
     expect(screen.queryByText('Settings Content')).not.toBeInTheDocument();
     expect(screen.queryByText('Admin Index')).not.toBeInTheDocument();
+  });
+
+  // fix(#817): an edition fetch failure must not fall back to the
+  // single-tenant capability — that would re-authorize the per-tenant admin
+  // whose every settings request 403s in multi-tenant.
+  it('fails closed when the edition query has failed', () => {
+    editionState.isLoading = false;
+    editionState.isResolved = false;
+    permissionState.manageSettings = true;
+    renderSettingsRoute();
+
+    expect(screen.getByText('Admin Index')).toBeInTheDocument();
+    expect(screen.queryByText('Settings Content')).not.toBeInTheDocument();
   });
 });
 
@@ -188,17 +217,14 @@ describe('AdminIndexRoute', () => {
           <Route path="/admin" element={<AdminIndexRoute />} />
           <Route path="/admin/overview" element={<div>User Admin</div>} />
           <Route path="/admin/audit" element={<div>Settings Admin</div>} />
+          <Route path="/admin/settings/general" element={<div>Settings Pages</div>} />
           <Route path="/" element={<div>App Home</div>} />
         </Routes>
       </MemoryRouter>,
     );
   }
 
-  beforeEach(() => {
-    permissionState.manageUsers = false;
-    permissionState.manageSettings = false;
-    permissionState.isLoading = false;
-  });
+  beforeEach(resetStates);
 
   it('prefers the user-management overview when available', () => {
     permissionState.manageUsers = true;
@@ -211,5 +237,14 @@ describe('AdminIndexRoute', () => {
     permissionState.manageSettings = true;
     renderIndex();
     expect(screen.getByText('Settings Admin')).toBeInTheDocument();
+  });
+
+  // fix(#817): neither overview nor audit admits a manage_tenants-only
+  // fleet operator — land them on the settings pages they can use.
+  it('multi-tenant: lands a manage_tenants-only fleet operator on the settings pages', () => {
+    editionState.isMultiTenant = true;
+    permissionState.manageTenants = true;
+    renderIndex();
+    expect(screen.getByText('Settings Pages')).toBeInTheDocument();
   });
 });
