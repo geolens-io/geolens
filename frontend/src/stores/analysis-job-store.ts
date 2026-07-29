@@ -70,27 +70,42 @@ export const analysisAddToMap: {
  * via other surfaces stays legitimate.
  */
 interface AnalysisAddedState {
+  /** Confirmed on the map — the add mutation succeeded (any surface). */
   addedDatasetIds: string[];
-  markAdded: (datasetId: string) => void;
-  unmarkAdded: (datasetId: string) => void;
+  /**
+   * fix(#833 codex P2): claimed by an analysis affordance whose add mutation
+   * is still in flight. The claim happens BEFORE the mutation starts (so a
+   * double-click can't add twice); success confirms it, failure clears it so
+   * the affordances re-arm. Split from addedDatasetIds so a FAILED add from a
+   * non-analysis surface (catalog/chat/drag never claim a pending entry) can
+   * never un-retire a confirmed one.
+   */
+  pendingAddIds: string[];
+  markPending: (datasetId: string) => void;
+  confirmAdded: (datasetId: string) => void;
+  clearPending: (datasetId: string) => void;
 }
 
 export const useAnalysisAddedStore = create<AnalysisAddedState>()((set) => ({
   addedDatasetIds: [],
-  markAdded: (datasetId) =>
+  pendingAddIds: [],
+  markPending: (datasetId) =>
     set((s) =>
-      s.addedDatasetIds.includes(datasetId)
+      s.pendingAddIds.includes(datasetId)
         ? s
-        : { addedDatasetIds: [...s.addedDatasetIds, datasetId] },
+        : { pendingAddIds: [...s.pendingAddIds, datasetId] },
     ),
-  // fix(#833 codex P2): marking happens BEFORE the add mutation starts (so a
-  // double-click can't add twice), but the mutation can still fail. The add
-  // error path unmarks so both affordances become retryable; no-op when the
-  // add came from a non-analysis surface.
-  unmarkAdded: (datasetId) =>
+  confirmAdded: (datasetId) =>
+    set((s) => ({
+      pendingAddIds: s.pendingAddIds.filter((id) => id !== datasetId),
+      addedDatasetIds: s.addedDatasetIds.includes(datasetId)
+        ? s.addedDatasetIds
+        : [...s.addedDatasetIds, datasetId],
+    })),
+  clearPending: (datasetId) =>
     set((s) =>
-      s.addedDatasetIds.includes(datasetId)
-        ? { addedDatasetIds: s.addedDatasetIds.filter((id) => id !== datasetId) }
+      s.pendingAddIds.includes(datasetId)
+        ? { pendingAddIds: s.pendingAddIds.filter((id) => id !== datasetId) }
         : s,
     ),
 }));

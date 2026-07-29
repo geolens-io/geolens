@@ -105,8 +105,13 @@ export function AnalysisJobWatcher() {
                     analysisAddToMap.mapId === job.mapId
                   ) {
                     const added = useAnalysisAddedStore.getState();
-                    if (added.addedDatasetIds.includes(datasetId)) return;
-                    added.markAdded(datasetId);
+                    if (
+                      added.addedDatasetIds.includes(datasetId) ||
+                      added.pendingAddIds.includes(datasetId)
+                    ) {
+                      return;
+                    }
+                    added.markPending(datasetId);
                     analysisAddToMap.current(datasetId);
                   } else {
                     // View-dataset path: navigation is idempotent, no guard.

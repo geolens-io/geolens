@@ -297,7 +297,8 @@ export function AnalysisPanel({
   // adding a dataset twice via other surfaces is legitimate, so no global
   // idempotency in onAddDataset.
   const addedDatasetIds = useAnalysisAddedStore((s) => s.addedDatasetIds);
-  const markDatasetAdded = useAnalysisAddedStore((s) => s.markAdded);
+  const pendingAddIds = useAnalysisAddedStore((s) => s.pendingAddIds);
+  const markDatasetPending = useAnalysisAddedStore((s) => s.markPending);
   // fix(#793 review): a materialize can outlive the panel instance that
   // started it — closed during the POST, reopened before the response lands.
   // The mount-time initializers above see no tracked job yet, so a job that
@@ -1362,13 +1363,22 @@ export function AnalysisPanel({
                 size="sm"
                 className="w-full"
                 // Completion raises this button AND the watcher's toast
-                // action. fix(#833): both share one single-use marker —
-                // see addedDatasetIds above.
-                disabled={addedDatasetIds.includes(job.dataset_id)}
+                // action. fix(#833): both share one single-use guard —
+                // pending while the add mutation is in flight (re-armed if
+                // it fails), confirmed once it succeeds.
+                disabled={
+                  addedDatasetIds.includes(job.dataset_id) ||
+                  pendingAddIds.includes(job.dataset_id)
+                }
                 onClick={() => {
                   if (!job.dataset_id) return;
-                  if (addedDatasetIds.includes(job.dataset_id)) return;
-                  markDatasetAdded(job.dataset_id);
+                  if (
+                    addedDatasetIds.includes(job.dataset_id) ||
+                    pendingAddIds.includes(job.dataset_id)
+                  ) {
+                    return;
+                  }
+                  markDatasetPending(job.dataset_id);
                   layerActions.onAddDataset(job.dataset_id);
                 }}
               >

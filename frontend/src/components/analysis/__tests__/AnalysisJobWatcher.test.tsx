@@ -48,7 +48,7 @@ describe('AnalysisJobWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAnalysisJobStore.setState({ job: null });
-    useAnalysisAddedStore.setState({ addedDatasetIds: [] });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
     analysisAddToMap.current = null;
     analysisAddToMap.mapId = null;
   });
@@ -234,7 +234,7 @@ describe('AnalysisJobWatcher', () => {
     };
 
     // The panel button already added this dataset — the toast must not repeat.
-    useAnalysisAddedStore.getState().markAdded('ds9');
+    useAnalysisAddedStore.getState().confirmAdded('ds9');
     action.onClick();
     expect(onAdd).not.toHaveBeenCalled();
   });

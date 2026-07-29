@@ -187,15 +187,40 @@ export function stampPersistedFolderGroupExpanded(
   layers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): MapLayerResponse[] {
+  // fix(#833 codex round 6): children of a group created THIS session carry
+  // only parent_group_id — no persisted marker yet — but the save that this
+  // baseline snapshots just wrote one (prepareLayersForPersistence derives it
+  // from the group row + groupMeta). Derive the same marker here, or every
+  // later save re-diffs those children against a marker-less baseline and
+  // emits a redundant style_config PATCH per child.
+  const groups = new Map<string, PersistedFolderGroup>();
+  for (const layer of layers) {
+    if (!isFolderGroupLayer(layer)) continue;
+    groups.set(layer.id, {
+      id: layer.id,
+      name: layer.display_name?.trim() || 'Group',
+      expanded: groupMeta[layer.id]?.expanded,
+    });
+  }
   return layers.map((layer) => {
     const persisted = getPersistedFolderGroup(layer);
-    const expanded = persisted ? groupMeta[persisted.id]?.expanded : undefined;
-    if (!persisted || expanded === undefined || persisted.expanded === expanded) {
-      return { ...layer };
+    if (persisted) {
+      const expanded = groupMeta[persisted.id]?.expanded;
+      if (expanded === undefined || persisted.expanded === expanded) {
+        return { ...layer };
+      }
+      return {
+        ...layer,
+        style_config: withPersistedFolderGroup(layer.style_config, { ...persisted, expanded }),
+      };
     }
+    if (isFolderGroupLayer(layer)) return { ...layer };
+    const parentGroupId = (layer as GroupedLayer).parent_group_id ?? null;
+    const folderGroup = parentGroupId ? groups.get(parentGroupId) ?? null : null;
+    if (!folderGroup) return { ...layer };
     return {
       ...layer,
-      style_config: withPersistedFolderGroup(layer.style_config, { ...persisted, expanded }),
+      style_config: withPersistedFolderGroup(layer.style_config, folderGroup),
     };
   });
 }

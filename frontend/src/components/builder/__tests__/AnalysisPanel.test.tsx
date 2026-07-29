@@ -227,7 +227,7 @@ describe('AnalysisPanel', () => {
   beforeEach(() => {
     useAnalysisJobStore.setState({ job: null });
     // fix(#833): the add-to-map single-use marker is a module-level store now.
-    useAnalysisAddedStore.setState({ addedDatasetIds: [] });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
   });
 
   it('treats a raster-only map as having no analysable layers (#720)', () => {
@@ -1320,6 +1320,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
     mockJobStatus.error = null;
     useAnalysisFormStore.setState({ forms: {} });
     useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
     useAuthStore.setState({ token: null, refreshToken: null, user: null });
     vi.mocked(previewAnalysis).mockClear();
     vi.mocked(materializeAnalysis).mockClear();
@@ -1487,6 +1488,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     mockJobStatus.error = null;
     useAnalysisFormStore.setState({ forms: {} });
     useAnalysisJobStore.setState({ job: null });
+    useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
     useAuthStore.setState({ token: null, refreshToken: null, user: null });
     vi.mocked(previewAnalysis).mockClear();
     vi.mocked(materializeAnalysis).mockClear();
@@ -1670,9 +1672,10 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     fireEvent.click(addButton);
     expect(onAddDataset).toHaveBeenCalledTimes(1);
 
-    // Completion also raises the watcher's toast action — each affordance is
-    // single-use so the pair can't add the layer twice.
-    const usedButton = screen.getByRole('button', { name: 'Added to map' });
+    // Completion also raises the watcher's toast action — the click claims a
+    // PENDING guard entry (confirmed only when the add mutation succeeds), so
+    // the pair can't add the layer twice while the request is in flight.
+    const usedButton = screen.getByRole('button', { name: 'Add "{{name}}" to map' });
     expect(usedButton).toBeDisabled();
     fireEvent.click(usedButton);
     expect(onAddDataset).toHaveBeenCalledTimes(1);
@@ -1685,7 +1688,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
     const onAddDataset = vi.fn();
     // The watcher's toast action performed the add.
-    useAnalysisAddedStore.getState().markAdded('out1');
+    useAnalysisAddedStore.getState().confirmAdded('out1');
     renderPanel([datasetLayer], {
       mapId: 'm1',
       layerActions: { onAddDataset } as never,
@@ -1701,13 +1704,15 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(onAddDataset).not.toHaveBeenCalled();
   });
 
-  // fix(#833 codex P2): the marker is set before the add mutation starts, so
-  // a failed add must unmark (handleAddDataset's onError) or the affordances
-  // stay retired with no retry path.
-  it('re-arms the panel Add to map when a failed add unmarks the dataset', async () => {
+  // fix(#833 codex P2): the guard is claimed (pending) before the add
+  // mutation starts, so a failed add must clear the pending claim
+  // (handleAddDataset's onError) or the affordances stay retired with no
+  // retry path. A confirmed entry is NOT cleared by failures — a failed
+  // catalog/chat/drag re-add of the same dataset can't un-retire the guard.
+  it('re-arms the panel Add to map when a failed add clears the pending claim', async () => {
     mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
     const onAddDataset = vi.fn();
-    useAnalysisAddedStore.getState().markAdded('out1');
+    useAnalysisAddedStore.getState().markPending('out1');
     renderPanel([datasetLayer], {
       mapId: 'm1',
       layerActions: { onAddDataset } as never,
@@ -1716,11 +1721,13 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
       target: { value: 'Out' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
-    expect(await screen.findByRole('button', { name: 'Added to map' })).toBeDisabled();
+    expect(
+      await screen.findByRole('button', { name: 'Add "{{name}}" to map' }),
+    ).toBeDisabled();
 
-    // The add mutation failed — its onError unmarks the dataset.
+    // The add mutation failed — its onError clears the pending claim.
     act(() => {
-      useAnalysisAddedStore.getState().unmarkAdded('out1');
+      useAnalysisAddedStore.getState().clearPending('out1');
     });
 
     const retryButton = await screen.findByRole('button', {
@@ -1729,6 +1736,19 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);
     expect(onAddDataset).toHaveBeenCalledTimes(1);
+  });
+
+  // fix(#833 codex round 6): clearPending only touches the pending claim — a
+  // failed NON-analysis add of the same dataset (which never claims one) must
+  // not un-retire a confirmed analysis add.
+  it('keeps a confirmed add retired when an unrelated add of the same dataset fails', () => {
+    const guard = useAnalysisAddedStore.getState();
+    guard.markPending('out1');
+    guard.confirmAdded('out1');
+    // handleAddDataset's onError for a failed catalog/chat/drag add.
+    useAnalysisAddedStore.getState().clearPending('out1');
+    expect(useAnalysisAddedStore.getState().addedDatasetIds).toContain('out1');
+    expect(useAnalysisAddedStore.getState().pendingAddIds).not.toContain('out1');
   });
 
   it('sets aria-busy on the pending Preview button', async () => {

@@ -575,6 +575,14 @@ export function useBuilderLayers(
         { mapId, data: { dataset_id: datasetId, sort_order: 0 } },
         {
           onSuccess: (createdLayer) => {
+            // fix(#833 codex P2): settle the analysis add-to-map guard — a
+            // pending claim becomes confirmed. Gated on the claim so a
+            // non-analysis add of the same dataset keeps today's behavior
+            // (re-adding via other surfaces stays legitimate).
+            const addedGuard = useAnalysisAddedStore.getState();
+            if (addedGuard.pendingAddIds.includes(datasetId)) {
+              addedGuard.confirmAdded(datasetId);
+            }
             // P1-08: optimistically merge EVERY created layer into localLayers +
             // the saved baseline so it appears immediately, even while the map is
             // dirty — the API-refetch sync (apiLayers effect) is gated on
@@ -701,10 +709,12 @@ export function useBuilderLayers(
             }
           },
           onError: () => {
-            // fix(#833 codex P2): the analysis "Add to map" affordances mark
-            // their single-use guard before this mutation starts; unmark on
-            // failure so they stay retryable (no-op for non-analysis adds).
-            useAnalysisAddedStore.getState().unmarkAdded(datasetId);
+            // fix(#833 codex P2): the analysis "Add to map" affordances claim
+            // a PENDING guard entry before this mutation starts; clear it on
+            // failure so they re-arm. Confirmed entries are untouched, so a
+            // failed catalog/chat/drag add (which never claims one) cannot
+            // un-retire an affordance whose own add already succeeded.
+            useAnalysisAddedStore.getState().clearPending(datasetId);
             toast.error(t('toasts.layerAddFailed'));
           },
         },
