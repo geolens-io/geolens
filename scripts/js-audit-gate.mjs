@@ -10,11 +10,13 @@ const ALLOWLIST = [
   {
     id: 'GHSA-qwww-vcr4-c8h2', // react-router RSC-mode CSRF (high)
     reason:
-      'Vulnerable code is react-router’s RSC server runtime; the frontend is a ' +
-      'Vite SPA using library-mode <BrowserRouter> (frontend/src/main.tsx) — no ' +
-      'RSC entry point exists, so the vulnerable code never executes. No patched ' +
-      '7.x exists yet (the only fix is the 8.3.0 major). Drop this entry when a ' +
-      '7.x backport ships or the router is upgraded to >=8.3.0.',
+      'Fixed in the installed version: react-router 7.18.2 backports the RSC ' +
+      'CSRF hardening (remix-run/react-router#15353), but the advisory range ' +
+      'still says <8.3.0, so npm audit flags it anyway. Defense in depth: the ' +
+      'frontend is a Vite SPA using library-mode <BrowserRouter> ' +
+      '(frontend/src/main.tsx) — no RSC entry point exists, so the vulnerable ' +
+      'code never executed even before the backport. Drop this entry when the ' +
+      'advisory range is corrected upstream or the router moves to >=8.3.0.',
     expires: '2026-09-01',
   },
   {
