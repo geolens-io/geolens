@@ -7,8 +7,34 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-29
+
+### Added
+
+- **Maps saved with a globe projection now render as globes everywhere.**
+  The shared-map viewer, embeds, and dataset previews applied the default
+  Mercator projection regardless of what the map was saved with; they now
+  honor the saved projection. (#845)
+
+### Security
+
+- **API keys expire and go stale with their owner.** Keys now carry an
+  expiry, are invalidated when the owner's key epoch rotates, and the
+  deprecated query-parameter lane is scoped down. (#864)
+- **react-router bumped to 7.18.2** for the upstream RSC CSRF backport.
+- **Admin settings routes are gated mode-aware**, matching the backend's
+  `require_settings_admin` — a route no longer renders for a role the API
+  would reject. (#857)
+
 ### Fixed
 
+- **Clusters no longer pile on top of each other.** The server-side cluster
+  grid read the cluster radius in tile units instead of screen pixels,
+  producing a grid roughly eight times finer than intended: overlapping
+  cluster bubbles and single features leaking through at low zoom. The
+  radius now converts to tile units correctly, the grid is anchored
+  consistently across tiles, and each cluster is owned by exactly one
+  tile. (#868)
 - **A backup cycle no longer fails just because the instance was busy.**
   Anything writing to object storage while the backup archived it made tar
   report "file changed as we read it", and the cycle treated that warning
@@ -16,6 +42,25 @@ and releases use semantic versioning.
   container unhealthy under the new freshness probe. The warning now keeps
   the archive and the cycle; only a fatal tar error (exit 2+) fails it.
   (#843)
+- **Silent frontend errors now reach the problem reporter.** Errors caught
+  by boundary components used to disappear; they are included in problem
+  reports, and the theme provider no longer throws when browser storage is
+  blocked. (#818)
+- **The builder's Ask-AI entry no longer flashes "unavailable" while
+  permissions load** — it stays in a loading state until the answer is
+  known. (#817)
+- **Attribute tables no longer lock up with a screen reader attached.**
+  Dynamic row measurement fed an accessibility-tree render loop; rows are
+  fixed-height now. (#830)
+- **Mid-edit admin settings survive a background refetch** instead of
+  being clobbered by the incoming server state. (#823)
+- **Exports validate their inputs**: a stray colon in a `where` filter or
+  a bad layer name returns a clear 4xx instead of an ogr2ogr failure.
+  (#832, #833)
+- Assorted accessibility and UX follow-ups from the 1.6.0 pre-tag audit:
+  keyboard and label fixes across admin and builder surfaces, plain layer
+  names in Ask-AI suggestions, and a cleared token-refresh retry timer in
+  the shared-map viewer's failure path. (#820, #831, #834)
 
 ## [1.6.0] - 2026-07-28
 
@@ -1398,7 +1443,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/geolens-io/geolens/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/geolens-io/geolens/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/geolens-io/geolens/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/geolens-io/geolens/compare/v1.4.13...v1.5.0
