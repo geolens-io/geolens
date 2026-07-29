@@ -36,6 +36,11 @@ from app.modules.auth.dependencies import get_current_active_user, require_permi
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
+from app.processing.ingest.layer_guard import (
+    known_layer_names as known_layer_names_for,
+    reject_option_like_layer_name,
+    validate_commit_layer_name,
+)
 from app.processing.ingest.ogr import (
     IngestionError,
     detect_geometry_columns,
@@ -615,6 +620,9 @@ async def preview_file(
     For raster files: returns band count, CRS, resolution, compliance status.
     Only callable on jobs with status 'pending'.
     """
+    # fix(#823): layer_name reaches ogrinfo argv; 422 option-like values.
+    reject_option_like_layer_name(layer_name)
+
     job = await get_job_or_404(db, job_id, user)
 
     if job.status != "pending":
@@ -813,6 +821,10 @@ async def commit_import(
         # per-field rules in a future phase.
         raise RequestValidationError(errors=e.errors())
 
+    # fix(#823): dash-guard + all_layers membership check for the commit's
+    # layer_name, which reaches the worker's ogr2ogr argv (see layer_guard).
+    validate_commit_layer_name(job, getattr(commit, "layer_name", None))
+
     # Extract token only for service commits (ServiceCommitRequest is the
     # only subclass with a token field). AUTH-04: never persisted.
     token = getattr(commit, "token", None)
@@ -892,16 +904,9 @@ async def commit_fan_out(
         )
 
     # Validate all requested layer_names appear in the job's all_layers preview.
-    all_layers: list[str] = (job.user_metadata or {}).get("all_layers", [])
-    # all_layers may be a list of dicts ({name: str, ...}) or a list of strings
-    # depending on how the preview stored them. Normalise to a set of strings.
-    if all_layers and isinstance(all_layers[0], dict):
-        known_layer_names: set[str] = {
-            lay.get("name", "")
-            for lay in all_layers  # type: ignore[union-attr]
-        }
-    else:
-        known_layer_names = set(all_layers)  # type: ignore[arg-type]
+    # fix(#823): normalisation extracted to layer_guard.known_layer_names,
+    # shared with the single-layer commit endpoint's new validation.
+    known_layer_names = known_layer_names_for(job)
 
     unknown = [
         layer.layer_name

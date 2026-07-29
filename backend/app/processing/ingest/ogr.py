@@ -119,6 +119,21 @@ class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
 
 
+def validate_layer_name_argv(layer_name: str) -> None:
+    """Reject option-like layer names before they reach a GDAL argv.
+
+    fix(#823): layer names are appended to ogrinfo/ogr2ogr argv as positional
+    tokens. A value starting with '-' could be parsed by GDAL as a command-line
+    flag instead of a layer name (argument-injection hygiene; the argv is
+    exec'd directly, never a shell). Called by every spawner in this module
+    that forwards a layer name.
+    """
+    if layer_name.startswith("-"):
+        raise IngestionError(
+            f"Invalid layer name {layer_name!r}: must not start with '-'"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Subprocess timeouts (R-5, R-9)
 # ---------------------------------------------------------------------------
@@ -427,6 +442,8 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> OgrinfoR
     When multiple layers exist and no layer_name is specified, all_layers lists them.
     Tries JSON output first (GDAL 3.7+), falls back to text parsing.
     """
+    if layer_name:
+        validate_layer_name_argv(layer_name)
     if _is_parquet(file_path):
         from app.processing.ingest.parquet import parquet_info
 
@@ -507,6 +524,8 @@ async def run_ogrinfo_preview(
     Returns dict with keys: srid, geometry_type, layer_name, feature_count,
     columns, sample_rows, all_layers.
     """
+    if layer_name:
+        validate_layer_name_argv(layer_name)
     if _is_parquet(file_path):
         from app.processing.ingest.parquet import parquet_info
 
@@ -594,6 +613,8 @@ async def run_ogr2ogr(
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+    if layer_name:
+        validate_layer_name_argv(layer_name)
 
     if _is_parquet(file_path):
         from app.processing.ingest.parquet import load_parquet_to_postgis
@@ -739,6 +760,8 @@ async def run_ogr2ogr_service(
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+    if layer_name:
+        validate_layer_name_argv(layer_name)
     cmd = [
         "ogr2ogr",
         "-f",
