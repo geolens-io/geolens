@@ -185,6 +185,35 @@ def test_cluster_query_emits_positive_offset_gid():
 
 
 # ---------------------------------------------------------------------------
+# fix(#868): cluster bucket grid — px->extent conversion + absolute anchoring
+# ---------------------------------------------------------------------------
+
+
+def test_cluster_query_converts_px_radius_to_extent_units():
+    """fix(#868): $6 arrives in CSS/screen pixels but the grid lives in MVT
+    extent units. At 512 px tile display one pixel is 4096/512 = 8 extent
+    units; the old math skipped the factor and built a ~8x-too-fine grid
+    (overlapping clusters + unclustered singles leaking at low zoom)."""
+    assert service._CLUSTER_PX_TO_EXTENT_UNITS == 4096 / 512
+    query = _build_cluster_tile_query("places")
+    assert f"$6::float8 * {service._CLUSTER_PX_TO_EXTENT_UNITS}" in query
+
+
+def test_cluster_query_buckets_on_absolute_3857_grid():
+    """fix(#868): the bucket grid anchors to absolute EPSG:3857 coordinates,
+    not the tile's own minx/miny. Bucket size at a fixed zoom is identical
+    for every tile, so absolute anchoring is what makes adjacent tiles at
+    one zoom share a single aligned grid (no cluster seams at borders)."""
+    query = _build_cluster_tile_query("places")
+    assert "bounds.minx" not in query
+    assert "bounds.miny" not in query
+    assert "ST_X(candidates.geom_3857)" in query
+    assert "ST_Y(candidates.geom_3857)" in query
+    # The degenerate-size guard must survive the rework.
+    assert "GREATEST(bounds.width * $6::float8" in query
+
+
+# ---------------------------------------------------------------------------
 # fix(#394) B-019/VT-01: reupload purges the MVT tile cache post-commit
 # ---------------------------------------------------------------------------
 

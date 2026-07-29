@@ -9,6 +9,7 @@ Requirements:
 """
 
 import gzip
+import math
 import time
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -136,6 +137,42 @@ async def _create_multipoint_data_table(session, table_name: str) -> None:
 async def _cleanup_data_table(session, table_name: str) -> None:
     """Drop the test data table."""
     await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+    await session.commit()
+
+
+# fix(#868): coordinates for the cluster bucket-semantics regression test.
+# EPSG:3857 meters. pair_a/pair_b sit ~30 CSS px apart on a z0 tile (512 px
+# display), inside one absolute 48-px bucket; "lone" is far away in its own
+# bucket so it must come through as an unclustered single.
+_WEB_MERCATOR_WORLD_WIDTH = 40075016.6855785
+_CLUSTER_SEMANTICS_POINTS = (
+    ("pair_a", 300_000.0, 300_000.0),
+    ("pair_b", 2_648_145.0, 300_000.0),
+    ("lone", -10_000_000.0, -5_000_000.0),
+)
+
+
+async def _create_cluster_semantics_table(session, table_name: str) -> None:
+    """Point table holding the fix(#868) bucket-semantics fixture points."""
+    await session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS data.{table_name} ("
+            f"  gid SERIAL PRIMARY KEY,"
+            f"  name TEXT,"
+            f"  geom_4326 GEOMETRY(Point, 4326)"
+            f")"
+        )
+    )
+    for name, x, y in _CLUSTER_SEMANTICS_POINTS:
+        await session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (name, geom_4326) VALUES ("
+                f"  :name,"
+                f"  ST_Transform(ST_SetSRID(ST_MakePoint(:x, :y), 3857), 4326)"
+                f")"
+            ),
+            {"name": name, "x": x, "y": y},
+        )
     await session.commit()
 
 
@@ -341,8 +378,9 @@ class TestTileEndpoint:
         assert resp.status_code == 200
         # fix(#403): the cluster endpoint now supports the cols= opt-in, so
         # its cache lookups carry a cols_key segment (empty without cols=).
+        # fix(#868): the key carries the cluster SQL semantic version (v2).
         mock_cache.get.assert_awaited_once_with(
-            f"{table_name}:cluster:r64:z12", 0, 0, 0, cols_key=""
+            f"{table_name}:cluster:v2:r64:z12", 0, 0, 0, cols_key=""
         )
 
     async def test_empty_tile_returns_204(
@@ -664,3 +702,86 @@ class TestTilePool:
             _validate_tile_table_name("table-name")
         with pytest.raises(ValueError):
             _validate_tile_table_name("Table_Name")
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+class TestClusterBucketSemantics:
+    """fix(#868): SQL-level regression tests for the cluster bucket grid.
+
+    The shipped math treated cluster_radius (CSS px) as MVT extent units,
+    building a ~8x-too-fine grid: overlapping cluster circles plus
+    unclustered singles leaking at low zoom.
+    """
+
+    @staticmethod
+    def _rows_sql(table_name: str) -> str:
+        """The shipped cluster query with ST_AsMVT swapped for a row SELECT.
+
+        Reuses every CTE of _build_cluster_tile_query verbatim (bounds,
+        candidates, bucketed, grouped, features) so the assertions exercise
+        the exact SQL the endpoint executes; only the final MVT encode is
+        replaced because the suite carries no MVT decoder dependency.
+        """
+        from app.processing.tiles.service import _build_cluster_tile_query
+
+        query = _build_cluster_tile_query(
+            table_name, attr_columns=[{"name": "name", "type": "text"}]
+        )
+        head, sep, _tail = query.rpartition("SELECT ST_AsMVT")
+        assert sep, "cluster query tail changed; update this test's split point"
+        # $4 (layer name) only appeared inside ST_AsMVT; keep it referenced so
+        # the prepared statement still binds all six parameters.
+        return head + (
+            "SELECT $4::text AS layer_name, cluster, point_count,\n"
+            "    point_count_abbreviated, source_gid, name\n"
+            "FROM features\nWHERE geom IS NOT NULL"
+        )
+
+    async def test_radius_is_css_px_and_lone_point_stays_single(self, test_db_session):
+        """Two points ~30 px apart at z0 with radius 48 land in ONE cluster
+        (the pre-#868 math split them), and a lone point comes through as an
+        unclustered single carrying its projected attributes."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_sem_{uuid.uuid4().hex[:8]}"
+        await _create_cluster_semantics_table(test_db_session, table_name)
+
+        # Spec of the regression in plain arithmetic (z0 tile = whole world).
+        xs = [_CLUSTER_SEMANTICS_POINTS[0][1], _CLUSTER_SEMANTICS_POINTS[1][1]]
+        pair_px = abs(xs[1] - xs[0]) / _WEB_MERCATOR_WORLD_WIDTH * 512
+        assert 29.0 < pair_px < 31.0  # ~30 CSS px apart
+        # Old math: tile-anchored grid, px treated as extent units (~5.5 px).
+        old_bucket = _WEB_MERCATOR_WORLD_WIDTH * 48 / 4096
+        half_world = _WEB_MERCATOR_WORLD_WIDTH / 2
+        assert math.floor((xs[0] + half_world) / old_bucket) != math.floor(
+            (xs[1] + half_world) / old_bucket
+        ), "fixture points no longer demonstrate the pre-#868 split"
+        # New math: absolute grid, 48 real CSS px per bucket.
+        new_bucket = _WEB_MERCATOR_WORLD_WIDTH * 48 * (4096 / 512) / 4096
+        assert math.floor(xs[0] / new_bucket) == math.floor(xs[1] / new_bucket)
+
+        try:
+            pool = get_tile_pool()
+            rows = await pool.fetch(
+                self._rows_sql(table_name),
+                0,  # z
+                0,  # x
+                0,  # y
+                f"data.{table_name}",
+                14,  # cluster_max_zoom
+                48,  # cluster_radius, CSS px
+            )
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        assert len(rows) == 2
+        clusters = [r for r in rows if r["cluster"]]
+        singles = [r for r in rows if not r["cluster"]]
+        assert len(clusters) == 1
+        assert clusters[0]["point_count"] == 2
+        assert clusters[0]["point_count_abbreviated"] == "2"
+        assert clusters[0]["name"] is None  # attrs stay off cluster features
+        assert len(singles) == 1
+        assert singles[0]["point_count"] is None
+        assert singles[0]["source_gid"] is not None
+        assert singles[0]["name"] == "lone"  # attr projection on singles

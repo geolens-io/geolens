@@ -66,6 +66,15 @@ _CLUSTER_INPUT_LIMIT = 100000
 # 360/(extent*2^z) degrees of longitude at zoom z.
 _MVT_EXTENT = 4096
 
+# fix(#868): cluster_radius arrives in CSS/screen pixels (MapLibre clusterRadius
+# semantics, matching the client-side cluster path). Tiles display at 512 CSS px,
+# so one pixel covers _MVT_EXTENT / 512 = 8 extent units. The old bucket math
+# divided by the extent without this factor, treating pixels as extent units and
+# producing a grid ~8x finer than requested (overlapping cluster circles plus
+# unclustered singles leaking at low zoom).
+_TILE_DISPLAY_SIZE_PX = 512
+_CLUSTER_PX_TO_EXTENT_UNITS = _MVT_EXTENT / _TILE_DISPLAY_SIZE_PX
+
 # builder-audit #338 MVT-07: simplification tolerance schedule. Below this zoom the
 # geometry is simplified; at/above it the original geometry is served untouched.
 # (Distinct from _DEFAULT_NO_ATTR_BELOW_ZOOM, which happens to share the value 10
@@ -291,7 +300,15 @@ def _build_cluster_tile_query(
 
     Parameters at execution time:
     $1=z, $2=x, $3=y, $4=source layer name, $5=cluster max zoom,
-    $6=cluster radius in tile pixels.
+    $6=cluster radius in CSS/screen pixels (MapLibre ``clusterRadius``
+    semantics; converted to MVT extent units in-query via
+    ``_CLUSTER_PX_TO_EXTENT_UNITS`` — fix(#868)).
+
+    fix(#868): the bucket grid is anchored to absolute EPSG:3857 coordinates
+    (``floor(ST_X(geom) / bucket_size)``), not to the tile's own minx/miny.
+    Bucket size at a fixed zoom is identical for every tile, so anchoring
+    absolutely makes the grids of adjacent tiles line up instead of drifting
+    by each tile's origin offset (a seam artifact at tile borders).
 
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
@@ -341,8 +358,6 @@ bounds AS (
     SELECT
         _env.geom,
         ST_Transform(_env.geom, 4326) AS geom_4326,
-        ST_XMin(_env.geom) AS minx,
-        ST_YMin(_env.geom) AS miny,
         GREATEST(ST_XMax(_env.geom) - ST_XMin(_env.geom), 1.0) AS width,
         GREATEST(ST_YMax(_env.geom) - ST_YMin(_env.geom), 1.0) AS height
     FROM _env
@@ -360,17 +375,20 @@ bucketed AS (
     SELECT
         candidates.gid,
         candidates.geom_3857,
+        -- fix(#868): bucket size converts $6 (CSS px) to extent units before
+        -- scaling by tile width, and the grid anchors to absolute 3857 coords
+        -- so adjacent tiles at the same zoom share one grid.
         CASE
             WHEN $1::integer <= $5::integer THEN floor(
-                (ST_X(candidates.geom_3857) - bounds.minx)
-                / GREATEST(bounds.width * $6::float8 / 4096.0, 1.0)
+                ST_X(candidates.geom_3857)
+                / GREATEST(bounds.width * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0)
             )::integer
             ELSE candidates.gid
         END AS bucket_x,
         CASE
             WHEN $1::integer <= $5::integer THEN floor(
-                (ST_Y(candidates.geom_3857) - bounds.miny)
-                / GREATEST(bounds.height * $6::float8 / 4096.0, 1.0)
+                ST_Y(candidates.geom_3857)
+                / GREATEST(bounds.height * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0)
             )::integer
             ELSE candidates.gid
         END AS bucket_y
@@ -538,7 +556,9 @@ async def get_cluster_tile(
             and popups work past cluster max zoom.
         tile_columns: Phase 269 H-23 allowlist override (None / [] / list).
         additional_columns: Runtime opt-in columns (the ``cols=`` param).
-        cluster_radius: Cluster radius in tile pixels.
+        cluster_radius: Cluster radius in CSS/screen pixels (MapLibre
+            ``clusterRadius`` semantics; converted to MVT extent units
+            inside the query — fix(#868)).
         cluster_max_zoom: Maximum zoom level at which clustering is active.
         conn: Optional already-acquired asyncpg connection (see ``get_tile``
             docstring for DP-02 details; T-1209-10).
