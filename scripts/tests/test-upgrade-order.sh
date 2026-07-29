@@ -9,6 +9,9 @@
 #   - a NON-ZERO migrate aborts BEFORE `up -d` and prints the rollback recipe
 #   - a source-build install (COMPOSE_FILE=docker-compose.yml) exits 0 with the
 #     source-build instructions and makes NO compose/pg_dump calls
+#   - test(#826) wait_for_healthy edge cases: a still-starting service passes
+#     ONLY while inside its declared start_period; one that outlived it fails
+#     the wait; an (unhealthy) service at budget end fails the wait
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -97,11 +100,22 @@ if [ "$1" = "compose" ]; then
       done
       echo "app_up" >> "$LOG"; exit 0 ;;
     ps)
-      # `ps -aq migrate` -> a fake container id; `ps --format ...` -> empty
-      # (no unhealthy services, health gate passes immediately).
+      # `ps -aq migrate` -> a fake container id. `ps --format ...` (the
+      # health-gate poll) -> the DOCKER_PS_STATUS table, empty by default so
+      # the gate passes immediately. `ps -q <service>` -> a per-service cid
+      # for wait_for_healthy's start_period lookup (test(#826)).
       for a in "$@"; do
         if [ "$a" = "migrate" ]; then echo "mig-cid"; exit 0; fi
       done
+      case "$*" in
+        *--format*)
+          [ -n "${DOCKER_PS_STATUS:-}" ] && printf '%s\n' "$DOCKER_PS_STATUS"
+          exit 0 ;;
+        *" -q "*)
+          for a in "$@"; do svc="$a"; done
+          echo "cid-$svc"
+          exit 0 ;;
+      esac
       exit 0 ;;
     logs) exit 0 ;;
     *) exit 0 ;;
@@ -113,8 +127,18 @@ if [ "$1" = "wait" ]; then
   exit 0
 fi
 if [ "$1" = "inspect" ]; then
-  # --format '{{.State.Status}}' -> exited ; '{{.State.ExitCode}}' -> 0|3
+  # --format '{{.State.Status}}' -> exited ; '{{.State.ExitCode}}' -> 0|3.
+  # test(#826): '{{.Config.Healthcheck.StartPeriod.Seconds}}' -> the declared
+  # start_period for the cid-<svc> container, read from DOCKER_SP_<svc>.
+  # Empty/unset models an unreadable healthcheck (fail-open branch); the real
+  # docker prints a template error to stderr and nothing to stdout there.
   case "$*" in
+    *StartPeriod*)
+      for a in "$@"; do cid="$a"; done
+      svc="${cid#cid-}"
+      eval "sp=\${DOCKER_SP_${svc}:-}"
+      [ -n "$sp" ] && echo "$sp"
+      exit 0 ;;
     *State.Status*)   echo "exited" ; exit 0 ;;
     *State.ExitCode*) [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0 ; exit 0 ;;
   esac
@@ -127,6 +151,12 @@ DOCKER
   # --- pg_dump stub (need_command pg_dump must succeed) --------------------
   printf '#!/bin/sh\nexit 0\n' > "$SHIM/pg_dump"
   chmod +x "$SHIM/pg_dump"
+
+  # --- sleep stub: wait_for_healthy polls 18 x 5s, so the health-gate cases
+  # (test(#826)) would otherwise take 90 real seconds each. upgrade.sh has no
+  # other sleep, so a no-op is safe.
+  printf '#!/bin/sh\nexit 0\n' > "$SHIM/sleep"
+  chmod +x "$SHIM/sleep"
 
   # --- git stub: ls-remote returns a newer tag for auto-resolve. fetch/checkout
   # (the UPG release-file sync) record to $GIT_LOG so the sync can be asserted
@@ -168,6 +198,8 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
       DOCKER_STOP_MODE="${STOP_MODE:-ok}" \
       DOCKER_VERIFY_MODE="${VERIFY_MODE:-ok}" \
+      DOCKER_PS_STATUS="${PS_STATUS:-}" \
+      DOCKER_SP_backup="${SP_BACKUP:-}" DOCKER_SP_api="${SP_API:-}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
@@ -456,6 +488,107 @@ else
   bad "unreadable server version blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
+
+# ============================================================================
+# CASE 8 — test(#826) wait_for_healthy: a service still `(health: starting)`
+# at budget end passes ONLY while inside its declared start_period. The prod
+# backup service declares start_period 10m for its first pg_dump — far beyond
+# the 90s budget — so it must warn and succeed, not fail the upgrade.
+# (sleep is stubbed, so the 18 x 5s poll loop runs instantly.)
+# ============================================================================
+seed_prod_env
+PS_STATUS='backup|Up 30 seconds (health: starting)'
+SP_BACKUP=600
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "still-starting service INSIDE its start_period converges (upgrade succeeds)"
+else
+  bad "in-start_period service failed the wait (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'within their declared start_period' "$WORK/out.txt"; then
+  ok "converging services are surfaced with the start_period warning"
+else
+  bad "no start_period warning was printed for the converging service"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# ============================================================================
+# CASE 9 — test(#826): a service stuck in `(health: starting)` PAST its
+# declared start_period has been failing probes since the window closed (a
+# passing probe would have flipped it healthy). It must FAIL the wait, not
+# ride the converging branch — this was the untested hole where a broken
+# healthcheck passed the upgrade.
+# ============================================================================
+seed_prod_env
+PS_STATUS='backup|Up 2 minutes (health: starting)'
+SP_BACKUP=30
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ]; then
+  ok "service stuck past its start_period FAILS the wait (upgrade exits non-zero)"
+else
+  bad "stuck service passed the wait (exit=0)"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'outlived their declared start_period' "$WORK/out.txt" \
+   && grep -q 'start_period is only 30s' "$WORK/out.txt"; then
+  ok "failure names the overdue service with its declared start_period"
+else
+  bad "overdue-service diagnostic missing from the output"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'ROLLBACK' "$WORK/out.txt"; then
+  ok "stuck service failure prints the rollback recipe"
+else
+  bad "stuck service failure did not print the rollback recipe"
+fi
+
+# Mixed: one straggler within its window, one past it — the overdue one must
+# still fail the wait (no blanket pass because A converging service exists).
+seed_prod_env
+PS_STATUS='backup|Up 2 minutes (health: starting)
+api|Up 2 minutes (health: starting)'
+SP_BACKUP=600
+SP_API=15
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'api: still (health: starting)' "$WORK/out.txt"; then
+  ok "mixed stragglers: the overdue service fails the wait even beside a converging one"
+else
+  bad "mixed stragglers did not fail on the overdue service (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+SP_API=""
+
+# Unreadable start_period fails OPEN (converging), matching the script's other
+# best-effort probes — a docker inspect hiccup must not tell the operator to
+# roll back a stack that is coming up fine.
+seed_prod_env
+PS_STATUS='backup|Up 30 seconds (health: starting)'
+SP_BACKUP=""
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -q 'within their declared start_period' "$WORK/out.txt"; then
+  ok "unreadable start_period fails open (still-starting service treated as converging)"
+else
+  bad "unreadable start_period blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# ============================================================================
+# CASE 10 — test(#826): an (unhealthy) service at budget end takes the broken
+# branch and fails the wait (previously untested — the stub always answered
+# an empty, instantly-healthy stack).
+# ============================================================================
+seed_prod_env
+PS_STATUS='api|Up 3 minutes (unhealthy)'
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'timed out after 90s waiting for services' "$WORK/out.txt"; then
+  ok "(unhealthy) service at budget end fails the wait with the timeout diagnostic"
+else
+  bad "(unhealthy) service did not fail the wait (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+PS_STATUS=""
+SP_BACKUP=""
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

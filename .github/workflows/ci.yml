@@ -172,6 +172,10 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/restore.sh'
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
+              # test(#826): the bundled-mode leg restores through the REAL
+              # restore.sh against this db-only compose stack.
+              - 'scripts/tests/ci-restore-db.compose.yml'
+              - 'db/**'
               # Both compose files carry the backup service healthcheck.
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
@@ -324,9 +328,13 @@ jobs:
   # Boots the backup image (built/loaded from --target backup in the root
   # Dockerfile) and exercises backup → restore for BOTH DB modes:
   #   BUNDLED: backup image runs pg_dump + SigV4 S3 upload inside the image;
-  #            restored dump row counts must match exactly.
+  #            the dump is then restored by the REAL scripts/restore.sh
+  #            (test(#826)) into a db-only compose stack
+  #            (scripts/tests/ci-restore-db.compose.yml); restored row counts
+  #            must match exactly and geolens_reader must SELECT restored data.
   #   MANAGED: provider-snapshot DB (seeded directly) + object-storage archive
-  #            pulled from MinIO; asserts the functional pairing.
+  #            pulled from MinIO; asserts the functional pairing (restore.sh's
+  #            compose-exec path deliberately does not apply to an external DB).
   # The fast leg (test-backup-restore-roundtrip.sh, both modes, no S3) runs
   # first; the full image-boot leg follows to prove the shipped SigV4 path.
   backup-roundtrip:
@@ -437,12 +445,22 @@ jobs:
             exit 1
           fi
 
-      - name: BUNDLED MODE — boot backup image (SigV4 S3 upload via image) → download → pg_restore → row-count assert
+      - name: BUNDLED MODE — boot backup image (SigV4 S3 upload via image) → REAL scripts/restore.sh → row-count + reader assert
+        env:
+          # test(#826): everything scripts/restore.sh needs, env-parameterized
+          # (the CI checkout ships no .env): the db-only compose stack whose
+          # `db` service is the restore target, and the target credentials/
+          # database. COMPOSE_PROJECT_NAME is pinned so this step's compose
+          # calls and the ones restore.sh makes resolve to the same project.
+          COMPOSE_FILE: scripts/tests/ci-restore-db.compose.yml
+          COMPOSE_PROJECT_NAME: geolens-ci-restore
+          POSTGRES_USER: geolens
+          POSTGRES_PASSWORD: geolens_test
+          POSTGRES_DB: geolens
         run: |
           set -euo pipefail
           # Seed a source DB with known rows.
           SRC=geolens_ci_bund_src_$$
-          DST=geolens_ci_bund_dst_$$
           createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC"
           psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -v ON_ERROR_STOP=1 -c \
             "CREATE SCHEMA IF NOT EXISTS catalog;
@@ -489,50 +507,45 @@ jobs:
           [ -n "$DUMP_FILE" ] || { echo "FAIL: backup image produced no dump file"; exit 1; }
           [ -s "$DUMP_FILE" ] || { echo "FAIL: backup image dump file is empty"; exit 1; }
 
-          # Restore into DST using the same flags restore.sh uses (bundled-mode
-          # recovery path). Tolerate expected nonzero on warnings from --clean.
-          pg_restore --list "$DUMP_FILE" >/dev/null
-          createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$DST"
-          set +e
-          pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" \
-            --clean --if-exists --no-owner "$DUMP_FILE" 2>/tmp/bund-restore.err
-          RC=$?
-          set -e
-          if [ "$RC" -ne 0 ] && grep -qi "error:" /tmp/bund-restore.err; then
-            cat /tmp/bund-restore.err >&2
-            echo "FAIL: bundled-mode pg_restore reported errors (exit ${RC})"; exit 1
-          fi
+          # test(#826): restore through the REAL scripts/restore.sh — no inline
+          # replica of its flags. The old copy here had already drifted (it
+          # validated with `pg_restore --list`, which passes a truncated -Fc
+          # dump, while the script uses the stricter `-f /dev/null`, #710).
+          # Bring up the db-only compose stack the script will exec into; its
+          # image is the shipped db/Dockerfile build (restore.sh's fail-closed
+          # pre-restore DDL needs postgis/pg_trgm/unaccent/vector installed).
+          docker compose -f "$COMPOSE_FILE" up -d --build --wait db
 
-          DST_R=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc "SELECT COUNT(*) FROM catalog.records;")
-          DST_D=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc "SELECT COUNT(*) FROM catalog.datasets;")
-          # Hard row-count asserts — must not be weakened with || true (T-1247-09).
+          # The script validates the archive end-to-end, runs the pre-restore
+          # DDL, pg_restore --clean --if-exists --no-owner, classifies
+          # warnings vs errors, and re-applies the geolens_reader grants.
+          # Its exit code is the gate (set -e).
+          bash scripts/restore.sh "$DUMP_FILE"
+
+          # Hard row-count asserts — must not be weakened with || true
+          # (T-1247-09). The restored side now lives in the compose db.
+          DST_R=$(docker compose -f "$COMPOSE_FILE" exec -T db \
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")
+          DST_D=$(docker compose -f "$COMPOSE_FILE" exec -T db \
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")
           [ "$SRC_R" = "$DST_R" ] || { echo "FAIL: bundled-mode records count mismatch: $SRC_R != $DST_R"; exit 1; }
           [ "$SRC_D" = "$DST_D" ] || { echo "FAIL: bundled-mode datasets count mismatch: $SRC_D != $DST_D"; exit 1; }
 
           # geolens_reader grant round-trip: --clean drops schema `data` with
           # its ACLs and the dump is --no-acl, so restore.sh re-grants AFTER
-          # pg_restore. Mirror that re-grant here, then prove the reader can
-          # actually select from a restored table in schema `data`.
-          psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -v ON_ERROR_STOP=1 -c \
-            "DO \$\$
-             BEGIN
-                 IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
-                     CREATE ROLE geolens_reader NOLOGIN;
-                 END IF;
-             END
-             \$\$;
-             GRANT USAGE ON SCHEMA data TO geolens_reader;
-             GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
-             ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;"
+          # pg_restore. The re-grant now ran inside the script; prove its
+          # EFFECT independently — the reader role can actually select from a
+          # restored table in schema `data`.
           # tail -1: -tA still prints the SET command tag ahead of the count
-          READER_CNT=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc \
+          READER_CNT=$(docker compose -f "$COMPOSE_FILE" exec -T db \
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
             "SET ROLE geolens_reader; SELECT COUNT(*) FROM data.ci_probe;" | tail -n 1)
           [ "$READER_CNT" = "1" ] || { echo "FAIL: geolens_reader cannot select restored data.ci_probe (got '${READER_CNT}')"; exit 1; }
           echo "  geolens_reader post-restore grant verified (data.ci_probe readable)"
 
-          echo "PASS [BUNDLED MODE]: image backup→SigV4-S3→restore, records=${SRC_R} datasets=${SRC_D}"
+          echo "PASS [BUNDLED MODE]: image backup→SigV4-S3→scripts/restore.sh, records=${SRC_R} datasets=${SRC_D}"
           dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$SRC"
-          dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$DST"
+          docker compose -f "$COMPOSE_FILE" down -v
 
       - name: MANAGED MODE — provider-snapshot DB + object-storage archive recovery → row-count + object-tree assert
         run: |

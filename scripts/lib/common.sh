@@ -120,11 +120,16 @@ semver_compare() {
 # copy (300s budget, non-fatal rc=2 timeout) — see the header note above.
 #
 # Services still in `(health: starting)` when the budget runs out are treated
-# as converging, not failed: they sit inside their own declared start_period
+# as converging ONLY while they sit inside their own declared start_period
 # (e.g. the backup service allows 10m for its first pg_dump of a large DB,
-# far beyond this 90s budget), so Docker has not judged them yet — and neither
-# should we. Only a service that is (unhealthy), restarting, or exited
-# non-zero fails the wait.
+# far beyond this 90s budget) — there Docker has not judged them yet, and
+# neither should we. test(#826): that claim is now VERIFIED per service, not
+# assumed. A service whose start_period is at or below the time we already
+# waited has been failing probes since the period ended (one passing probe
+# would have flipped it healthy), so it is heading for (unhealthy) and fails
+# the wait. Anything (unhealthy), restarting, or exited non-zero fails as
+# before; an unreadable start_period fails open (treated as converging),
+# matching this script's other best-effort probes.
 wait_for_healthy() {
   attempts=18
   sleep_s=5
@@ -173,11 +178,39 @@ wait_for_healthy() {
   fi
   broken=$(printf '%s\n' "$remaining" | grep -v '(health: starting)' || true)
   if [ -z "$broken" ]; then
-    printf '\n'
-    warn "these services are still starting after $((attempts * sleep_s))s but remain within their declared start_period:"
-    printf '%s\n' "$remaining" | sed 's/^/  /' >&2
-    warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
-    return 0
+    budget=$((attempts * sleep_s))
+    # test(#826): verify each straggler really is inside its DECLARED
+    # start_period before letting it pass. `(health: starting)` only means
+    # Docker has not ruled yet — a service with a broken healthcheck can sit
+    # there long after its grace window closed. The container was started at
+    # (or before) the `compose up -d` this wait follows, so the budget we
+    # already spent is a lower bound on its age: start_period <= budget means
+    # the window is over and every probe since has failed.
+    overdue=""
+    for svc in $(printf '%s\n' "$remaining" | cut -d'|' -f1); do
+      cid=$(compose ps -q "$svc" 2>/dev/null | head -n 1)
+      sp=""
+      if [ -n "$cid" ]; then
+        sp=$(docker inspect --format '{{.Config.Healthcheck.StartPeriod.Seconds}}' "$cid" 2>/dev/null \
+          | head -n 1 | cut -d. -f1 | tr -cd '0-9')
+      fi
+      if [ -n "$sp" ] && [ "$sp" -le "$budget" ]; then
+        overdue="${overdue}  ${svc}: still (health: starting) after ${budget}s, but its declared start_period is only ${sp}s
+"
+      fi
+    done
+    if [ -z "$overdue" ]; then
+      printf '\n'
+      warn "these services are still starting after ${budget}s but remain within their declared start_period:"
+      printf '%s\n' "$remaining" | sed 's/^/  /' >&2
+      warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
+      return 0
+    fi
+    printf '\n' >&2
+    warn "timed out after ${budget}s; these services outlived their declared start_period without a passing health probe:"
+    printf '%s' "$overdue" >&2
+    warn "Inspect with: docker compose ps  /  docker compose logs <service>"
+    return 1
   fi
   printf '\n' >&2
   warn "timed out after $((attempts * sleep_s))s waiting for services. Current status:"

@@ -1,0 +1,29 @@
+# test(#826): db-only compose stack for the CI backup round-trip
+# (.github/workflows/ci.yml, backup-roundtrip job, BUNDLED MODE step).
+#
+# scripts/restore.sh restores via `docker compose exec -T db ...`, so proving
+# the REAL script — instead of an inline replica of its flags that silently
+# drifts (the replica had already regressed to `pg_restore --list` while the
+# script uses the stricter `-f /dev/null`) — needs a compose project whose
+# `db` service is the restore target. Built from db/Dockerfile (the shipped
+# image) because restore.sh's fail-closed pre-restore DDL creates the postgis /
+# pg_trgm / unaccent / vector extensions and must find them installed.
+#
+# No host ports and no volumes: restore.sh streams the dump over `exec -T`,
+# and the container is disposable (`down -v` at the end of the CI step). The
+# CI step pins COMPOSE_PROJECT_NAME so its own compose calls and the ones
+# restore.sh makes resolve to the same project.
+services:
+  db:
+    build:
+      context: ../../db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-geolens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geolens_test}
+      POSTGRES_DB: ${POSTGRES_DB:-geolens}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geolens} -d ${POSTGRES_DB:-geolens}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
