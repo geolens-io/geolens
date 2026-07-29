@@ -130,11 +130,11 @@ describe('useSettingsForm', () => {
       { key: 'flag', defaultValue: false },
     ] as const;
 
-    type Props = { s: SettingItem[]; saving?: boolean };
+    type Props = { s: SettingItem[]; saving?: boolean; failed?: boolean };
 
     function renderWithSettings(settings: SettingItem[]) {
       return renderHook(
-        ({ s, saving }: Props) => useSettingsForm(s, fields, saving),
+        ({ s, saving, failed }: Props) => useSettingsForm(s, fields, saving, failed),
         { initialProps: { s: settings } as Props },
       );
     }
@@ -246,6 +246,26 @@ describe('useSettingsForm', () => {
 
       expect(result.current.values.name).toBe('Carol');
       expect(result.current.hasDirty).toBe(true);
+    });
+
+    it('drops the snapshot when a save fails, so a later reset wins', () => {
+      const initial = [makeSetting('name', 'Alice'), makeSetting('flag', false)];
+      const { result, rerender } = renderWithSettings(initial);
+
+      act(() => result.current.setters.name('Bob'));
+      rerender({ s: initial, saving: true });
+
+      // The save fails: mutation settles with an error, no refetch happens.
+      rerender({ s: initial, saving: false, failed: true });
+
+      // The user edits the field again, then resets it.
+      act(() => result.current.setters.name('Dave'));
+      rerender({ s: [makeSetting('name', 'Default'), makeSetting('flag', false)], saving: false, failed: true });
+
+      // The failed submission must not be misread as a post-submit edit:
+      // the reset's server value wins and the form reads pristine.
+      expect(result.current.values.name).toBe('Default');
+      expect(result.current.hasDirty).toBe(false);
     });
 
     it('reads pristine after a pending save when the draft was not edited again', () => {

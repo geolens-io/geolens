@@ -35,6 +35,9 @@ export function useSettingsForm<K extends string>(
   /** The save mutation's pending flag; lets the hook snapshot what was
    *  submitted so a post-submit edit survives the save's own refetch. */
   isSaving = false,
+  /** The save mutation's error flag; a failed save acknowledged nothing,
+   *  so the submitted snapshot is dropped as soon as this turns true. */
+  saveFailed = false,
 ) {
   type Values = Record<K, unknown>;
 
@@ -66,6 +69,18 @@ export function useSettingsForm<K extends string>(
   useEffect(() => {
     if (isSaving) submittedRef.current = valuesRef.current;
   }, [isSaving]);
+
+  // Snapshot lifetime rule: a SUCCESSFUL save always produces a settings
+  // refetch, and that refetch can land after isSaving settles — so the
+  // snapshot must stay armed across the pending→settled edge and is
+  // consumed by the merge effect below. A FAILED save produces no
+  // refetch and acknowledged nothing, so the snapshot is cleared the
+  // moment the mutation reports an error; otherwise a later reset or
+  // external change would be misread as a post-submit edit and the
+  // stale draft would win over the new server value.
+  useEffect(() => {
+    if (saveFailed) submittedRef.current = null;
+  }, [saveFailed]);
 
   // fix(#830): only sync untouched fields on refetch — a mid-edit query
   // invalidation (e.g. the semantic-search toggle) must not wipe drafts.
