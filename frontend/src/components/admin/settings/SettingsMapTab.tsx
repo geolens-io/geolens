@@ -24,6 +24,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -99,9 +100,9 @@ const MAP_FIELDS = [
   { key: 'enabled_plugins', defaultValue: [] as string[], compare: 'json' as const, coerce: coerceEnabledPlugins },
 ] as const;
 
-export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
+export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, MAP_FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, MAP_FIELDS, isSaving, saveFailed);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newAttribution, setNewAttribution] = useState('');

@@ -48,6 +48,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }>> = {
   general: SettingsGeneralTab,
@@ -154,6 +155,7 @@ export function AdminSettingsPage() {
           onSave={handleSave}
           onReset={handleReset}
           isSaving={updateMutation.isPending}
+          saveFailed={updateMutation.isError}
           onDirtyChange={handleDirtyChange}
         />
       </div>

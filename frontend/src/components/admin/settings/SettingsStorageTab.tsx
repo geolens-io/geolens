@@ -13,6 +13,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -24,9 +25,9 @@ const FIELDS = [
   { key: 'max_datasets_per_user', defaultValue: 0 },
 ] as const;
 
-export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
+export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS, isSaving, saveFailed);
 
   return (
     <div className="space-y-6">
