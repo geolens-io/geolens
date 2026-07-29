@@ -141,6 +141,10 @@ jobs:
               - '.env.example'
               - 'db/**'
               - 'scripts/init-db.sh'
+              # fix(#866 review r4): the job invokes the root `make mcp-test`
+              # and `make mcp-live-test` recipes, so a Makefile-only change
+              # must run it.
+              - 'Makefile'
               # Same rationale as the backend filter's #561 entry — a change
               # to this workflow alters HOW the mcp job runs (incl. the live
               # tier's boot recipe), so the job must run on PRs that touch it.
@@ -897,6 +901,13 @@ jobs:
           # must be ≥ 32 chars to satisfy the Settings validator.
           sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
           sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=mcp-live-secret-key-padding-32chars-min|' .env
+          # fix(#866 review r4): BOTH admin values must land in .env before
+          # compose up — .env.example ships GEOLENS_ADMIN_USERNAME= blank,
+          # compose interpolates it with no default, and the boot guard
+          # FATALs on an empty username. (The e2e jobs solve this by
+          # exporting to GITHUB_ENV before compose up; step-scoped env on
+          # the test step arrives after boot and cannot help.)
+          sed -i -E 's|^GEOLENS_ADMIN_USERNAME=.*|GEOLENS_ADMIN_USERNAME=admin|' .env
           sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
           echo "DATABASE_SSL_MODE=disable" >> .env
 
