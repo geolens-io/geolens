@@ -18,10 +18,15 @@ const mocks = vi.hoisted(() => ({
   capabilities: new Set<string>(),
   isMultiTenant: false,
   editionLoading: false,
+  permissionsLoading: false,
 }));
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({
-    can: (capability: string) => mocks.capabilities.has(capability),
+    // Mirrors the real hook: permissions are null while loading, so can()
+    // answers false for everything until the query resolves.
+    can: (capability: string) =>
+      !mocks.permissionsLoading && mocks.capabilities.has(capability),
+    isLoading: mocks.permissionsLoading,
   }),
 }));
 vi.mock('@/hooks/use-edition', () => ({
@@ -66,6 +71,7 @@ describe('useAIStatus / useAIAvailability — caching (SP-08)', () => {
     mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
     mocks.isMultiTenant = false;
     mocks.editionLoading = false;
+    mocks.permissionsLoading = false;
     useAuthStore.setState({
       token: 'test-token',
       refreshToken: null,
@@ -146,6 +152,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
     mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
     mocks.isMultiTenant = false;
     mocks.editionLoading = false;
+    mocks.permissionsLoading = false;
     mockGetAIStatus.mockResolvedValue({
       enabled: true,
       configured: true,
@@ -306,6 +313,7 @@ describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {
     mocks.capabilities = new Set(['use_ai_chat', 'manage_users']);
     mocks.isMultiTenant = false;
     mocks.editionLoading = false;
+    mocks.permissionsLoading = false;
     // Default auth state: admin token.
     useAuthStore.setState({
       token: 'admin-token',
@@ -426,6 +434,7 @@ describe('useAIAvailability — mode-aware status gate (fix #815)', () => {
     vi.clearAllMocks();
     mocks.isMultiTenant = false;
     mocks.editionLoading = false;
+    mocks.permissionsLoading = false;
     mockGetAIStatus.mockResolvedValue({
       enabled: true,
       configured: true,
@@ -499,6 +508,41 @@ describe('useAIAvailability — mode-aware status gate (fix #815)', () => {
     expect(mockGetAIAvailability).not.toHaveBeenCalled();
     expect(result.current.isLoading).toBe(true);
     expect(result.current.reason).toBeNull();
+  });
+
+  // fix(#818): can() answers false while the permissions query is loading, which
+  // used to settle reason='permission' with isLoading=false — a cold mount
+  // flashed the no-permission disabled state at permitted editors.
+  it('cold permissions load: surfaces isLoading with reason=null instead of a premature permission denial', () => {
+    mocks.permissionsLoading = true;
+    mocks.capabilities = new Set(['use_ai_chat']);
+    useAuthStore.setState({
+      token: 'editor-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'u4',
+        username: 'editor',
+        email: 'editor@x',
+        roles: ['editor'],
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '',
+      },
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useAIAvailability(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.reason).toBeNull();
+    expect(result.current.isAIAvailable).toBe(false);
+    // Neither probe fires before permissions resolve (can() gates both).
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+    expect(mockGetAIAvailability).not.toHaveBeenCalled();
   });
 
   it('single-tenant: a non-admin manage_users holder reads detailed admin status', async () => {

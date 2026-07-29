@@ -60,7 +60,12 @@ export function useAIAvailability() {
   // then can hit the wrong endpoint (a 403 that lands in error telemetry).
   // Hold both probes until the edition is known.
   const editionResolved = !useEdition().isLoading;
-  const { can } = usePermissions();
+  // fix(#818): can() returns false while the permissions query is still
+  // loading, which settled reason='permission' with isLoading=false and
+  // flashed the no-permission disabled state at permitted editors on a cold
+  // mount. Fold the permissions query's loading into isLoading (mirroring
+  // how #816 folded the edition query's) so the spinner covers the window.
+  const { can, isLoading: permissionsLoading } = usePermissions();
   const canUse = can('use_ai_chat');
 
   // Status readers get the detailed admin status (provider/key info for the reason taxonomy).
@@ -80,7 +85,11 @@ export function useAIAvailability() {
   let isAIAvailable: boolean;
   let reason: AIUnavailableReason | null = null;
 
-  if (!canUse) {
+  if (permissionsLoading) {
+    // fix(#818): don't settle reason='permission' before permissions resolve —
+    // loading maps to reason=null (spinner via isLoading), per the taxonomy above.
+    isAIAvailable = false;
+  } else if (!canUse) {
     isAIAvailable = false;
     reason = 'permission';
   } else if (canReadStatus) {
@@ -102,8 +111,9 @@ export function useAIAvailability() {
   // disabled-state UI can show a spinner instead of premature "unavailable" copy.
   const activeQuery = canReadStatus ? adminStatus : availabilityQuery;
   const isLoading =
-    canUse &&
-    (!editionResolved || (activeQuery.fetchStatus !== 'idle' && activeQuery.isLoading));
+    permissionsLoading ||
+    (canUse &&
+      (!editionResolved || (activeQuery.fetchStatus !== 'idle' && activeQuery.isLoading)));
 
   return {
     ...activeQuery,
