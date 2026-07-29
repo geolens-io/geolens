@@ -254,7 +254,9 @@ mcp-test: ## Run MCP server unit tests
 
 # `make mcp-live-test` runs the MCP live-contract tier (#827) against a RUNNING
 # instance: every tool in server.py against the real API, asserting response
-# shape. Defaults to the dev stack (http://localhost:8080, admin/admin); point
+# shape. Defaults to the dev stack (http://localhost:8080); admin credentials
+# come from GEOLENS_ADMIN_USERNAME/GEOLENS_ADMIN_PASSWORD or, when unset, from
+# the repo root .env (where `make dev-init` generates them). Point
 # GEOLENS_INSTANCE / GEOLENS_ADMIN_* elsewhere to target another instance. It
 # seeds and deletes its own dataset + map via the admin account.
 mcp-live-test: ## Run MCP live-contract tests against a running instance

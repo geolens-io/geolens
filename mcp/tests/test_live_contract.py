@@ -14,8 +14,10 @@ the tier rather than skipping it back to green. Environment:
     GEOLENS_INSTANCE          target instance (default http://localhost:8080,
                               the dev stack)
     GEOLENS_ADMIN_USERNAME /  credentials used to log in, seed the fixtures,
-    GEOLENS_ADMIN_PASSWORD    and authenticate the tools (default admin/admin,
-                              the dev stack admin)
+    GEOLENS_ADMIN_PASSWORD    and authenticate the tools. Explicit env vars
+                              win; otherwise both are read from the repo root
+                              ``.env`` (where ``make dev-init`` generates
+                              them). Unresolvable credentials fail the tier.
 
 Local run (dev stack up):  ``make mcp-live-test``
 CI: the mcp-test job boots db+api via compose and runs this tier against it.
@@ -23,6 +25,8 @@ CI: the mcp-test job boots db+api via compose and runs this tier against it.
 The tier seeds its own fixtures over the API — one empty "created" dataset
 (plus a probe feature when the dataset-editing admin flag is on) and one map —
 and deletes them in teardown, so it is safe against a long-lived dev instance.
+Cleanup is registered per resource as soon as it is created, so a mid-seed
+failure never leaks the earlier resources.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 import pytest
@@ -43,6 +48,49 @@ pytestmark = pytest.mark.skipif(
 )
 
 DEFAULT_INSTANCE = "http://localhost:8080"
+
+# Repo root, resolved from this file (mcp/tests/ -> mcp/ -> root). Tests are
+# not shipped in the wheel, so the layout is stable.
+_ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    """Parse KEY=VALUE lines from a dotenv-style file (comments/blanks skipped)."""
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def _admin_credentials() -> tuple[str, str]:
+    """Resolve seed credentials: explicit env vars first, then the root .env.
+
+    A standard install (``make dev-init``) writes a GENERATED admin password
+    into the repo root .env — a hardcoded admin/admin fallback would 401 on
+    any normal stack (#866 review r2). Username falls back to "admin" (the
+    installer's own default) only when nothing provides it; a missing
+    password fails the tier with a clear message instead of a confusing 401.
+    """
+    username = os.environ.get("GEOLENS_ADMIN_USERNAME")
+    password = os.environ.get("GEOLENS_ADMIN_PASSWORD")
+    if username and password:
+        return username, password
+    from_env_file = _read_env_file(_ROOT_ENV_FILE)
+    username = username or from_env_file.get("GEOLENS_ADMIN_USERNAME") or "admin"
+    password = password or from_env_file.get("GEOLENS_ADMIN_PASSWORD")
+    if not password:
+        pytest.fail(
+            "RUN_MCP_LIVE=1 needs admin credentials to seed fixtures: export "
+            "GEOLENS_ADMIN_USERNAME/GEOLENS_ADMIN_PASSWORD, or provide them "
+            f"in the repo root .env (looked at {_ROOT_ENV_FILE})"
+        )
+    return username, password
 
 
 @dataclass
@@ -61,8 +109,7 @@ def live():
     base = normalize_instance_url(
         os.environ.get("GEOLENS_INSTANCE") or DEFAULT_INSTANCE
     )
-    username = os.environ.get("GEOLENS_ADMIN_USERNAME", "admin")
-    password = os.environ.get("GEOLENS_ADMIN_PASSWORD", "admin")
+    username, password = _admin_credentials()
 
     http = httpx.Client(base_url=base, timeout=DEFAULT_TIMEOUT)
     try:
@@ -85,44 +132,57 @@ def live():
     dataset_title = f"MCP live contract {marker}"
     map_name = f"MCP live contract map {marker}"
 
-    created = http.post(
-        "/datasets/create/",
-        json={"title": dataset_title, "columns": [{"name": "name", "type": "text"}]},
-    )
-    assert created.status_code == 201, f"dataset seed failed: {created.text[:200]}"
-    dataset_id = str(created.json()["id"])
-
-    # Probe feature so get_features has a real row to shape-check. The write
-    # path is gated by the enable_dataset_editing admin flag — a 403 means the
-    # flag is off, and the tier falls back to the empty-collection contract.
-    feature = http.post(
-        f"/datasets/{dataset_id}/features/",
-        json={
-            "geometry": {"type": "Point", "coordinates": [-73.97, 40.78]},
-            "properties": {"name": marker},
-        },
-    )
-    assert feature.status_code in (201, 403), (
-        f"feature seed failed unexpectedly: HTTP {feature.status_code} "
-        f"{feature.text[:200]}"
-    )
-
-    mapped = http.post("/maps/", json={"name": map_name})
-    assert mapped.status_code == 201, f"map seed failed: {mapped.text[:200]}"
-    map_id = str(mapped.json()["id"])
-
-    # Route the server module's lazily-built client at the same instance with
-    # the admin JWT (the seeds are private, so anonymous would 404 them).
+    # Cleanup ledger, appended to as each persistent resource is created.
+    # Everything past the first POST runs inside try/finally so a mid-seed
+    # failure (e.g. the map POST) still deletes what already exists
+    # (#866 review r2). Dataset deletes need the title as confirmation.
+    created_datasets: list[tuple[str, str]] = []  # (id, confirm_title)
+    created_maps: list[str] = []
     saved_env = {
         key: os.environ.get(key)
         for key in ("GEOLENS_INSTANCE", "GEOLENS_TOKEN", "GEOLENS_API_KEY")
     }
-    os.environ["GEOLENS_INSTANCE"] = base
-    os.environ["GEOLENS_TOKEN"] = token
-    os.environ.pop("GEOLENS_API_KEY", None)
-    server._api = None
 
     try:
+        created = http.post(
+            "/datasets/create/",
+            json={
+                "title": dataset_title,
+                "columns": [{"name": "name", "type": "text"}],
+            },
+        )
+        assert created.status_code == 201, f"dataset seed failed: {created.text[:200]}"
+        dataset_id = str(created.json()["id"])
+        created_datasets.append((dataset_id, dataset_title))
+
+        # Probe feature so get_features has a real row to shape-check. The
+        # write path is gated by the enable_dataset_editing admin flag — a 403
+        # means the flag is off, and the tier falls back to the
+        # empty-collection contract.
+        feature = http.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-73.97, 40.78]},
+                "properties": {"name": marker},
+            },
+        )
+        assert feature.status_code in (201, 403), (
+            f"feature seed failed unexpectedly: HTTP {feature.status_code} "
+            f"{feature.text[:200]}"
+        )
+
+        mapped = http.post("/maps/", json={"name": map_name})
+        assert mapped.status_code == 201, f"map seed failed: {mapped.text[:200]}"
+        map_id = str(mapped.json()["id"])
+        created_maps.append(map_id)
+
+        # Route the server module's lazily-built client at the same instance
+        # with the admin JWT (the seeds are private, so anonymous would 404).
+        os.environ["GEOLENS_INSTANCE"] = base
+        os.environ["GEOLENS_TOKEN"] = token
+        os.environ.pop("GEOLENS_API_KEY", None)
+        server._api = None
+
         yield SeededInstance(
             dataset_id=dataset_id,
             dataset_title=dataset_title,
@@ -138,16 +198,22 @@ def live():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        try:
-            # Dataset delete requires title confirmation in the body.
-            http.request(
-                "DELETE",
-                f"/datasets/{dataset_id}",
-                json={"confirm_title": dataset_title},
-            )
-            http.delete(f"/maps/{map_id}")
-        except httpx.HTTPError:
-            pass  # best-effort cleanup; the run's verdict is already decided
+        # Best-effort cleanup of whatever was actually created; 404s (already
+        # gone) come back as plain responses and are fine.
+        for ds_id, confirm_title in created_datasets:
+            try:
+                http.request(
+                    "DELETE",
+                    f"/datasets/{ds_id}",
+                    json={"confirm_title": confirm_title},
+                )
+            except httpx.HTTPError:
+                pass
+        for m_id in created_maps:
+            try:
+                http.delete(f"/maps/{m_id}")
+            except httpx.HTTPError:
+                pass
         http.close()
 
 
