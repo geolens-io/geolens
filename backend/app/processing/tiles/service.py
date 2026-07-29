@@ -335,10 +335,21 @@ def _build_cluster_tile_query(
     cross-tile cells exist there, and ring candidates would only consume
     the input cap before ownership discards them, starving the tile of its
     own points. Singles that only enter via the expanded ring drop out
-    through the ownership filter, and the MVT buffer grows with the radius
-    so owner-emitted geometry up to one bucket outside the tile is not
-    clipped. ``ORDER BY gid`` keeps candidate membership deterministic per
-    envelope.
+    through the ownership filter. ``ORDER BY gid`` keeps candidate
+    membership deterministic per envelope.
+
+    fix(#868, codex round 4 on PR #872): ownership filters BEFORE the
+    feature cap (in the ``grouped`` CTE), so neighbor-owned cells can never
+    consume the output budget and displace owned cells. And because a cell
+    owned via its anchor can have its centroid up to one bucket inside the
+    NEIGHBOR tile — where a client whose viewport covers the centroid but
+    not the owner tile would never see it (no MVT buffer helps a tile the
+    client never requests) — the emitted geometry is CLAMPED into the
+    owning tile, one MVT extent unit inside each edge. Maximum positional
+    error from the clamp: one bucket, i.e. the cluster radius in CSS px
+    (48 by default), deterministic, and zero for geometry already inside
+    the tile (all past-max-zoom points; every cell whose centroid is
+    in-tile).
 
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
@@ -460,38 +471,58 @@ bucketed AS (
         END AS bucket_y
     FROM candidates, grid
 ),
-cells AS (
+-- fix(#868, codex round 2 on PR #872): the ownership anchor is the cell
+-- ORIGIN (world_min + bucket index * bucket size) — pure grid geometry,
+-- independent of which points were scanned. Under input-cap saturation
+-- neighboring tiles can see different subsets of a shared cell; a
+-- data-dependent anchor (the round-1 centroid) could then land in either
+-- tile (double- or zero-emit). With the origin anchor the worst case
+-- degrades to an undercounted cluster in the owner tile, the same class
+-- any capped per-tile grid has. Past cluster max zoom the buckets are
+-- per-point, so the anchor is the point itself. Every member of a cell
+-- shares the cell's anchor, so the per-row anchor equals the per-cell one.
+anchored AS (
+    SELECT
+        bucketed.*,
+        CASE WHEN $1::integer <= $5::integer
+            THEN grid.world_min_x + bucketed.bucket_x * grid.bucket_w
+            ELSE ST_X(bucketed.geom_3857)
+        END AS anchor_x,
+        CASE WHEN $1::integer <= $5::integer
+            THEN grid.world_min_y + bucketed.bucket_y * grid.bucket_h
+            ELSE ST_Y(bucketed.geom_3857)
+        END AS anchor_y
+    FROM bucketed, grid
+),
+grouped AS (
     SELECT
         bucket_x,
         bucket_y,
         count(*)::integer AS raw_point_count,
         min(gid)::bigint AS source_gid,
         ST_Centroid(ST_Collect(geom_3857)) AS geom_3857
-    FROM bucketed
+    FROM anchored, bounds
+    -- fix(#868, codex round 4 on PR #872): ownership applies BEFORE the
+    -- feature cap. A cell is emitted by exactly ONE tile, the one whose
+    -- envelope contains the cell's ownership anchor — filtering here means
+    -- neighbor-owned cells can never consume the output budget and displace
+    -- owned cells. Half-open bounds on internal borders; inclusive upper
+    -- bounds on the world's east (x = 2^z - 1) and north (y = 0) edge
+    -- tiles, which have no neighbor to own an anchor sitting exactly on
+    -- the world boundary. Ring-only rows drop here too.
+    WHERE anchored.anchor_x >= ST_XMin(bounds.geom)
+      AND (
+        anchored.anchor_x < ST_XMax(bounds.geom)
+        OR ($2::integer = (1 << $1::integer) - 1
+            AND anchored.anchor_x <= ST_XMax(bounds.geom))
+      )
+      AND anchored.anchor_y >= ST_YMin(bounds.geom)
+      AND (
+        anchored.anchor_y < ST_YMax(bounds.geom)
+        OR ($3::integer = 0 AND anchored.anchor_y <= ST_YMax(bounds.geom))
+      )
     GROUP BY bucket_x, bucket_y
     LIMIT {_TILE_FEATURE_LIMIT}
-),
--- fix(#868, codex round 2 on PR #872): the ownership anchor is the cell
--- ORIGIN (bucket index * bucket size) — pure grid geometry, independent of
--- which points were scanned. Under input-cap saturation neighboring tiles
--- can see different subsets of a shared cell; a data-dependent anchor (the
--- round-1 centroid) could then land in either tile (double- or zero-emit).
--- With the origin anchor the worst case degrades to an undercounted
--- cluster in the owner tile, the same class any capped per-tile grid has.
--- Past cluster max zoom the buckets are per-point, so the anchor is the
--- point itself.
-grouped AS (
-    SELECT
-        cells.*,
-        CASE WHEN $1::integer <= $5::integer
-            THEN grid.world_min_x + cells.bucket_x * grid.bucket_w
-            ELSE ST_X(cells.geom_3857)
-        END AS anchor_x,
-        CASE WHEN $1::integer <= $5::integer
-            THEN grid.world_min_y + cells.bucket_y * grid.bucket_h
-            ELSE ST_Y(cells.geom_3857)
-        END AS anchor_y
-    FROM cells, grid
 ),
 features AS (
     SELECT
@@ -531,35 +562,26 @@ features AS (
         END AS expansion_zoom,
         grouped.source_gid{unclustered_attr_select},
         ST_AsMVTGeom(
-            grouped.geom_3857,
+            -- fix(#868, codex round 4 on PR #872): clamp the emitted point
+            -- into the owning tile, one MVT extent unit inside each edge.
+            -- Anchor ownership lets a cell's centroid fall up to one bucket
+            -- inside the NEIGHBOR tile; a viewport that covers the centroid
+            -- but not the owner tile never requests the owner tile, so
+            -- geometry left outside the tile would be invisible there (no
+            -- MVT buffer can fix an unrequested tile). Max positional
+            -- error: one bucket = the cluster radius in CSS px. This
+            -- supersedes the round-2 radius-scaled buffer — the emitted
+            -- geometry is now always in-tile.
+            ST_SetSRID(ST_MakePoint(
+                LEAST(GREATEST(ST_X(grouped.geom_3857), ST_XMin(bounds.geom) + bounds.width / {_MVT_EXTENT}.0), ST_XMax(bounds.geom) - bounds.width / {_MVT_EXTENT}.0),
+                LEAST(GREATEST(ST_Y(grouped.geom_3857), ST_YMin(bounds.geom) + bounds.height / {_MVT_EXTENT}.0), ST_YMax(bounds.geom) - bounds.height / {_MVT_EXTENT}.0)
+            ), 3857),
             bounds.geom::box2d,
             4096,
-            -- fix(#868, codex round 2): an owner-emitted cell's rendered
-            -- point can sit up to one bucket outside this tile (the anchor
-            -- is in-tile, the whole cell need not be). The buffer covers one
-            -- bucket in extent units (radius px * px-to-extent factor) plus
-            -- a float-safety margin; 256 stays the floor.
-            GREATEST(256, ceil($6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS})::integer + 16),
+            256,
             true
         ) AS geom
     FROM grouped{unclustered_attr_join}, bounds
-    -- fix(#868, codex P2 rounds on PR #872): a cell is emitted by exactly
-    -- ONE tile, the one whose envelope contains the cell's ownership anchor.
-    -- Half-open bounds on internal borders; inclusive upper bounds on the
-    -- world's east (x = 2^z - 1) and north (y = 0) edge tiles, which have no
-    -- neighbor to own an anchor sitting exactly on the world boundary.
-    -- Ring-only features drop here too: their anchor lies outside this tile.
-    WHERE grouped.anchor_x >= ST_XMin(bounds.geom)
-      AND (
-        grouped.anchor_x < ST_XMax(bounds.geom)
-        OR ($2::integer = (1 << $1::integer) - 1
-            AND grouped.anchor_x <= ST_XMax(bounds.geom))
-      )
-      AND grouped.anchor_y >= ST_YMin(bounds.geom)
-      AND (
-        grouped.anchor_y < ST_YMax(bounds.geom)
-        OR ($3::integer = 0 AND grouped.anchor_y <= ST_YMax(bounds.geom))
-      )
 )
 SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
 FROM features

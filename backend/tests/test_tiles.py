@@ -717,37 +717,47 @@ class TestClusterBucketSemantics:
     """
 
     @staticmethod
-    def _rows_sql(table_name: str, input_cap: int | None = None) -> str:
+    def _rows_sql(
+        table_name: str,
+        input_cap: int | None = None,
+        feature_cap: int | None = None,
+    ) -> str:
         """The shipped cluster query with ST_AsMVT swapped for a row SELECT.
 
         Reuses every CTE of _build_cluster_tile_query verbatim (bounds,
         candidates, bucketed, grouped, features) so the assertions exercise
         the exact SQL the endpoint executes; only the final MVT encode is
         replaced because the suite carries no MVT decoder dependency.
-        ``input_cap`` swaps the candidate LIMIT for a tiny value so tests
-        can saturate the cap without 100k fixture rows.
+        ``input_cap`` / ``feature_cap`` swap the candidate / feature LIMITs
+        for tiny values so tests can saturate the caps without huge
+        fixtures. ``mvt_x``/``mvt_y`` expose the emitted geometry in tile
+        coordinates ([0, 4096] means inside the tile).
         """
         from app.processing.tiles.service import (
             _CLUSTER_INPUT_LIMIT,
+            _TILE_FEATURE_LIMIT,
             _build_cluster_tile_query,
         )
 
         query = _build_cluster_tile_query(
             table_name, attr_columns=[{"name": "name", "type": "text"}]
         )
-        if input_cap is not None:
-            capped = query.replace(
-                f"LIMIT {_CLUSTER_INPUT_LIMIT}", f"LIMIT {input_cap}"
-            )
-            assert capped != query, "candidate LIMIT not found; update this test"
-            query = capped
+        for cap, current in (
+            (input_cap, _CLUSTER_INPUT_LIMIT),
+            (feature_cap, _TILE_FEATURE_LIMIT),
+        ):
+            if cap is not None:
+                capped = query.replace(f"LIMIT {current}", f"LIMIT {cap}")
+                assert capped != query, "LIMIT not found; update this test"
+                query = capped
         head, sep, _tail = query.rpartition("SELECT ST_AsMVT")
         assert sep, "cluster query tail changed; update this test's split point"
         # $4 (layer name) only appeared inside ST_AsMVT; keep it referenced so
         # the prepared statement still binds all six parameters.
         return head + (
             "SELECT $4::text AS layer_name, cluster, point_count,\n"
-            "    point_count_abbreviated, source_gid, name\n"
+            "    point_count_abbreviated, source_gid, name,\n"
+            "    ST_X(geom) AS mvt_x, ST_Y(geom) AS mvt_y\n"
             "FROM features\nWHERE geom IS NOT NULL"
         )
 
@@ -999,4 +1009,84 @@ class TestClusterBucketSemantics:
             await _cleanup_data_table(test_db_session, table_name)
 
         assert [r["name"] for r in rows] == ["west"]
+        assert rows[0]["cluster"] is None
+
+    async def test_emitted_geometry_is_clamped_into_owner_tile(self, test_db_session):
+        """fix(#868, codex round 4): a cell owned via its anchor can have a
+        raw centroid inside the NEIGHBOR tile; a viewport covering the
+        centroid but not the owner tile never requests the owner tile, so
+        out-of-tile geometry would be invisible. The emitted point is
+        clamped into the owning tile (here: its east edge), and the
+        neighbor still emits nothing for the cell."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_clamp_{uuid.uuid4().hex[:8]}"
+        tile_w = _WEB_MERCATOR_WORLD_WIDTH / 4
+        bucket = tile_w * 48 * (4096 / 512) / 4096
+        border = -tile_w  # boundary between z2 tiles x=0 and x=1
+        points = (
+            ("pair_left", -10_038_754.0, 5_000_000.0),  # tile x=0 side
+            ("pair_right", -9_718_754.0, 5_000_000.0),  # tile x=1 side
+        )
+        # Same cell (its origin on the x=0 side: tile (0,1) owns it), but
+        # the pair's centroid falls on the x=1 side of the border.
+        cell = math.floor((points[0][1] - _WORLD_MIN) / bucket)
+        assert cell == math.floor((points[1][1] - _WORLD_MIN) / bucket)
+        assert _WORLD_MIN + cell * bucket < border
+        assert (points[0][1] + points[1][1]) / 2 > border
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            sql = self._rows_sql(table_name)
+            layer = f"data.{table_name}"
+            owner_rows = await pool.fetch(sql, 2, 0, 1, layer, 14, 48)
+            neighbor_rows = await pool.fetch(sql, 2, 1, 1, layer, 14, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        assert len(owner_rows) == 1
+        assert owner_rows[0]["cluster"] is True
+        assert owner_rows[0]["point_count"] == 2
+        # The emitted geometry lies within the owner tile's coordinate
+        # space, pulled to just inside its east edge (extent = 4096).
+        assert 0 <= owner_rows[0]["mvt_x"] <= 4096
+        assert owner_rows[0]["mvt_x"] >= 4090
+        assert 0 <= owner_rows[0]["mvt_y"] <= 4096
+        # The neighbor (which contains the raw centroid) emits nothing.
+        assert len(neighbor_rows) == 0
+
+    async def test_feature_cap_applies_after_ownership(self, test_db_session):
+        """fix(#868, codex round 4): the feature cap applies AFTER the
+        ownership filter, so neighbor-owned cells seen through the expanded
+        scan can never consume the output budget and displace this tile's
+        own cells."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_fcap_{uuid.uuid4().hex[:8]}"
+        points = (
+            # Three neighbor-owned cells visible to tile (1,1)'s expanded
+            # scan (cell origins on the x=0 side of the z2 border).
+            ("ring_a", -10_038_754.0, 5_000_000.0),
+            ("ring_b", -10_700_000.0, 5_000_000.0),
+            ("ring_c", -10_700_000.0, 6_000_000.0),
+            # The tile's own cell; must survive a feature cap of 1.
+            ("interior", -5_000_000.0, 5_000_000.0),
+        )
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            sql = self._rows_sql(table_name, feature_cap=1)
+            rows = await pool.fetch(sql, 2, 1, 1, f"data.{table_name}", 14, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        # With ownership filtered before the cap, the single budgeted
+        # feature is the tile's own cell, not a discarded neighbor cell.
+        assert [r["name"] for r in rows] == ["interior"]
         assert rows[0]["cluster"] is None
