@@ -62,6 +62,20 @@ vi.mock('@/hooks/use-permissions', () => ({
   }),
 }));
 
+// fix(#817): the CTA gate goes through useSettingsAdmin, which composes
+// usePermissions with useEdition — mock the edition side too.
+const editionMocks = vi.hoisted(() => ({ isMultiTenant: false }));
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: 'community',
+    features: [],
+    isEnterprise: false,
+    isMultiTenant: editionMocks.isMultiTenant,
+    isLoading: false,
+    isResolved: true,
+  }),
+}));
+
 function RailHarness({ showRail = true, aiAvailable = true }: { showRail?: boolean; aiAvailable?: boolean }) {
   const [activePanel, setActivePanel] = useState<RailPanel>(null);
   return (
@@ -329,6 +343,7 @@ describe('BuilderRail — disabled-state taxonomy (Phase 1135 AI-02)', () => {
     } as never);
     useAuthStore.setState({ token: null, user: null });
     permMocks.capabilities = new Set();
+    editionMocks.isMultiTenant = false;
   });
 
   afterEach(() => {
@@ -362,6 +377,38 @@ describe('BuilderRail — disabled-state taxonomy (Phase 1135 AI-02)', () => {
     render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
     expect(screen.getByText(/AI is disabled/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /go to settings/i })).not.toBeInTheDocument();
+  });
+
+  // fix(#817): in multi-tenant mode the /admin/settings route (and the
+  // settings API behind it) requires manage_tenants, not manage_settings —
+  // the CTA must follow the same mode-aware gate.
+  it('multi-tenant: NO CTA for a manage_settings-only per-tenant admin', () => {
+    vi.spyOn(availabilityModule, 'useAIAvailability').mockReturnValue({
+      data: { enabled: false } as never,
+      isLoading: false,
+      isAIAvailable: false,
+      reason: 'env_disabled',
+    } as never);
+    editionMocks.isMultiTenant = true;
+    permMocks.capabilities = new Set(['manage_settings']);
+    useAuthStore.setState({ token: 't', user: { roles: ['admin'] } } as never);
+    render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
+    expect(screen.getByText(/AI is disabled/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /go to settings/i })).not.toBeInTheDocument();
+  });
+
+  it('multi-tenant: shows the CTA for manage_tenants', () => {
+    vi.spyOn(availabilityModule, 'useAIAvailability').mockReturnValue({
+      data: { enabled: false } as never,
+      isLoading: false,
+      isAIAvailable: false,
+      reason: 'env_disabled',
+    } as never);
+    editionMocks.isMultiTenant = true;
+    permMocks.capabilities = new Set(['manage_tenants']);
+    useAuthStore.setState({ token: 't', user: { roles: ['admin'] } } as never);
+    render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
+    expect(screen.getByRole('link', { name: /go to settings/i })).toHaveAttribute('href', '/admin/settings/ai');
   });
 
   it("renders 'AI not configured' + 'Configure in Settings' CTA when reason='no_key' and caller holds manage_settings", () => {

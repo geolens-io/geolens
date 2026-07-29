@@ -98,6 +98,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },
@@ -116,6 +117,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: false },
@@ -133,6 +135,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },
@@ -150,6 +153,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: undefined,

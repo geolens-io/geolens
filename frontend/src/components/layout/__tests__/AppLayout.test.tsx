@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth-store';
 const permissionState = vi.hoisted(() => ({
   manageUsers: false,
   manageSettings: false,
+  manageTenants: false,
 }));
 
 vi.mock('@/hooks/use-permissions', () => ({
@@ -18,7 +19,9 @@ vi.mock('@/hooks/use-permissions', () => ({
     can: (capability: string) =>
       capability === 'manage_users'
         ? permissionState.manageUsers
-        : capability === 'manage_settings' && permissionState.manageSettings,
+        : capability === 'manage_settings'
+          ? permissionState.manageSettings
+          : capability === 'manage_tenants' && permissionState.manageTenants,
     permissions: {},
     isLoading: false,
   }),
@@ -55,6 +58,7 @@ describe('AppLayout', () => {
   beforeEach(() => {
     permissionState.manageUsers = false;
     permissionState.manageSettings = false;
+    permissionState.manageTenants = false;
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
     mockedUseEdition.mockReturnValue({
       edition: 'community',
@@ -62,6 +66,7 @@ describe('AppLayout', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },
@@ -83,6 +88,39 @@ describe('AppLayout', () => {
         last_login_at: null,
         created_at: '2026-01-01T00:00:00Z',
         roles: ['settings-operator'],
+      },
+    });
+
+    renderAppLayout();
+
+    expect(document.querySelector('a[href="/admin"]')).not.toBeNull();
+  });
+
+  // fix(#817): a multi-tenant fleet operator can hold manage_tenants alone —
+  // the admin routes admit them, so the navbar entry must be discoverable too.
+  it('shows the admin entry to a manage_tenants-only fleet operator in multi-tenant mode', () => {
+    permissionState.manageTenants = true;
+    mockedUseEdition.mockReturnValue({
+      edition: 'enterprise',
+      features: [],
+      isEnterprise: true,
+      isMultiTenant: true,
+      isLoading: false,
+      isResolved: true,
+    });
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: null,
+      expiresAt: Date.now() + 900_000,
+      user: {
+        id: 'fleet-operator',
+        username: 'fleet-operator',
+        email: 'fleet@example.com',
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        roles: ['fleet-operator'],
       },
     });
 
@@ -215,6 +253,7 @@ describe('AppLayout', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: false },
@@ -233,6 +272,7 @@ describe('AppLayout', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
       data: { show_badge: true },

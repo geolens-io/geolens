@@ -24,6 +24,7 @@ describe('AdminSamlPage', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
 
     render(<AdminSamlPage />, { route: '/admin/saml' });
@@ -43,6 +44,7 @@ describe('AdminSamlPage', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
 
     render(<AdminSamlPage />, { route: '/admin/saml' });
@@ -59,6 +61,7 @@ describe('AdminSamlPage', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: true,
+      isResolved: false,
     });
 
     render(<AdminSamlPage />, { route: '/admin/saml' });
@@ -75,6 +78,7 @@ describe('AdminSamlPage', () => {
       isEnterprise: false,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
 
     render(<AdminSamlPage />, { route: '/admin/saml' });

@@ -4,6 +4,7 @@ import { Bot, ArrowRight } from 'lucide-react';
 import { useAIStatus, useEmbeddingStats } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
+import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
   Card,
@@ -22,7 +23,9 @@ export function AIStatusCard() {
   // queries the backend 403s.
   const canReadAIStatus = useAIStatusReader();
   const canManageUsers = can('manage_users');
-  const canManageSettings = can('manage_settings');
+  // fix(#817): the settings link targets /admin/settings/ai, whose route gate
+  // is mode-aware (manage_tenants in multi-tenant) — match it.
+  const canAdminSettings = useSettingsAdmin();
   const { data: aiStatus, isLoading } = useAIStatus({ enabled: canReadAIStatus });
   // fix(#653): /admin/embedding-stats requires manage_users in BOTH tenancy
   // modes, so it keeps its own gate; the card gate alone would 403 for a
@@ -94,7 +97,7 @@ export function AIStatusCard() {
             )}
 
             {/* Link to settings */}
-            {canManageSettings && (
+            {canAdminSettings && (
               <div className="border-t pt-3">
                 <Link
                   to="/admin/settings/ai"

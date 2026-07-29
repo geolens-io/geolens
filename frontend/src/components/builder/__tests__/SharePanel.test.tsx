@@ -126,6 +126,7 @@ function setup({
     isEnterprise: enterprise,
     isMultiTenant: false,
     isLoading: false,
+    isResolved: true,
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockedUsePublishMap.mockReturnValue(mutationResult(publishMapFn as any));
@@ -974,6 +975,7 @@ describe('P2-01 explicit create-embed-token for public-only embeds', () => {
       isEnterprise: true,
       isMultiTenant: false,
       isLoading: false,
+      isResolved: true,
     });
     mockedUsePublishMap.mockReturnValue(mutationResult());
     mockedUseCreateShareToken.mockReturnValue(mutationResult(

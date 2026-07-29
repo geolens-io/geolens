@@ -13,7 +13,7 @@ import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ep
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { Textarea } from '@/components/ui/textarea';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
@@ -30,10 +30,11 @@ const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').th
 function AIDisabledState() {
   const { t } = useTranslation('builder');
   const { reason, isLoading } = useAIAvailability();
-  // fix(#816): the CTA targets /admin/settings/ai, which AdminCapabilityRoute
-  // gates on manage_settings — show it only to users the route will admit
-  // (the old isAdmin flag no longer matches who sees detailed reasons).
-  const { can } = usePermissions();
+  // fix(#816): the CTA targets /admin/settings/ai — show it only to users
+  // the route will admit (the old isAdmin flag no longer matches who sees
+  // detailed reasons). fix(#817): the route gate is mode-aware (manage_tenants
+  // in multi-tenant), so gate through useSettingsAdmin, not raw manage_settings.
+  const canAdminSettings = useSettingsAdmin();
 
   // fix(#788 follow-up): one persistent live region whose CONTENT toggles —
   // the loading spinner and the disabled-state message used to be two
@@ -61,7 +62,7 @@ function AIDisabledState() {
   const ctaDefault = reason === 'env_disabled' ? 'Go to Settings'
     : reason === 'no_key' ? 'Configure in Settings'
     : '';
-  const showCTA = ctaKey !== null && can('manage_settings');
+  const showCTA = ctaKey !== null && canAdminSettings;
 
   return (
     <div
