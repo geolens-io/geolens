@@ -127,7 +127,9 @@ max-complexity = 15
 "app/modules/catalog/search/service_records.py" = ["C901"]
 "app/modules/catalog/sources/router.py" = ["C901"]
 "app/modules/embed_tokens/service.py" = ["C901"]
-"app/platform/extensions/defaults.py" = ["C901"]
+# fix(#836): the defaults.py baseline entry follows `complete` (McCabe 20) into
+# the AI-provider sub-module created by the facade split — retargeted, not new.
+"app/platform/extensions/defaults_ai_openai.py" = ["C901"]
 "app/processing/ai/chat_actions.py" = ["C901"]
 "app/processing/ai/metadata_service.py" = ["C901"]
 "app/processing/ai/service.py" = ["C901"]

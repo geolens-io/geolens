@@ -1146,9 +1146,10 @@ def test_no_log_action_calls_outside_audit_service() -> None:
     Excluded paths:
       - ``backend/app/modules/audit/service.py`` — defines ``log_action()``;
         this is the only application-side caller permitted post-Phase-222.
-      - ``backend/app/platform/extensions/defaults.py`` — ``DefaultAuditSink.emit()``
-        calls ``log_action()`` via deferred import (Phase 222 D-04 / option a
-        from AUDIT-02). The community-edition default sink is the SOLE
+      - ``backend/app/platform/extensions/defaults_extensions.py`` —
+        ``DefaultAuditSink.emit()`` calls ``log_action()`` via deferred import
+        (Phase 222 D-04 / option a from AUDIT-02; moved from defaults.py by the
+        #836 facade split). The community-edition default sink is the SOLE
         consumer of the preserved helper.
       - ``backend/tests/`` — test seeds (e.g., ``test_lifecycle.py:421, 687``)
         may construct audit_logs rows directly via ``log_action()`` for
@@ -1175,7 +1176,7 @@ def test_no_log_action_calls_outside_audit_service() -> None:
             "--",
             "backend/app/",
             ":!backend/app/modules/audit/service.py",
-            ":!backend/app/platform/extensions/defaults.py",
+            ":!backend/app/platform/extensions/defaults_extensions.py",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -1187,7 +1188,7 @@ def test_no_log_action_calls_outside_audit_service() -> None:
         pytest.fail(
             "Phase 222 AUDIT-02 invariant violated: log_action() is called "
             "outside backend/app/modules/audit/service.py and "
-            "backend/app/platform/extensions/defaults.py. All 65 historical "
+            "backend/app/platform/extensions/defaults_extensions.py. All 65 historical "
             "sites must use audit_emit(session, AuditEvent(...)) instead.\n"
             f"Offending lines:\n{result.stdout}"
         )
