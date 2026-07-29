@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { heatmapAdapter } from '../heatmap-adapter';
+import { heatmapAdapter, buildHeatmapColorExpression } from '../heatmap-adapter';
 import type { AdapterLayerInput } from '../types';
 
 /**
@@ -190,5 +190,99 @@ describe('heatmap adapter — getLayerIds returns [layerId]', () => {
   it('returns array containing only the base layerId', () => {
     const ids = heatmapAdapter.getLayerIds('heat-xyz');
     expect(ids).toEqual(['heat-xyz']);
+  });
+});
+
+/**
+ * test(#828): render side of heatmap_reversed. The reversal regressed once in
+ * the 1.6.0 cycle; these tests pin that the flag stored in
+ * style_config.builder (snake_case on the wire, camelCase canonically) flips
+ * the rebuilt heatmap-color expression in both addLayers and syncPaint.
+ */
+describe('heatmap adapter — ramp reversal render path (#828)', () => {
+  // Density-stop color positions in the buildHeatmapColorExpression output:
+  // ['interpolate', ['linear'], ['heatmap-density'], 0, transparent, 0.2, c0, ...]
+  const COLOR_INDICES = [6, 8, 10, 12, 14];
+  const extractColors = (expr: unknown[]) => COLOR_INDICES.map((i) => expr[i]);
+
+  it('buildHeatmapColorExpression(ramp, true) reverses the color stops of (ramp, false)', () => {
+    const forward = buildHeatmapColorExpression('YlOrRd', false);
+    const reversed = buildHeatmapColorExpression('YlOrRd', true);
+    const forwardColors = extractColors(forward);
+    expect(extractColors(reversed)).toEqual([...forwardColors].reverse());
+    // Sanity: the ramp is not palindromic, so the two must actually differ.
+    expect(reversed).not.toEqual(forward);
+    // Density 0 stays transparent in both directions.
+    expect(reversed[4]).toBe(forward[4]);
+  });
+
+  it('buildHeatmapColorExpression defaults to reversed=false when the flag is omitted', () => {
+    expect(buildHeatmapColorExpression('YlOrRd')).toEqual(
+      buildHeatmapColorExpression('YlOrRd', false),
+    );
+  });
+
+  it('addLayers builds a reversed heatmap-color from snake_case builder.heatmap_reversed', () => {
+    const map = createMockMap();
+
+    heatmapAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({
+      paint: {},
+      style_config: { render_mode: 'heatmap', builder: { heatmap_reversed: true } } as unknown as AdapterLayerInput['style_config'],
+    }));
+
+    const call = map.addLayer.mock.calls[0][0] as AddLayerCall;
+    expect(call.paint['heatmap-color']).toEqual(buildHeatmapColorExpression('YlOrRd', true));
+    expect(call.paint['heatmap-color']).not.toEqual(buildHeatmapColorExpression('YlOrRd', false));
+  });
+
+  it('addLayers combines camelCase builder.heatmapReversed with a custom ramp', () => {
+    const map = createMockMap();
+
+    heatmapAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({
+      paint: {},
+      style_config: { render_mode: 'heatmap', builder: { heatmapRamp: 'Blues', heatmapReversed: true } } as unknown as AdapterLayerInput['style_config'],
+    }));
+
+    const call = map.addLayer.mock.calls[0][0] as AddLayerCall;
+    expect(call.paint['heatmap-color']).toEqual(buildHeatmapColorExpression('Blues', true));
+  });
+
+  it('addLayers defaults to the non-reversed ramp when no reversal flag is stored', () => {
+    const map = createMockMap();
+
+    heatmapAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({
+      paint: {},
+    }));
+
+    const call = map.addLayer.mock.calls[0][0] as AddLayerCall;
+    expect(call.paint['heatmap-color']).toEqual(buildHeatmapColorExpression('YlOrRd', false));
+  });
+
+  it('syncPaint writes the reversed heatmap-color when builder.heatmap_reversed is set', () => {
+    const map = createMockMap();
+
+    heatmapAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({
+      paint: {},
+      style_config: { render_mode: 'heatmap', builder: { heatmap_reversed: true } } as unknown as AdapterLayerInput['style_config'],
+    }));
+
+    const colorWrites = map.setPaintProperty.mock.calls.filter(
+      ([, prop]) => prop === 'heatmap-color',
+    );
+    expect(colorWrites).toHaveLength(1);
+    expect(colorWrites[0][2]).toEqual(buildHeatmapColorExpression('YlOrRd', true));
+  });
+
+  it('a stored heatmap-color expression takes precedence over the reversal flag', () => {
+    const map = createMockMap();
+    const stored = ['interpolate', ['linear'], ['heatmap-density'], 0, 'transparent', 1, '#123456'];
+
+    heatmapAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({
+      paint: { 'heatmap-color': stored },
+      style_config: { render_mode: 'heatmap', builder: { heatmap_reversed: true } } as unknown as AdapterLayerInput['style_config'],
+    }));
+
+    const call = map.addLayer.mock.calls[0][0] as AddLayerCall;
+    expect(call.paint['heatmap-color']).toEqual(stored);
   });
 });
