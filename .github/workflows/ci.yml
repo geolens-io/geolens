@@ -1243,16 +1243,17 @@ jobs:
       - frontend-test
       - security-scan
       # fix(#824): always-run jobs must feed the aggregator too — before this,
-      # a failure in version-coherence/docs-contract/license-check could not
-      # block a merge (branch protection only sees CI OK). changes and
-      # pre-commit are included so the aggregator is complete on its own: a
-      # failed `changes` job skips every path-filtered job above, which would
-      # otherwise leave CI OK green having gated nothing.
+      # a failure in version-coherence or docs-contract could not block a
+      # merge (branch protection only sees CI OK). changes and pre-commit are
+      # included so the aggregator is complete on its own: a failed `changes`
+      # job skips every path-filtered job above, which would otherwise leave
+      # CI OK green having gated nothing. license-check stays OUT on purpose:
+      # ADMIN-13 mandates it is advisory, and test_phase_279_compose_ci.py::
+      # test_license_check_job_is_non_blocking fails any `needs:` on it.
       - changes
       - pre-commit
       - version-coherence
       - docs-contract
-      - license-check
     # always() alone would rubber-stamp: it only guarantees this job RUNS.
     # The step below does the real gating on needs.*.result.
     if: always()
