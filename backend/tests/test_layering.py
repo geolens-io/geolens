@@ -1077,7 +1077,9 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         "backend/app/modules/catalog/maps/router_sharing.py": 387,
         "backend/app/modules/catalog/search/query_params.py": 225,
         "backend/app/modules/catalog/search/router_saved.py": 100,
-        "backend/app/modules/admin/router_operations.py": 275,
+        # fix(#821): +6 lines — admin key mint accepts expires_at and surfaces
+        # it in the audit detail and response.
+        "backend/app/modules/admin/router_operations.py": 281,
         "backend/app/modules/settings/router_public.py": 150,
     }
     oversized = []

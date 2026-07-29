@@ -69,6 +69,9 @@ def _build_raster_metadata(
     # Build tile and download URLs
     # tile_url_meta stays relative (used by map rendering in the browser)
     # connect URLs are absolute with api_key placeholder (for external GIS tools)
+    # fix(#821): the ?api_key= query lane is deprecated, but XYZ tile URLs in
+    # desktop GIS tools cannot send headers — this placeholder is the sanctioned
+    # remaining use of the lane.
     tile_url_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
     tile_url_meta = tile_url_path
 

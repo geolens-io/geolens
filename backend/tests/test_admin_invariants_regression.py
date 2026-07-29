@@ -300,9 +300,10 @@ async def test_token_version_bumped_on_saml_to_local_conversion(
     test_db_session.add(oauth_acct)
     await test_db_session.commit()
 
-    # Record token_version before conversion
+    # Record token_version and key_epoch before conversion
     await test_db_session.refresh(saml_user)
     version_before = saml_user.token_version
+    epoch_before = saml_user.key_epoch
 
     # Execute conversion
     service = AdminService(test_db_session)
@@ -316,6 +317,12 @@ async def test_token_version_bumped_on_saml_to_local_conversion(
     assert user_after.token_version > version_before, (
         f"Expected token_version > {version_before}, got {user_after.token_version}. "
         "SAML-to-local conversion must bump token_version (SEC-S15)."
+    )
+    # fix(#821): key_epoch must bump too — an auth-provider conversion is a
+    # credential reset, so API keys minted before it must stop resolving.
+    assert user_after.key_epoch > epoch_before, (
+        f"Expected key_epoch > {epoch_before}, got {user_after.key_epoch}. "
+        "SAML-to-local conversion must bump key_epoch (#821)."
     )
 
 

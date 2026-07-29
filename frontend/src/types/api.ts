@@ -630,6 +630,7 @@ export interface ApiKeyResponse {
   name: string;
   fingerprint: string | null;
   is_active: boolean;
+  expires_at: string | null;
   created_at: string;
   last_used_at: string | null;
 }
@@ -639,6 +640,7 @@ export interface ApiKeyCreateResponse {
   key: string;
   fingerprint: string;
   name: string;
+  expires_at: string | null;
   created_at: string;
 }
 
@@ -647,6 +649,7 @@ export interface MyApiKeyResponse {
   name: string;
   fingerprint: string | null;
   is_active: boolean;
+  expires_at: string | null;
   created_at: string;
   last_used_at: string | null;
 }

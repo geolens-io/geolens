@@ -345,6 +345,15 @@ class AdminService:
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
         self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
 
+        # fix(#821): bump key_epoch so API keys minted under the old role stop
+        # resolving. Applies to promotion as well as demotion — a key must not
+        # silently change privilege level; the owner re-mints under the new
+        # role. token_version is deliberately NOT bumped here: JWTs are
+        # short-lived and role checks read live DB roles per request.
+        await self.db.execute(
+            update(User).where(User.id == user.id).values(key_epoch=User.key_epoch + 1)
+        )
+
     async def convert_saml_user_to_local(
         self, user_id: uuid.UUID, password: str
     ) -> tuple[User, str]:
@@ -418,10 +427,15 @@ class AdminService:
         #    request. The SAML JWT remains cryptographically valid until its
         #    natural expiry otherwise, which violates the SEC-S15 requirement
         #    that auth-provider conversion forces re-authentication.
+        #    fix(#821): also bump key_epoch — an auth-provider conversion is a
+        #    credential reset, so API keys minted before it stop resolving.
         await self.db.execute(
             update(User)
             .where(User.id == user_id)
-            .values(token_version=User.token_version + 1)
+            .values(
+                token_version=User.token_version + 1,
+                key_epoch=User.key_epoch + 1,
+            )
         )
 
         # 8. Belt-and-suspenders: also revoke any active refresh tokens so the

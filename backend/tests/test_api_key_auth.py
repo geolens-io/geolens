@@ -314,3 +314,273 @@ async def test_self_service_cannot_delete_another_users_key(client: AsyncClient)
     )
     # The endpoint filters by current_user.id, so another user's key is "not found"
     assert del_resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# fix(#821): expiry, token_version staleness, deprecated query-param lane
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_api_key_with_future_expiry_accepted_and_surfaced(client: AsyncClient):
+    """A key minted with a future expires_at authenticates and the expiry is
+    returned by both the create response and the listing."""
+    from datetime import datetime, timedelta, timezone
+
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Expiring Key", "expires_at": expiry},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["expires_at"] is not None
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": data["key"]})
+    assert me_resp.status_code == 200
+
+    list_resp = await client.get("/auth/api-keys/", headers=admin_headers)
+    listed = {item["id"]: item for item in list_resp.json()["items"]}
+    assert listed[data["id"]]["expires_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_api_key_null_expiry_accepted(client: AsyncClient):
+    """Omitting expires_at mints a non-expiring key (legacy behavior)."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Forever Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["expires_at"] is None
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": data["key"]})
+    assert me_resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_expired_api_key_rejected(client: AsyncClient, test_db_session):
+    """An expired key behaves exactly like an invalid one (401 / anonymous)."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.modules.auth.models import ApiKey
+
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Soon Expired"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    raw_key = data["key"]
+
+    # Sanity: the key works before expiry.
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 200
+
+    # Force the key past its expiry (mint-time validation rejects past values,
+    # so an already-expired key can only be produced by time passing).
+    await test_db_session.execute(
+        update(ApiKey)
+        .where(ApiKey.id == uuid.UUID(data["id"]))
+        .values(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+    )
+    await test_db_session.commit()
+
+    # Required-auth endpoint: 401, exactly like an invalid key.
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 401
+
+    # Optional-auth endpoint: anonymous fallback, exactly like an invalid key.
+    items_resp = await client.get(
+        "/collections/datasets/items",
+        headers={"X-Api-Key": raw_key},
+    )
+    assert items_resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_mint_with_past_expiry_rejected(client: AsyncClient):
+    """Minting a key that is already expired is a validation error."""
+    from datetime import datetime, timedelta, timezone
+
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Born Dead", "expires_at": past},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+    # Admin mint surface enforces the same rule.
+    me_resp = await client.get("/auth/me/", headers=admin_headers)
+    admin_id = me_resp.json()["id"]
+    resp = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": admin_id, "name": "Born Dead", "expires_at": past},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_stale_key_epoch_api_key_rejected(client: AsyncClient, test_db_session):
+    """A key minted before a key_epoch bump stops resolving after it."""
+    from sqlalchemy import update
+
+    from app.modules.auth.models import User
+
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    _viewer_headers, viewer_id = await _create_test_user(
+        client, admin_headers, "viewer"
+    )
+
+    resp = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": viewer_id, "name": "Pre-Epoch-Bump Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    raw_key = resp.json()["key"]
+
+    # Matching key_epoch: the key authenticates.
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 200
+
+    # Simulate a security-event bump (what password change / role change do).
+    await test_db_session.execute(
+        update(User)
+        .where(User.id == uuid.UUID(viewer_id))
+        .values(key_epoch=User.key_epoch + 1)
+    )
+    await test_db_session.commit()
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_api_key_invalidated_by_role_change(client: AsyncClient):
+    """End-to-end: an admin role change invalidates previously minted keys."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    _viewer_headers, viewer_id = await _create_test_user(
+        client, admin_headers, "viewer"
+    )
+
+    resp = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": viewer_id, "name": "Pre-Role-Change Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    raw_key = resp.json()["key"]
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 200
+
+    # Admin changes the user's role (promotion and demotion both bump
+    # key_epoch — a key must not silently change privilege level).
+    patch_resp = await client.patch(
+        f"/admin/users/{viewer_id}",
+        json={"role": "editor"},
+        headers=admin_headers,
+    )
+    assert patch_resp.status_code == 200
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_logout_does_not_invalidate_api_keys(client: AsyncClient):
+    """Regression (#821): plain logout bumps token_version but must leave
+    API keys working — keys exist to outlive browser sessions (CI, MCP,
+    tile URLs)."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    viewer_headers, _viewer_id = await _create_test_user(
+        client, admin_headers, "viewer"
+    )
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Survives Logout Key"},
+        headers=viewer_headers,
+    )
+    assert resp.status_code == 201
+    raw_key = resp.json()["key"]
+
+    logout_resp = await client.post("/auth/logout/", headers=viewer_headers)
+    assert logout_resp.status_code == 204
+
+    # The JWT used for the logout is now stale (token_version bumped)...
+    jwt_resp = await client.get("/auth/me/", headers=viewer_headers)
+    assert jwt_resp.status_code == 401
+
+    # ...but the API key still authenticates (key_epoch untouched).
+    key_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert key_resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_api_key_invalidated_by_password_change(client: AsyncClient):
+    """End-to-end: a real password change invalidates previously minted keys."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    viewer_headers, _viewer_id = await _create_test_user(
+        client, admin_headers, "viewer"
+    )
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Pre-Password-Change Key"},
+        headers=viewer_headers,
+    )
+    assert resp.status_code == 201
+    raw_key = resp.json()["key"]
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 200
+
+    # _create_test_user's fixed password; the change bumps token_version.
+    change_resp = await client.post(
+        "/auth/change-password/",
+        json={
+            "current_password": "TestPass1234!",
+            "new_password": "NewTestPass5678!",
+        },
+        headers=viewer_headers,
+    )
+    assert change_resp.status_code == 204
+
+    me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
+    assert me_resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_query_param_lane_still_authenticates(client: AsyncClient):
+    """The deprecated ?api_key= query lane keeps working (tile-URL clients)."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Query Lane Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    raw_key = resp.json()["key"]
+
+    me_resp = await client.get(f"/auth/me/?api_key={raw_key}")
+    assert me_resp.status_code == 200
+    assert me_resp.json()["username"] == ADMIN_USER

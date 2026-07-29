@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from dateutil.parser import isoparse
 from typing import cast
@@ -26,6 +27,7 @@ class ApiKeyListItem:
         is_active (bool):
         last_used_at (datetime.datetime | None):
         name (str):
+        expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
     """
 
     created_at: datetime.datetime
@@ -34,6 +36,7 @@ class ApiKeyListItem:
     is_active: bool
     last_used_at: datetime.datetime | None
     name: str
+    expires_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +57,14 @@ class ApiKeyListItem:
 
         name = self.name
 
+        expires_at: None | str | Unset
+        if isinstance(self.expires_at, Unset):
+            expires_at = UNSET
+        elif isinstance(self.expires_at, datetime.datetime):
+            expires_at = self.expires_at.isoformat()
+        else:
+            expires_at = self.expires_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -66,6 +77,8 @@ class ApiKeyListItem:
                 "name": name,
             }
         )
+        if expires_at is not UNSET:
+            field_dict["expires_at"] = expires_at
 
         return field_dict
 
@@ -102,6 +115,23 @@ class ApiKeyListItem:
 
         name = d.pop("name")
 
+        def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expires_at_type_0 = isoparse(data)
+
+                return expires_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
+
         api_key_list_item = cls(
             created_at=created_at,
             fingerprint=fingerprint,
@@ -109,6 +139,7 @@ class ApiKeyListItem:
             is_active=is_active,
             last_used_at=last_used_at,
             name=name,
+            expires_at=expires_at,
         )
 
         api_key_list_item.additional_properties = d
