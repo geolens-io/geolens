@@ -310,6 +310,19 @@ def _build_cluster_tile_query(
     absolutely makes the grids of adjacent tiles line up instead of drifting
     by each tile's origin offset (a seam artifact at tile borders).
 
+    fix(#868, codex P2 on PR #872): an anchored cell can straddle a tile
+    border, so the candidate scan covers the tile envelope EXPANDED by one
+    full bucket — every tile sees the complete membership of every cell that
+    overlaps it — and each cell is emitted by exactly one tile: the tile
+    whose envelope contains the cell centroid (half-open bounds, so a
+    centroid exactly on a border belongs to one tile only). ``ORDER BY gid``
+    keeps candidate membership deterministic when the input cap truncates,
+    so neighboring tiles compute the same centroid for a shared cell.
+    Singles that only enter via the expanded ring drop out through the same
+    ownership filter (a single's centroid is its own point, outside the
+    tile). The expansion grows the candidate scan by up to one bucket on
+    each side; the input cap semantics are unchanged.
+
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
     unclustered features omit those properties and carry ``source_gid``.
@@ -357,42 +370,64 @@ _env AS (
 bounds AS (
     SELECT
         _env.geom,
-        ST_Transform(_env.geom, 4326) AS geom_4326,
         GREATEST(ST_XMax(_env.geom) - ST_XMin(_env.geom), 1.0) AS width,
         GREATEST(ST_YMax(_env.geom) - ST_YMin(_env.geom), 1.0) AS height
     FROM _env
+),
+-- fix(#868): bucket sizes in 3857 meters. $6 (CSS px) converts to extent
+-- units before scaling by tile width, and the grid anchors to absolute 3857
+-- coords so adjacent tiles at the same zoom share one grid.
+grid AS (
+    SELECT
+        GREATEST(bounds.width * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0) AS bucket_w,
+        GREATEST(bounds.height * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0) AS bucket_h
+    FROM bounds
+),
+-- fix(#868, codex P2 on PR #872): scan envelope = tile + one full bucket, so
+-- a cell straddling the tile border is seen with its COMPLETE membership.
+-- Clamped to the world envelope BEFORE the 4326 transform: past the world
+-- edge proj wraps longitude and the transformed bbox inverts, dropping
+-- candidates. No data exists outside the world envelope, so the clamp
+-- loses nothing.
+scan AS (
+    SELECT ST_Transform(
+        ST_Intersection(
+            ST_Expand(bounds.geom, GREATEST(grid.bucket_w, grid.bucket_h)),
+            ST_TileEnvelope(0, 0, 0)
+        ),
+        4326
+    ) AS geom_4326
+    FROM bounds, grid
 ),
 candidates AS (
     SELECT
         t.gid,
         ST_Transform(ST_PointOnSurface(t.geom_4326), 3857) AS geom_3857
-    FROM {qualified_table} t, bounds
-    WHERE t.geom_4326 && bounds.geom_4326
+    FROM {qualified_table} t, scan
+    WHERE t.geom_4326 && scan.geom_4326
       AND NOT ST_IsEmpty(t.geom_4326)
+    -- fix(#868): deterministic under the input cap, so neighboring tiles
+    -- that both see a straddling cell agree on membership and centroid.
+    ORDER BY t.gid
     LIMIT {_CLUSTER_INPUT_LIMIT}
 ),
 bucketed AS (
     SELECT
         candidates.gid,
         candidates.geom_3857,
-        -- fix(#868): bucket size converts $6 (CSS px) to extent units before
-        -- scaling by tile width, and the grid anchors to absolute 3857 coords
-        -- so adjacent tiles at the same zoom share one grid.
         CASE
             WHEN $1::integer <= $5::integer THEN floor(
-                ST_X(candidates.geom_3857)
-                / GREATEST(bounds.width * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0)
+                ST_X(candidates.geom_3857) / grid.bucket_w
             )::integer
             ELSE candidates.gid
         END AS bucket_x,
         CASE
             WHEN $1::integer <= $5::integer THEN floor(
-                ST_Y(candidates.geom_3857)
-                / GREATEST(bounds.height * $6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS} / {_MVT_EXTENT}.0, 1.0)
+                ST_Y(candidates.geom_3857) / grid.bucket_h
             )::integer
             ELSE candidates.gid
         END AS bucket_y
-    FROM candidates, bounds
+    FROM candidates, grid
 ),
 grouped AS (
     SELECT
@@ -450,6 +485,15 @@ features AS (
             true
         ) AS geom
     FROM grouped{unclustered_attr_join}, bounds
+    -- fix(#868, codex P2 on PR #872): ownership — a cell is emitted by
+    -- exactly ONE tile, the one whose envelope contains the cell centroid
+    -- (half-open, so a border centroid belongs to a single tile). This also
+    -- drops singles picked up only by the expanded scan ring: a single's
+    -- centroid is its own point, outside this tile.
+    WHERE ST_X(grouped.geom_3857) >= ST_XMin(bounds.geom)
+      AND ST_X(grouped.geom_3857) < ST_XMax(bounds.geom)
+      AND ST_Y(grouped.geom_3857) >= ST_YMin(bounds.geom)
+      AND ST_Y(grouped.geom_3857) < ST_YMax(bounds.geom)
 )
 SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
 FROM features

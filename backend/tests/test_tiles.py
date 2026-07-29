@@ -152,7 +152,9 @@ _CLUSTER_SEMANTICS_POINTS = (
 )
 
 
-async def _create_cluster_semantics_table(session, table_name: str) -> None:
+async def _create_cluster_semantics_table(
+    session, table_name: str, points=_CLUSTER_SEMANTICS_POINTS
+) -> None:
     """Point table holding the fix(#868) bucket-semantics fixture points."""
     await session.execute(
         text(
@@ -163,7 +165,7 @@ async def _create_cluster_semantics_table(session, table_name: str) -> None:
             f")"
         )
     )
-    for name, x, y in _CLUSTER_SEMANTICS_POINTS:
+    for name, x, y in points:
         await session.execute(
             text(
                 f"INSERT INTO data.{table_name} (name, geom_4326) VALUES ("
@@ -785,3 +787,49 @@ class TestClusterBucketSemantics:
         assert singles[0]["point_count"] is None
         assert singles[0]["source_gid"] is not None
         assert singles[0]["name"] == "lone"  # attr projection on singles
+
+    async def test_straddling_cell_emitted_by_exactly_one_tile(self, test_db_session):
+        """fix(#868, codex P2 on PR #872): a bucket cell straddling a tile
+        border is computed from its complete membership by both neighbors
+        (expanded candidate scan) and emitted by exactly one of them, the
+        tile whose envelope contains the cell centroid. A point in the
+        neighbor's interior never leaks into the other tile's output."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_seam_{uuid.uuid4().hex[:8]}"
+        # z2 arithmetic: tile width = world/4, bucket = width * 48 px * 8/4096.
+        tile_w = _WEB_MERCATOR_WORLD_WIDTH / 4
+        bucket = tile_w * 48 * (4096 / 512) / 4096
+        border = -tile_w  # boundary between z2 tiles x=0 and x=1
+        points = (
+            ("pair_left", -10_218_754.0, 5_000_000.0),  # tile x=0 side
+            ("pair_right", -9_918_754.0, 5_000_000.0),  # tile x=1 side
+            ("interior", -5_000_000.0, 5_000_000.0),  # tile x=1 interior
+        )
+        # The pair shares one absolute bucket cell that straddles the border,
+        # and their centroid falls on the x=0 side: tile (0,1) owns the cell.
+        assert math.floor(points[0][1] / bucket) == math.floor(points[1][1] / bucket)
+        assert points[0][1] < border < points[1][1]
+        assert (points[0][1] + points[1][1]) / 2 < border
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            sql = self._rows_sql(table_name)
+            layer = f"data.{table_name}"
+            owner_rows = await pool.fetch(sql, 2, 0, 1, layer, 14, 48)
+            neighbor_rows = await pool.fetch(sql, 2, 1, 1, layer, 14, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        # Owning tile: exactly the straddling cluster with FULL membership.
+        assert len(owner_rows) == 1
+        assert owner_rows[0]["cluster"] is True
+        assert owner_rows[0]["point_count"] == 2
+        # Neighbor: only its interior single. The straddling cell is not
+        # re-emitted, and the expanded scan leaks nothing else.
+        assert len(neighbor_rows) == 1
+        assert neighbor_rows[0]["cluster"] is None
+        assert neighbor_rows[0]["name"] == "interior"

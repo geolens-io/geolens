@@ -211,6 +211,11 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
     assert "ST_Y(candidates.geom_3857)" in query
     # The degenerate-size guard must survive the rework.
     assert "GREATEST(bounds.width * $6::float8" in query
+    # codex P2 (#872): straddling cells — expanded candidate scan,
+    # deterministic membership under the cap, centroid-ownership emission.
+    assert "ST_Expand(bounds.geom" in query
+    assert "ORDER BY t.gid" in query
+    assert "ST_X(grouped.geom_3857) >= ST_XMin(bounds.geom)" in query
 
 
 # ---------------------------------------------------------------------------
