@@ -134,6 +134,37 @@ export function isKnownMissingRemoteStyleImage(id: string): boolean {
   return MISSING_REMOTE_STYLE_IMAGES.has(id);
 }
 
+/** Structural subset of the MapLibre Map image API used by the handler below. */
+interface StyleImageHost {
+  hasImage(id: string): boolean;
+  addImage(id: string, image: { width: number; height: number; data: Uint8Array }): unknown;
+}
+
+/**
+ * chore(#835): the single `styleimagemissing` handler shared by BuilderMap,
+ * ViewerMap, and DatasetMap. Stubs a missing style image with a transparent
+ * 1x1 pixel so MapLibre stops warning about it.
+ *
+ * `knownImagesOnly` parameterizes the intentional divergence:
+ * - BuilderMap passes `true` — only the known-noisy remote-sprite ids are
+ *   stubbed, so an editor authoring a bad icon reference still sees the
+ *   missing-image warning.
+ * - ViewerMap/DatasetMap pass `false` — read-only surfaces stub every missing
+ *   image (e.g. `circle_11_black` and other basemap sprites outside the known
+ *   set) to keep the public/preview console clean.
+ */
+export function makeStyleImageMissingHandler(
+  map: StyleImageHost,
+  { knownImagesOnly }: { knownImagesOnly: boolean },
+): (event: { id: string }) => void {
+  return ({ id }: { id: string }) => {
+    if (knownImagesOnly && !isKnownMissingRemoteStyleImage(id)) return;
+    if (!map.hasImage(id)) {
+      map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+    }
+  };
+}
+
 /** Get the thumbnail URL for a basemap, with a fallback globe icon for custom basemaps */
 export function basemapThumbnail(id: string): string {
   return BUILTIN_THUMBNAILS[id] ?? FALLBACK_THUMBNAIL;
