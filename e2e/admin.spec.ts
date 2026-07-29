@@ -205,9 +205,13 @@ test.describe('Admin Panel', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // Key status rows render for both providers regardless of configured
-    // state. Anchored regex: the bare substring also matches the notice copy.
-    await expect(page.getByText(/^ANTHROPIC_API_KEY/)).toBeVisible();
-    await expect(page.getByText(/^OPENAI_API_KEY/)).toBeVisible();
+    // state, and either status is valid — CI runs keyless while a dev stack
+    // may have real keys. Fully anchored "<KEY> <status>" regexes scope the
+    // match to the status-row span alone: a start-only anchor also matched
+    // the keyless-stack warning ("OPENAI_API_KEY is not set. Embedding…")
+    // and strict-mode-failed in CI.
+    await expect(page.getByText(/^ANTHROPIC_API_KEY (configured|not set)$/)).toBeVisible();
+    await expect(page.getByText(/^OPENAI_API_KEY (configured|not set)$/)).toBeVisible();
 
     // Provider config controls are present.
     await expect(page.locator('#ai-toggle')).toBeVisible();
