@@ -26,13 +26,33 @@ function getSystemTheme(): 'dark' | 'light' {
     : 'light';
 }
 
+// fix(#834): localStorage access throws in storage-blocked contexts (Safari
+// private-mode iframes, strict cookie settings) — exactly the embed surface.
+// Guard reads/writes so the app still mounts with an in-memory theme, matching
+// how theme-init.js and the persisted zustand stores tolerate blocked storage.
+function readStoredTheme(storageKey: string): Theme | null {
+  try {
+    return localStorage.getItem(storageKey) as Theme | null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredTheme(storageKey: string, theme: Theme): void {
+  try {
+    localStorage.setItem(storageKey, theme);
+  } catch {
+    // Storage blocked — theme still applies in-memory for this session.
+  }
+}
+
 export function ThemeProvider({
   children,
   defaultTheme = 'system',
   storageKey = 'geolens-theme', // Must match FOUC script in index.html
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme,
+    () => readStoredTheme(storageKey) || defaultTheme,
   );
 
   const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>(() =>
@@ -67,7 +87,7 @@ export function ThemeProvider({
   }, [theme]);
 
   const setTheme = (t: Theme) => {
-    localStorage.setItem(storageKey, t);
+    writeStoredTheme(storageKey, t);
     setThemeState(t);
   };
 

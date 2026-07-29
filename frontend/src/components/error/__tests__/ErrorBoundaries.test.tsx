@@ -3,10 +3,13 @@ import { AppErrorBoundary } from '../AppErrorBoundary';
 import { MapErrorBoundary } from '../MapErrorBoundary';
 import { LazyLoadErrorBoundary } from '../LazyLoadErrorBoundary';
 import { RouteErrorBoundary } from '../RouteErrorBoundary';
+import { PluginErrorBoundary } from '@/components/map-plugins/PluginErrorBoundary';
 import { GEOLENS_BUG_REPORT_URL } from '@/lib/external-links';
+import { getReportEntries, clearReportEntries } from '@/lib/report';
 
 // Suppress React error boundary console.error noise in tests
 beforeEach(() => {
+  clearReportEntries();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -132,6 +135,47 @@ describe('LazyLoadErrorBoundary', () => {
     expect(screen.getByText('Failed to load')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
+
+  // fix(#834): silent boundary — must feed the problem-report buffer
+  it('records the crash in the problem-report buffer', () => {
+    render(
+      <LazyLoadErrorBoundary>
+        <ThrowingChild error={new Error('Lazy crash')} />
+      </LazyLoadErrorBoundary>,
+    );
+    expect(getReportEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'react', message: 'Lazy crash' }),
+      ]),
+    );
+  });
+});
+
+// --- PluginErrorBoundary ---
+
+describe('PluginErrorBoundary', () => {
+  it('shows plugin error fallback when child throws', () => {
+    render(
+      <PluginErrorBoundary pluginId="test-plugin">
+        <ThrowingChild />
+      </PluginErrorBoundary>,
+    );
+    expect(screen.queryByText('Test error')).not.toBeInTheDocument();
+  });
+
+  // fix(#834): silent boundary — must feed the problem-report buffer
+  it('records the crash in the problem-report buffer', () => {
+    render(
+      <PluginErrorBoundary pluginId="test-plugin">
+        <ThrowingChild error={new Error('Plugin crash')} />
+      </PluginErrorBoundary>,
+    );
+    expect(getReportEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'react', message: 'Plugin crash' }),
+      ]),
+    );
+  });
 });
 
 // --- RouteErrorBoundary ---
@@ -159,6 +203,16 @@ describe('RouteErrorBoundary', () => {
     expect(screen.getByRole('link', { name: /file a bug/i })).toHaveAttribute(
       'href',
       GEOLENS_BUG_REPORT_URL,
+    );
+  });
+
+  // fix(#834): silent boundary — must feed the problem-report buffer
+  it('records the route error in the problem-report buffer', () => {
+    render(<RouteErrorBoundary />);
+    expect(getReportEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'react', message: 'Route error' }),
+      ]),
     );
   });
 });

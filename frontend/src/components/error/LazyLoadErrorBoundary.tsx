@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/lib/logger';
+import { pushReportEntry } from '@/lib/report';
 
 interface LazyLoadErrorBoundaryState {
   hasError: boolean;
@@ -79,6 +80,14 @@ export class LazyLoadErrorBoundary extends Component<
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     logger.error('[LazyLoadErrorBoundary]', error, errorInfo);
+    // fix(#834): feed the problem-report buffer like the other boundaries so a
+    // crash behind this boundary doesn't produce an empty report.
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message: error.message || 'Lazy load failure',
+      detail: errorInfo.componentStack ?? error.stack ?? undefined,
+    });
 
     // Auto-retry once for chunk load errors
     if (isChunkLoadError(error) && this.state.retryCount < 1) {

@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import i18n from '@/i18n/i18n';
 import { logger } from '@/lib/logger';
+import { pushReportEntry } from '@/lib/report';
 
 /** Isolates plugin crashes so one broken plugin doesn't take down the host */
 export class PluginErrorBoundary extends Component<
@@ -15,6 +16,14 @@ export class PluginErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     logger.error(`Plugin "${this.props.pluginId}" crashed:`, error, info.componentStack);
+    // fix(#834): feed the problem-report buffer like the other boundaries so a
+    // plugin crash doesn't produce an empty report.
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message: error.message || `Plugin "${this.props.pluginId}" crash`,
+      detail: info.componentStack ?? error.stack ?? undefined,
+    });
   }
 
   render() {
