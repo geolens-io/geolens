@@ -321,15 +321,19 @@ def get_branding_extension() -> BrandingExtension:
 def get_audit_extension() -> AuditExtension:
     """DEPRECATED — scheduled for removal at the next EXTENSION_API_VERSION bump.
 
-    fix(#873 review r1): kept as an import-compatibility alias so an overlay
-    built against API version 2 cannot ImportError into a silent skip. The
-    registry dispatch is gone: no core caller consumes the seam and no known
-    overlay registers the ``audit`` slot, so this always returns the no-op
-    community default.
+    fix(#873 review r1+r3): the whole seam is deprecated (no core caller
+    consumes it and no known overlay registers the ``audit`` slot), but while
+    EXTENSION_API_VERSION == 2 the v2 surface must keep BEHAVING, not merely
+    importing — so the registry dispatch stays until the bump removes the seam
+    wholesale. An overlay registered under ``audit`` is returned; otherwise the
+    no-op community default.
     """
     from app.platform.extensions.defaults import DefaultAuditExtension
 
-    return DefaultAuditExtension()
+    ext = _extensions.get("audit")
+    if ext is None:
+        return DefaultAuditExtension()
+    return ext  # type: ignore[return-value]
 
 
 def get_auth_extension() -> AuthExtension:

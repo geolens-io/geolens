@@ -231,10 +231,39 @@ class TestProtocolDefaults:
 
         assert AuditExtension is ProtocolAuditExtension
         assert isinstance(DefaultAuditExtension(), AuditExtension)
-        # Dispatch is deleted: the accessor returns the no-op default even
-        # though nothing registers the slot; the default advertises nothing.
+        # Nothing registered: the accessor falls back to the no-op default,
+        # which advertises nothing.
         assert isinstance(get_audit_extension(), DefaultAuditExtension)
         assert get_audit_extension().get_export_formats() == []
+
+    def test_audit_alias_dispatch_still_honors_a_registered_overlay(self):
+        """fix(#873 review r3): the v2 slot must BEHAVE, not merely import.
+
+        Until the EXTENSION_API_VERSION bump removes the seam wholesale, an
+        API-v2 overlay registered under the ``audit`` single-slot key must be
+        returned by the accessor — a dispatch-less alias would silently no-op
+        it. Delete this test with the aliases at the bump.
+        """
+        from app.platform.extensions import _extensions, get_audit_extension
+        from app.platform.extensions.defaults import DefaultAuditExtension
+
+        class FakeAuditOverlay:
+            def get_export_formats(self) -> list[str]:
+                return ["overlay-format"]
+
+        previous = _extensions.get("audit")
+        _extensions["audit"] = FakeAuditOverlay()
+        try:
+            ext = get_audit_extension()
+            assert isinstance(ext, FakeAuditOverlay)
+            assert ext.get_export_formats() == ["overlay-format"]
+        finally:
+            if previous is None:
+                _extensions.pop("audit", None)
+            else:
+                _extensions["audit"] = previous
+
+        assert isinstance(get_audit_extension(), DefaultAuditExtension)
 
 
 class TestGetIdentityExtension:
