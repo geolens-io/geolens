@@ -40,19 +40,33 @@ vi.mock('../ColorRampPicker', () => ({
   ColorRampPicker: ({
     rampName,
     onChange,
+    reversed,
+    onReversedChange,
   }: {
     rampName: string;
     onChange: (name: string) => void;
     mode: string;
+    reversed?: boolean;
+    onReversedChange?: (v: boolean) => void;
   }) => (
-    <button
-      type="button"
-      data-testid="color-ramp-picker"
-      data-ramp={rampName}
-      onClick={() => onChange('Inferno')}
-    >
-      ColorRampPicker:{rampName}
-    </button>
+    <div>
+      <button
+        type="button"
+        data-testid="color-ramp-picker"
+        data-ramp={rampName}
+        data-reversed={String(reversed ?? false)}
+        onClick={() => onChange('Inferno')}
+      >
+        ColorRampPicker:{rampName}
+      </button>
+      <button
+        type="button"
+        data-testid="ramp-reverse-toggle"
+        onClick={() => onReversedChange?.(!reversed)}
+      >
+        reverse
+      </button>
+    </div>
   ),
 }));
 
@@ -680,6 +694,79 @@ describe('DEMEditorScene', () => {
 
       const picker = screen.getByTestId('color-ramp-picker');
       expect(picker).toHaveAttribute('data-ramp', 'Viridis');
+    });
+
+    // test(#828): write side of hypso_reversed — the reverse toggle must persist
+    // _hypso-reversed via onPaintChange (color-relief-sync consumes it to flip
+    // the rendered ramp). Regressed once in the 1.6.0 cycle.
+    it('toggling reverse fires onPaintChange with _hypso-reversed=true, preserving other keys', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true, '_hypso-ramp': 'Viridis' },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('ramp-reverse-toggle'));
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_hypso-reversed']).toBe(true);
+      expect(paint['_hypso-enabled']).toBe(true);
+      expect(paint['_hypso-ramp']).toBe('Viridis');
+    });
+
+    it('toggling reverse on a reversed layer fires onPaintChange with _hypso-reversed=false', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true, '_hypso-reversed': true },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('ramp-reverse-toggle'));
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_hypso-reversed']).toBe(false);
+    });
+
+    it('ColorRampPicker receives reversed=false by default and reflects _hypso-reversed=true', () => {
+      const { rerender } = render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true },
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByTestId('color-ramp-picker')).toHaveAttribute('data-reversed', 'false');
+
+      rerender(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true, '_hypso-reversed': true },
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByTestId('color-ramp-picker')).toHaveAttribute('data-reversed', 'true');
     });
 
     // builder-audit #338 MAINT-01: the 0–4000 m, meters-only limitation is surfaced in-product
