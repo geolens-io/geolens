@@ -124,6 +124,50 @@ _VALUE_GUARDS = frozenset(
 assert _RAISING_GUARDS | _VALUE_GUARDS == frozenset(_CORE_GUARDS + _DELEGATED_GUARDS)
 assert not (_RAISING_GUARDS & _VALUE_GUARDS)
 
+
+@lru_cache(maxsize=1)
+def _guards_requiring_await() -> frozenset[str]:
+    """Sanctioned guards that are coroutine functions.
+
+    Calling a coroutine guard WITHOUT ``await`` only creates a coroutine —
+    no authorization runs and no denial ever raises — so for these the call
+    must sit under an ``ast.Await`` to count (codex P1 on #863, round 4).
+    Keyed on ``inspect.iscoroutinefunction`` of the real guard objects
+    rather than a hardcoded list, so a guard changing between sync and
+    async updates the requirement automatically. Also fails loudly here if
+    a sanctioned guard is renamed or moved.
+    """
+    from app.modules.catalog import authorization
+    from app.modules.catalog.maps import (
+        _router_helpers,
+        service_crud,
+        service_layers,
+        service_shared,
+    )
+    from app.modules.catalog.records import router as records_router
+    from app.processing.tiles import router as tiles_router
+
+    guard_objects = {
+        "check_dataset_access_or_anonymous": (
+            authorization.check_dataset_access_or_anonymous
+        ),
+        "check_dataset_access": authorization.check_dataset_access,
+        "check_dataset_write_access": authorization.check_dataset_write_access,
+        "apply_visibility_filter": authorization.apply_visibility_filter,
+        "check_map_ownership": service_crud.check_map_ownership,
+        "_check_map_read_access": _router_helpers._check_map_read_access,
+        "_apply_map_visibility_filter": service_shared._apply_map_visibility_filter,
+        "bulk_check_dataset_access": service_layers.bulk_check_dataset_access,
+        "_check_record_read_access": records_router._check_record_read_access,
+        "_check_record_ownership": records_router._check_record_ownership,
+        "_authorize_vector_tile_request": tiles_router._authorize_vector_tile_request,
+    }
+    assert set(guard_objects) == _RAISING_GUARDS | _VALUE_GUARDS
+    return frozenset(
+        name for name, obj in guard_objects.items() if inspect.iscoroutinefunction(obj)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Allowlist — handlers that touch a guarded model without a sanctioned guard,
 # each unguarded BY DESIGN. Keyed by the unwrapped endpoint's
@@ -221,38 +265,18 @@ def _guarded_model_classes() -> tuple[type, ...]:
 _PORT_MODEL_ACCESSORS = frozenset({"get_dataset_orm_class", "get_record_orm_class"})
 
 
-def _model_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
-    """Names bound to a guarded model class, resolved by CLASS IDENTITY.
+def _bound_names(fn: Any, tree: ast.Module, targets: tuple[Any, ...]) -> set[str]:
+    """Names bound to any of ``targets``, resolved by OBJECT IDENTITY.
 
-    Covers module-level bindings (``from ...models import Dataset as
-    DatasetModel`` lands in the module globals), function-local imports
-    (``from app...models import Map as MapORM`` inside the body), and
-    ProcessingPort ORM-class accessor assignments, so aliased fetches are
-    detected structurally instead of by literal class name (codex P1 on
-    #863). ``sqlalchemy.orm.aliased(Model)`` constructs remain invisible.
+    Covers module-level bindings (which land in the function's module
+    globals) and function-local ``from X import Y as Z`` statements
+    (resolved through ``sys.modules``, including relative imports).
     """
-    classes = _guarded_model_classes()
     names: set[str] = set()
     for name, value in getattr(fn, "__globals__", {}).items():
-        if any(value is cls for cls in classes):
+        if any(value is target for target in targets):
             names.add(name)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            value = node.value
-            if (
-                isinstance(value, ast.Call)
-                and isinstance(value.func, (ast.Name, ast.Attribute))
-                and (
-                    value.func.id
-                    if isinstance(value.func, ast.Name)
-                    else value.func.attr
-                )
-                in _PORT_MODEL_ACCESSORS
-            ):
-                names.update(
-                    target.id for target in node.targets if isinstance(target, ast.Name)
-                )
-            continue
         if not isinstance(node, ast.ImportFrom):
             continue
         module_name = node.module or ""
@@ -267,9 +291,52 @@ def _model_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
             continue
         for alias in node.names:
             value = getattr(module, alias.name, None)
-            if any(value is cls for cls in classes):
+            if any(value is target for target in targets):
                 names.add(alias.asname or alias.name)
+    return names
+
+
+def _model_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
+    """Names bound to a guarded model class, resolved by CLASS IDENTITY.
+
+    Covers module-level bindings (``from ...models import Dataset as
+    DatasetModel`` lands in the module globals), function-local imports
+    (``from app...models import Map as MapORM`` inside the body), and
+    ProcessingPort ORM-class accessor assignments, so aliased fetches are
+    detected structurally instead of by literal class name (codex P1 on
+    #863). ``sqlalchemy.orm.aliased(Model)`` constructs remain invisible.
+    """
+    names = _bound_names(fn, tree, _guarded_model_classes())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        value = node.value
+        if (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, (ast.Name, ast.Attribute))
+            and (value.func.id if isinstance(value.func, ast.Name) else value.func.attr)
+            in _PORT_MODEL_ACCESSORS
+        ):
+            names.update(
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            )
     return frozenset(names)
+
+
+@lru_cache(maxsize=1)
+def _select_functions() -> tuple[Any, ...]:
+    import sqlalchemy
+
+    return (sqlalchemy.select,)
+
+
+def _select_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
+    """Names bound to ``sqlalchemy.select``, so aliased imports like
+    ``from sqlalchemy import select as sel`` still register as fetches
+    (codex P1 on #863, round 3). The literal names ``select`` /
+    ``select_from`` are always recognized in addition to these.
+    """
+    return frozenset(_bound_names(fn, tree, _select_functions()))
 
 
 def _root_name(expr: ast.expr) -> str | None:
@@ -298,6 +365,15 @@ def _discarded_call_ids(tree: ast.Module) -> set[int]:
     return discarded
 
 
+def _awaited_call_ids(tree: ast.Module) -> set[int]:
+    """Ids of Call nodes that sit directly under an ``ast.Await``."""
+    return {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Await) and isinstance(node.value, ast.Call)
+    }
+
+
 def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     """AST-scan one function's source for model fetches and guard CALLS.
 
@@ -315,16 +391,21 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     and comments naming a guard do not (codex P2 on #863). Value-returning
     guards (``_VALUE_GUARDS``) additionally require the call result to be
     CONSUMED — a bare expression statement discards the filtered Select and
-    is not a guard (codex P1, round 3).
+    is not a guard (codex P1, round 3). Coroutine guards additionally
+    require the call to be AWAITED — an un-awaited call only creates a
+    coroutine and never runs the check (codex P1, round 4).
     """
     tree = _parse(source)
     if tree is None:
         return [], False
     aliases = _model_aliases(fn, tree)
+    select_names = _select_aliases(fn, tree)
     lines = source.splitlines()
     evidence: list[str] = []
     guard_called = False
     discarded = _discarded_call_ids(tree)
+    awaited = _awaited_call_ids(tree)
+    needs_await = _guards_requiring_await()
 
     def _mark(node: ast.Call) -> None:
         line = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
@@ -332,6 +413,15 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
 
     def _any_model_arg(candidates: list[ast.expr]) -> bool:
         return any(_root_name(candidate) in aliases for candidate in candidates)
+
+    def _is_effective_guard(name: str | None, node: ast.Call) -> bool:
+        if name not in _RAISING_GUARDS and name not in _VALUE_GUARDS:
+            return False
+        if name in needs_await and id(node) not in awaited:
+            return False  # un-awaited coroutine: the check never runs
+        if name in _VALUE_GUARDS and id(node) in discarded:
+            return False  # filtered statement / id set discarded
+        return True
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -341,15 +431,13 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
         attr = func.attr if isinstance(func, ast.Attribute) else None
         name = called or attr
 
-        if name in _RAISING_GUARDS:
-            guard_called = True
-        elif name in _VALUE_GUARDS and id(node) not in discarded:
+        if _is_effective_guard(name, node):
             guard_called = True
 
         keyword_values = [kw.value for kw in node.keywords]
         if name == "get_dataset":
             _mark(node)
-        elif name in ("select", "select_from"):
+        elif name in ("select", "select_from") or called in select_names:
             if _any_model_arg([*node.args, *keyword_values]):
                 _mark(node)
         elif attr == "get" and _any_model_arg([*node.args[:1], *keyword_values]):
@@ -379,13 +467,28 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str]]:
     AdminService into scope and recreate the file-scope blind spot at class
     scope). Each helper is returned WITH its function object so it can be
     analyzed against its own module globals and local imports.
+
+    A coroutine helper invoked WITHOUT ``await`` is not expanded: the call
+    only creates a coroutine, so neither its fetches nor its guard calls
+    ever execute — crediting its internal guards would let an un-awaited
+    ``record = _check_record_ownership(...)`` pass (codex P1, round 4).
     """
     tree = _parse(source)
     if tree is None:
         return {}
+    awaited = _awaited_call_ids(tree)
     module_globals = getattr(fn, "__globals__", {})
     expansion: dict[str, tuple[Any, str]] = {}
-    for parts in _called_names(tree):
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            parts: tuple[str, ...] = (func.id,)
+        elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            parts = (func.value.id, func.attr)
+        else:
+            continue
         obj = module_globals.get(parts[0])
         for attr in parts[1:]:
             obj = getattr(obj, attr, None) if obj is not None else None
@@ -396,6 +499,8 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str]]:
             continue
         module = getattr(target, "__module__", "") or ""
         if not module.startswith("app."):
+            continue
+        if inspect.iscoroutinefunction(target) and id(node) not in awaited:
             continue
         key = f"{module}.{target.__qualname__}"
         if key not in expansion:
@@ -595,7 +700,8 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
         "an assigned apply_visibility_filter(...) result must count as a guard"
     )
 
-    # Raising guards may be bare statements — that is their correct usage.
+    # Raising guards may be bare statements — that is their correct usage —
+    # but they MUST be awaited (all raising guards are coroutine functions).
     evidence, guarded = _analyze_source(
         _dummy,
         imp
@@ -606,6 +712,50 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
     assert evidence and guarded, (
         "a bare await check_dataset_access(...) must count as a guard"
+    )
+
+    # An UN-AWAITED coroutine guard only creates a coroutine — the check
+    # never runs, so it must not count (codex P1, round 4).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "async def f(db, ds, i, u):\n"
+        + "    check_dataset_access(db, ds, i, u)\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "an un-awaited check_dataset_access(...) never runs and must NOT "
+        "count as a guard"
+    )
+
+    # Same for a coroutine value guard: assigning the coroutine (no await)
+    # consumes an object that never executed the check.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "async def f(db, ids, u, r):\n"
+        + "    ok = bulk_check_dataset_access(db, ids, u, r)\n"
+        + "    return await db.get(DsX, ids[0]), ok\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "an un-awaited bulk_check_dataset_access(...) must NOT count as a guard"
+    )
+
+    # Sync value guards need no await — the consumed-result checks above
+    # (apply_visibility_filter is a plain function) already exercise that.
+
+    # Aliased select import: the fetch is still detected by callable identity.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        "from sqlalchemy import select as sel\n"
+        + imp
+        + "def f(db):\n    return db.execute(sel(DsX))\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "select imported under an alias must still be detected as a fetch"
     )
 
 
