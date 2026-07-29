@@ -100,11 +100,20 @@ export function useViewerTokens({
           }, refreshMs);
         }
       } catch (err) {
+        // fix(#850): a cancelled generation rejecting late must not touch the
+        // shared timer ref — a newer effect generation may already own it, and
+        // clearing here would kill that generation's valid refresh timer.
+        if (cancelled) return;
         if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
         setTokenError(true);
         // Exponential backoff retry: 5s, 10s, 20s, 40s, capped at 60s
         retryAttempt++;
         const backoffMs = Math.min(5_000 * Math.pow(2, retryAttempt - 1), 60_000);
+        // fix(#831): clear the pending retry timer before arming a new one —
+        // out-of-band refreshes during outages multiplied retry loops.
+        if (refreshTimerRef.current) {
+          clearTimeout(refreshTimerRef.current);
+        }
         refreshTimerRef.current = setTimeout(() => {
           if (!cancelled) fetchTokens();
         }, backoffMs);

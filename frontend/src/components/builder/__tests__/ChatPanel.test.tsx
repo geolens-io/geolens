@@ -91,6 +91,37 @@ describe('ChatPanel', () => {
     sessionStorage.clear();
   });
 
+  it('fix(#832): suggestion chip shows the plain layer name but inserts the raw mention payload', async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      layers: [makeLayer({ display_name: 'Some Layer', dataset_geometry_type: 'Point' })],
+    });
+
+    // Visible label and accessible name use the plain layer name, no @[...] markup.
+    const chip = screen.getByRole('button', { name: 'Color "Some Layer" using a field' });
+    expect(chip.textContent).toContain('Some Layer');
+    expect(chip.textContent).not.toContain('@[');
+
+    // Clicking still inserts the raw mention payload into the chat input.
+    await user.click(chip);
+    const input = screen.getByPlaceholderText(/describe a map change/i) as HTMLTextAreaElement;
+    expect(input.value).toBe('Color "@[Some Layer]" using a field');
+  });
+
+  it('fix(#832): a layer name containing "]" survives intact in the chip label (PR #853 review)', async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      layers: [makeLayer({ display_name: 'Zone A] B', dataset_geometry_type: 'Point' })],
+    });
+
+    const chip = screen.getByRole('button', { name: 'Color "Zone A] B" using a field' });
+    expect(chip.textContent).not.toContain('@[');
+
+    await user.click(chip);
+    const input = screen.getByPlaceholderText(/describe a map change/i) as HTMLTextAreaElement;
+    expect(input.value).toBe('Color "@[Zone A] B]" using a field');
+  });
+
   it('passes explicit visible value to onToggleVisibility', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
