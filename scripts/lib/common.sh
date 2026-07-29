@@ -114,17 +114,57 @@ semver_compare() {
   '
 }
 
+# Parse an RFC3339 UTC timestamp (docker's `.State.StartedAt`, e.g.
+# 2026-07-27T01:07:52.269425417Z) to a unix epoch. GNU date first (Linux
+# operator hosts), BSD date as the fallback (macOS dev; -j -u -f parses the
+# fraction-stripped form as UTC). Prints nothing when the input does not look
+# like a timestamp or neither date can parse it — callers must fail open.
+# Always returns 0 so `set -e` callers never abort on an unparseable input.
+iso_to_epoch() {
+  _ts="$1"
+  case "$_ts" in
+    [0-9][0-9][0-9][0-9]-*) : ;;
+    # Guard against non-timestamps BEFORE date sees them: GNU `date -d ""`
+    # parses the empty string as today's midnight and exits 0, which would
+    # turn "unreadable" into a wildly wrong age instead of failing open.
+    *) return 0 ;;
+  esac
+  if _e=$(date -u -d "$_ts" +%s 2>/dev/null); then
+    printf '%s\n' "$_e"
+    return 0
+  fi
+  _t="${_ts%%.*}"
+  _t="${_t%Z}"
+  date -u -j -f '%Y-%m-%dT%H:%M:%S' "$_t" +%s 2>/dev/null || true
+}
+
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must exit
 # 0; every healthcheck-having service must report (healthy). Surfaces the failing
 # service with a log tail on timeout/failure. Diverges from install.sh's inlined
 # copy (300s budget, non-fatal rc=2 timeout) — see the header note above.
 #
 # Services still in `(health: starting)` when the budget runs out are treated
-# as converging, not failed: they sit inside their own declared start_period
+# as converging ONLY while they sit inside their own declared start_period
 # (e.g. the backup service allows 10m for its first pg_dump of a large DB,
-# far beyond this 90s budget), so Docker has not judged them yet — and neither
-# should we. Only a service that is (unhealthy), restarting, or exited
-# non-zero fails the wait.
+# far beyond this 90s budget) — there Docker has not judged them yet, and
+# neither should we. test(#826): that claim is now VERIFIED per service, not
+# assumed. The full tolerance Docker grants is start_period PLUS one
+# in-flight probe's timeout (grace is judged by probe START time, so a probe
+# launched just inside start_period may run `timeout` past the boundary)
+# PLUS retries consecutive failing probes, each taking up to interval +
+# timeout (a service stays `starting` through that whole streak — Codex P2
+# rounds 1+3 on #867). A service
+# whose container age (now - .State.StartedAt — NOT the wait budget, which
+# overstates the age of a restart-policy container that restarted mid-wait
+# with a freshly reset health clock; Codex P2 round 2) exceeds that entire
+# window has outlived every verdict Docker could still be working on and
+# fails the wait. The tolerance math only applies while the LIVE
+# .State.Health.Status (read in the same inspect) still says `starting` —
+# a container that flipped to (un)healthy between the compose ps snapshot
+# and the inspect is judged by that verdict instead (round 4). Anything
+# (unhealthy), restarting, or exited non-zero fails as before; an unreadable
+# healthcheck config, StartedAt, or live status fails open (treated as
+# converging), matching this script's other best-effort probes.
 wait_for_healthy() {
   attempts=18
   sleep_s=5
@@ -173,11 +213,92 @@ wait_for_healthy() {
   fi
   broken=$(printf '%s\n' "$remaining" | grep -v '(health: starting)' || true)
   if [ -z "$broken" ]; then
-    printf '\n'
-    warn "these services are still starting after $((attempts * sleep_s))s but remain within their declared start_period:"
-    printf '%s\n' "$remaining" | sed 's/^/  /' >&2
-    warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
-    return 0
+    budget=$((attempts * sleep_s))
+    # test(#826): verify each straggler really is inside its healthcheck's
+    # DECLARED tolerance before letting it pass. `(health: starting)` only
+    # means Docker has not ruled yet — a service with a broken healthcheck can
+    # sit there long after its grace ran out. Codex P2 (#867): start_period
+    # alone is NOT the boundary — after it ends, Docker still tolerates
+    # `retries` consecutive failing probes (each taking up to interval +
+    # timeout) before flipping to (unhealthy), and the service honestly
+    # reports `starting` for that whole streak. Plus one in-flight probe's
+    # timeout (Codex P2 round 3): moby grace-ignores a probe by its START
+    # time, so one launched just inside start_period can run up to `timeout`
+    # beyond the grace boundary before the counted retry cycles even begin.
+    # So the full allowance is start_period + timeout + retries x (interval +
+    # timeout); zero config values mean the daemon defaults (interval/timeout
+    # 30s, retries 3).
+    #
+    # Codex P2 round 2 (#867): compare that allowance against the container's
+    # ACTUAL age (now - .State.StartedAt), not the spent budget. A
+    # restart-policy service that crashed and restarted mid-wait is seconds
+    # old with a freshly reset health clock — legitimately inside its
+    # start_period — and must not be classified overdue by a wait that
+    # started before its life did. Unparseable StartedAt fails open, same as
+    # unreadable healthcheck config.
+    #
+    # Codex P2 round 4 (#867): the `remaining` table is a SNAPSHOT — a probe
+    # can complete between that `compose ps` and this inspect and flip the
+    # container out of `starting`. Read the LIVE .State.Health.Status in the
+    # same inspect and apply the tolerance math only while it still says
+    # `starting`: a flip to `unhealthy` fails the service outright (Docker
+    # has ruled; age math must not overrule it), a flip to `healthy` counts
+    # as converged, and an unreadable status fails open like the rest.
+    now_epoch=$(date -u +%s)
+    overdue=""
+    for svc in $(printf '%s\n' "$remaining" | cut -d'|' -f1); do
+      cid=$(compose ps -q "$svc" 2>/dev/null | head -n 1)
+      hc_line=""
+      if [ -n "$cid" ]; then
+        hc_line=$(docker inspect --format \
+          '{{.State.StartedAt}} {{.Config.Healthcheck.StartPeriod.Seconds}} {{.Config.Healthcheck.Interval.Seconds}} {{.Config.Healthcheck.Timeout.Seconds}} {{.Config.Healthcheck.Retries}} {{.State.Health.Status}}' \
+          "$cid" 2>/dev/null | head -n 1)
+      fi
+      live_status="${hc_line##* }"
+      case "$live_status" in
+        healthy)
+          # Raced to healthy between the snapshot and this inspect: converged.
+          continue ;;
+        unhealthy)
+          # Raced to unhealthy: Docker has ruled — fail it outright, no
+          # tolerance math (age inside the window must not overrule a verdict).
+          overdue="${overdue}  ${svc}: reported (health: starting) in the status snapshot but is (unhealthy) on inspection
+"
+          continue ;;
+        starting) : ;;
+        *)
+          # Unreadable live status — fail open like the rest.
+          continue ;;
+      esac
+      allowed=$(printf '%s\n' "$hc_line" | awk 'NF==6 {
+        sp = int($2); iv = int($3); to = int($4); rt = int($5)
+        if (iv <= 0) iv = 30
+        if (to <= 0) to = 30
+        if (rt <= 0) rt = 3
+        # + to: a probe started just inside start_period is grace-ignored by
+        # its START time and may run `timeout` past the boundary (round 3)
+        print sp + to + rt * (iv + to)
+      }')
+      age=""
+      start_epoch=$(iso_to_epoch "${hc_line%% *}")
+      [ -n "$start_epoch" ] && age=$((now_epoch - start_epoch))
+      if [ -n "$allowed" ] && [ -n "$age" ] && [ "$age" -ge "$allowed" ]; then
+        overdue="${overdue}  ${svc}: still (health: starting) ${age}s after its last start, but its healthcheck tolerance (start_period + timeout + retries x (interval + timeout)) ended at ${allowed}s
+"
+      fi
+    done
+    if [ -z "$overdue" ]; then
+      printf '\n'
+      warn "these services are still starting after ${budget}s but remain within their healthcheck's tolerance (start_period + timeout + retries x (interval + timeout)):"
+      printf '%s\n' "$remaining" | sed 's/^/  /' >&2
+      warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
+      return 0
+    fi
+    printf '\n' >&2
+    warn "timed out after ${budget}s; these services are not converging (outlived their healthcheck tolerance, or already ruled unhealthy):"
+    printf '%s' "$overdue" >&2
+    warn "Inspect with: docker compose ps  /  docker compose logs <service>"
+    return 1
   fi
   printf '\n' >&2
   warn "timed out after $((attempts * sleep_s))s waiting for services. Current status:"
