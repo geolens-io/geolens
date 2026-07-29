@@ -310,17 +310,24 @@ def _build_cluster_tile_query(
     absolutely makes the grids of adjacent tiles line up instead of drifting
     by each tile's origin offset (a seam artifact at tile borders).
 
-    fix(#868, codex P2 on PR #872): an anchored cell can straddle a tile
-    border, so the candidate scan covers the tile envelope EXPANDED by one
-    full bucket — every tile sees the complete membership of every cell that
-    overlaps it — and each cell is emitted by exactly one tile: the tile
-    whose envelope contains the cell centroid (half-open bounds, so a
-    centroid exactly on a border belongs to one tile only). ``ORDER BY gid``
-    keeps candidate membership deterministic when the input cap truncates,
-    so neighboring tiles compute the same centroid for a shared cell.
-    Singles that only enter via the expanded ring drop out through the same
-    ownership filter (a single's centroid is its own point, outside the
-    tile). The expansion grows the candidate scan by up to one bucket on
+    fix(#868, codex P2 rounds on PR #872): an anchored cell can straddle a
+    tile border, so the candidate scan covers the tile envelope EXPANDED by
+    one full bucket (clamped to the world envelope; see the scan CTE) and
+    each cell is emitted by exactly one tile — the tile whose envelope
+    contains the cell's ownership anchor, the cell ORIGIN (bucket index *
+    bucket size; the point itself past cluster max zoom). The anchor is
+    pure grid geometry, so ownership never depends on which candidates a
+    tile scanned: when the input cap saturates and neighbors see different
+    subsets of a shared cell, the worst case is an undercounted (or
+    missing) cluster from the owner tile — the degradation class any capped
+    per-tile grid has — never a cross-tile double- or zero-emit. Ownership
+    bounds are half-open on internal borders and inclusive on the world's
+    east/north edge tiles (no neighbor exists to own an anchor exactly on
+    the world boundary). Singles that only enter via the expanded ring drop
+    out through the same filter, and the MVT buffer grows with the radius
+    so owner-emitted geometry up to one bucket outside the tile is not
+    clipped. ``ORDER BY gid`` keeps candidate membership deterministic per
+    envelope. The expansion grows the candidate scan by up to one bucket on
     each side; the input cap semantics are unchanged.
 
     Cluster output follows the MapLibre client-side cluster property shape:
@@ -429,7 +436,7 @@ bucketed AS (
         END AS bucket_y
     FROM candidates, grid
 ),
-grouped AS (
+cells AS (
     SELECT
         bucket_x,
         bucket_y,
@@ -439,6 +446,28 @@ grouped AS (
     FROM bucketed
     GROUP BY bucket_x, bucket_y
     LIMIT {_TILE_FEATURE_LIMIT}
+),
+-- fix(#868, codex round 2 on PR #872): the ownership anchor is the cell
+-- ORIGIN (bucket index * bucket size) — pure grid geometry, independent of
+-- which points were scanned. Under input-cap saturation neighboring tiles
+-- can see different subsets of a shared cell; a data-dependent anchor (the
+-- round-1 centroid) could then land in either tile (double- or zero-emit).
+-- With the origin anchor the worst case degrades to an undercounted
+-- cluster in the owner tile, the same class any capped per-tile grid has.
+-- Past cluster max zoom the buckets are per-point, so the anchor is the
+-- point itself.
+grouped AS (
+    SELECT
+        cells.*,
+        CASE WHEN $1::integer <= $5::integer
+            THEN cells.bucket_x * grid.bucket_w
+            ELSE ST_X(cells.geom_3857)
+        END AS anchor_x,
+        CASE WHEN $1::integer <= $5::integer
+            THEN cells.bucket_y * grid.bucket_h
+            ELSE ST_Y(cells.geom_3857)
+        END AS anchor_y
+    FROM cells, grid
 ),
 features AS (
     SELECT
@@ -481,19 +510,32 @@ features AS (
             grouped.geom_3857,
             bounds.geom::box2d,
             4096,
-            256,
+            -- fix(#868, codex round 2): an owner-emitted cell's rendered
+            -- point can sit up to one bucket outside this tile (the anchor
+            -- is in-tile, the whole cell need not be). The buffer covers one
+            -- bucket in extent units (radius px * px-to-extent factor) plus
+            -- a float-safety margin; 256 stays the floor.
+            GREATEST(256, ceil($6::float8 * {_CLUSTER_PX_TO_EXTENT_UNITS})::integer + 16),
             true
         ) AS geom
     FROM grouped{unclustered_attr_join}, bounds
-    -- fix(#868, codex P2 on PR #872): ownership — a cell is emitted by
-    -- exactly ONE tile, the one whose envelope contains the cell centroid
-    -- (half-open, so a border centroid belongs to a single tile). This also
-    -- drops singles picked up only by the expanded scan ring: a single's
-    -- centroid is its own point, outside this tile.
-    WHERE ST_X(grouped.geom_3857) >= ST_XMin(bounds.geom)
-      AND ST_X(grouped.geom_3857) < ST_XMax(bounds.geom)
-      AND ST_Y(grouped.geom_3857) >= ST_YMin(bounds.geom)
-      AND ST_Y(grouped.geom_3857) < ST_YMax(bounds.geom)
+    -- fix(#868, codex P2 rounds on PR #872): a cell is emitted by exactly
+    -- ONE tile, the one whose envelope contains the cell's ownership anchor.
+    -- Half-open bounds on internal borders; inclusive upper bounds on the
+    -- world's east (x = 2^z - 1) and north (y = 0) edge tiles, which have no
+    -- neighbor to own an anchor sitting exactly on the world boundary.
+    -- Ring-only features drop here too: their anchor lies outside this tile.
+    WHERE grouped.anchor_x >= ST_XMin(bounds.geom)
+      AND (
+        grouped.anchor_x < ST_XMax(bounds.geom)
+        OR ($2::integer = (1 << $1::integer) - 1
+            AND grouped.anchor_x <= ST_XMax(bounds.geom))
+      )
+      AND grouped.anchor_y >= ST_YMin(bounds.geom)
+      AND (
+        grouped.anchor_y < ST_YMax(bounds.geom)
+        OR ($3::integer = 0 AND grouped.anchor_y <= ST_YMax(bounds.geom))
+      )
 )
 SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
 FROM features

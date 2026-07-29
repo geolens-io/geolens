@@ -716,19 +716,30 @@ class TestClusterBucketSemantics:
     """
 
     @staticmethod
-    def _rows_sql(table_name: str) -> str:
+    def _rows_sql(table_name: str, input_cap: int | None = None) -> str:
         """The shipped cluster query with ST_AsMVT swapped for a row SELECT.
 
         Reuses every CTE of _build_cluster_tile_query verbatim (bounds,
         candidates, bucketed, grouped, features) so the assertions exercise
         the exact SQL the endpoint executes; only the final MVT encode is
         replaced because the suite carries no MVT decoder dependency.
+        ``input_cap`` swaps the candidate LIMIT for a tiny value so tests
+        can saturate the cap without 100k fixture rows.
         """
-        from app.processing.tiles.service import _build_cluster_tile_query
+        from app.processing.tiles.service import (
+            _CLUSTER_INPUT_LIMIT,
+            _build_cluster_tile_query,
+        )
 
         query = _build_cluster_tile_query(
             table_name, attr_columns=[{"name": "name", "type": "text"}]
         )
+        if input_cap is not None:
+            capped = query.replace(
+                f"LIMIT {_CLUSTER_INPUT_LIMIT}", f"LIMIT {input_cap}"
+            )
+            assert capped != query, "candidate LIMIT not found; update this test"
+            query = capped
         head, sep, _tail = query.rpartition("SELECT ST_AsMVT")
         assert sep, "cluster query tail changed; update this test's split point"
         # $4 (layer name) only appeared inside ST_AsMVT; keep it referenced so
@@ -807,10 +818,11 @@ class TestClusterBucketSemantics:
             ("interior", -5_000_000.0, 5_000_000.0),  # tile x=1 interior
         )
         # The pair shares one absolute bucket cell that straddles the border,
-        # and their centroid falls on the x=0 side: tile (0,1) owns the cell.
+        # and the cell ORIGIN (the ownership anchor) falls on the x=0 side:
+        # tile (0,1) owns the cell.
         assert math.floor(points[0][1] / bucket) == math.floor(points[1][1] / bucket)
         assert points[0][1] < border < points[1][1]
-        assert (points[0][1] + points[1][1]) / 2 < border
+        assert math.floor(points[0][1] / bucket) * bucket < border
         await _create_cluster_semantics_table(
             test_db_session, table_name, points=points
         )
@@ -833,3 +845,93 @@ class TestClusterBucketSemantics:
         assert len(neighbor_rows) == 1
         assert neighbor_rows[0]["cluster"] is None
         assert neighbor_rows[0]["name"] == "interior"
+
+    async def test_world_edge_point_owned_by_edge_tile(self, test_db_session):
+        """fix(#868, codex round 2): a feature sitting exactly on the world's
+        east boundary is emitted by exactly one tile — the edge tile, whose
+        upper ownership bound is inclusive (no neighbor exists beyond the
+        world). Runs past cluster max zoom, where the ownership anchor is
+        the point itself: the only anchor that can land exactly on the
+        boundary (lon 180 transforms to exactly the world XMax; verified
+        against PostGIS/proj on the test DB)."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_edge_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE IF NOT EXISTS data.{table_name} ("
+                f"  gid SERIAL PRIMARY KEY,"
+                f"  name TEXT,"
+                f"  geom_4326 GEOMETRY(Point, 4326)"
+                f")"
+            )
+        )
+        # Inserted in 4326 directly so lon stays exactly 180.
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (name, geom_4326) VALUES "
+                f"('edge', ST_SetSRID(ST_MakePoint(180, 85.05112877980659), 4326))"
+            )
+        )
+        await test_db_session.commit()
+
+        try:
+            pool = get_tile_pool()
+            sql = self._rows_sql(table_name)
+            layer = f"data.{table_name}"
+            rows_by_tile = {}
+            for tx, ty in ((0, 0), (1, 0), (0, 1), (1, 1)):
+                # cluster_max_zoom=0 < z=1: unclustered mode, point anchors.
+                rows_by_tile[(tx, ty)] = await pool.fetch(sql, 1, tx, ty, layer, 0, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        assert sum(len(r) for r in rows_by_tile.values()) == 1
+        assert len(rows_by_tile[(1, 0)]) == 1
+        assert rows_by_tile[(1, 0)][0]["cluster"] is None
+        assert rows_by_tile[(1, 0)][0]["name"] == "edge"
+
+    async def test_cap_divergence_emits_shared_cell_at_most_once(self, test_db_session):
+        """fix(#868, codex round 2): when the input cap truncates DIFFERENT
+        candidate subsets in neighboring tiles, the shared straddling cell
+        is still emitted by at most one tile (the anchor owner). The
+        degradation is an undercounted single in the owner tile, never a
+        cross-tile double-emit."""
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_cap_{uuid.uuid4().hex[:8]}"
+        points = (
+            # gid 1: interior of tile (0,1) only — pushes the pair past a
+            # cap of 2 in that tile's scan but not in the neighbor's.
+            ("west_interior", -15_000_000.0, 5_000_000.0),
+            # gids 2 and 3: the straddling pair from the seam test.
+            ("pair_left", -10_218_754.0, 5_000_000.0),
+            ("pair_right", -9_918_754.0, 5_000_000.0),
+        )
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            sql = self._rows_sql(table_name, input_cap=2)
+            layer = f"data.{table_name}"
+            # Owner scan (ordered by gid, cap 2) sees gids 1,2,3 -> keeps 1,2:
+            # the owned straddling cell has only one visible member.
+            owner_rows = await pool.fetch(sql, 2, 0, 1, layer, 14, 48)
+            # Neighbor scan sees gids 2,3 -> keeps both: it computes the full
+            # cell but does not own its anchor.
+            neighbor_rows = await pool.fetch(sql, 2, 1, 1, layer, 14, 48)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        # Owner: its interior single plus the UNDERCOUNTED cell (one member
+        # visible -> emitted as a single carrying that member's attributes).
+        assert sorted(r["name"] for r in owner_rows) == [
+            "pair_left",
+            "west_interior",
+        ]
+        assert all(r["cluster"] is None for r in owner_rows)
+        # Neighbor: nothing. Anchor ownership does not depend on the scanned
+        # subset, so the cell is never double-emitted.
+        assert len(neighbor_rows) == 0

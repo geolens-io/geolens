@@ -211,11 +211,19 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
     assert "ST_Y(candidates.geom_3857)" in query
     # The degenerate-size guard must survive the rework.
     assert "GREATEST(bounds.width * $6::float8" in query
-    # codex P2 (#872): straddling cells — expanded candidate scan,
-    # deterministic membership under the cap, centroid-ownership emission.
+    # codex P2 rounds (#872): straddling cells — expanded candidate scan,
+    # deterministic membership under the cap, and cell-ORIGIN anchor
+    # ownership (pure grid geometry, never dependent on the scanned subset).
     assert "ST_Expand(bounds.geom" in query
     assert "ORDER BY t.gid" in query
-    assert "ST_X(grouped.geom_3857) >= ST_XMin(bounds.geom)" in query
+    assert "cells.bucket_x * grid.bucket_w" in query
+    assert "grouped.anchor_x >= ST_XMin(bounds.geom)" in query
+    # World-edge tiles own boundary anchors via inclusive upper bounds.
+    assert "(1 << $1::integer) - 1" in query  # east edge: x = 2^z - 1
+    assert "$3::integer = 0" in query  # north edge: y = 0
+    # The MVT buffer scales with the radius so owner-emitted geometry up to
+    # one bucket outside the tile is not clipped.
+    assert "GREATEST(256, ceil($6::float8" in query
 
 
 # ---------------------------------------------------------------------------
