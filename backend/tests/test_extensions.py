@@ -300,6 +300,46 @@ class TestProtocolDefaults:
 
         assert callable(get_audit_extension)
 
+    def test_pre_pr_wildcard_surface_is_intact(self):
+        """fix(#873 review r5): pin the ``import *`` surface of the facade.
+
+        The pre-split defaults.py had NO ``__all__``, so a wildcard import
+        exported every public module-level name — all seventeen Default*
+        classes plus the two incidental helper bindings. The facade's
+        ``__all__`` must keep every one of them wildcard-visible; a name
+        importable directly but absent from ``__all__`` still NameErrors a
+        star-importing overlay into a silent load_extensions() skip. Drop the
+        audit/helper rows with the seam at the next EXTENSION_API_VERSION bump.
+        """
+        import app.platform.extensions.defaults as defaults_facade
+
+        pre_split_wildcard_names = {
+            "DefaultAnthropicProvider",
+            "DefaultAuditExtension",
+            "DefaultAuditSink",
+            "DefaultAuthExtension",
+            "DefaultBillingExtension",
+            "DefaultBrandingExtension",
+            "DefaultCatalogPort",
+            "DefaultConnectorExtension",
+            "DefaultDataServingExtension",
+            "DefaultEntitlementPort",
+            "DefaultIdentityExtension",
+            "DefaultNotificationSink",
+            "DefaultOpenAICompatibleProvider",
+            "DefaultOpenAIEmbeddingProvider",
+            "DefaultPermissionExtension",
+            "DefaultProcessingPort",
+            "DefaultWorkflowExtension",
+            "defer_async_with_tenant",
+            "model_safe_tool_result",
+        }
+        missing = pre_split_wildcard_names - set(defaults_facade.__all__)
+        assert not missing, (
+            "facade __all__ dropped pre-split wildcard-visible names "
+            f"(silent star-import regression): {sorted(missing)}"
+        )
+
     def test_audit_alias_dispatch_still_honors_a_registered_overlay(self):
         """fix(#873 review r3): the v2 slot must BEHAVE, not merely import.
 

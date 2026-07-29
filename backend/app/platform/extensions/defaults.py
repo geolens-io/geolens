@@ -67,4 +67,9 @@ __all__ = [
     "DefaultPermissionExtension",
     "DefaultProcessingPort",
     "DefaultWorkflowExtension",
+    # fix(#873 review r5): the pre-split module had no __all__, so a wildcard
+    # import exported the two incidental helper bindings too — they must stay
+    # wildcard-visible, not just directly importable.
+    "defer_async_with_tenant",
+    "model_safe_tool_result",
 ]

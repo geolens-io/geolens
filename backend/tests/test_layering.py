@@ -827,7 +827,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#873 review r4): +10 — the two incidental pre-split helper
         # bindings (defer_async_with_tenant, model_safe_tool_result) restored
         # as redundant-alias re-exports. Cap 60 -> 70, exact.
-        "backend/app/platform/extensions/defaults.py": 70,
+        # fix(#873 review r5): +5 — both helpers added to __all__ so the
+        # pre-split wildcard surface survives too. Cap 70 -> 75, exact.
+        "backend/app/platform/extensions/defaults.py": 75,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
