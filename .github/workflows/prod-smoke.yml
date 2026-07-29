@@ -24,8 +24,11 @@ on:
       # on non-release tags. The second pattern keeps prerelease tags
       # (v1.5.0-rc.1) in the release chain — release.yml is gated on this
       # workflow's success and explicitly supports prerelease suffixes (#715).
+      # Globs cannot fully express semver (`*` matches zero or more of ANY
+      # character, so e.g. v1.2.3-foo_bar still slips through); the
+      # "Assert semver release tag" step below is the authoritative gate.
       - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-*"
+      - "v[0-9]+.[0-9]+.[0-9]+-[0-9A-Za-z]*"
   workflow_dispatch:
     inputs:
       version:
@@ -50,6 +53,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      # Backstop for the tag globs above (fix #829): a glob still admits
+      # non-semver suffixes like v1.2.3- or v1.2.3-foo_bar, whose images
+      # publish.yml never pushes — the pull step below would retry for ~20 min
+      # and fail. Fail fast instead, using the exact regex from release.yml's
+      # "Assert semver-shaped tag" guard (keep the two in sync). A red run on a
+      # junk tag is correct and cheap: release.yml fires only on this
+      # workflow's SUCCESS, so nothing downstream advances.
+      - name: Assert semver release tag
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! printf '%s' "${TAG}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::tag '${TAG}' is not a semver release tag; refusing to smoke"
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Resolve image tag to smoke
