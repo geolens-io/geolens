@@ -523,7 +523,8 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     ``db.get(entity=Dataset, ident=...)`` counts (codex P2, round 3):
     - ``select(<model or model attribute>, ...)`` / ``sa.select(...)``
     - ``<anything>.select_from(<model>)``
-    - ``<anything>.get(<model>, ...)`` (AsyncSession.get, incl. keyword form)
+    - ``<anything>.get(<model>, ...)`` / ``.get_one(<model>, ...)``
+      (AsyncSession.get / get_one, incl. keyword form)
     - ``get_dataset(...)`` / ``<module>.get_dataset(...)``
 
     Accessor calls count as fetches too: domain service accessors resolved
@@ -635,7 +636,7 @@ def _is_fetch(ctx: _AnalysisContext, node: ast.Call) -> bool:
         return True
     if name in ("select", "select_from") or called in ctx.select_names:
         return _any_model_arg([*node.args, *keyword_values])
-    if attr == "get":
+    if attr in ("get", "get_one"):
         return _any_model_arg([*node.args[:1], *keyword_values])
     return False
 
@@ -653,26 +654,34 @@ def _called_names(tree: ast.Module) -> list[tuple[str, ...]]:
     return names
 
 
-def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str]]:
+def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str, bool]]:
     """app.* plain functions called directly from the handler, with sources.
 
     Exactly one level deep, and only plain functions (classes and bound
     methods are skipped — expanding a class would pull every method of e.g.
     AdminService into scope and recreate the file-scope blind spot at class
     scope). Each helper is returned WITH its function object so it can be
-    analyzed against its own module globals and local imports.
+    analyzed against its own module globals and local imports, plus a
+    ``guard_creditable`` flag.
 
-    A coroutine helper invoked WITHOUT ``await`` is not expanded: the call
-    only creates a coroutine, so neither its fetches nor its guard calls
-    ever execute — crediting its internal guards would let an un-awaited
-    ``record = _check_record_ownership(...)`` pass (codex P1, round 4).
+    Every helper call is expanded for FETCH evidence — a coroutine passed
+    to ``await asyncio.gather(...)`` or ``create_task`` does execute, so
+    skipping it would hide its fetches (codex P1, round 6; fail-closed).
+    GUARD credit from a helper is asymmetric: it flows to the handler only
+    when the helper provably executes at the call site — the call is
+    directly awaited, or the helper is a plain sync function. Without that
+    restriction an un-awaited ``record = _check_record_ownership(...)``
+    would be credited with the helper's internal awaited guard call (the
+    codex P1, round 4 hole). A gather-scheduled guard helper therefore
+    counts as a fetch but not as a guard: a conservative false positive
+    that forces the explicit ``await guard(...)`` style.
     """
     tree = _parse(source)
     if tree is None:
         return {}
     awaited = _awaited_call_ids(tree)
     module_globals = getattr(fn, "__globals__", {})
-    expansion: dict[str, tuple[Any, str]] = {}
+    expansion: dict[str, tuple[Any, str, bool]] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -694,12 +703,33 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str]]:
         module = getattr(target, "__module__", "") or ""
         if not module.startswith("app."):
             continue
-        if inspect.iscoroutinefunction(target) and id(node) not in awaited:
-            continue
+        creditable = not inspect.iscoroutinefunction(target) or id(node) in awaited
         key = f"{module}.{target.__qualname__}"
-        if key not in expansion:
-            expansion[key] = (target, _source_of(target))
+        previous = expansion.get(key)
+        if previous is None:
+            expansion[key] = (target, _source_of(target), creditable)
+        elif creditable and not previous[2]:
+            expansion[key] = (previous[0], previous[1], True)
     return expansion
+
+
+def _analyze_effective(fn: Any, source: str) -> tuple[list[str], bool]:
+    """Handler analysis plus one-level helper expansion (the main-test view).
+
+    Fetch evidence accumulates from the handler and every expanded helper;
+    guard credit accumulates from the handler and only the helpers whose
+    call sites provably execute (see ``_one_level_expansion``).
+    """
+    fetch_lines, guarded = _analyze_source(fn, source, "handler")
+    for helper_key, (helper_fn, helper_source, creditable) in _one_level_expansion(
+        fn, source
+    ).items():
+        helper_evidence, helper_guard = _analyze_source(
+            helper_fn, helper_source, helper_key
+        )
+        fetch_lines.extend(helper_evidence)
+        guarded = guarded or (helper_guard and creditable)
+    return fetch_lines, guarded
 
 
 @lru_cache(maxsize=1)
@@ -729,15 +759,7 @@ def _analyze_routes() -> tuple[int, tuple[_HandlerReport, ...]]:
             # twice; analyze it once.
             continue
         source = _source_of(fn)
-        fetch_lines, guarded = _analyze_source(fn, source, "handler")
-        for helper_key, (helper_fn, helper_source) in _one_level_expansion(
-            fn, source
-        ).items():
-            helper_evidence, helper_guard = _analyze_source(
-                helper_fn, helper_source, helper_key
-            )
-            fetch_lines.extend(helper_evidence)
-            guarded = guarded or helper_guard
+        fetch_lines, guarded = _analyze_effective(fn, source)
         reports[key] = _HandlerReport(
             key=key,
             path=ctx.path or route.path,
@@ -870,6 +892,14 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
         _dummy, imp + "def f(db, i):\n    return db.get(entity=DsX, ident=i)\n", "t"
     )
     assert evidence and not guarded, "db.get(entity=Model) must be detected as a fetch"
+
+    # AsyncSession.get_one is the same fetch shape (codex P1, round 6).
+    evidence, guarded = _analyze_source(
+        _dummy, imp + "async def f(db, i):\n    return await db.get_one(DsX, i)\n", "t"
+    )
+    assert evidence and not guarded, (
+        "db.get_one(Model, ...) must be detected as a fetch"
+    )
 
     # A bare value-guard statement discards the filtered Select and is NOT a
     # guard (codex P1, round 3)...
@@ -1028,6 +1058,61 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     assert evidence and not guarded, (
         "a function-locally imported (and aliased) get_record must be "
         "detected as a fetch"
+    )
+
+
+@pytest.mark.architecture
+def test_expansion_semantics_on_synthetic_sources() -> None:
+    """Pin the helper-expansion semantics (codex P1 rounds 4 and 6).
+
+    Dummy functions are built with controlled globals binding REAL app
+    helpers, because expansion only follows ``app.*`` functions. The
+    snippets are never executed.
+    """
+    import types
+
+    from app.standards.ogc import router as ogc_router
+
+    def _dummy_with(ns: dict[str, Any]) -> Any:
+        return types.FunctionType((lambda: None).__code__, ns)
+
+    # A helper scheduled through asyncio.gather DOES execute — its fetches
+    # must be visible even though the helper call is not directly awaited
+    # (codex P1, round 6). _get_visible_dataset selects Dataset internally.
+    fn = _dummy_with({"gather_helper": ogc_router._get_visible_dataset})
+    evidence, guarded = _analyze_effective(
+        fn,
+        "async def f(db, u, i):\n"
+        "    import asyncio\n"
+        "    await asyncio.gather(gather_helper(db, u, i))\n",
+    )
+    assert evidence, "a gather-scheduled helper's model fetch must be detected"
+    # ...and because the helper provably executes only via a DIRECT await,
+    # its internal guard is NOT credited on the gather path: conservative
+    # false positive, forcing the explicit style.
+    assert not guarded, "a gather-scheduled helper must not contribute guard credit"
+
+    # Directly awaited helper: fetches AND its internal (consumed)
+    # apply_visibility_filter guard both flow to the handler.
+    fn = _dummy_with({"load_visible": ogc_router._get_visible_dataset})
+    evidence, guarded = _analyze_effective(
+        fn,
+        "async def f(db, u, i):\n    return await load_visible(db, u, i)\n",
+    )
+    assert evidence and guarded, (
+        "an awaited helper must contribute both its fetches and its guards"
+    )
+
+    # Round-4 pin at composition level: an un-awaited (assigned) coroutine
+    # helper never runs, so its internal guard must NOT be credited — while
+    # its fetch stays visible (fail-closed).
+    fn = _dummy_with({"load_visible": ogc_router._get_visible_dataset})
+    evidence, guarded = _analyze_effective(
+        fn,
+        "async def f(db, u, i):\n    ds = load_visible(db, u, i)\n    return ds\n",
+    )
+    assert evidence and not guarded, (
+        "an un-awaited helper must contribute fetch evidence but no guard credit"
     )
 
 
