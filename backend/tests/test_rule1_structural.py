@@ -513,6 +513,99 @@ def _awaited_call_ids(tree: ast.Module) -> set[int]:
     }
 
 
+def _awaited_argument_call_ids(tree: ast.Module) -> set[int]:
+    """Ids of Call nodes passed as direct arguments of an awaited call.
+
+    Covers ``await asyncio.gather(_fetch_a(), _fetch_b())``: the inner
+    invocations are not directly under an ``ast.Await``, but the awaited
+    outer call schedules and runs them, so a coroutine invoked this way
+    provably executes. ``create_task`` without an awaited outer call, or a
+    coroutine stashed in a list, is NOT covered — conservative.
+    """
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Await) and isinstance(node.value, ast.Call)):
+            continue
+        outer = node.value
+        for arg in [*outer.args, *(kw.value for kw in outer.keywords)]:
+            if isinstance(arg, ast.Call):
+                ids.add(id(arg))
+    return ids
+
+
+def _direct_calls_and_nested_defs(
+    nodes: list[ast.AST],
+) -> tuple[list[ast.Call], list[ast.AST]]:
+    """Calls in the given statements' own scope, stopping at nested defs/lambdas."""
+    calls: list[ast.Call] = []
+    nested: list[ast.AST] = []
+    stack = list(nodes)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            nested.append(node)
+            continue
+        if isinstance(node, ast.Call):
+            calls.append(node)
+        stack.extend(ast.iter_child_nodes(node))
+    return calls, nested
+
+
+def _guard_creditable_call_ids(tree: ast.Module) -> set[int]:
+    """Call ids on the analyzed function's own EXECUTION PATH (guard scope).
+
+    ``ast.walk`` visits nested function bodies, so a guard awaited inside a
+    nested def that may never run credited the enclosing handler (codex P2,
+    round 7). Guard credit is restricted to:
+
+    - calls in the analyzed function's own body (and at module level), and
+    - calls in a FIRST-LEVEL nested def that the outer body provably
+      invokes by simple name — the ``list_maps`` closure pattern
+      (``_apply_vis_filter`` wrapping ``_apply_map_visibility_filter``).
+      An async nested def's invocation must provably RUN the coroutine:
+      directly awaited, or a direct argument of an awaited call (the STAC
+      ``await asyncio.gather(_fetch_extents(), ...)`` idiom).
+
+    Lambdas, deeper nesting, and callbacks passed without a direct call
+    never contribute guard credit (conservative). Fetch evidence is
+    unaffected — counting a maybe-run fetch is fail-closed.
+    """
+    awaited = _awaited_call_ids(tree)
+    awaited_args = _awaited_argument_call_ids(tree)
+    creditable: set[int] = set()
+    module_calls, top_defs = _direct_calls_and_nested_defs(list(tree.body))
+    creditable.update(id(call) for call in module_calls)
+    for outer in top_defs:
+        if isinstance(outer, ast.Lambda):
+            continue
+        own_calls, nested = _direct_calls_and_nested_defs(
+            list(ast.iter_child_nodes(outer))
+        )
+        creditable.update(id(call) for call in own_calls)
+        nested_by_name = {
+            node.name: node
+            for node in nested
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for call in own_calls:
+            if not isinstance(call.func, ast.Name):
+                continue
+            nested_def = nested_by_name.get(call.func.id)
+            if nested_def is None:
+                continue
+            if (
+                isinstance(nested_def, ast.AsyncFunctionDef)
+                and id(call) not in awaited
+                and id(call) not in awaited_args
+            ):
+                continue
+            inner_calls, _ = _direct_calls_and_nested_defs(
+                list(ast.iter_child_nodes(nested_def))
+            )
+            creditable.update(id(inner) for inner in inner_calls)
+    return creditable
+
+
 def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     """AST-scan one function's source for model fetches and guard CALLS.
 
@@ -557,6 +650,7 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
         port_names=frozenset(_port_base_names(tree)),
         discarded=frozenset(_discarded_call_ids(tree)),
         awaited=frozenset(_awaited_call_ids(tree)),
+        creditable=frozenset(_guard_creditable_call_ids(tree)),
     )
     lines = source.splitlines()
     evidence: list[str] = []
@@ -585,6 +679,7 @@ class _AnalysisContext(NamedTuple):
     port_names: frozenset[str]
     discarded: frozenset[int]
     awaited: frozenset[int]
+    creditable: frozenset[int]  # calls on the execution path (guard scope)
 
 
 def _resolve_guard(ctx: _AnalysisContext, node: ast.Call) -> tuple[str, Any] | None:
@@ -606,6 +701,8 @@ def _resolve_guard(ctx: _AnalysisContext, node: ast.Call) -> tuple[str, Any] | N
 
 
 def _is_effective_guard(ctx: _AnalysisContext, node: ast.Call) -> bool:
+    if id(node) not in ctx.creditable:
+        return False  # nested def/lambda that may never run (codex P2, round 7)
     resolved = _resolve_guard(ctx, node)
     if resolved is None:
         return False
@@ -669,17 +766,17 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str, bool
     skipping it would hide its fetches (codex P1, round 6; fail-closed).
     GUARD credit from a helper is asymmetric: it flows to the handler only
     when the helper provably executes at the call site — the call is
-    directly awaited, or the helper is a plain sync function. Without that
-    restriction an un-awaited ``record = _check_record_ownership(...)``
-    would be credited with the helper's internal awaited guard call (the
-    codex P1, round 4 hole). A gather-scheduled guard helper therefore
-    counts as a fetch but not as a guard: a conservative false positive
-    that forces the explicit ``await guard(...)`` style.
+    directly awaited, a direct argument of an awaited call (the awaited
+    ``asyncio.gather(helper())`` idiom), or the helper is a plain sync
+    function. Without that restriction an un-awaited
+    ``record = _check_record_ownership(...)`` would be credited with the
+    helper's internal awaited guard call (the codex P1, round 4 hole).
     """
     tree = _parse(source)
     if tree is None:
         return {}
     awaited = _awaited_call_ids(tree)
+    awaited_args = _awaited_argument_call_ids(tree)
     module_globals = getattr(fn, "__globals__", {})
     expansion: dict[str, tuple[Any, str, bool]] = {}
     for node in ast.walk(tree):
@@ -703,7 +800,11 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str, bool
         module = getattr(target, "__module__", "") or ""
         if not module.startswith("app."):
             continue
-        creditable = not inspect.iscoroutinefunction(target) or id(node) in awaited
+        creditable = (
+            not inspect.iscoroutinefunction(target)
+            or id(node) in awaited
+            or id(node) in awaited_args
+        )
         key = f"{module}.{target.__qualname__}"
         previous = expansion.get(key)
         if previous is None:
@@ -1060,6 +1161,84 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
         "detected as a fetch"
     )
 
+    # A guard inside a nested def the handler NEVER invokes must not credit
+    # the handler — the callback may never run (codex P2, round 7).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_access
+        + "async def f(db, ds, i, u):\n"
+        + "    async def _maybe_later():\n"
+        + "        await check_dataset_access(db, ds, i, u)\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "a guard inside an uninvoked nested def must NOT count"
+    )
+
+    # A guard inside a nested def that the outer body DOES invoke counts —
+    # the list_maps closure pattern (sync closure, result consumed).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_avf
+        + "def f(db, u, r):\n"
+        + "    def _vis(stmt):\n"
+        + "        return apply_visibility_filter(stmt, u, r, DsX, None)\n"
+        + "    stmt = _vis(select(DsX))\n"
+        + "    return db.execute(stmt)\n",
+        "t",
+    )
+    assert evidence and guarded, (
+        "a guard inside a nested closure invoked by the outer body must count"
+    )
+
+    # Same for an async nested def, but only when its invocation is awaited.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_access
+        + "async def f(db, ds, i, u):\n"
+        + "    async def _check():\n"
+        + "        await check_dataset_access(db, ds, i, u)\n"
+        + "    await _check()\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and guarded, "a guard inside an awaited async nested def must count"
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_access
+        + "async def f(db, ds, i, u):\n"
+        + "    async def _check():\n"
+        + "        await check_dataset_access(db, ds, i, u)\n"
+        + "    _check()\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "a guard inside an async nested def invoked WITHOUT await must NOT count"
+    )
+
+    # The STAC idiom: a nested async def invoked as a direct argument of an
+    # awaited gather provably runs, so its guard counts.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_access
+        + "async def f(db, ds, i, u):\n"
+        + "    async def _check():\n"
+        + "        await check_dataset_access(db, ds, i, u)\n"
+        + "    await asyncio.gather(_check())\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and guarded, (
+        "a guard inside a nested async def run via an awaited gather must count"
+    )
+
 
 @pytest.mark.architecture
 def test_expansion_semantics_on_synthetic_sources() -> None:
@@ -1076,9 +1255,10 @@ def test_expansion_semantics_on_synthetic_sources() -> None:
     def _dummy_with(ns: dict[str, Any]) -> Any:
         return types.FunctionType((lambda: None).__code__, ns)
 
-    # A helper scheduled through asyncio.gather DOES execute — its fetches
-    # must be visible even though the helper call is not directly awaited
-    # (codex P1, round 6). _get_visible_dataset selects Dataset internally.
+    # A helper scheduled through an AWAITED asyncio.gather provably
+    # executes — its fetches must be visible and its internal (consumed)
+    # guard is credited (codex P1 round 6 + P2 round 7).
+    # _get_visible_dataset selects Dataset and applies the filter inside.
     fn = _dummy_with({"gather_helper": ogc_router._get_visible_dataset})
     evidence, guarded = _analyze_effective(
         fn,
@@ -1087,10 +1267,24 @@ def test_expansion_semantics_on_synthetic_sources() -> None:
         "    await asyncio.gather(gather_helper(db, u, i))\n",
     )
     assert evidence, "a gather-scheduled helper's model fetch must be detected"
-    # ...and because the helper provably executes only via a DIRECT await,
-    # its internal guard is NOT credited on the gather path: conservative
-    # false positive, forcing the explicit style.
-    assert not guarded, "a gather-scheduled helper must not contribute guard credit"
+    assert guarded, (
+        "a helper inside an AWAITED gather provably executes and must "
+        "contribute its guard credit"
+    )
+
+    # A coroutine merely handed to create_task (outer call not awaited) is
+    # not provably run: fetch stays visible, guard credit does not flow.
+    fn = _dummy_with({"task_helper": ogc_router._get_visible_dataset})
+    evidence, guarded = _analyze_effective(
+        fn,
+        "async def f(db, u, i, tg):\n"
+        "    t = tg.create_task(task_helper(db, u, i))\n"
+        "    return t\n",
+    )
+    assert evidence and not guarded, (
+        "a create_task-scheduled helper without an awaited outer call must "
+        "contribute fetch evidence but no guard credit"
+    )
 
     # Directly awaited helper: fetches AND its internal (consumed)
     # apply_visibility_filter guard both flow to the handler.
