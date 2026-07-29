@@ -303,6 +303,17 @@ describe('buildTileTransformRequest', () => {
     });
   });
 
+  it('prefers X-Embed-Token over the Bearer on a first-party raster URL (else-if precedence)', () => {
+    // On the embed surface the embed token IS the credential — even a
+    // signed-in session must not also leak the JWT on raster tiles.
+    useAuthStore.setState({ token: 'jwt-abc' });
+    const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
+    expect(transform('/raster-tiles/ds-1/tiles/1/2/3.png')).toEqual({
+      url: `${window.location.origin}/raster-tiles/ds-1/tiles/1/2/3.png`,
+      headers: { 'X-Embed-Token': 'embed-tok' },
+    });
+  });
+
   it('never sends X-Embed-Token to third-party basemap CDNs (fix #394 SH-02/B-022)', () => {
     const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
     expect(transform('https://tiles.openfreemap.org/styles/positron/sprite.json')).toEqual({
