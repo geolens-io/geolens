@@ -32,6 +32,7 @@ import type { ShareExpirationInput } from '@/api/maps';
 import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
+import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
 
 export type { MapBrowseParams };
 
@@ -186,11 +187,24 @@ export function useAddLayer() {
   return useMutation({
     mutationFn: ({ mapId, data }: { mapId: string; data: MapLayerInput }) =>
       addLayerToMapApi(mapId, data),
+    // fix(#833 codex P2): the analysis add-to-map guard settles HERE, not in
+    // per-call mutate() callbacks — when two adds overlap, the shared
+    // mutation observer moves to the newer request and drops the earlier
+    // call's per-call callbacks, stranding a pending claim. These global
+    // callbacks run once per request. Both are no-ops unless an analysis
+    // affordance claimed a pending entry for this dataset.
     onSuccess: (_data, variables) => {
+      const guard = useAnalysisAddedStore.getState();
+      if (guard.pendingAddIds.includes(variables.data.dataset_id)) {
+        guard.confirmAdded(variables.data.dataset_id);
+      }
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
       invalidateMapHistory(qc, variables.mapId);
     },
-    onError: () => { toast.error(i18n.t('builder:toasts.layerAddFailed')); },
+    onError: (_err, variables) => {
+      useAnalysisAddedStore.getState().clearPending(variables.data.dataset_id);
+      toast.error(i18n.t('builder:toasts.layerAddFailed'));
+    },
   });
 }
 
