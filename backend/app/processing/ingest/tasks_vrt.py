@@ -21,11 +21,10 @@ from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
-    claim_ingest_job_attempt,
-    maintain_ingest_job_heartbeat,
+    claim_job_attempt_and_start_heartbeat,
     maintain_vrt_generation_heartbeat,
     require_ingest_job_update,
-    resolve_ingest_job_attempt,
+    resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
@@ -240,10 +239,12 @@ async def ingest_vrt(
 
     logger_vrt = __import__("logging").getLogger(__name__)
 
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="vrt"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     tmp_dir: str | None = None
     # fix(#430 BA-30): track storage puts so a failure after put (terminal commit /
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
@@ -272,13 +273,11 @@ async def ingest_vrt(
                 return
 
             # 1. Mark running
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid
             )
+            if heartbeat_task is None:
+                return
 
             # 2. Parse source dataset IDs
             ids = [uuid.UUID(sid) for sid in _json.loads(source_dataset_ids)]
@@ -575,10 +574,12 @@ async def regenerate_vrt(
 
     logger_regen = __import__("logging").getLogger(__name__)
 
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="vrt"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     vrt_id = uuid.UUID(vrt_dataset_id)
     tmp_dir: str | None = None
     generation_uuid: uuid.UUID | None = None
@@ -610,13 +611,11 @@ async def regenerate_vrt(
                 return
 
             # 1. Mark running
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid
             )
+            if heartbeat_task is None:
+                return
 
             # 2. Load VRT RasterAsset
             asset_result = await session.execute(

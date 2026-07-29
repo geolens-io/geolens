@@ -10,10 +10,9 @@ from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
-    claim_ingest_job_attempt,
-    maintain_ingest_job_heartbeat,
+    claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
-    resolve_ingest_job_attempt,
+    resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
@@ -353,14 +352,12 @@ async def ingest_raster(
 
     from app.platform.jobs.models import IngestJob
 
-    job_uuid = uuid.UUID(job_id)
-    attempt_uuid = await resolve_ingest_job_attempt(job_uuid, attempt_id)
-    if attempt_uuid is None:
-        structlog.get_logger().warning(
-            "Tokenless raster delivery could not adopt pending legacy job",
-            job_id=job_id,
-        )
+    resolved = await resolve_ingest_attempt_or_skip(
+        job_id, attempt_id, task_label="raster"
+    )
+    if resolved is None:
         return
+    job_uuid, attempt_uuid = resolved
     local_cog_path: str | None = None
     tmp_dir: str | None = None
     original_file_path = file_path
@@ -388,20 +385,15 @@ async def ingest_raster(
                 return
 
             # 1. Mark running.
-            # REMED-02 / ingest-audit P2-07: stamp current_step + progress so
-            # the polling UI sees a fresh "validating" signal on the first
-            # poll after pickup. Raster ingests are the prime motivator —
-            # 10-min COG conversion + quicklook generation otherwise looks
-            # like a dead spinner.
-            if not await claim_ingest_job_attempt(session, job_uuid, attempt_uuid):
-                await session.rollback()
-                return
-            job.current_step = "validating"
-            job.progress = 0.0
-            await session.commit()
-            heartbeat_task = asyncio.create_task(
-                maintain_ingest_job_heartbeat(job_uuid, attempt_uuid)
+            # REMED-02 / ingest-audit P2-07: the fresh "validating" stamp rides
+            # the claim commit (see the helper). Raster ingests are the prime
+            # motivator — 10-min COG conversion + quicklook generation
+            # otherwise looks like a dead spinner.
+            heartbeat_task = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid, job=job, current_step="validating"
             )
+            if heartbeat_task is None:
+                return
 
             # 2. Resolve file path
             from app.processing.ingest.service import resolve_file_path
