@@ -58,6 +58,7 @@ function InlineCellEditor({
   onSave,
   onCancel,
   isSaving,
+  compact,
 }: {
   initialValue: string;
   label: string;
@@ -66,6 +67,7 @@ function InlineCellEditor({
   onSave: (value: string) => void;
   onCancel: () => void;
   isSaving: boolean;
+  compact: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(initialValue);
@@ -109,7 +111,10 @@ function InlineCellEditor({
         onChange={(e) => setValue(e.target.value)}
         onBlur={commit}
         onKeyDown={handleKeyDown}
-        className="h-7 text-xs px-1"
+        // fix(#820): the input must fit inside the fixed row height for its
+        // density mode (44px default / 28px compact) so an open editor cannot
+        // stretch the row past the virtualizer's per-mode row size.
+        className={`${compact ? 'h-6' : 'h-7'} text-xs px-1`}
         // fix(#458 E-39): name the editor (column + row) and tie the rejection
         // reason to the field so it isn't just a transient toast for SR users.
         aria-label={label}
@@ -257,6 +262,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                 setEditingCell(null);
               }}
               isSaving={updateFeature.isPending}
+              compact={compact}
             />
           );
         }
@@ -292,7 +298,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         return cellValue;
       },
     }));
-  }, [data?.columns, canEdit, handleCellSave, updateFeature.isPending, editError, t]);
+  }, [data?.columns, canEdit, compact, handleCellSave, updateFeature.isPending, editError, t]);
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns imperative helpers; this component keeps table state local.
   const table = useReactTable({
@@ -314,13 +320,19 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // fix(#820): fixed-height rows only — never reintroduce dynamic row
   // measurement here. With a Chrome AX tree attached (screen reader, CDP
   // Accessibility.enable), the measure→layout→re-render edge fed back
-  // synchronously and locked the page in an infinite render loop. Rows are
-  // visually fixed-height, so estimateSize is the row height; keep it in
-  // sync with the row styles.
+  // synchronously and locked the page in an infinite render loop.
+  //
+  // The row height is enforced, not estimated: each body cell carries an
+  // explicit height class (h-11 / h-7 below) matching this value, and in a
+  // collapsed-border table an explicit cell height yields exactly that row
+  // pitch (measured in Chromium: 44/28px in both densities, editor open or
+  // not — the border is absorbed into the specified height). Keep rowHeight
+  // and the cell height classes in lockstep.
+  const rowHeight = compact ? 28 : 44;
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 36,
+    estimateSize: () => rowHeight,
     overscan: 8,
   });
   const virtualItems = virtualizer.getVirtualItems();
@@ -350,7 +362,10 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     );
   }
 
-  const cellPadding = compact ? 'py-1 text-xs' : 'py-3';
+  // fix(#820): exact per-density cell height (py-0 + h-*) instead of padding,
+  // so real row pitch always equals `rowHeight` and the virtualizer's offset
+  // math stays correct without dynamic measurement.
+  const cellClass = compact ? 'h-7 py-0 text-xs' : 'h-11 py-0';
 
   return (
     <div className="space-y-3">
@@ -484,7 +499,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                       }}
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id} className={`max-w-xs truncate ${cellPadding}`}>
+                        <TableCell key={cell.id} className={`max-w-xs truncate ${cellClass}`}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       ))}

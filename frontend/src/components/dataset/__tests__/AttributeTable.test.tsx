@@ -96,8 +96,8 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).toMatch(/virtualizer\.getTotalSize\(\)/);
   });
 
-  it('preserves cellPadding and existing column visibility logic', () => {
-    expect(attributeTableSrc).toMatch(/cellPadding/);
+  it('preserves per-density cell classes and existing column visibility logic', () => {
+    expect(attributeTableSrc).toMatch(/cellClass/);
     expect(attributeTableSrc).toMatch(/columnVisibility/);
   });
 
@@ -107,6 +107,16 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
   // measureElement reintroduces the freeze. Live coverage: e2e/attribute-table-ax.spec.ts.
   it('does not use measureElement / dynamic row measurement', () => {
     expect(attributeTableSrc).not.toContain('measureElement');
+  });
+
+  // fix(#820): with measurement gone, the virtualizer's row size and the
+  // rendered row height must agree by construction. The row height is derived
+  // from the density mode (44px default / 28px compact, measured in Chromium)
+  // and enforced on the cells via matching height classes (h-11 / h-7, py-0).
+  it('derives the virtualizer row size from the density mode and enforces it on the cells', () => {
+    expect(attributeTableSrc).toMatch(/rowHeight = compact \? 28 : 44/);
+    expect(attributeTableSrc).toMatch(/estimateSize: \(\) => rowHeight/);
+    expect(attributeTableSrc).toMatch(/compact \? 'h-7 py-0 text-xs' : 'h-11 py-0'/);
   });
 });
 
