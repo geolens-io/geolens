@@ -128,6 +128,10 @@ jobs:
             mcp:
               - 'mcp/**'
               - 'sdks/python/**'
+              # fix(#827): the MCP tools read the backend's REST contract, so
+              # an API-shape change must run the MCP suite (incl. its live
+              # tier) even when the regenerated SDK output is byte-identical.
+              - 'backend/openapi.json'
             # fix(#709): a PR that only touches the SDKs' own toolchain
             # (generator, package.json, tsconfig) ran neither drift gate,
             # so generator breakage merged green and reddened main on push.
@@ -847,6 +851,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mcp == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Compose boot + image build for the live tier need headroom on a shared
+    # runner; the e2e-smoke job uses the same budget for a larger stack.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
@@ -863,6 +870,41 @@ jobs:
       # from PyPI. No Postgres needed — every tool is mocked at the transport.
       - name: MCP server unit tests
         run: make mcp-test
+
+      # ---- Live-contract tier (fix #827) ----
+      # The unit tests above are transport-mocked and can't see a backend
+      # change breaking what the tools actually return. Boot db+migrate+api
+      # from THIS checkout (same .env recipe as the e2e jobs, minus the
+      # services the tier doesn't need — no worker/frontend/titiler) and run
+      # every MCP tool against the real API, asserting response shape.
+      - name: Create .env file
+        run: |
+          cp .env.example .env
+          # Override the dev defaults with CI-distinct values. JWT_SECRET_KEY
+          # must be ≥ 32 chars to satisfy the Settings validator.
+          sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
+          sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=mcp-live-secret-key-padding-32chars-min|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
+          echo "DATABASE_SSL_MODE=disable" >> .env
+
+      - name: Start db + api
+        run: docker compose up -d --wait --wait-timeout 120 api
+
+      - name: MCP live-contract tests
+        env:
+          # .env.example maps the api container to host port 8001 (API_PORT).
+          GEOLENS_INSTANCE: http://localhost:8001
+          GEOLENS_ADMIN_USERNAME: admin
+          GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
+        run: make mcp-live-test
+
+      - name: Docker Compose logs
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
 
   backend-test:
     name: Backend Tests
