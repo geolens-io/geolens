@@ -188,6 +188,54 @@ test.describe('Admin Panel', () => {
     await expect(page.getByText('Map Plugins')).toBeVisible();
   });
 
+  // test(#828): the AI and appearance settings pages were never visited by the
+  // admin e2e — their gating (edition, capability, env-key notice) was pinned
+  // only by unit tests.
+  test('settings: ai page loads with provider config and env-key notice', async ({ page }) => {
+    await page.goto('/admin/settings/ai');
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'AI', exact: true }),
+    ).toBeVisible();
+
+    // The env-key notice copy is the point: keys are env-only and cannot be
+    // edited from this page.
+    await expect(
+      page.getByText('API keys can only be set via environment variables'),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Key status rows render for both providers regardless of configured
+    // state. Anchored regex: the bare substring also matches the notice copy.
+    await expect(page.getByText(/^ANTHROPIC_API_KEY/)).toBeVisible();
+    await expect(page.getByText(/^OPENAI_API_KEY/)).toBeVisible();
+
+    // Provider config controls are present.
+    await expect(page.locator('#ai-toggle')).toBeVisible();
+    await expect(page.locator('#llm-provider')).toBeVisible();
+    await expect(page.locator('#semantic-toggle')).toBeVisible();
+
+    // The admin (manage_users, single-tenant) passes useAIStatusReader, so the
+    // probe button is offered. Deliberately NOT clicked — it spends live
+    // provider tokens.
+    await expect(page.getByRole('button', { name: 'Test Connection' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+  });
+
+  test('settings: appearance is edition-gated — community redirects away', async ({ page }) => {
+    await page.goto('/admin/settings/appearance');
+
+    // Community edition must never render the appearance (branding) tab: the
+    // route redirects to the map settings page instead.
+    await page.waitForURL('/admin/settings/map');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Map', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('Basemap Presets')).toBeVisible({ timeout: 10_000 });
+
+    // And the sidebar offers no Appearance entry to navigate there.
+    await expect(page.locator('a[href="/admin/settings/appearance"]')).toHaveCount(0);
+  });
+
   test('published maps page loads', async ({ page }) => {
     await page.goto('/admin/shared-maps');
 
