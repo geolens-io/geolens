@@ -105,6 +105,11 @@ export function useViewerTokens({
         // Exponential backoff retry: 5s, 10s, 20s, 40s, capped at 60s
         retryAttempt++;
         const backoffMs = Math.min(5_000 * Math.pow(2, retryAttempt - 1), 60_000);
+        // fix(#831): clear the pending retry timer before arming a new one —
+        // out-of-band refreshes during outages multiplied retry loops.
+        if (refreshTimerRef.current) {
+          clearTimeout(refreshTimerRef.current);
+        }
         refreshTimerRef.current = setTimeout(() => {
           if (!cancelled) fetchTokens();
         }, backoffMs);
