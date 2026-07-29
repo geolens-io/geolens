@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { getThemeBasemap, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
+import { getThemeBasemap, makeStyleImageMissingHandler, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
@@ -15,7 +15,6 @@ import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
-import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { MAP_COLORS } from '@/lib/map-colors';
 import {
@@ -37,7 +36,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
-import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { logUnhandledMapError } from '@/lib/map-error-log';
 
 /** System columns excluded from the attribute form */
@@ -125,6 +124,10 @@ export const DatasetMap = memo(function DatasetMap({
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
   const tileConfigReady = isMvtSourceLayerConfigReady(tileConfig);
+  // chore(#835): ref so the transformRequest installed once in handleLoad reads
+  // the current tile config without re-registering (same pattern as ViewerMap).
+  const tileConfigRef = useRef(tileConfig);
+  tileConfigRef.current = tileConfig;
   const { data: rawTileToken } = useTileToken(datasetId);
   // Narrow to the vector-tile shape expected by downstream hooks.
   // Raster tokens are a separate payload with a preformatted tile_url and
@@ -587,25 +590,18 @@ export const DatasetMap = memo(function DatasetMap({
       mapRef.current = map;
       setMapInstance(map);
 
-      // Absolutify URLs and attach auth header for raster tile requests
-      map.setTransformRequest((url: string) => {
-        const absUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-        if (absUrl.includes('/raster-tiles/')) {
-          const token = useAuthStore.getState().token;
-          if (token) {
-            return { url: absUrl, headers: { Authorization: `Bearer ${token}` } };
-          }
-        }
-        return { url: absUrl };
-      });
+      // Absolutify URLs and attach auth header for raster tile requests.
+      // chore(#835): shared builder — react-maplibre v8 ignores the
+      // transformRequest PROP after mount, so each map wires it here in onLoad.
+      map.setTransformRequest(buildTileTransformRequest({
+        getTileConfig: () => tileConfigRef.current,
+      }));
 
-      // Suppress missing-image warnings from basemap sprites (e.g. circle-11, circle_11_black)
-      // by providing a transparent 1x1 pixel fallback for any missing icon
-      map.on('styleimagemissing', ({ id }: { id: string }) => {
-        if (!map.hasImage(id)) {
-          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
-        }
-      });
+      // Suppress missing-image warnings from basemap sprites (e.g. circle-11,
+      // circle_11_black) with a transparent 1x1 pixel fallback for any missing
+      // icon. chore(#835): shared handler (knownImagesOnly: false — preview
+      // surface, keep the console clean).
+      map.on('styleimagemissing', makeStyleImageMissingHandler(map, { knownImagesOnly: false }));
 
       // fix(#430 V-13): data-tiles-loaded signal, re-armed on every camera move
       // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).

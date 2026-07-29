@@ -1,9 +1,12 @@
 import {
   buildClusterTileUrl,
   buildSignedTileUrl,
+  buildTileTransformRequest,
   getMvtSourceLayerName,
   isMvtSourceLayerConfigReady,
+  isThirdPartyTileUrl,
 } from '@/lib/tile-utils';
+import { useAuthStore } from '@/stores/auth-store';
 
 describe('buildSignedTileUrl', () => {
   const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
@@ -209,5 +212,125 @@ describe('isMvtSourceLayerConfigReady', () => {
   it('accepts resolved tenant config and legacy single-tenant responses', () => {
     expect(isMvtSourceLayerConfigReady({ mvt_source_layer_prefix: 'data_t_acme' })).toBe(true);
     expect(isMvtSourceLayerConfigReady({})).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// chore(#835): shared first-party/third-party classifier + transformRequest
+// builder. The three map surfaces (BuilderMap / ViewerMap / DatasetMap) had
+// drifted apart here — the viewer's missing raster Bearer (#819) was this
+// drift biting, so the header behavior is pinned below.
+// ---------------------------------------------------------------------------
+
+describe('isThirdPartyTileUrl', () => {
+  it('treats missing url as first-party (preserves prior behavior)', () => {
+    expect(isThirdPartyTileUrl(undefined)).toBe(false);
+    expect(isThirdPartyTileUrl('')).toBe(false);
+  });
+
+  it('treats relative paths as first-party', () => {
+    expect(isThirdPartyTileUrl('/api/tiles/data.roads/1/2/3.pbf')).toBe(false);
+  });
+
+  it('treats same-origin absolute URLs as first-party', () => {
+    expect(isThirdPartyTileUrl(`${window.location.origin}/api/tiles/x.mvt`)).toBe(false);
+  });
+
+  it('classifies other origins as third-party', () => {
+    expect(isThirdPartyTileUrl('https://tiles.openfreemap.org/styles/positron/sprite.json')).toBe(true);
+  });
+
+  it('origin-checks protocol-relative URLs instead of short-circuiting on the leading slash', () => {
+    expect(isThirdPartyTileUrl('//tiles.openfreemap.org/styles/positron/sprite.json')).toBe(true);
+  });
+
+  it('treats the configured tile CDN origin as first-party', () => {
+    const tileConfig = { cdn_base_url: 'https://cdn.example.com' };
+    expect(isThirdPartyTileUrl('https://cdn.example.com/api/tiles/x.mvt', tileConfig)).toBe(false);
+    expect(isThirdPartyTileUrl('https://elsewhere.example.net/api/tiles/x.mvt', tileConfig)).toBe(true);
+  });
+});
+
+describe('buildTileTransformRequest', () => {
+  const initialAuth = useAuthStore.getState();
+
+  afterEach(() => {
+    useAuthStore.setState({
+      token: initialAuth.token,
+      refreshToken: initialAuth.refreshToken,
+      expiresAt: initialAuth.expiresAt,
+      user: initialAuth.user,
+    });
+  });
+
+  it('absolutifies relative URLs', () => {
+    const transform = buildTileTransformRequest();
+    expect(transform('/api/tiles/data.roads/1/2/3.pbf')).toEqual({
+      url: `${window.location.origin}/api/tiles/data.roads/1/2/3.pbf`,
+    });
+  });
+
+  it('attaches the Bearer header to first-party raster tiles when signed in (#819 regression class)', () => {
+    useAuthStore.setState({ token: 'jwt-abc' });
+    const transform = buildTileTransformRequest();
+    expect(transform('/raster-tiles/ds-1/tiles/1/2/3.png')).toEqual({
+      url: `${window.location.origin}/raster-tiles/ds-1/tiles/1/2/3.png`,
+      headers: { Authorization: 'Bearer jwt-abc' },
+    });
+  });
+
+  it('sends no Bearer header when signed out', () => {
+    useAuthStore.setState({ token: null });
+    const transform = buildTileTransformRequest();
+    expect(transform('/raster-tiles/ds-1/tiles/1/2/3.png')).toEqual({
+      url: `${window.location.origin}/raster-tiles/ds-1/tiles/1/2/3.png`,
+    });
+  });
+
+  it('never sends the Bearer header to a third-party host, even on a /raster-tiles/ path', () => {
+    useAuthStore.setState({ token: 'jwt-abc' });
+    const transform = buildTileTransformRequest();
+    expect(transform('https://evil.example.net/raster-tiles/ds-1/tiles/1/2/3.png')).toEqual({
+      url: 'https://evil.example.net/raster-tiles/ds-1/tiles/1/2/3.png',
+    });
+  });
+
+  it('attaches X-Embed-Token to first-party requests on the embed surface', () => {
+    const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
+    expect(transform('/api/tiles/data.roads/1/2/3.pbf')).toEqual({
+      url: `${window.location.origin}/api/tiles/data.roads/1/2/3.pbf`,
+      headers: { 'X-Embed-Token': 'embed-tok' },
+    });
+  });
+
+  it('prefers X-Embed-Token over the Bearer on a first-party raster URL (else-if precedence)', () => {
+    // On the embed surface the embed token IS the credential — even a
+    // signed-in session must not also leak the JWT on raster tiles.
+    useAuthStore.setState({ token: 'jwt-abc' });
+    const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
+    expect(transform('/raster-tiles/ds-1/tiles/1/2/3.png')).toEqual({
+      url: `${window.location.origin}/raster-tiles/ds-1/tiles/1/2/3.png`,
+      headers: { 'X-Embed-Token': 'embed-tok' },
+    });
+  });
+
+  it('never sends X-Embed-Token to third-party basemap CDNs (fix #394 SH-02/B-022)', () => {
+    const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
+    expect(transform('https://tiles.openfreemap.org/styles/positron/sprite.json')).toEqual({
+      url: 'https://tiles.openfreemap.org/styles/positron/sprite.json',
+    });
+  });
+
+  it('honors a late-arriving CDN config through getTileConfig', () => {
+    const config: { cdn_base_url: string | null } = { cdn_base_url: null };
+    const transform = buildTileTransformRequest({
+      embedToken: 'embed-tok',
+      getTileConfig: () => config,
+    });
+    expect(transform('https://cdn.example.com/api/tiles/x.mvt').headers).toBeUndefined();
+    config.cdn_base_url = 'https://cdn.example.com';
+    expect(transform('https://cdn.example.com/api/tiles/x.mvt').headers).toEqual({
+      'X-Embed-Token': 'embed-tok',
+    });
   });
 });
