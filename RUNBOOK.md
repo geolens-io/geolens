@@ -430,6 +430,25 @@ docker compose logs -f backup
 | `ERROR: S3 upload failed for <key>` | Offsite upload failed; cycle returns non-zero |
 | `ERROR: object-storage archive failed — this cycle will be reported as failed` | Staging tar failed; the cycle fails and the service turns `unhealthy` at the next freshness probe |
 | `ERROR: pg_dump failed` | DB dump failed; no artifacts written for this cycle |
+| `ERROR: <filename> failed verification (pg_restore could not read it) — discarding the corrupt dump` | The new dump did not read back end-to-end; it was deleted and the cycle failed |
+| `ERROR: BACKUP_RETENTION_DAILY='...' must be >= 1` (or `..._WEEKLY`, or the `is not a plain integer` variant) | The entrypoint refused to start: retention must be an integer of at least 1, because a retention of 0 would delete each backup the moment it is written |
+
+Every explicitly handled failure path logs an `ERROR:` marker, so one grep
+catches those:
+
+```bash
+docker compose logs backup | grep 'ERROR:'
+```
+
+A few raw tool failures are not wrapped (for example the weekly `cp` copies in
+the entrypoint) and surface only as the tool's own stderr, with no `ERROR:`
+marker. When a backup looks wrong but the grep comes back quiet, read the
+unfiltered `docker compose logs backup`.
+
+A backup container that exits immediately at startup (`docker compose ps backup`
+shows it restarting) with the `must be >= 1` line has a retention
+misconfiguration: fix `BACKUP_RETENTION_DAILY` / `BACKUP_RETENTION_WEEKLY` in
+`.env` and run `docker compose up -d backup`.
 
 A healthy cycle produces at least `Backup complete` and `Backup cycle complete`.
 Missing these messages at the expected schedule time indicates a missed backup.
@@ -681,6 +700,16 @@ docker compose up -d --wait --scale backup=0
 
 # 5. Bring the backup service up now that the cluster holds real data, and
 #    verify.
+#
+#    If --wait exits non-zero here, check `docker compose ps` before treating
+#    the upgrade as failed: a service shown as `health: starting` is still
+#    inside its declared start_period, and Docker has not judged it yet — the
+#    backup service allows 10 minutes for its first dump, and dumping a large
+#    freshly restored database can outlast even that, showing a transient
+#    unhealthy that clears on the first probe after the cycle completes.
+#    Respect the start_period before declaring failure (scripts/upgrade.sh's
+#    wait_for_healthy applies the same rule); only a service that stays
+#    (unhealthy), keeps restarting, or exited non-zero has actually failed.
 docker compose up -d --wait
 docker compose exec db psql -U geolens -c 'select version();'
 curl -fsS http://localhost:8080/api/health

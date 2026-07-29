@@ -20,10 +20,15 @@ opt-in: nothing in it runs unless you configure it.
 | CDN tile delivery | `CDN_BASE_URL` | CDN origin | Optional | Leave unset to serve tiles directly from the app. |
 | Remote datasets / COGs / STAC | Per-dataset source URL (set when you register a remote source) | Wherever you register | User-driven | Only fetched if you register remote sources. Uploaded data stays local. |
 | Object storage | `S3_ENDPOINT` (when `STORAGE_PROVIDER=s3`) | S3 / MinIO | Optional | Use the in-cluster MinIO (`--profile cloud-dev`) or `STORAGE_PROVIDER=local` for fully local storage. |
+| Backup offsite upload | `BACKUP_S3_ENABLED` plus the shared `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | S3-compatible endpoint | Optional | Default `false`; backups stay on the local `backup_data` volume with no egress. For an offsite copy without internet, point `S3_ENDPOINT` at an in-network MinIO. |
+| Email notifications (admin alerts) | `NOTIFICATIONS_ENABLED`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_ADDRESS`, plus at least one `NOTIFY_ON_*` event switch | SMTP server | Optional | Off by default: event alerts need `NOTIFICATIONS_ENABLED=true` and a `NOTIFY_ON_*` switch (all default off); the admin test-send needs only the toggle plus channel config. Use an in-network mail relay, or leave unset. |
+| Verification emails (self-serve signup) | `SMTP_HOST` (plus the other `SMTP_*` vars) | SMTP server | Optional | Two triggers: registration sends when the admin "email verification required" setting is on and `SMTP_HOST` is set; the resend-verification endpoint sends for any unverified account whenever `SMTP_HOST` is set, without checking that setting. `NOTIFICATIONS_ENABLED` gates neither. Leave `SMTP_HOST` unset to keep all SMTP egress off. |
+| Webhook notifications | `NOTIFICATIONS_ENABLED`, `NOTIFICATION_WEBHOOK_URL`, `NOTIFICATION_WEBHOOK_SECRET`, plus at least one `NOTIFY_ON_*` event switch | Webhook receiver (Slack / Teams / custom) | Optional | Off by default: event alerts need `NOTIFICATIONS_ENABLED=true` and a `NOTIFY_ON_*` switch (all default off); the admin test-send needs only the toggle plus channel config. Point at an in-network receiver, or leave unset. |
 
 ## Air-gap checklist
 
-- Leave the AI, embedding, SSO, and `CDN_BASE_URL` vars unset.
+- Leave the AI, embedding, SSO, notification (`SMTP_*`, `NOTIFICATION_WEBHOOK_URL`), and `CDN_BASE_URL` vars unset.
+- Keep `BACKUP_S3_ENABLED=false` (the default); backups then never leave the local `backup_data` volume.
 - Use `STORAGE_PROVIDER=local`, or in-cluster MinIO for S3-compatible storage.
 - Register only local datasets (uploaded files); skip remote COG/STAC sources.
 - Use self-hosted basemap tiles instead of a commercial tile CDN.
