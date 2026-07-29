@@ -51,6 +51,13 @@ Known limits (accepted trade-offs, mirrored in the PR for #822):
   check. That is handler-scoped (much tighter than the hook's file scope)
   but a handler doing two fetches, one guarded and one not, would still
   pass.
+- Dataflow completeness is bounded, not full taint analysis. An assigned
+  value-guard result must be LOADED again afterwards (so
+  ``filtered = apply_visibility_filter(stmt, ...)`` with ``filtered``
+  never read fails), but the analysis does not verify the loaded value is
+  what actually reaches ``execute()`` — assigned-and-reloaded while the
+  raw statement is executed still passes. Deeper dataflow findings in
+  this family are documented limits, not bugs in this test.
 """
 
 from __future__ import annotations
@@ -513,6 +520,45 @@ def _awaited_call_ids(tree: ast.Module) -> set[int]:
     }
 
 
+def _assigned_call_targets(tree: ast.Module) -> dict[int, tuple[frozenset[str], int]]:
+    """Call ids that are the value of an assignment (unwrapping ``await``).
+
+    Maps call id -> (assigned Name targets, assignment end line). Used to
+    require that an assigned value-guard result is actually loaded again
+    afterwards (codex P1, round 8).
+    """
+    out: dict[int, tuple[frozenset[str], int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets: list[ast.expr] = list(node.targets)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+        else:
+            continue
+        value = node.value
+        if isinstance(value, ast.Await):
+            value = value.value
+        if not isinstance(value, ast.Call):
+            continue
+        names: set[str] = set()
+        for target in targets:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)):
+                names.update(elt.id for elt in target.elts if isinstance(elt, ast.Name))
+        out[id(value)] = (frozenset(names), node.end_lineno or node.lineno)
+    return out
+
+
+def _name_load_lines(tree: ast.Module) -> dict[str, tuple[int, ...]]:
+    """Line numbers at which each name is read (``ast.Load`` context)."""
+    loads: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            loads.setdefault(node.id, []).append(node.lineno)
+    return {name: tuple(lines) for name, lines in loads.items()}
+
+
 def _awaited_argument_call_ids(tree: ast.Module) -> set[int]:
     """Ids of Call nodes passed as direct arguments of an awaited call.
 
@@ -651,6 +697,8 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
         discarded=frozenset(_discarded_call_ids(tree)),
         awaited=frozenset(_awaited_call_ids(tree)),
         creditable=frozenset(_guard_creditable_call_ids(tree)),
+        assigned=_assigned_call_targets(tree),
+        load_lines=_name_load_lines(tree),
     )
     lines = source.splitlines()
     evidence: list[str] = []
@@ -680,6 +728,8 @@ class _AnalysisContext(NamedTuple):
     discarded: frozenset[int]
     awaited: frozenset[int]
     creditable: frozenset[int]  # calls on the execution path (guard scope)
+    assigned: dict[int, tuple[frozenset[str], int]]  # call id -> (targets, end line)
+    load_lines: dict[str, tuple[int, ...]]  # name -> Load line numbers
 
 
 def _resolve_guard(ctx: _AnalysisContext, node: ast.Call) -> tuple[str, Any] | None:
@@ -714,8 +764,22 @@ def _is_effective_guard(ctx: _AnalysisContext, node: ast.Call) -> bool:
     )
     if is_coro and id(node) not in ctx.awaited:
         return False  # un-awaited coroutine: the check never runs
-    if name in _VALUE_GUARDS and id(node) in ctx.discarded:
-        return False  # filtered statement / id set discarded
+    if name in _VALUE_GUARDS:
+        if id(node) in ctx.discarded:
+            return False  # filtered statement / id set discarded
+        assigned = ctx.assigned.get(id(node))
+        if assigned is not None:
+            target_names, end_lineno = assigned
+            if target_names and not any(
+                line > end_lineno
+                for target in target_names
+                for line in ctx.load_lines.get(target, ())
+            ):
+                # ``filtered = apply_visibility_filter(stmt, ...)`` with
+                # ``filtered`` never read again: the protection is inert
+                # (codex P1, round 8). Bounded check — see the module
+                # docstring's documented-limits entry on dataflow.
+                return False
     return True
 
 
@@ -1030,7 +1094,39 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
         "t",
     )
     assert evidence and guarded, (
-        "an assigned apply_visibility_filter(...) result must count as a guard"
+        "an assigned-and-then-executed apply_visibility_filter(...) result "
+        "must count as a guard"
+    )
+
+    # Direct pass-through is also consumption.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_avf
+        + "def f(db, u, r):\n"
+        + "    return db.execute(apply_visibility_filter(select(DsX), u, r, DsX))\n",
+        "t",
+    )
+    assert evidence and guarded, (
+        "db.execute(apply_visibility_filter(...)) must count as a guard"
+    )
+
+    # Assigning the filtered statement to a name that is NEVER read again
+    # leaves the protection inert — the raw statement is what gets executed
+    # (codex P1, round 8).
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + imp_avf
+        + "def f(db, u, r):\n"
+        + "    stmt = select(DsX)\n"
+        + "    filtered = apply_visibility_filter(stmt, u, r, DsX, None)\n"
+        + "    return db.execute(stmt)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "an assigned-but-never-reloaded apply_visibility_filter(...) result "
+        "must NOT count as a guard"
     )
 
     # Raising guards may be bare statements — that is their correct usage —
