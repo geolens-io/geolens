@@ -142,18 +142,10 @@ export async function updateDataset(
   });
 }
 
-export async function updatePublicationStatus(
-  id: string,
-  status: string,
-): Promise<StatusUpdateResponse> {
-  return apiFetch<StatusUpdateResponse>(`/datasets/${id}/status/`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
-}
-
-/** Walk the full transition chain server-side in a single request. */
+/** Walk the full transition chain server-side in a single request.
+ *  chore(#835): the single-step `updatePublicationStatus` sibling
+ *  (PATCH /datasets/{id}/status/) was deleted — the app moved entirely to
+ *  this target-status endpoint and nothing called it. */
 export async function setTargetStatus(
   id: string,
   status: string,

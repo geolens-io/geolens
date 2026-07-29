@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMyApiKeys, useCreateMyApiKey, useRevokeMyApiKey } from '@/hooks/use-api-keys';
 import { formatDate } from '@/lib/format';
+// chore(#835): consolidated into the shared formatter (was written out here
+// and in admin/ApiKeySection.tsx).
+import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
 import type { MyApiKeyResponse, ApiKeyCreateResponse } from '@/types/api';
@@ -22,19 +25,6 @@ import {
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from '@/components/admin/ApiKeyRevealDialog';
 
-function relativeTime(dateStr: string | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  if (!dateStr) return t('admin:apiKeys.neverUsed');
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return t('admin:apiKeys.justNow');
-  if (minutes < 60) return t('admin:apiKeys.minutesAgo', { count: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t('admin:apiKeys.hoursAgo', { count: hours });
-  const days = Math.floor(hours / 24);
-  return t('admin:apiKeys.daysAgo', { count: days });
-}
 
 export function MyApiKeySection() {
   const { t } = useTranslation();
@@ -162,7 +152,7 @@ export function MyApiKeySection() {
                   </Badge>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {relativeTime(key.last_used_at, t)}
+                  {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}
                 </div>
               </div>
               {key.is_active && (

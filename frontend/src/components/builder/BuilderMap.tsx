@@ -7,14 +7,13 @@ import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-map
 import { useBasemaps, useEnabledPlugins, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import {
   findBasemapById,
-  isKnownMissingRemoteStyleImage,
-  sanitizeMaplibreStyle,
+  makeStyleImageMissingHandler,
   toMaplibreStyle,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { logUnhandledMapError } from '@/lib/map-error-log';
-import { MAP_COLORS } from '@/lib/map-colors';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useTileTokenError } from './hooks/use-tile-token-error';
@@ -36,14 +35,13 @@ import {
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceKey, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
-import type { StyleSpecification, VectorTileSource } from 'maplibre-gl';
+import type { VectorTileSource } from 'maplibre-gl';
 import {
   toSyncInput,
   getSourceIdForLayer,
   getDataDrivenColumnsForSource,
   getLayerId,
   ensureRasterDemTerrainSource,
-  clearTerrainForStyleSwap,
   normalizeTerrainExaggeration,
   refreshVectorSourceTiles,
   TERRAIN_SOURCE_ID,
@@ -303,72 +301,31 @@ export const BuilderMap = memo(function BuilderMap({
       : toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
     [isBlank, basemapEntry?.url, basemapEntry?.attribution],
   );
-  const [mapStyle, setMapStyle] = useState(styleValue);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    const map = mapRef.current;
-
-    if (map) {
-      clearTerrainForStyleSwap(map);
-    }
-
-    if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
-      setMapStyle(styleValue);
-      return () => {
-        controller.abort();
-      };
-    }
-
-    setMapStyle({
-      version: 8,
-      sources: {},
-      layers: [
-        {
-          id: 'background',
-          type: 'background',
-          paint: { 'background-color': MAP_COLORS.canvas.background },
-        },
-      ],
-    });
-
-    // SF-08: reset latch on basemap change so a new basemap's first-load failure
-    // surfaces correctly.
-    basemapLoadedAtRef.current = null;
-
-    fetch(styleValue, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Basemap style request failed: ${response.status}`);
-        return response.json() as Promise<StyleSpecification>;
-      })
-      .then((style) => {
-        if (!cancelled) {
-          setMapStyle(sanitizeMaplibreStyle(style));
-          setBasemapNotice(null);
-          // SF-08: latch first-load success so transient 5xx during save don't
-          // surface as outage.
-          basemapLoadedAtRef.current = Date.now();
-        }
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        if (import.meta.env.DEV) console.warn('[BuilderMap] Basemap style sanitization failed:', error);
-        if (!cancelled) {
-          setBasemapNotice('style');
-          // Phase 1051 WR-06: keep the placeholder background style on fetch
-          // failure. Previously we passed the raw URL string to MapGL, which
-          // triggered a second (uncancelable) fetch and could flash a different
-          // intermediate state. The user already sees the toast surfaced by
-          // errorHandlerRef + the basemapNotice banner.
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [styleValue]);
+  // chore(#835): shared fetch-and-sanitize path (see use-remote-basemap-style).
+  // Builder-specific behavior rides the callbacks: reset the SF-08 first-load
+  // latch on fetch start, clear the notice + latch success, and surface the
+  // 'style' notice on failure. Phase 1051 WR-06: no raw-URL fallback on
+  // failure — the second fetch is uncancelable and can flash an intermediate
+  // state; the placeholder + notice banner stay instead.
+  const mapStyle = useRemoteBasemapStyle({
+    styleValue,
+    mapRef,
+    logLabel: 'BuilderMap',
+    onFetchStart: useCallback(() => {
+      // SF-08: reset latch on basemap change so a new basemap's first-load
+      // failure surfaces correctly.
+      basemapLoadedAtRef.current = null;
+    }, []),
+    onFetchSuccess: useCallback(() => {
+      setBasemapNotice(null);
+      // SF-08: latch first-load success so transient 5xx during save don't
+      // surface as outage.
+      basemapLoadedAtRef.current = Date.now();
+    }, []),
+    onFetchError: useCallback(() => {
+      setBasemapNotice('style');
+    }, []),
+  });
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
@@ -653,17 +610,12 @@ export const BuilderMap = memo(function BuilderMap({
       map.on('dataloading', dataLoadingHandlerRef.current);
       map.on('idle', idleHandlerRef.current);
 
-      // Absolutify URLs and attach auth header for raster tile requests
-      map.setTransformRequest((url: string) => {
-        const absUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-        if (absUrl.includes('/raster-tiles/')) {
-          const token = useAuthStore.getState().token;
-          if (token) {
-            return { url: absUrl, headers: { Authorization: `Bearer ${token}` } };
-          }
-        }
-        return { url: absUrl };
-      });
+      // Absolutify URLs and attach auth header for raster tile requests.
+      // chore(#835): shared builder — react-maplibre v8 ignores the
+      // transformRequest PROP after mount, so each map wires it here in onLoad.
+      map.setTransformRequest(buildTileTransformRequest({
+        getTileConfig: () => syncInputsRef.current.tileConfig,
+      }));
 
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so the editor knows a
@@ -769,11 +721,9 @@ export const BuilderMap = memo(function BuilderMap({
       };
       map.on('error', errorHandlerRef.current);
 
-      styleImageMissingHandlerRef.current = ({ id }: { id: string }) => {
-        if (isKnownMissingRemoteStyleImage(id) && !map.hasImage(id)) {
-          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
-        }
-      };
+      // chore(#835): shared handler; knownImagesOnly keeps the builder's
+      // editor-facing missing-image warnings for unknown ids.
+      styleImageMissingHandlerRef.current = makeStyleImageMissingHandler(map, { knownImagesOnly: true });
       map.on('styleimagemissing', styleImageMissingHandlerRef.current);
 
       onMapRef?.(map);

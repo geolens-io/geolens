@@ -4,18 +4,17 @@ import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useBranding, useTileConfig } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
-import { MAP_COLORS } from '@/lib/map-colors';
 import {
   findBasemapById,
-  sanitizeMaplibreStyle,
+  makeStyleImageMissingHandler,
   toMaplibreStyle,
   resolveBasemapId,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, isMvtSourceLayerConfigReady, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { logUnhandledMapError } from '@/lib/map-error-log';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
-import { useAuthStore } from '@/stores/auth-store';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
@@ -30,12 +29,12 @@ import {
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import i18n from '@/i18n/i18n';
-import type { MapLibreEvent, MapMouseEvent, StyleSpecification, VectorTileSource } from 'maplibre-gl';
+import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { clearTerrainForStyleSwap, resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
+import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -285,63 +284,23 @@ export const ViewerMap = memo(function ViewerMap({
     : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
   const styleValue = useMemo(
+    // chore(#835): pass the basemap's configured attribution through, matching
+    // BuilderMap/DatasetMap — the viewer (the public surface where attribution
+    // matters most) previously dropped it for raster XYZ basemaps.
     () => (isBlank
       ? toMaplibreStyle(BLANK_BASEMAP_ID)
-      : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl)),
-    [effectiveBasemap?.url, fallbackUrl, isBlank],
+      : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl, effectiveBasemap?.attribution)),
+    [effectiveBasemap?.url, effectiveBasemap?.attribution, fallbackUrl, isBlank],
   );
-  const [mapStyle, setMapStyle] = useState(styleValue);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    const map = mapRef.current;
-
-    if (map) {
-      clearTerrainForStyleSwap(map);
-    }
-
-    if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
-      setMapStyle(styleValue);
-      return () => {
-        controller.abort();
-      };
-    }
-
-    // Remote GL styles can reference sprite patterns that are unavailable in
-    // their published sprite sheet. Fetch and sanitize first so MapLibre never
-    // emits noisy missing-image warnings during demo validation.
-    setMapStyle({
-      version: 8,
-      sources: {},
-      layers: [
-        {
-          id: 'background',
-          type: 'background',
-          paint: { 'background-color': MAP_COLORS.canvas.background },
-        },
-      ],
-    });
-
-    fetch(styleValue, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Basemap style request failed: ${response.status}`);
-        return response.json() as Promise<StyleSpecification>;
-      })
-      .then((style) => {
-        if (!cancelled) setMapStyle(sanitizeMaplibreStyle(style));
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        if (import.meta.env.DEV) console.warn('[ViewerMap] Basemap style sanitization failed:', error);
-        if (!cancelled) setMapStyle(styleValue);
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [styleValue]);
+  // chore(#835): shared fetch-and-sanitize path (see use-remote-basemap-style).
+  // Viewer-specific behavior: on fetch failure, fall back to handing MapLibre
+  // the raw style URL so the map still gets a basemap.
+  const mapStyle = useRemoteBasemapStyle({
+    styleValue,
+    mapRef,
+    logLabel: 'ViewerMap',
+    fallbackToRawUrlOnError: true,
+  });
 
   // Fetch bounded GeoJSON data for small 3D datasets (auto-switch from MVT per D-07)
   // and for eligible point cluster layers.
@@ -398,60 +357,20 @@ export const ViewerMap = memo(function ViewerMap({
       const map = e.target;
       mapRef.current = map;
 
-      // First-party vs third-party request classification. Used to gate BOTH
-      // the X-Embed-Token header (fix(#394) SH-02/B-022) and the embed-auth
-      // error toast below. First-party means: our own origin, or the
-      // configured tile CDN origin (`cdn_base_url` / `TILE_BASE_URL`,
-      // resolved via the same `resolveTileBaseUrl()` helper used to build
-      // tile URLs) — self-hosted deployments commonly serve tiles from a
-      // separate CDN origin, so same-origin alone would misclassify them.
-      // When no url is available, default to first-party to preserve prior
-      // behavior. A relative path (single leading slash) is always
-      // first-party; a protocol-relative URL (`//host/path`) is normalized
-      // with the current protocol before the origin check so it isn't
-      // misread as a relative path.
-      const isThirdPartyUrl = (url?: string): boolean => {
-        if (!url) return false;
-        if (url.startsWith('/') && !url.startsWith('//')) return false;
-        try {
-          const normalized = url.startsWith('//') ? `${window.location.protocol}${url}` : url;
-          const requestOrigin = new URL(normalized, window.location.origin).origin;
-          if (requestOrigin === window.location.origin) return false;
-          const tileBaseUrl = resolveTileBaseUrl(tileConfigRef.current);
-          if (tileBaseUrl) {
-            try {
-              if (requestOrigin === new URL(tileBaseUrl, window.location.origin).origin) return false;
-            } catch {
-              // Malformed configured tile base URL — fall through to third-party classification.
-            }
-          }
-          return true;
-        } catch {
-          return false;
-        }
-      };
+      // First-party vs third-party request classification
+      // (chore(#835): shared `isThirdPartyTileUrl` in lib/tile-utils). Used to
+      // gate BOTH the credential headers below (fix(#394) SH-02/B-022,
+      // fix(#819)) and the embed-auth error toast in the error handler.
+      const isThirdPartyUrl = (url?: string): boolean =>
+        isThirdPartyTileUrl(url, tileConfigRef.current);
 
-      // Absolutify URLs and attach embed token header when present.
-      // fix(#394) SH-02/B-022: the header is a credential — send it only to
-      // first-party origins. Attaching it to third-party basemap
-      // sprite/glyph/tile CDNs (OpenFreeMap, CartoDB, …) over-shares the
-      // token and risks CORS-preflight breakage on hosts that don't allow
-      // the custom header.
-      map.setTransformRequest((url: string) => {
-        const absUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-        const headers: Record<string, string> = {};
-        if (embedToken && !isThirdPartyUrl(url)) {
-          headers['X-Embed-Token'] = embedToken;
-        } else if (absUrl.includes('/raster-tiles/') && !isThirdPartyUrl(url)) {
-          // fix(#819): raster tiles carry no signed URL (unlike vector tiles), so a
-          // signed-in viewer needs the Bearer header here just like
-          // BuilderMap/DatasetMap — without it, private rasters fail on the
-          // viewer surface (incl. builder "View as viewer").
-          const token = useAuthStore.getState().token;
-          if (token) headers.Authorization = `Bearer ${token}`;
-        }
-        return { url: absUrl, headers };
-      });
+      // Absolutify URLs and attach the embed token / raster Bearer header.
+      // chore(#835): shared builder — react-maplibre v8 ignores the
+      // transformRequest PROP after mount, so each map wires it here in onLoad.
+      map.setTransformRequest(buildTileTransformRequest({
+        embedToken,
+        getTileConfig: () => tileConfigRef.current,
+      }));
 
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so users know the map
@@ -501,11 +420,9 @@ export const ViewerMap = memo(function ViewerMap({
         }
       });
 
-      map.on('styleimagemissing', (event: { id: string }) => {
-        if (!map.hasImage(event.id)) {
-          map.addImage(event.id, { width: 1, height: 1, data: new Uint8Array(4) });
-        }
-      });
+      // chore(#835): shared handler; the read-only viewer stubs every missing
+      // image (knownImagesOnly: false) to keep the public console clean.
+      map.on('styleimagemissing', makeStyleImageMissingHandler(map, { knownImagesOnly: false }));
 
       // `idle` fires when no tiles are loading, no transitions are in
       // progress, and no animations are running. We flip the container's
