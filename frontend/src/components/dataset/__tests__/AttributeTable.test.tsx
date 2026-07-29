@@ -118,6 +118,13 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).toMatch(/estimateSize: \(\) => rowHeight/);
     expect(attributeTableSrc).toMatch(/compact \? 'h-7 py-0 text-xs' : 'h-11 py-0'/);
   });
+
+  // fix(#851): virtual-core does not invalidate its measurement cache when
+  // estimateSize changes, so a density toggle must explicitly call
+  // virtualizer.measure() or totals/offsets keep the old row height.
+  it('resets cached row sizes when the density mode changes', () => {
+    expect(attributeTableSrc).toMatch(/virtualizer\.measure\(\)/);
+  });
 });
 
 // ── fix(#458 E-35/E-39/E-51) source contracts ────────────────────────────────

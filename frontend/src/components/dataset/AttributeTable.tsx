@@ -337,6 +337,21 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   });
   const virtualItems = virtualizer.getVirtualItems();
 
+  // fix(#851): TanStack Virtual (virtual-core 3.17.x) does not include
+  // estimateSize in its measurement-cache deps (getMeasurementOptions covers
+  // count/padding/scrollMargin/getItemKey/enabled/lanes/gap only), so when
+  // the density toggle flips rowHeight 44↔28 the cells resize immediately but
+  // getTotalSize() and item offsets keep the old density. measure() is the
+  // documented reset: it clears the item-size cache and recomputes. Skip the
+  // mount pass — the initial layout is already built from the right size.
+  const prevCompactRef = useRef(compact);
+  useEffect(() => {
+    if (prevCompactRef.current !== compact) {
+      prevCompactRef.current = compact;
+      virtualizer.measure();
+    }
+  }, [compact, virtualizer]);
+
   const approximateTotal = data?.approximate_total ?? 0;
   const rowCount = data?.rows?.length ?? 0;
   const effectiveTotal = approximateTotal > 0 ? approximateTotal : rowCount;
