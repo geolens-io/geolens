@@ -135,6 +135,33 @@ describe('buildElevationExpression', () => {
     expect(expr[0]).toBe('interpolate');
     expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);
   });
+
+  // test(#828): render side of hypso_reversed — the flag regressed once in the
+  // 1.6.0 cycle. reversed=true must actually flip the 7 ramp colors.
+  it('reversed=true reverses the ramp colors relative to reversed=false', () => {
+    const forward = buildElevationExpression('Viridis', undefined, undefined, false);
+    const reversed = buildElevationExpression('Viridis', undefined, undefined, true);
+
+    const colorsOf = (expr: unknown[]) => {
+      const colors: unknown[] = [];
+      for (let i = RAMP_START + 1; i < expr.length; i += 2) colors.push(expr[i]);
+      return colors;
+    };
+    const forwardColors = colorsOf(forward as unknown[]);
+    expect(colorsOf(reversed as unknown[])).toEqual([...forwardColors].reverse());
+    // Sanity: Viridis is not palindromic, so the expressions must differ.
+    expect(reversed).not.toEqual(forward);
+    // Elevation stops are unchanged — only the colors flip.
+    for (let i = RAMP_START; i < (forward as unknown[]).length; i += 2) {
+      expect((reversed as unknown[])[i]).toBe((forward as unknown[])[i]);
+    }
+  });
+
+  it('omitting the reversed flag defaults to the non-reversed ramp', () => {
+    expect(buildElevationExpression('Viridis')).toEqual(
+      buildElevationExpression('Viridis', undefined, undefined, false),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -306,6 +333,43 @@ describe('syncColorReliefLayer', () => {
     }).paint['color-relief-color'];
 
     expect(exprA).toEqual(exprB);
+  });
+
+  // test(#828): syncColorReliefLayer must honor paint['_hypso-reversed'] when
+  // it builds color-relief-color (the render side of the editor's reverse toggle).
+  it('_hypso-reversed=true renders the reversed ramp in color-relief-color', () => {
+    const input = makeInput({
+      paint: { '_hypso-enabled': true, '_hypso-ramp': 'Viridis', '_hypso-reversed': true },
+      style_config: { render_mode: 'hillshade' },
+    });
+
+    syncColorReliefLayer(map as unknown as import('maplibre-gl').Map, input);
+
+    const layerSpec = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      paint: { 'color-relief-color': unknown };
+    };
+    expect(layerSpec.paint['color-relief-color']).toEqual(
+      buildElevationExpression('Viridis', undefined, undefined, true),
+    );
+    expect(layerSpec.paint['color-relief-color']).not.toEqual(
+      buildElevationExpression('Viridis', undefined, undefined, false),
+    );
+  });
+
+  it('an absent _hypso-reversed flag renders the non-reversed ramp (default)', () => {
+    const input = makeInput({
+      paint: { '_hypso-enabled': true, '_hypso-ramp': 'Viridis' },
+      style_config: { render_mode: 'hillshade' },
+    });
+
+    syncColorReliefLayer(map as unknown as import('maplibre-gl').Map, input);
+
+    const layerSpec = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      paint: { 'color-relief-color': unknown };
+    };
+    expect(layerSpec.paint['color-relief-color']).toEqual(
+      buildElevationExpression('Viridis', undefined, undefined, false),
+    );
   });
 
   it('skips add when source does not exist (defensive guard)', () => {

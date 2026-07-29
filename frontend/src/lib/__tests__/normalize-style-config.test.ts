@@ -259,6 +259,78 @@ describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034
     expect(style_config?.builder?.hypso_enabled).toBe(true);
     expect(style_config?.builder?.hypso_ramp).toBe('Inferno');
   });
+
+  // test(#828): hypso_reversed round-trip — the saved ramp direction must
+  // re-hydrate onto paint['_hypso-reversed'] on load, or a saved reversed
+  // tint silently renders forward (regressed once in the 1.6.0 cycle).
+  it('re-injects builder.hypso_reversed=true onto paint as _hypso-reversed', () => {
+    const { paint, style_config } = normalizeLayerStyleState(
+      { builder: { hypso_enabled: true, hypso_ramp: 'Viridis', hypso_reversed: true } },
+      { 'raster-opacity': 1 },
+      null,
+      { isDem: true },
+    );
+    expect(paint['_hypso-reversed']).toBe(true);
+    expect(style_config?.builder?.hypso_reversed).toBe(true);
+  });
+
+  it('re-injects an explicit builder.hypso_reversed=false (not dropped as falsy)', () => {
+    const { paint } = normalizeLayerStyleState(
+      { builder: { hypso_enabled: true, hypso_reversed: false } },
+      { 'raster-opacity': 1 },
+      null,
+      { isDem: true },
+    );
+    expect(paint['_hypso-reversed']).toBe(false);
+  });
+
+  it('leaves _hypso-reversed off paint when builder has no hypso_reversed', () => {
+    const { paint } = normalizeLayerStyleState(
+      { builder: { hypso_enabled: true } },
+      { 'raster-opacity': 1 },
+      null,
+      { isDem: true },
+    );
+    expect('_hypso-reversed' in paint).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// test(#828): heatmap ramp-reversal write path through normalization — the
+// editor stores paint['_heatmap-reversed']; normalization must lift it into
+// style_config.builder.heatmapReversed and strip the builder-private key.
+// ---------------------------------------------------------------------------
+describe('normalizeLayerStyleState — heatmap reversal extraction (#828)', () => {
+  it('lifts paint._heatmap-reversed=true into builder.heatmapReversed and strips it from paint', () => {
+    const { paint, style_config } = normalizeLayerStyleState(
+      { render_mode: 'heatmap' },
+      { '_heatmap-ramp': 'Blues', '_heatmap-reversed': true, 'heatmap-radius': 30 },
+      'Point',
+    );
+    expect(style_config?.builder?.heatmapReversed).toBe(true);
+    expect(style_config?.builder?.heatmapRamp).toBe('Blues');
+    // Builder-private keys never leak into the clean paint boundary.
+    expect('_heatmap-reversed' in paint).toBe(false);
+    expect(paint['heatmap-radius']).toBe(30);
+  });
+
+  it('normalizes a legacy snake_case builder.heatmap_reversed to heatmapReversed', () => {
+    const { style_config } = normalizeLayerStyleState(
+      { render_mode: 'heatmap', builder: { heatmap_reversed: true } },
+      { 'heatmap-radius': 30 },
+      'Point',
+    );
+    expect(style_config?.builder?.heatmapReversed).toBe(true);
+  });
+
+  it('preserves an explicit false heatmapReversed from paint', () => {
+    const { style_config } = normalizeLayerStyleState(
+      { render_mode: 'heatmap' },
+      { '_heatmap-reversed': false },
+      'Point',
+    );
+    expect(style_config?.builder?.heatmapReversed).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
