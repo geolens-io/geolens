@@ -100,6 +100,14 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).toMatch(/cellPadding/);
     expect(attributeTableSrc).toMatch(/columnVisibility/);
   });
+
+  // fix(#820): dynamic measurement (measureElement) fed back synchronously
+  // (measure→layout→re-render) when a Chrome AX tree was attached, freezing
+  // the page in an infinite render loop. Rows are fixed-height; reintroducing
+  // measureElement reintroduces the freeze. Live coverage: e2e/attribute-table-ax.spec.ts.
+  it('does not use measureElement / dynamic row measurement', () => {
+    expect(attributeTableSrc).not.toContain('measureElement');
+  });
 });
 
 // ── fix(#458 E-35/E-39/E-51) source contracts ────────────────────────────────

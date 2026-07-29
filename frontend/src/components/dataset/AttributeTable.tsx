@@ -311,6 +311,12 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // post-filter row model from TanStack Table — sort/filter state changes flow
   // through naturally on each render via `count: rows.length`.
   const rows = table.getRowModel().rows;
+  // fix(#820): fixed-height rows only — never reintroduce dynamic row
+  // measurement here. With a Chrome AX tree attached (screen reader, CDP
+  // Accessibility.enable), the measure→layout→re-render edge fed back
+  // synchronously and locked the page in an infinite render loop. Rows are
+  // visually fixed-height, so estimateSize is the row height; keep it in
+  // sync with the row styles.
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -468,10 +474,6 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                   return (
                     <TableRow
                       key={row.id}
-                      data-index={virtualRow.index}
-                      ref={(el) => {
-                        if (el) virtualizer.measureElement(el);
-                      }}
                       className={virtualRow.index % 2 === 1 ? 'bg-muted/30' : ''}
                       style={{
                         // Shift each rendered <tr> from its document-flow position
