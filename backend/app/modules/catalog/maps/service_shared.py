@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -362,6 +363,6 @@ def _infer_layer_type(record_type: str | None) -> str:
     """Infer layer_type from record_type."""
     return (
         "raster_geolens"
-        if record_type in ("raster_dataset", "vrt_dataset")
+        if record_type in RASTER_FAMILY_RECORD_TYPES
         else "vector_geolens"
     )

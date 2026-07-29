@@ -888,7 +888,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # tenant data schema with the same code as a raster dataset's synthetic
         # table, so the code alone cannot tell provisioning drift from normal
         # emptiness. Cap 390 -> 396, no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 396,
+        # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import. Cap 397,
+        # still no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 397,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -994,7 +996,7 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
     # Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1427,
+    "backend/app/modules/catalog/search/router.py": 1428,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -1003,9 +1005,11 @@ _ROUTER_LOC_CAPS: dict[str, int] = {
     # instead of advertising a fabricated global extent, and stac-api-validator
     # conformance (strict RFC 3339 datetime gate, bbox/intersects exclusivity,
     # south<=north bbox check, limit clamping). Ratchet stays exact.
-    "backend/app/standards/stac/router.py": 1795,
+    "backend/app/standards/stac/router.py": 1796,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
-    "backend/app/processing/tiles/router.py": 2043,
+    # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
+    # pasted family literals. Same +1 on the stac and search routers.
+    "backend/app/processing/tiles/router.py": 2044,
 }
 
 
@@ -1068,7 +1072,8 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         # fix(#527 B-054/S-05+LB-04): symbol icon-opacity + allow-overlap parity.
         # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
         # companion so exported ramps match the builder's Reverse toggle.
-        "backend/app/modules/catalog/maps/style_json.py": 1431,
+        # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import.
+        "backend/app/modules/catalog/maps/style_json.py": 1432,
         "backend/app/modules/catalog/maps/style_import.py": 450,
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,
