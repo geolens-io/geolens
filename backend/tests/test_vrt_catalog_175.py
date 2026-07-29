@@ -673,35 +673,43 @@ class TestTileTokenVrt:
     """
 
     def test_resolve_raster_access_accepts_vrt_dataset_record_type(self):
-        """_resolve_raster_meta accepts both raster_dataset and vrt_dataset."""
+        """_resolve_raster_meta accepts both raster_dataset and vrt_dataset.
+
+        fix(#836): the guard now checks membership in the canonical
+        RASTER_FAMILY_RECORD_TYPES constant instead of an inline tuple literal,
+        so the CAT-04 assertion targets the constant plus its contents.
+        """
         import inspect
 
         import app.processing.tiles.router as tiles_module
+        from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
         # PERF-002: guard moved to _resolve_raster_meta (cached metadata resolver).
         source = inspect.getsource(tiles_module._resolve_raster_meta)
 
-        # Guard condition must include vrt_dataset
-        assert "vrt_dataset" in source, (
-            "_resolve_raster_meta must accept 'vrt_dataset' record_type — "
-            "CAT-04 regression: guard was updated in Phase 171"
+        assert "RASTER_FAMILY_RECORD_TYPES" in source, (
+            "_resolve_raster_meta must guard record_type via the canonical "
+            "raster family — CAT-04 regression: guard was updated in Phase 171"
         )
+        assert "vrt_dataset" in RASTER_FAMILY_RECORD_TYPES
 
     def test_resolve_raster_access_uses_tuple_guard_for_both_types(self):
-        """_resolve_raster_meta uses 'in' check including both record types."""
+        """_resolve_raster_meta guards via the family covering both record types."""
         import inspect
 
         import app.processing.tiles.router as tiles_module
+        from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
         # PERF-002: guard moved to _resolve_raster_meta (cached metadata resolver).
         source = inspect.getsource(tiles_module._resolve_raster_meta)
 
-        # Must reject non-raster types; both raster_dataset and vrt_dataset must be in guard
-        assert "raster_dataset" in source
-        assert "vrt_dataset" in source
+        # Must reject non-raster types; the family constant carries both.
+        assert "RASTER_FAMILY_RECORD_TYPES" in source
+        assert "raster_dataset" in RASTER_FAMILY_RECORD_TYPES
+        assert "vrt_dataset" in RASTER_FAMILY_RECORD_TYPES
 
     def test_resolve_raster_access_not_raster_detail(self):
-        """Confirm vrt_dataset appears in a real guard line, not just comments."""
+        """Confirm the family guard appears in a real code line, not a comment."""
         import inspect
 
         import app.processing.tiles.router as tiles_module
@@ -710,9 +718,13 @@ class TestTileTokenVrt:
         source = inspect.getsource(tiles_module._resolve_raster_meta)
 
         # Find the guard line that checks record_type
-        lines = [ln.strip() for ln in source.splitlines() if "vrt_dataset" in ln]
+        lines = [
+            ln.strip()
+            for ln in source.splitlines()
+            if "RASTER_FAMILY_RECORD_TYPES" in ln and not ln.strip().startswith("#")
+        ]
         assert len(lines) >= 1, (
-            "vrt_dataset must appear in at least one meaningful line"
+            "RASTER_FAMILY_RECORD_TYPES must appear in at least one guard line"
         )
 
 
