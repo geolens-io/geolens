@@ -499,7 +499,10 @@ def _build_materialize_select(
         # the highest-dimension components so the output stays typed.
         union_expr = "ST_Multi(ST_CollectionExtract(ST_Union(ST_MakeValid(geom_4326))))"
         if by_field:
-            col = f'"{by_field}"'
+            # fix(#836): quote via _sql_quote_ident like every other identifier
+            # site here — _SAFE_IDENT already guards by_field, but a lone
+            # inline-quoting divergence is where the next escaping bug hides.
+            col = _sql_quote_ident(by_field)
             return _wrap_not_empty(
                 f"SELECT (row_number() OVER ())::integer AS gid, {col}, "
                 f"COUNT(*)::integer AS source_count, "
