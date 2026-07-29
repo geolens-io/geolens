@@ -32,6 +32,11 @@ from app.platform.extensions.defaults import (
     DefaultWorkflowExtension,  # NEW (Phase 233)
 )
 from app.platform.extensions.protocols import (
+    # fix(#873 review r2): deprecated alias, but it must be a RUNTIME re-export —
+    # under TYPE_CHECKING, `from app.platform.extensions import AuditExtension`
+    # raised ImportError for exactly the overlay the alias exists to protect.
+    # Removed with the seam at the next EXTENSION_API_VERSION bump.
+    AuditExtension as AuditExtension,
     AuditSink,  # NEW (Phase 222)
     AuthExtension,
     BillingExtension,  # NEW (Phase 223)
@@ -48,7 +53,6 @@ if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231 + 1207)
         AIProviderExtension,
-        AuditExtension,  # fix(#873 review r1): deprecated alias, typing only
         ConnectorExtension,
         DataServingExtension,
         EmbeddingProviderExtension,
@@ -314,7 +318,7 @@ def get_branding_extension() -> BrandingExtension:
     return ext  # type: ignore[return-value]
 
 
-def get_audit_extension() -> "AuditExtension":
+def get_audit_extension() -> AuditExtension:
     """DEPRECATED — scheduled for removal at the next EXTENSION_API_VERSION bump.
 
     fix(#873 review r1): kept as an import-compatibility alias so an overlay

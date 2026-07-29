@@ -219,10 +219,17 @@ class TestProtocolDefaults:
         load_extensions() skip. Delete this test with the aliases at the next
         version bump.
         """
-        from app.platform.extensions import get_audit_extension
+        # fix(#873 review r2): import the protocol exactly the way an overlay
+        # would — from the package root, at runtime. A TYPE_CHECKING-only
+        # re-export made this line ImportError while the protocols-module
+        # import below still worked, recreating the silent-skip failure mode.
+        from app.platform.extensions import AuditExtension, get_audit_extension
         from app.platform.extensions.defaults import DefaultAuditExtension
-        from app.platform.extensions.protocols import AuditExtension
+        from app.platform.extensions.protocols import (
+            AuditExtension as ProtocolAuditExtension,
+        )
 
+        assert AuditExtension is ProtocolAuditExtension
         assert isinstance(DefaultAuditExtension(), AuditExtension)
         # Dispatch is deleted: the accessor returns the no-op default even
         # though nothing registers the slot; the default advertises nothing.
