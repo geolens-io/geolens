@@ -15,7 +15,7 @@ import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import { ChatInput } from './ChatInput';
-import { getSmartSuggestions, type ViewportContext } from './chat-suggestions';
+import { getSmartSuggestions, stripMentionMarkup, type ViewportContext } from './chat-suggestions';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -1105,7 +1105,8 @@ export function ChatPanel({
                     });
                   }}
                 >
-                  {suggestion}
+                  {/* fix(#832): strip mention markup from the visible suggestion label */}
+                  {stripMentionMarkup(suggestion)}
                 </button>
               ))}
             </div>

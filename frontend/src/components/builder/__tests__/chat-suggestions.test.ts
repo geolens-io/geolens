@@ -1,4 +1,4 @@
-import { getSmartSuggestions, type ViewportContext } from '../chat-suggestions';
+import { getSmartSuggestions, stripMentionMarkup, type ViewportContext } from '../chat-suggestions';
 import type { MapLayerResponse } from '@/types/api';
 
 function mockT(key: string, params?: Record<string, string>): string {
@@ -101,6 +101,23 @@ describe('getSmartSuggestions', () => {
     });
     const result = getSmartSuggestions([layer], mockT as never);
     expect(result.some((s) => s.includes('chat.suggestions.heatmap'))).toBe(false);
+  });
+});
+
+describe('stripMentionMarkup (fix #832)', () => {
+  it('unwraps bracket-mention syntax to the plain layer name', () => {
+    expect(stripMentionMarkup('Color "@[Earthquakes (last 30 days, by magnitude)]" using a field'))
+      .toBe('Color "Earthquakes (last 30 days, by magnitude)" using a field');
+  });
+
+  it('unwraps every bracket mention in the string', () => {
+    expect(stripMentionMarkup('Compare @[Layer One] with @[Layer Two]'))
+      .toBe('Compare Layer One with Layer Two');
+  });
+
+  it('leaves text without bracket mentions unchanged', () => {
+    expect(stripMentionMarkup('Show @Counties as a heatmap')).toBe('Show @Counties as a heatmap');
+    expect(stripMentionMarkup('Add another dataset to this map')).toBe('Add another dataset to this map');
   });
 });
 

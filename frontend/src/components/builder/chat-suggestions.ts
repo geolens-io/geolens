@@ -23,6 +23,13 @@ function formatLayerNameForMention(name: string): string {
   return name.includes(' ') ? `@[${name}]` : `@${name}`;
 }
 
+// fix(#832): strip mention markup from the visible suggestion label. The raw
+// suggestion string (with `@[...]` syntax) stays intact as the click payload
+// inserted into the chat input; only the rendered label is de-marked-up.
+export function stripMentionMarkup(text: string): string {
+  return text.replace(/@\[([^\]]+)\]/g, '$1');
+}
+
 type AnyTFunction = (key: string, options?: Record<string, unknown>) => string;
 
 function hasVectorGeometry(layers: MapLayerResponse[]): boolean {
