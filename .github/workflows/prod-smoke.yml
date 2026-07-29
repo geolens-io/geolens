@@ -19,7 +19,13 @@ name: Prod Compose Smoke
 on:
   push:
     tags:
-      - "v*"
+      # Semver release tags only (fix #829): bare "v*" also matched 4-digit GSD
+      # milestone tags (v1055, v1044, …), firing a full image-pull + E2E smoke
+      # on non-release tags. The second pattern keeps prerelease tags
+      # (v1.5.0-rc.1) in the release chain — release.yml is gated on this
+      # workflow's success and explicitly supports prerelease suffixes (#715).
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
       version:
