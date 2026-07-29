@@ -33,6 +33,7 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 // unchanged. PURE RELOCATION — see each hook for the verbatim handler bodies.
 import { useFolderGroupLayers } from '@/components/builder/hooks/use-folder-group-layers';
 import { useBulkLayerActions, restoreFailedLayers } from '@/components/builder/hooks/use-bulk-layer-actions';
+import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
 import { useTerrainLayers } from '@/components/builder/hooks/use-terrain-layers';
 import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-layers';
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
@@ -700,6 +701,10 @@ export function useBuilderLayers(
             }
           },
           onError: () => {
+            // fix(#833 codex P2): the analysis "Add to map" affordances mark
+            // their single-use guard before this mutation starts; unmark on
+            // failure so they stay retryable (no-op for non-analysis adds).
+            useAnalysisAddedStore.getState().unmarkAdded(datasetId);
             toast.error(t('toasts.layerAddFailed'));
           },
         },

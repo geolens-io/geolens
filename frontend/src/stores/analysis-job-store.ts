@@ -72,6 +72,7 @@ export const analysisAddToMap: {
 interface AnalysisAddedState {
   addedDatasetIds: string[];
   markAdded: (datasetId: string) => void;
+  unmarkAdded: (datasetId: string) => void;
 }
 
 export const useAnalysisAddedStore = create<AnalysisAddedState>()((set) => ({
@@ -81,5 +82,15 @@ export const useAnalysisAddedStore = create<AnalysisAddedState>()((set) => ({
       s.addedDatasetIds.includes(datasetId)
         ? s
         : { addedDatasetIds: [...s.addedDatasetIds, datasetId] },
+    ),
+  // fix(#833 codex P2): marking happens BEFORE the add mutation starts (so a
+  // double-click can't add twice), but the mutation can still fail. The add
+  // error path unmarks so both affordances become retryable; no-op when the
+  // add came from a non-analysis surface.
+  unmarkAdded: (datasetId) =>
+    set((s) =>
+      s.addedDatasetIds.includes(datasetId)
+        ? { addedDatasetIds: s.addedDatasetIds.filter((id) => id !== datasetId) }
+        : s,
     ),
 }));

@@ -1701,6 +1701,36 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(onAddDataset).not.toHaveBeenCalled();
   });
 
+  // fix(#833 codex P2): the marker is set before the add mutation starts, so
+  // a failed add must unmark (handleAddDataset's onError) or the affordances
+  // stay retired with no retry path.
+  it('re-arms the panel Add to map when a failed add unmarks the dataset', async () => {
+    mockJobStatus.value = { status: 'complete', dataset_id: 'out1' };
+    const onAddDataset = vi.fn();
+    useAnalysisAddedStore.getState().markAdded('out1');
+    renderPanel([datasetLayer], {
+      mapId: 'm1',
+      layerActions: { onAddDataset } as never,
+    });
+    fireEvent.change(screen.getByLabelText('New dataset name'), {
+      target: { value: 'Out' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create dataset' }));
+    expect(await screen.findByRole('button', { name: 'Added to map' })).toBeDisabled();
+
+    // The add mutation failed — its onError unmarks the dataset.
+    act(() => {
+      useAnalysisAddedStore.getState().unmarkAdded('out1');
+    });
+
+    const retryButton = await screen.findByRole('button', {
+      name: 'Add "{{name}}" to map',
+    });
+    expect(retryButton).toBeEnabled();
+    fireEvent.click(retryButton);
+    expect(onAddDataset).toHaveBeenCalledTimes(1);
+  });
+
   it('sets aria-busy on the pending Preview button', async () => {
     let resolvePreview!: (v: unknown) => void;
     vi.mocked(previewAnalysis).mockImplementationOnce(
