@@ -4,9 +4,16 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
-from app.modules.auth.schemas import UserResponse
+from app.modules.auth.schemas import UserResponse, validate_future_expiry
 from app.processing.ai.schemas import AIProbeReport
 
 VALID_ROLES = {"admin", "editor", "viewer"}
@@ -355,6 +362,15 @@ class AdminApiKeyCreateRequest(BaseModel):
         max_length=255,
         description="Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').",
     )
+    expires_at: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null "
+            "for a non-expiring key; expired keys stop authenticating."
+        ),
+    )
+
+    _expires_at_future = field_validator("expires_at")(validate_future_expiry)
 
 
 class AdminApiKeyListItem(BaseModel):
@@ -366,6 +382,10 @@ class AdminApiKeyListItem(BaseModel):
     )
     is_active: bool = Field(
         description="Whether the key is active. Inactive keys cannot authenticate."
+    )
+    expires_at: datetime | None = Field(
+        default=None,
+        description="Expiry timestamp; null means the key does not expire.",
     )
     created_at: datetime = Field(description="Timestamp when the key was created.")
     last_used_at: datetime | None = Field(

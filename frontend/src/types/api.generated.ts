@@ -877,6 +877,10 @@ export interface paths {
          *     access JWT used for this logout call (and any other outstanding access JWTs)
          *     are rejected on the next authenticated request — closing the
          *     "logout doesn't invalidate the access JWT" gap.
+         *
+         *     fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+         *     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+         *     must not revoke them. Security events (password change, role change) do.
          */
         post: operations["logout_auth_logout__post"];
         delete?: never;
@@ -5123,6 +5127,11 @@ export interface components {
         /** AdminApiKeyCreateRequest */
         AdminApiKeyCreateRequest: {
             /**
+             * Expires At
+             * @description Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+             */
+            expires_at?: string | null;
+            /**
              * Name
              * @description Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
              */
@@ -5142,6 +5151,11 @@ export interface components {
              * @description Timestamp when the key was created.
              */
             created_at: string;
+            /**
+             * Expires At
+             * @description Expiry timestamp; null means the key does not expire.
+             */
+            expires_at?: string | null;
             /**
              * Fingerprint
              * @description Non-secret key identifier; null for legacy keys.
@@ -5497,6 +5511,11 @@ export interface components {
         /** ApiKeyCreateRequest */
         ApiKeyCreateRequest: {
             /**
+             * Expires At
+             * @description Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+             */
+            expires_at?: string | null;
+            /**
              * Name
              * @description Human-readable label for the API key
              */
@@ -5509,6 +5528,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Expires At
+             * @description Expiry timestamp; null means the key does not expire
+             */
+            expires_at?: string | null;
             /**
              * Fingerprint
              * @description Non-secret key identifier (prefix and last four characters)
@@ -5534,6 +5558,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Expires At
+             * @description Expiry timestamp; null means the key does not expire
+             */
+            expires_at?: string | null;
             /**
              * Fingerprint
              * @description Non-secret key identifier; null for keys created before fingerprint support

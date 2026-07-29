@@ -446,24 +446,35 @@ without credentials; private/restricted datasets require one of:
 |--------|-------|
 | **API Key header** | `X-Api-Key: <key>` |
 | **JWT Bearer token** | `Authorization: Bearer <token>` |
-| **API Key query param** | `?api_key=<key>` |
+| **API Key query param** (deprecated) | `?api_key=<key>` |
 
 Priority: header API key > query param API key > JWT > anonymous.
+
+**The `?api_key=` query parameter is deprecated.** A key sent in the URL is
+recorded by server access logs and any proxy in between. Prefer the
+`X-Api-Key` header; keep the query parameter only for clients that cannot
+send headers (e.g. XYZ tile URLs in desktop GIS tools).
+
+API keys may carry an optional expiry (`expires_at` at mint time). Expired
+keys stop authenticating, and keys are also invalidated by security events
+on the owner's account (password change or role change). Logging out of the
+web UI does not affect API keys.
 
 ### GDAL / ogr2ogr with API Key
 
 ```bash
 # List collections (including private ones accessible to your key)
-ogrinfo "OAPIF:{your-server}/api/?api_key=YOUR_KEY"
+ogrinfo --config GDAL_HTTP_HEADERS "X-Api-Key: YOUR_KEY" "OAPIF:{your-server}/api/"
 
 # Download a private collection
-ogr2ogr -f GPKG out.gpkg "OAPIF:{your-server}/api/?api_key=YOUR_KEY" {collection-id}
+ogr2ogr -f GPKG out.gpkg --config GDAL_HTTP_HEADERS "X-Api-Key: YOUR_KEY" "OAPIF:{your-server}/api/" {collection-id}
 ```
 
 ### QGIS with API Key
 
 In the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`
-to the server URL.
+to the server URL (the connection dialog cannot send custom headers; this is
+the main remaining use of the deprecated query parameter).
 """
 
 _OPENAPI_TAGS = [

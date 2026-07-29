@@ -6,8 +6,12 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
+from dateutil.parser import isoparse
+from typing import cast
 from uuid import UUID
+import datetime
 
 
 T = TypeVar("T", bound="AdminApiKeyCreateRequest")
@@ -19,16 +23,27 @@ class AdminApiKeyCreateRequest:
     Attributes:
         name (str): Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
         user_id (UUID): ID of the user the new API key will belong to.
+        expires_at (datetime.datetime | None | Unset): Optional expiry timestamp (RFC 3339, timezone-aware). Omit or
+            null for a non-expiring key; expired keys stop authenticating.
     """
 
     name: str
     user_id: UUID
+    expires_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
 
         user_id = str(self.user_id)
+
+        expires_at: None | str | Unset
+        if isinstance(self.expires_at, Unset):
+            expires_at = UNSET
+        elif isinstance(self.expires_at, datetime.datetime):
+            expires_at = self.expires_at.isoformat()
+        else:
+            expires_at = self.expires_at
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -38,6 +53,8 @@ class AdminApiKeyCreateRequest:
                 "user_id": user_id,
             }
         )
+        if expires_at is not UNSET:
+            field_dict["expires_at"] = expires_at
 
         return field_dict
 
@@ -48,9 +65,27 @@ class AdminApiKeyCreateRequest:
 
         user_id = UUID(d.pop("user_id"))
 
+        def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expires_at_type_0 = isoparse(data)
+
+                return expires_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
+
         admin_api_key_create_request = cls(
             name=name,
             user_id=user_id,
+            expires_at=expires_at,
         )
 
         admin_api_key_create_request.additional_properties = d

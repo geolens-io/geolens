@@ -97,6 +97,10 @@ def sync_detailed(
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
 
+    fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+    outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+    must not revoke them. Security events (password change, role change) do.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -127,6 +131,10 @@ def sync(
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
 
+    fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+    outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+    must not revoke them. Security events (password change, role change) do.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -152,6 +160,10 @@ async def asyncio_detailed(
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
+
+    fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+    outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+    must not revoke them. Security events (password change, role change) do.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -180,6 +192,10 @@ async def asyncio(
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     \"logout doesn't invalidate the access JWT\" gap.
+
+    fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+    outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+    must not revoke them. Security events (password change, role change) do.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

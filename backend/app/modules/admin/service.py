@@ -339,11 +339,37 @@ class AdminService:
         if new_role is None:
             raise ValueError(f"Role '{new_role_name}' not found")
 
+        # fix(#821 codex review): an idempotent resubmission of the user's
+        # current role (e.g. a reconciliation-tool PATCH) is not a security
+        # event — skip the delete/recreate AND the key_epoch bump so it does
+        # not revoke the user's API keys. Queried explicitly rather than via
+        # user.roles to avoid depending on relationship load state.
+        current_role_names = set(
+            (
+                await self.db.execute(
+                    select(Role.name)
+                    .join(UserRole, UserRole.role_id == Role.id)
+                    .where(UserRole.user_id == user.id)
+                )
+            ).scalars()
+        )
+        if current_role_names == {new_role_name}:
+            return
+
         if new_role_name != "admin" and not viability_checked:
             await self._ensure_not_last_admin(user, "demote", lock_held=lock_held)
 
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
         self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
+
+        # fix(#821): bump key_epoch so API keys minted under the old role stop
+        # resolving. Applies to promotion as well as demotion — a key must not
+        # silently change privilege level; the owner re-mints under the new
+        # role. token_version is deliberately NOT bumped here: JWTs are
+        # short-lived and role checks read live DB roles per request.
+        await self.db.execute(
+            update(User).where(User.id == user.id).values(key_epoch=User.key_epoch + 1)
+        )
 
     async def convert_saml_user_to_local(
         self, user_id: uuid.UUID, password: str
@@ -418,10 +444,15 @@ class AdminService:
         #    request. The SAML JWT remains cryptographically valid until its
         #    natural expiry otherwise, which violates the SEC-S15 requirement
         #    that auth-provider conversion forces re-authentication.
+        #    fix(#821): also bump key_epoch — an auth-provider conversion is a
+        #    credential reset, so API keys minted before it stop resolving.
         await self.db.execute(
             update(User)
             .where(User.id == user_id)
-            .values(token_version=User.token_version + 1)
+            .values(
+                token_version=User.token_version + 1,
+                key_epoch=User.key_epoch + 1,
+            )
         )
 
         # 8. Belt-and-suspenders: also revoke any active refresh tokens so the
@@ -525,6 +556,14 @@ class AdminService:
 
         user.status = "active"
         user.is_active = True
+
+        # fix(#821 codex review): approval assigns the account's authority, so
+        # bump key_epoch — any key that existed while the account was pending
+        # (legacy/manual rows; minting for non-active users is now refused)
+        # must not wake up with the approved role's privileges. The row is
+        # locked (with_for_update above), so the in-place increment is
+        # race-free.
+        user.key_epoch += 1
 
         # A pending account should not normally own a role, but legacy/manual
         # rows may. Replace the complete assignment so the approved role is the

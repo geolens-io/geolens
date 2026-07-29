@@ -143,6 +143,12 @@ export type AddDatasetsResponse = {
  */
 export type AdminApiKeyCreateRequest = {
     /**
+     * Expires At
+     *
+     * Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+     */
+    expires_at?: string | null;
+    /**
      * Name
      *
      * Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').
@@ -166,6 +172,12 @@ export type AdminApiKeyListItem = {
      * Timestamp when the key was created.
      */
     created_at: string;
+    /**
+     * Expires At
+     *
+     * Expiry timestamp; null means the key does not expire.
+     */
+    expires_at?: string | null;
     /**
      * Fingerprint
      *
@@ -626,6 +638,12 @@ export type AnalysisPreviewResponse = {
  */
 export type ApiKeyCreateRequest = {
     /**
+     * Expires At
+     *
+     * Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.
+     */
+    expires_at?: string | null;
+    /**
      * Name
      *
      * Human-readable label for the API key
@@ -641,6 +659,12 @@ export type ApiKeyCreateResponse = {
      * Created At
      */
     created_at: string;
+    /**
+     * Expires At
+     *
+     * Expiry timestamp; null means the key does not expire
+     */
+    expires_at?: string | null;
     /**
      * Fingerprint
      *
@@ -671,6 +695,12 @@ export type ApiKeyListItem = {
      * Created At
      */
     created_at: string;
+    /**
+     * Expires At
+     *
+     * Expiry timestamp; null means the key does not expire
+     */
+    expires_at?: string | null;
     /**
      * Fingerprint
      *

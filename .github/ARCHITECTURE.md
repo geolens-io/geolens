@@ -72,7 +72,7 @@ Each domain module follows a stable pattern — `router.py` → `service.py` →
 **Read / write (synchronous):**
 `client → frontend (/api proxy) → FastAPI app → middleware (auth) → root router → modules/<domain>/router.py → service.py → SQLAlchemy → PostGIS`.
 
-Auth is resolved in this order: **`Authorization` header → `?api_key=` query param → JWT → anonymous**. (The query-param fallback is excluded from OGC/Features reserved params.)
+Auth is resolved in this order: **`X-Api-Key` header → `?api_key=` query param → JWT Bearer → anonymous**. (The query-param fallback is excluded from OGC/Features reserved params. It is deprecated as of #821 — a key in the URL lands in access and proxy logs — and is kept only for clients that cannot send headers, e.g. XYZ tile URLs in desktop GIS tools.)
 
 **Search** (`modules/catalog/search/`) combines full-text (`pg_trgm`) and semantic
 (`pgvector`) ranking **in a single PostGIS query**, so results can be ranked by meaning

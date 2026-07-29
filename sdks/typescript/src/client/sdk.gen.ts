@@ -974,6 +974,10 @@ export const loginAuthLoginPost = <ThrowOnError extends boolean = false>(options
  * access JWT used for this logout call (and any other outstanding access JWTs)
  * are rejected on the next authenticated request — closing the
  * "logout doesn't invalidate the access JWT" gap.
+ *
+ * fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
+ * outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
+ * must not revoke them. Security events (password change, role change) do.
  */
 export const logoutAuthLogoutPost = <ThrowOnError extends boolean = false>(options?: Options<LogoutAuthLogoutPostData, ThrowOnError>): RequestResult<LogoutAuthLogoutPostResponses, LogoutAuthLogoutPostErrors, ThrowOnError> => (options?.client ?? client).post<LogoutAuthLogoutPostResponses, LogoutAuthLogoutPostErrors, ThrowOnError>({
     security: [

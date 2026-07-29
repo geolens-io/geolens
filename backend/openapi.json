@@ -193,6 +193,19 @@
       },
       "AdminApiKeyCreateRequest": {
         "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.",
+            "title": "Expires At"
+          },
           "name": {
             "description": "Human-readable label for the API key (e.g. 'CI pipeline', 'QGIS desktop').",
             "maxLength": 255,
@@ -221,6 +234,19 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expiry timestamp; null means the key does not expire.",
+            "title": "Expires At"
           },
           "fingerprint": {
             "anyOf": [
@@ -1006,6 +1032,19 @@
       },
       "ApiKeyCreateRequest": {
         "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null for a non-expiring key; expired keys stop authenticating.",
+            "title": "Expires At"
+          },
           "name": {
             "description": "Human-readable label for the API key",
             "maxLength": 255,
@@ -1026,6 +1065,19 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expiry timestamp; null means the key does not expire",
+            "title": "Expires At"
           },
           "fingerprint": {
             "description": "Non-secret key identifier (prefix and last four characters)",
@@ -1063,6 +1115,19 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expiry timestamp; null means the key does not expire",
+            "title": "Expires At"
           },
           "fingerprint": {
             "anyOf": [
@@ -17474,7 +17539,7 @@
       "name": "GeoLens",
       "url": "https://github.com/geolens-io/geolens"
     },
-    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0\n* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0\n* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports three authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key query param** | `?api_key=<key>` |\n\nPriority: header API key > query param API key > JWT > anonymous.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo \"OAPIF:{your-server}/api/?api_key=YOUR_KEY\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg \"OAPIF:{your-server}/api/?api_key=YOUR_KEY\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL.\n",
+    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0\n* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0\n* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports three authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key query param** (deprecated) | `?api_key=<key>` |\n\nPriority: header API key > query param API key > JWT > anonymous.\n\n**The `?api_key=` query parameter is deprecated.** A key sent in the URL is\nrecorded by server access logs and any proxy in between. Prefer the\n`X-Api-Key` header; keep the query parameter only for clients that cannot\nsend headers (e.g. XYZ tile URLs in desktop GIS tools).\n\nAPI keys may carry an optional expiry (`expires_at` at mint time). Expired\nkeys stop authenticating, and keys are also invalidated by security events\non the owner's account (password change or role change). Logging out of the\nweb UI does not affect API keys.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL (the connection dialog cannot send custom headers; this is\nthe main remaining use of the deprecated query parameter).\n",
     "license": {
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
@@ -24063,7 +24128,7 @@
     },
     "/auth/logout/": {
       "post": {
-        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.",
+        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.",
         "operationId": "logout_auth_logout__post",
         "responses": {
           "204": {

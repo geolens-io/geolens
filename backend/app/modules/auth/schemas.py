@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_validator
 
 from app.modules.quota.schemas import UserQuotaUsage
 
@@ -212,10 +212,30 @@ class PermissionsResponse(BaseModel):
     )
 
 
+def validate_future_expiry(value: AwareDatetime | None) -> AwareDatetime | None:
+    """Reject an ``expires_at`` that is not in the future (#821).
+
+    Shared by the self-service and admin key-mint request schemas so both
+    surfaces refuse to mint an already-expired key.
+    """
+    if value is not None and value <= datetime.now(timezone.utc):
+        raise ValueError("expires_at must be in the future")
+    return value
+
+
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(
         min_length=1, max_length=255, description="Human-readable label for the API key"
     )
+    expires_at: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "Optional expiry timestamp (RFC 3339, timezone-aware). Omit or null "
+            "for a non-expiring key; expired keys stop authenticating."
+        ),
+    )
+
+    _expires_at_future = field_validator("expires_at")(validate_future_expiry)
 
 
 class ApiKeyCreateResponse(BaseModel):
@@ -225,6 +245,10 @@ class ApiKeyCreateResponse(BaseModel):
         description="Non-secret key identifier (prefix and last four characters)"
     )
     name: str
+    expires_at: datetime | None = Field(
+        default=None,
+        description="Expiry timestamp; null means the key does not expire",
+    )
     created_at: datetime
 
 
@@ -235,6 +259,10 @@ class ApiKeyListItem(BaseModel):
         description="Non-secret key identifier; null for keys created before fingerprint support"
     )
     is_active: bool
+    expires_at: datetime | None = Field(
+        default=None,
+        description="Expiry timestamp; null means the key does not expire",
+    )
     created_at: datetime
     last_used_at: datetime | None
 
