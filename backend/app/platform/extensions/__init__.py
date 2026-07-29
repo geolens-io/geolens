@@ -15,7 +15,6 @@ import structlog
 from app.platform.extensions.version import check_extension_api_version
 from app.platform.extensions.defaults import (
     DefaultAnthropicProvider,  # NEW (Phase 226)
-    DefaultAuditExtension,
     DefaultAuditSink,  # NEW (Phase 222)
     DefaultAuthExtension,
     DefaultBillingExtension,  # NEW (Phase 223)
@@ -33,7 +32,6 @@ from app.platform.extensions.defaults import (
     DefaultWorkflowExtension,  # NEW (Phase 233)
 )
 from app.platform.extensions.protocols import (
-    AuditExtension,
     AuditSink,  # NEW (Phase 222)
     AuthExtension,
     BillingExtension,  # NEW (Phase 223)
@@ -315,14 +313,6 @@ def get_branding_extension() -> BrandingExtension:
     return ext  # type: ignore[return-value]
 
 
-def get_audit_extension() -> AuditExtension:
-    """Return the registered AuditExtension or the community default."""
-    ext = _extensions.get("audit")
-    if ext is None:
-        return DefaultAuditExtension()
-    return ext  # type: ignore[return-value]
-
-
 def get_auth_extension() -> AuthExtension:
     """Return the registered AuthExtension or the community default."""
     ext = _extensions.get("auth")
@@ -377,8 +367,8 @@ def get_data_serving_extension() -> "DataServingExtension":
 def get_identity_extension() -> "IdentityExtension":
     """Return the registered IdentityExtension or the community default.
 
-    Phase 214 / IDENT-03 — mirrors ``get_branding_extension()``,
-    ``get_audit_extension()``, and ``get_auth_extension()`` exactly.
+    Phase 214 / IDENT-03 — mirrors ``get_branding_extension()``
+    and ``get_auth_extension()`` exactly.
     Enterprise overlays register an implementation under the ``"identity"``
     key via the ``geolens.extensions`` entry-point group; community
     edition gets the no-op ``DefaultIdentityExtension`` whose

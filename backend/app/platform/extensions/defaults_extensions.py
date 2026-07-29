@@ -17,13 +17,6 @@ class DefaultBrandingExtension:
         return {"show_badge": True}
 
 
-class DefaultAuditExtension:
-    """Community advertises no overlay-owned audit formats."""
-
-    def get_export_formats(self) -> list[str]:
-        return []
-
-
 class DefaultAuthExtension:
     """Default auth: no additional auth methods."""
 
