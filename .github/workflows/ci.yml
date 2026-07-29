@@ -1220,7 +1220,7 @@ jobs:
         run: uv run pip-audit --strict --desc
 
   # ---------- required-checks aggregator ----------
-  # Every job below is path-filtered (skippable via `if:`), and GitHub treats a
+  # Most jobs below are path-filtered (skippable via `if:`), and GitHub treats a
   # skipped required context as PASSING — the "main red while PRs green" hole.
   # This job always runs and inspects each needed job's actual result: failure
   # or cancelled fails it; skipped and success pass. Branch protection should
@@ -1228,6 +1228,8 @@ jobs:
   ci-ok:
     name: CI OK
     needs:
+      # Path-filtered jobs — these may legitimately skip on a PR; the gating
+      # step below counts skipped as pass.
       - backend-lint
       - backend-test
       - installer-test
@@ -1240,6 +1242,17 @@ jobs:
       - frontend-lint
       - frontend-test
       - security-scan
+      # fix(#824): always-run jobs must feed the aggregator too — before this,
+      # a failure in version-coherence/docs-contract/license-check could not
+      # block a merge (branch protection only sees CI OK). changes and
+      # pre-commit are included so the aggregator is complete on its own: a
+      # failed `changes` job skips every path-filtered job above, which would
+      # otherwise leave CI OK green having gated nothing.
+      - changes
+      - pre-commit
+      - version-coherence
+      - docs-contract
+      - license-check
     # always() alone would rubber-stamp: it only guarantees this job RUNS.
     # The step below does the real gating on needs.*.result.
     if: always()
