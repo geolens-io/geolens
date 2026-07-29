@@ -12,10 +12,12 @@
 #   - test(#826) wait_for_healthy edge cases: a still-starting service passes
 #     ONLY while its container AGE (now - StartedAt — not the wait budget,
 #     which lies about a service that restarted mid-wait; Codex P2 round 2)
-#     is inside its healthcheck's full tolerance — start_period + retries x
-#     (interval + timeout), per Docker's verdict semantics (Codex P2 on
-#     #867) — one that outlived it fails the wait; an (unhealthy) service at
-#     budget end fails the wait; unreadable config or StartedAt fails open
+#     is inside its healthcheck's full tolerance — start_period + timeout +
+#     retries x (interval + timeout), per Docker's verdict semantics: grace
+#     is judged by probe START time, so one in-flight probe's timeout rides
+#     past the boundary (Codex P2 rounds 1+3 on #867) — one that outlived it
+#     fails the wait; an (unhealthy) service at budget end fails the wait;
+#     unreadable config or StartedAt fails open
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -513,7 +515,7 @@ fi
 # ============================================================================
 # CASE 8 — test(#826) wait_for_healthy: a service still `(health: starting)`
 # at budget end passes ONLY while inside its healthcheck's full tolerance:
-# start_period + retries x (interval + timeout). The prod backup service
+# start_period + timeout + retries x (interval + timeout). The prod backup service
 # declares start_period 10m for its first pg_dump — far beyond the 90s
 # budget — so it must warn and succeed, not fail the upgrade.
 # (sleep is stubbed, so the 18 x 5s poll loop runs instantly.)
@@ -521,7 +523,7 @@ fi
 # ============================================================================
 seed_prod_env
 PS_STATUS='backup|Up 30 seconds (health: starting)'
-HC_BACKUP='600 30 5 3'   # tolerance 600 + 3x35 = 705s > container age
+HC_BACKUP='600 30 5 3'   # tolerance 600 + 5 + 3x35 = 710s > container age
 STARTED_BACKUP="$(iso_ago 95)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
@@ -542,8 +544,8 @@ fi
 # the service honestly stays `starting` until the streak is exhausted. The
 # prod frontend (start_period 15s, interval 30s, timeout 10s, retries 3) can
 # legitimately report `starting` at the 90s budget with only two post-grace
-# failures — tolerance 15 + 3x40 = 135s > its 95s age — and must PASS the
-# wait, even though its bare start_period (15s) is far below both.
+# failures — tolerance 15 + 10 + 3x40 = 145s > its 95s age — and must PASS
+# the wait, even though its bare start_period (15s) is far below both.
 seed_prod_env
 PS_STATUS='frontend|Up About a minute (health: starting)'
 HC_FRONTEND='15 30 10 3'
@@ -573,16 +575,35 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 
+# Codex P2 round 3 (#867): grace is judged by probe START time, so a probe
+# launched just inside start_period can run `timeout` past the boundary
+# before the counted retry cycles begin — the worst-case verdict lands at
+# start_period + timeout + retries x (interval + timeout), one `timeout`
+# later than round 1's bound. A container aged inside that final `timeout`
+# margin (140s: past round 1's 135s bound for 15/30/10/3, inside the true
+# 145s bound) was previously misclassified overdue and must PASS.
+seed_prod_env
+PS_STATUS='frontend|Up 2 minutes (health: starting)'
+HC_FRONTEND='15 30 10 3'
+STARTED_FRONTEND="$(iso_ago 140)"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "service inside the in-flight-probe timeout margin PASSES (Codex P2 round 3)"
+else
+  bad "service in the final timeout margin was classified overdue (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
 # ============================================================================
 # CASE 9 — test(#826): a service whose container AGE is past its FULL
-# tolerance (start_period + retries x (interval + timeout)) and still
+# tolerance (start_period + timeout + retries x (interval + timeout)) and still
 # `(health: starting)` has outlived every verdict Docker could still be
 # working on. It must FAIL the wait, not ride the converging branch — this
 # was the untested hole where a broken healthcheck passed the upgrade.
 # ============================================================================
 seed_prod_env
 PS_STATUS='backup|Up 2 minutes (health: starting)'
-HC_BACKUP='10 5 5 3'   # tolerance 10 + 3x10 = 40s, well under the 120s age
+HC_BACKUP='10 5 5 3'   # tolerance 10 + 5 + 3x10 = 45s, well under the 120s age
 STARTED_BACKUP="$(iso_ago 120)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" != "0" ]; then
@@ -592,7 +613,7 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 if grep -q "outlived their healthcheck's start_period + retry tolerance" "$WORK/out.txt" \
-   && grep -q 'ended at 40s' "$WORK/out.txt"; then
+   && grep -q 'ended at 45s' "$WORK/out.txt"; then
   ok "failure names the overdue service with its computed tolerance"
 else
   bad "overdue-service diagnostic missing from the output"

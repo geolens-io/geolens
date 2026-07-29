@@ -148,9 +148,12 @@ iso_to_epoch() {
 # (e.g. the backup service allows 10m for its first pg_dump of a large DB,
 # far beyond this 90s budget) — there Docker has not judged them yet, and
 # neither should we. test(#826): that claim is now VERIFIED per service, not
-# assumed. The full tolerance Docker grants is start_period PLUS retries
-# consecutive failing probes, each taking up to interval + timeout (a service
-# stays `starting` through that whole streak — Codex P2 on #867). A service
+# assumed. The full tolerance Docker grants is start_period PLUS one
+# in-flight probe's timeout (grace is judged by probe START time, so a probe
+# launched just inside start_period may run `timeout` past the boundary)
+# PLUS retries consecutive failing probes, each taking up to interval +
+# timeout (a service stays `starting` through that whole streak — Codex P2
+# rounds 1+3 on #867). A service
 # whose container age (now - .State.StartedAt — NOT the wait budget, which
 # overstates the age of a restart-policy container that restarted mid-wait
 # with a freshly reset health clock; Codex P2 round 2) exceeds that entire
@@ -214,9 +217,13 @@ wait_for_healthy() {
     # alone is NOT the boundary — after it ends, Docker still tolerates
     # `retries` consecutive failing probes (each taking up to interval +
     # timeout) before flipping to (unhealthy), and the service honestly
-    # reports `starting` for that whole streak. So the full allowance is
-    # start_period + retries x (interval + timeout); zero config values mean
-    # the daemon defaults (interval/timeout 30s, retries 3).
+    # reports `starting` for that whole streak. Plus one in-flight probe's
+    # timeout (Codex P2 round 3): moby grace-ignores a probe by its START
+    # time, so one launched just inside start_period can run up to `timeout`
+    # beyond the grace boundary before the counted retry cycles even begin.
+    # So the full allowance is start_period + timeout + retries x (interval +
+    # timeout); zero config values mean the daemon defaults (interval/timeout
+    # 30s, retries 3).
     #
     # Codex P2 round 2 (#867): compare that allowance against the container's
     # ACTUAL age (now - .State.StartedAt), not the spent budget. A
@@ -240,19 +247,21 @@ wait_for_healthy() {
         if (iv <= 0) iv = 30
         if (to <= 0) to = 30
         if (rt <= 0) rt = 3
-        print sp + rt * (iv + to)
+        # + to: a probe started just inside start_period is grace-ignored by
+        # its START time and may run `timeout` past the boundary (round 3)
+        print sp + to + rt * (iv + to)
       }')
       age=""
       start_epoch=$(iso_to_epoch "${hc_line%% *}")
       [ -n "$start_epoch" ] && age=$((now_epoch - start_epoch))
       if [ -n "$allowed" ] && [ -n "$age" ] && [ "$age" -ge "$allowed" ]; then
-        overdue="${overdue}  ${svc}: still (health: starting) ${age}s after its last start, but its healthcheck tolerance (start_period + retries x (interval + timeout)) ended at ${allowed}s
+        overdue="${overdue}  ${svc}: still (health: starting) ${age}s after its last start, but its healthcheck tolerance (start_period + timeout + retries x (interval + timeout)) ended at ${allowed}s
 "
       fi
     done
     if [ -z "$overdue" ]; then
       printf '\n'
-      warn "these services are still starting after ${budget}s but remain within their healthcheck's tolerance (start_period + retries x (interval + timeout)):"
+      warn "these services are still starting after ${budget}s but remain within their healthcheck's tolerance (start_period + timeout + retries x (interval + timeout)):"
       printf '%s\n' "$remaining" | sed 's/^/  /' >&2
       warn "Docker will flag them (unhealthy) if they fail to converge; check later with: docker compose ps"
       return 0
