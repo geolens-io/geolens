@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -251,6 +251,16 @@ mcp-build: ## Build the geolens-mcp wheel + sdist
 # `make mcp-test` runs the MCP server's unit tests (DB-less; MockTransport).
 mcp-test: ## Run MCP server unit tests
 	cd mcp && uv run --extra dev python -m pytest -v
+
+# `make mcp-live-test` runs the MCP live-contract tier (#827) against a RUNNING
+# instance: every tool in server.py against the real API, asserting response
+# shape. Defaults to the dev stack (http://localhost:8080); admin credentials
+# come from GEOLENS_ADMIN_USERNAME/GEOLENS_ADMIN_PASSWORD or, when unset, from
+# the repo root .env (where `make dev-init` generates them). Point
+# GEOLENS_INSTANCE / GEOLENS_ADMIN_* elsewhere to target another instance. It
+# seeds and deletes its own dataset + map via the admin account.
+mcp-live-test: ## Run MCP live-contract tests against a running instance
+	cd mcp && RUN_MCP_LIVE=1 uv run --extra dev python -m pytest tests/test_live_contract.py -v
 
 # `make publish-mcp` — manual user action; requires PyPI credentials outside CI.
 publish-mcp: ## Build + publish geolens-mcp to PyPI
