@@ -20,9 +20,11 @@ resolved by class identity through the function's module globals and its
 function-local imports, so aliases like ``Dataset as DatasetModel`` or
 ``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
 expressions match because detection works on call nodes, not source lines
-(codex review on #863). Handlers that are unguarded by design live in
-``ALLOWLIST`` with a per-entry justification; the allowlist is asserted exact
-in both directions so entries cannot go stale.
+(codex review on #863). Filter-returning guards (``apply_visibility_filter``
+and friends) count only when their result is consumed — a bare call leaves
+the original statement unfiltered. Handlers that are unguarded by design
+live in ``ALLOWLIST`` with a per-entry justification; the allowlist is
+asserted exact in both directions so entries cannot go stale.
 
 fastapi 0.140 trap: ``include_router`` is lazy, so ``app.routes`` holds only
 the top-level entries (~89) and a plain ``isinstance(route, APIRoute)`` scan
@@ -90,7 +92,37 @@ _DELEGATED_GUARDS = (
     "_authorize_vector_tile_request",
 )
 
-_GUARD_NAMES = frozenset(_CORE_GUARDS + _DELEGATED_GUARDS)
+# Guards that deny by RAISING (404/403) — a bare ``await guard(...)``
+# statement is the correct usage, so the call alone counts.
+_RAISING_GUARDS = frozenset(
+    {
+        "check_dataset_access_or_anonymous",
+        "check_dataset_access",
+        "check_dataset_write_access",
+        "check_map_ownership",
+        "_check_map_read_access",
+        "_check_record_read_access",
+        "_check_record_ownership",
+        "_authorize_vector_tile_request",
+    }
+)
+
+# Guards whose RETURN VALUE is the protection (a filtered Select, or the
+# accessible-id set). SQLAlchemy Selects are immutable: a bare
+# ``apply_visibility_filter(stmt, ...)`` statement discards the filtered
+# statement and protects nothing. These count only when the result is
+# consumed — assigned, returned, or passed on (codex P1 on #863, round 3).
+_VALUE_GUARDS = frozenset(
+    {
+        "apply_visibility_filter",
+        "_apply_map_visibility_filter",
+        "bulk_check_dataset_access",
+    }
+)
+
+# The raising/value split must stay in sync with the documented guard lists.
+assert _RAISING_GUARDS | _VALUE_GUARDS == frozenset(_CORE_GUARDS + _DELEGATED_GUARDS)
+assert not (_RAISING_GUARDS & _VALUE_GUARDS)
 
 # ---------------------------------------------------------------------------
 # Allowlist — handlers that touch a guarded model without a sanctioned guard,
@@ -249,18 +281,41 @@ def _root_name(expr: ast.expr) -> str | None:
     return None
 
 
+def _discarded_call_ids(tree: ast.Module) -> set[int]:
+    """Ids of Call nodes whose result is discarded.
+
+    A call is discarded when it is the value of a bare expression statement
+    (unwrapping ``await``) — nothing assigns, returns, or forwards it.
+    """
+    discarded: set[int] = set()
+    for stmt in ast.walk(tree):
+        if isinstance(stmt, ast.Expr):
+            value = stmt.value
+            if isinstance(value, ast.Await):
+                value = value.value
+            if isinstance(value, ast.Call):
+                discarded.add(id(value))
+    return discarded
+
+
 def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     """AST-scan one function's source for model fetches and guard CALLS.
 
     Fetch shapes (all matched on call nodes, so formatting across multiple
-    lines is irrelevant — codex P2 on #863):
-    - ``select(<model or model attribute>, ...)``
+    lines is irrelevant — codex P2 on #863). ``select`` matches both the
+    plain name and qualified forms like ``sa.select``; model classes are
+    recognized in positional and keyword argument position, so
+    ``db.get(entity=Dataset, ident=...)`` counts (codex P2, round 3):
+    - ``select(<model or model attribute>, ...)`` / ``sa.select(...)``
     - ``<anything>.select_from(<model>)``
-    - ``<anything>.get(<model>, ...)`` (AsyncSession.get)
+    - ``<anything>.get(<model>, ...)`` (AsyncSession.get, incl. keyword form)
     - ``get_dataset(...)`` / ``<module>.get_dataset(...)``
 
     A guard counts only when it is actually INVOKED; imports, docstrings,
-    and comments naming a guard do not (codex P2 on #863).
+    and comments naming a guard do not (codex P2 on #863). Value-returning
+    guards (``_VALUE_GUARDS``) additionally require the call result to be
+    CONSUMED — a bare expression statement discards the filtered Select and
+    is not a guard (codex P1, round 3).
     """
     tree = _parse(source)
     if tree is None:
@@ -269,10 +324,14 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     lines = source.splitlines()
     evidence: list[str] = []
     guard_called = False
+    discarded = _discarded_call_ids(tree)
 
     def _mark(node: ast.Call) -> None:
         line = lines[node.lineno - 1].strip() if node.lineno <= len(lines) else ""
         evidence.append(f"{label}:{node.lineno}: {line}")
+
+    def _any_model_arg(candidates: list[ast.expr]) -> bool:
+        return any(_root_name(candidate) in aliases for candidate in candidates)
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -280,15 +339,20 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
         func = node.func
         called = func.id if isinstance(func, ast.Name) else None
         attr = func.attr if isinstance(func, ast.Attribute) else None
+        name = called or attr
 
-        if (called or attr) in _GUARD_NAMES:
+        if name in _RAISING_GUARDS:
             guard_called = True
-        if (called or attr) == "get_dataset":
+        elif name in _VALUE_GUARDS and id(node) not in discarded:
+            guard_called = True
+
+        keyword_values = [kw.value for kw in node.keywords]
+        if name == "get_dataset":
             _mark(node)
-        elif called == "select" or attr == "select_from":
-            if any(_root_name(arg) in aliases for arg in node.args):
+        elif name in ("select", "select_from"):
+            if _any_model_arg([*node.args, *keyword_values]):
                 _mark(node)
-        elif attr == "get" and node.args and _root_name(node.args[0]) in aliases:
+        elif attr == "get" and _any_model_arg([*node.args[:1], *keyword_values]):
             _mark(node)
 
     return evidence, guard_called
@@ -473,6 +537,75 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
         "Stale ALLOWLIST entries — these handlers are now guarded, renamed, "
         "or gone. Remove them from ALLOWLIST in this file so the list stays "
         "exact:\n" + "\n".join(f"  {key}: {ALLOWLIST[key]}" for key in stale)
+    )
+
+
+@pytest.mark.architecture
+def test_detection_self_checks_on_synthetic_sources() -> None:
+    """Pin the detection semantics codex review probed on #863.
+
+    Each snippet resolves ``Dataset`` through a function-local aliased
+    import, exactly like the runtime code paths do. The dummy function only
+    supplies module context; the snippets are never executed.
+    """
+
+    def _dummy() -> None:  # pragma: no cover - never called
+        return None
+
+    imp = "from app.modules.catalog.datasets.domain.models import Dataset as DsX\n"
+
+    # Qualified select: sa.select(Model) is a fetch (codex P2, round 3).
+    evidence, guarded = _analyze_source(
+        _dummy, imp + "def f(db):\n    return db.execute(sa.select(DsX))\n", "t"
+    )
+    assert evidence and not guarded, "sa.select(Model) must be detected as a fetch"
+
+    # Keyword get: db.get(entity=Model, ident=...) is a fetch (codex P2, round 3).
+    evidence, guarded = _analyze_source(
+        _dummy, imp + "def f(db, i):\n    return db.get(entity=DsX, ident=i)\n", "t"
+    )
+    assert evidence and not guarded, "db.get(entity=Model) must be detected as a fetch"
+
+    # A bare value-guard statement discards the filtered Select and is NOT a
+    # guard (codex P1, round 3)...
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "def f(db, u, r):\n"
+        + "    stmt = select(DsX)\n"
+        + "    apply_visibility_filter(stmt, u, r, DsX, None)\n"
+        + "    return db.execute(stmt)\n",
+        "t",
+    )
+    assert evidence and not guarded, (
+        "a bare apply_visibility_filter(...) statement discards the filtered "
+        "statement and must NOT count as a guard"
+    )
+
+    # ...while consuming the result IS a guard.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "def f(db, u, r):\n"
+        + "    stmt = apply_visibility_filter(select(DsX), u, r, DsX, None)\n"
+        + "    return db.execute(stmt)\n",
+        "t",
+    )
+    assert evidence and guarded, (
+        "an assigned apply_visibility_filter(...) result must count as a guard"
+    )
+
+    # Raising guards may be bare statements — that is their correct usage.
+    evidence, guarded = _analyze_source(
+        _dummy,
+        imp
+        + "async def f(db, ds, i, u):\n"
+        + "    await check_dataset_access(db, ds, i, u)\n"
+        + "    return await db.get(DsX, i)\n",
+        "t",
+    )
+    assert evidence and guarded, (
+        "a bare await check_dataset_access(...) must count as a guard"
     )
 
 
