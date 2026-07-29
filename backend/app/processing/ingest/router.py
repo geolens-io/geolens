@@ -615,6 +615,15 @@ async def preview_file(
     For raster files: returns band count, CRS, resolution, compliance status.
     Only callable on jobs with status 'pending'.
     """
+    # fix(#823): layer_name is forwarded to ogrinfo argv as a positional
+    # token; reject option-like values here with a clear 422 (the spawner in
+    # ogr.py has a matching argv-level guard as defense in depth).
+    if layer_name and layer_name.startswith("-"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid layer_name: must not start with '-'",
+        )
+
     job = await get_job_or_404(db, job_id, user)
 
     if job.status != "pending":
@@ -735,6 +744,19 @@ async def preview_file(
     )
 
 
+def _known_layer_names(job: "IngestJob") -> set[str]:
+    """Normalise job.user_metadata['all_layers'] to a set of layer-name strings.
+
+    all_layers may be a list of dicts ({name: str, ...}) or a list of strings
+    depending on how the preview stored them. Returns an empty set when the
+    preview recorded no layer list (single-layer sources).
+    """
+    all_layers: list = (job.user_metadata or {}).get("all_layers") or []
+    if all_layers and isinstance(all_layers[0], dict):
+        return {lay.get("name", "") for lay in all_layers}
+    return set(all_layers)
+
+
 def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
     """Return the CommitRequest subclass for the given job.
 
@@ -812,6 +834,31 @@ async def commit_import(
         # level. This branch only fires if a subclass adds stricter
         # per-field rules in a future phase.
         raise RequestValidationError(errors=e.errors())
+
+    # fix(#823): a vector commit's layer_name is stored in user_metadata and
+    # later reaches the worker's ogr2ogr argv unvalidated — unlike the fan-out
+    # endpoint, which checks all_layers. Guard both here: reject option-like
+    # names outright (argument-injection hygiene), and reject names absent
+    # from the preview's all_layers when that list exists (single-layer
+    # sources never record all_layers, so they get the dash guard only; the
+    # argv-level guard in ogr.py backstops the worker regardless).
+    requested_layer = getattr(commit, "layer_name", None)
+    if isinstance(requested_layer, str) and requested_layer:
+        if requested_layer.startswith("-"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Invalid layer_name: must not start with '-'",
+            )
+        known_layers = _known_layer_names(job)
+        if known_layers and requested_layer not in known_layers:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "message": "Unknown layer name — not found in the uploaded file",
+                    "unknown_layers": [requested_layer],
+                    "available_layers": sorted(known_layers),
+                },
+            )
 
     # Extract token only for service commits (ServiceCommitRequest is the
     # only subclass with a token field). AUTH-04: never persisted.
@@ -892,16 +939,9 @@ async def commit_fan_out(
         )
 
     # Validate all requested layer_names appear in the job's all_layers preview.
-    all_layers: list[str] = (job.user_metadata or {}).get("all_layers", [])
-    # all_layers may be a list of dicts ({name: str, ...}) or a list of strings
-    # depending on how the preview stored them. Normalise to a set of strings.
-    if all_layers and isinstance(all_layers[0], dict):
-        known_layer_names: set[str] = {
-            lay.get("name", "")
-            for lay in all_layers  # type: ignore[union-attr]
-        }
-    else:
-        known_layer_names = set(all_layers)  # type: ignore[arg-type]
+    # fix(#823): normalisation extracted to _known_layer_names, shared with the
+    # single-layer commit endpoint's new layer_name validation.
+    known_layer_names = _known_layer_names(job)
 
     unknown = [
         layer.layer_name
