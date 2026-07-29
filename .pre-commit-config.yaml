@@ -61,6 +61,11 @@ repos:
           check_dataset_access_or_anonymous (read), check_dataset_access (read),
           check_dataset_write_access (owner-or-admin mutation), or
           apply_visibility_filter. See AGENTS.md Security pre-commit checklist Rule 1.
+          This grep is the cheap commit-time layer only — it is file-scoped and
+          only sees get_dataset( call sites. The authoritative per-handler check
+          is backend/tests/test_rule1_structural.py (fix(#822)), which walks the
+          FastAPI route table and covers db.get/select/service-layer fetch paths
+          plus processing/ routes.
         language: system
         entry: >-
           bash -c '
