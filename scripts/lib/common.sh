@@ -114,6 +114,30 @@ semver_compare() {
   '
 }
 
+# Parse an RFC3339 UTC timestamp (docker's `.State.StartedAt`, e.g.
+# 2026-07-27T01:07:52.269425417Z) to a unix epoch. GNU date first (Linux
+# operator hosts), BSD date as the fallback (macOS dev; -j -u -f parses the
+# fraction-stripped form as UTC). Prints nothing when the input does not look
+# like a timestamp or neither date can parse it — callers must fail open.
+# Always returns 0 so `set -e` callers never abort on an unparseable input.
+iso_to_epoch() {
+  _ts="$1"
+  case "$_ts" in
+    [0-9][0-9][0-9][0-9]-*) : ;;
+    # Guard against non-timestamps BEFORE date sees them: GNU `date -d ""`
+    # parses the empty string as today's midnight and exits 0, which would
+    # turn "unreadable" into a wildly wrong age instead of failing open.
+    *) return 0 ;;
+  esac
+  if _e=$(date -u -d "$_ts" +%s 2>/dev/null); then
+    printf '%s\n' "$_e"
+    return 0
+  fi
+  _t="${_ts%%.*}"
+  _t="${_t%Z}"
+  date -u -j -f '%Y-%m-%dT%H:%M:%S' "$_t" +%s 2>/dev/null || true
+}
+
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must exit
 # 0; every healthcheck-having service must report (healthy). Surfaces the failing
 # service with a log tail on timeout/failure. Diverges from install.sh's inlined
@@ -127,11 +151,13 @@ semver_compare() {
 # assumed. The full tolerance Docker grants is start_period PLUS retries
 # consecutive failing probes, each taking up to interval + timeout (a service
 # stays `starting` through that whole streak — Codex P2 on #867). A service
-# still `starting` after we already waited past that entire window has
-# outlived every verdict Docker could still be working on and fails the
-# wait. Anything (unhealthy), restarting, or exited non-zero fails as
-# before; an unreadable healthcheck config fails open (treated as
-# converging), matching this script's other best-effort probes.
+# whose container age (now - .State.StartedAt — NOT the wait budget, which
+# overstates the age of a restart-policy container that restarted mid-wait
+# with a freshly reset health clock; Codex P2 round 2) exceeds that entire
+# window has outlived every verdict Docker could still be working on and
+# fails the wait. Anything (unhealthy), restarting, or exited non-zero fails
+# as before; an unreadable healthcheck config or StartedAt fails open
+# (treated as converging), matching this script's other best-effort probes.
 wait_for_healthy() {
   attempts=18
   sleep_s=5
@@ -190,27 +216,37 @@ wait_for_healthy() {
     # timeout) before flipping to (unhealthy), and the service honestly
     # reports `starting` for that whole streak. So the full allowance is
     # start_period + retries x (interval + timeout); zero config values mean
-    # the daemon defaults (interval/timeout 30s, retries 3). The container
-    # was started at (or before) the `compose up -d` this wait follows, so
-    # the budget we already spent is a lower bound on its age: allowance <=
-    # budget means Docker has had every chance to rule and still has not.
+    # the daemon defaults (interval/timeout 30s, retries 3).
+    #
+    # Codex P2 round 2 (#867): compare that allowance against the container's
+    # ACTUAL age (now - .State.StartedAt), not the spent budget. A
+    # restart-policy service that crashed and restarted mid-wait is seconds
+    # old with a freshly reset health clock — legitimately inside its
+    # start_period — and must not be classified overdue by a wait that
+    # started before its life did. Unparseable StartedAt fails open, same as
+    # unreadable healthcheck config.
+    now_epoch=$(date -u +%s)
     overdue=""
     for svc in $(printf '%s\n' "$remaining" | cut -d'|' -f1); do
       cid=$(compose ps -q "$svc" 2>/dev/null | head -n 1)
-      allowed=""
+      hc_line=""
       if [ -n "$cid" ]; then
-        allowed=$(docker inspect --format \
-          '{{.Config.Healthcheck.StartPeriod.Seconds}} {{.Config.Healthcheck.Interval.Seconds}} {{.Config.Healthcheck.Timeout.Seconds}} {{.Config.Healthcheck.Retries}}' \
-          "$cid" 2>/dev/null | head -n 1 | awk 'NF==4 {
-            sp = int($1); iv = int($2); to = int($3); rt = int($4)
-            if (iv <= 0) iv = 30
-            if (to <= 0) to = 30
-            if (rt <= 0) rt = 3
-            print sp + rt * (iv + to)
-          }')
+        hc_line=$(docker inspect --format \
+          '{{.State.StartedAt}} {{.Config.Healthcheck.StartPeriod.Seconds}} {{.Config.Healthcheck.Interval.Seconds}} {{.Config.Healthcheck.Timeout.Seconds}} {{.Config.Healthcheck.Retries}}' \
+          "$cid" 2>/dev/null | head -n 1)
       fi
-      if [ -n "$allowed" ] && [ "$allowed" -le "$budget" ]; then
-        overdue="${overdue}  ${svc}: still (health: starting) after ${budget}s, but its healthcheck tolerance (start_period + retries x (interval + timeout)) ended at ${allowed}s
+      allowed=$(printf '%s\n' "$hc_line" | awk 'NF==5 {
+        sp = int($2); iv = int($3); to = int($4); rt = int($5)
+        if (iv <= 0) iv = 30
+        if (to <= 0) to = 30
+        if (rt <= 0) rt = 3
+        print sp + rt * (iv + to)
+      }')
+      age=""
+      start_epoch=$(iso_to_epoch "${hc_line%% *}")
+      [ -n "$start_epoch" ] && age=$((now_epoch - start_epoch))
+      if [ -n "$allowed" ] && [ -n "$age" ] && [ "$age" -ge "$allowed" ]; then
+        overdue="${overdue}  ${svc}: still (health: starting) ${age}s after its last start, but its healthcheck tolerance (start_period + retries x (interval + timeout)) ended at ${allowed}s
 "
       fi
     done

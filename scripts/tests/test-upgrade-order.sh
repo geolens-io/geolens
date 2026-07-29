@@ -10,10 +10,12 @@
 #   - a source-build install (COMPOSE_FILE=docker-compose.yml) exits 0 with the
 #     source-build instructions and makes NO compose/pg_dump calls
 #   - test(#826) wait_for_healthy edge cases: a still-starting service passes
-#     ONLY while inside its healthcheck's full tolerance — start_period +
-#     retries x (interval + timeout), per Docker's verdict semantics (Codex
-#     P2 on #867) — one that outlived it fails the wait; an (unhealthy)
-#     service at budget end fails the wait
+#     ONLY while its container AGE (now - StartedAt — not the wait budget,
+#     which lies about a service that restarted mid-wait; Codex P2 round 2)
+#     is inside its healthcheck's full tolerance — start_period + retries x
+#     (interval + timeout), per Docker's verdict semantics (Codex P2 on
+#     #867) — one that outlived it fails the wait; an (unhealthy) service at
+#     budget end fails the wait; unreadable config or StartedAt fails open
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -130,18 +132,20 @@ if [ "$1" = "wait" ]; then
 fi
 if [ "$1" = "inspect" ]; then
   # --format '{{.State.Status}}' -> exited ; '{{.State.ExitCode}}' -> 0|3.
-  # test(#826): the healthcheck-config format (StartPeriod/Interval/Timeout/
-  # Retries .Seconds fields) -> the four-field "<start_period> <interval>
-  # <timeout> <retries>" line for the cid-<svc> container, read from
-  # DOCKER_HC_<svc>. Empty/unset models an unreadable healthcheck (fail-open
-  # branch); the real docker prints a template error to stderr and nothing to
-  # stdout there.
+  # test(#826): the healthcheck format (StartedAt + StartPeriod/Interval/
+  # Timeout/Retries fields) -> "<started_at> <start_period> <interval>
+  # <timeout> <retries>" for the cid-<svc> container, from
+  # DOCKER_STARTED_<svc> + DOCKER_HC_<svc>. Empty/unset HC models an
+  # unreadable healthcheck (fail-open branch): the real docker's template
+  # errors on a nil Healthcheck and prints nothing to stdout. A non-timestamp
+  # DOCKER_STARTED_<svc> models an unparseable StartedAt (also fail-open).
   case "$*" in
     *StartPeriod*)
       for a in "$@"; do cid="$a"; done
       svc="${cid#cid-}"
       eval "hc=\${DOCKER_HC_${svc}:-}"
-      [ -n "$hc" ] && echo "$hc"
+      eval "st=\${DOCKER_STARTED_${svc}:-}"
+      [ -n "$hc" ] && echo "${st:-unset-started} $hc"
       exit 0 ;;
     *State.Status*)   echo "exited" ; exit 0 ;;
     *State.ExitCode*) [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0 ; exit 0 ;;
@@ -205,6 +209,9 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_PS_STATUS="${PS_STATUS:-}" \
       DOCKER_HC_backup="${HC_BACKUP:-}" DOCKER_HC_api="${HC_API:-}" \
       DOCKER_HC_frontend="${HC_FRONTEND:-}" \
+      DOCKER_STARTED_backup="${STARTED_BACKUP:-}" \
+      DOCKER_STARTED_api="${STARTED_API:-}" \
+      DOCKER_STARTED_frontend="${STARTED_FRONTEND:-}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
@@ -212,6 +219,15 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
 
 # Position of an event in the call log (line number; empty if absent).
 pos_of() { grep -n "^$1\$" "$WORK/calls.log" 2>/dev/null | head -n1 | cut -d: -f1; }
+
+# RFC3339 UTC timestamp $1 seconds in the past — the shape docker prints for
+# `.State.StartedAt`. GNU date first, BSD date fallback (same dual-branch
+# strategy as common.sh's iso_to_epoch).
+iso_ago() {
+  _e=$(( $(date -u +%s) - $1 ))
+  date -u -d "@${_e}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+    || date -u -r "${_e}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null
+}
 
 # ============================================================================
 # CASE 1 — happy path, explicit target. Assert ordering.
@@ -505,7 +521,8 @@ fi
 # ============================================================================
 seed_prod_env
 PS_STATUS='backup|Up 30 seconds (health: starting)'
-HC_BACKUP='600 30 5 3'   # tolerance 600 + 3x35 = 705s > 90s budget
+HC_BACKUP='600 30 5 3'   # tolerance 600 + 3x35 = 705s > container age
+STARTED_BACKUP="$(iso_ago 95)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
   ok "still-starting service INSIDE its healthcheck tolerance converges (upgrade succeeds)"
@@ -525,11 +542,12 @@ fi
 # the service honestly stays `starting` until the streak is exhausted. The
 # prod frontend (start_period 15s, interval 30s, timeout 10s, retries 3) can
 # legitimately report `starting` at the 90s budget with only two post-grace
-# failures — tolerance 15 + 3x40 = 135s > 90s — and must PASS the wait, even
-# though its bare start_period (15s) is far below the budget.
+# failures — tolerance 15 + 3x40 = 135s > its 95s age — and must PASS the
+# wait, even though its bare start_period (15s) is far below both.
 seed_prod_env
 PS_STATUS='frontend|Up About a minute (health: starting)'
 HC_FRONTEND='15 30 10 3'
+STARTED_FRONTEND="$(iso_ago 95)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
   ok "service past start_period but inside its retry tolerance PASSES (Codex P2)"
@@ -538,16 +556,34 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 
+# Codex P2 round 2 (#867): a restart-policy service that crashed and
+# restarted mid-wait is seconds old with a freshly reset health clock. Its
+# tolerance (40s) is far below the 90s budget, but its AGE (5s) is inside
+# start_period — comparing tolerance against the spent budget would fail an
+# upgrade that is actually recovering. Age must win: this PASSES.
+seed_prod_env
+PS_STATUS='backup|Up 5 seconds (health: starting)'
+HC_BACKUP='10 5 5 3'
+STARTED_BACKUP="$(iso_ago 5)"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "service restarted mid-wait (young age, small tolerance) PASSES (Codex P2 round 2)"
+else
+  bad "freshly restarted service was classified overdue (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
 # ============================================================================
-# CASE 9 — test(#826): a service stuck in `(health: starting)` past its FULL
-# tolerance (start_period + retries x (interval + timeout)) has outlived
-# every verdict Docker could still be working on. It must FAIL the wait, not
-# ride the converging branch — this was the untested hole where a broken
-# healthcheck passed the upgrade.
+# CASE 9 — test(#826): a service whose container AGE is past its FULL
+# tolerance (start_period + retries x (interval + timeout)) and still
+# `(health: starting)` has outlived every verdict Docker could still be
+# working on. It must FAIL the wait, not ride the converging branch — this
+# was the untested hole where a broken healthcheck passed the upgrade.
 # ============================================================================
 seed_prod_env
 PS_STATUS='backup|Up 2 minutes (health: starting)'
-HC_BACKUP='10 5 5 3'   # tolerance 10 + 3x10 = 40s <= 90s budget
+HC_BACKUP='10 5 5 3'   # tolerance 10 + 3x10 = 40s, well under the 120s age
+STARTED_BACKUP="$(iso_ago 120)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" != "0" ]; then
   ok "service stuck past its healthcheck tolerance FAILS the wait (upgrade exits non-zero)"
@@ -575,7 +611,9 @@ seed_prod_env
 PS_STATUS='backup|Up 2 minutes (health: starting)
 api|Up 2 minutes (health: starting)'
 HC_BACKUP='600 30 5 3'
+STARTED_BACKUP="$(iso_ago 120)"
 HC_API='10 5 5 3'
+STARTED_API="$(iso_ago 120)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'api: still (health: starting)' "$WORK/out.txt"; then
   ok "mixed stragglers: the overdue service fails the wait even beside a converging one"
@@ -584,6 +622,7 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 HC_API=""
+STARTED_API=""
 
 # Unreadable healthcheck config fails OPEN (converging), matching the
 # script's other best-effort probes — a docker inspect hiccup must not tell
@@ -591,11 +630,27 @@ HC_API=""
 seed_prod_env
 PS_STATUS='backup|Up 30 seconds (health: starting)'
 HC_BACKUP=""
+STARTED_BACKUP="$(iso_ago 120)"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -q "within their healthcheck's tolerance" "$WORK/out.txt"; then
   ok "unreadable healthcheck config fails open (still-starting service treated as converging)"
 else
   bad "unreadable healthcheck config blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# Unparseable StartedAt also fails OPEN (Codex P2 round 2): without a
+# trustworthy age, classifying the service overdue could fail a recovering
+# stack — same best-effort posture as unreadable healthcheck config.
+seed_prod_env
+PS_STATUS='backup|Up 2 minutes (health: starting)'
+HC_BACKUP='10 5 5 3'
+STARTED_BACKUP='garbage-not-a-timestamp'
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -q "within their healthcheck's tolerance" "$WORK/out.txt"; then
+  ok "unparseable StartedAt fails open (no age, service treated as converging)"
+else
+  bad "unparseable StartedAt blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 
@@ -616,6 +671,8 @@ fi
 PS_STATUS=""
 HC_BACKUP=""
 HC_FRONTEND=""
+STARTED_BACKUP=""
+STARTED_FRONTEND=""
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"
