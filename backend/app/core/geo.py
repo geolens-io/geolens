@@ -390,18 +390,33 @@ async def seam_extent_wkt_for_table(
     tbl = sql_table(table_name, column(geom_column), schema=schema)
     stmt = select(*rollup_bbox_columns(tbl.columns[geom_column])).select_from(tbl)
     row = (await session.execute(stmt)).first()
-    bbox = rollup_bbox(row) if row is not None else None
-    if bbox is not None and bbox[0] > bbox[2]:
-        west, south, east, north = bbox
-        # Mirror the callers' degenerate padding (their non-crossing path runs
-        # ST_Expand 1e-9 on POINT/LINESTRING extents): a crossing extent can
-        # never be zero-width, but a single-parallel source is zero-height and
-        # would produce invalid zero-height rings. Related: #944.
-        if north - south < 1e-12:
-            south -= 1e-9
-            north += 1e-9
-        return bbox_to_extent_wkt(west, south, east, north)
-    return None
+    values = _rollup_floats(row) if row is not None else None
+    if values is None:
+        return None
+    bbox = _narrower_domain(*values)
+    west, south, east, north = bbox
+    crossing = west > east
+    # fix(#934 codex r3): the mirror of the +180 seam edge. For features at
+    # -180 and 170, ST_ShiftLongitude maps the negative seam point to +180,
+    # so the winning shifted fold reads as the apparently non-crossing
+    # [170..180] — but the feature is STORED at planar -180, which that
+    # polygon does not cover. When the shifted domain won (the fold differs
+    # from the naive planar bounds) and its east lands on +180, re-express
+    # it as the crossing form with east at -180; bbox_to_extent_wkt then
+    # pads the -180 lobe to a sliver covering the stored representation.
+    if not crossing and east >= 180.0 and (west != values[0] or east != values[2]):
+        east = -180.0
+        crossing = True
+    if not crossing:
+        return None
+    # Mirror the callers' degenerate padding (their non-crossing path runs
+    # ST_Expand 1e-9 on POINT/LINESTRING extents): a crossing extent can
+    # never be zero-width, but a single-parallel source is zero-height and
+    # would produce invalid zero-height rings. Related: #944.
+    if north - south < 1e-12:
+        south -= 1e-9
+        north += 1e-9
+    return bbox_to_extent_wkt(west, south, east, north)
 
 
 def merge_bboxes(bboxes: Iterable[Sequence[float] | None]) -> list[float] | None:
