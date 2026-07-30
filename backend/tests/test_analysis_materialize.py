@@ -3157,6 +3157,45 @@ class TestWideSingleComponentBuffer:
         # The old planar cut buffered a chord across the middle of the world.
         assert row.false_chord is False
 
+    async def test_seam_and_greenwich_components_unwrap_independently(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r2): a feature holding a seam-crossing component AND
+        a Greenwich-crossing one fails a feature-wide unwrap test in both
+        domains, which left the seam component's planar chord in place. The
+        unwrap decides per component, so the seam component shifts and the
+        Greenwich one stays."""
+        wkt = "MULTILINESTRING((170 0, -170 0),(-5 0, 5 0))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="MultiLineString",
+            geometry_type="MULTILINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(45, -30, 135, 30, 4326)) AS chord_east,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(-135, -30, -45, 30, 4326)) AS chord_west"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        # Two seam parts plus the intact Greenwich part.
+        assert row.parts == 3
+        # 20-degree + 10-degree equatorial lines, 20 km wide, plus caps.
+        assert row.area == pytest.approx(67_447_048_946, rel=0.01)
+        assert row.chord_east is False
+        assert row.chord_west is False
+
     async def test_narrow_single_part_is_still_byte_identical(
         self,
         test_db_session: AsyncSession,

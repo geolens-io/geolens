@@ -351,30 +351,35 @@ def render_geodesic_buffer(
         f"ST_XMin({alias}_g.sg) + {alias}_i.i * {width}, -90,"
         f" ST_XMin({alias}_g.sg) + ({alias}_i.i + 1) * {width}, 90, 4326)"
     )
-    # fix(#902 codex r1): a single geometry that itself crosses the
+    # fix(#902 codex r1/r2): a geometry component that itself crosses the
     # antimeridian (LINESTRING(170 0, -170 0)) segmentizes to a vertex jump
     # from ~+180 to ~-180, and a PLANAR band intersection then reads that jump
     # as a near-global chord touching every band. Unwrap into the +360-shifted
     # domain first when — and only when — shifting narrows the planar span
-    # (the same two-condition test render_dateline_safe applies per
-    # component): per-vertex ST_ShiftLongitude is safe here because the
+    # (the same two-condition test render_dateline_safe applies), decided PER
+    # COMPONENT (codex r2): a feature holding both a seam-crossing and a
+    # Greenwich-crossing component fails the feature-wide test in both
+    # domains, leaving the seam component's chord in place, while each
+    # component on its own evidence unwraps exactly the right one.
+    # Per-vertex ST_ShiftLongitude is safe within a component because the
     # segmentized edges are ~20 km, except edges crossing the PRIME meridian,
-    # which shifting tears into ~360-degree chords — and exactly then the
-    # shifted span is not narrower, so the guard declines. Bands then run over
-    # the shifted domain (up to lon ~540); geography normalizes those
-    # longitudes on the ::geography cast, and render_dateline_safe splits any
-    # re-wrapped output component afterwards. Residual: a geometry crossing
-    # BOTH meridians stays wide in both domains and keeps planar slicing.
+    # which shifting tears into ~360-degree chords — and exactly then that
+    # component's shifted span is not narrower, so its guard declines. Bands
+    # then run over the re-collected domain (up to lon ~540); ST_WrapX folds
+    # each piece back into range before the ::geography cast, and
+    # render_dateline_safe splits any re-wrapped output component afterwards.
+    # Residual: a single COMPONENT crossing both meridians stays wide in both
+    # domains and keeps planar slicing.
     unwrapped = (
-        f"(SELECT CASE"
-        f" WHEN ST_XMax({alias}_w.sg) - ST_XMin({alias}_w.sg) > 180"
-        f" AND ST_XMax({alias}_w.ssg) - ST_XMin({alias}_w.ssg)"
-        f" < ST_XMax({alias}_w.sg) - ST_XMin({alias}_w.sg)"
-        f" THEN {alias}_w.ssg ELSE {alias}_w.sg END"
-        f" FROM (SELECT {alias}_w0.sg0 AS sg, ST_ShiftLongitude({alias}_w0.sg0) AS ssg"
-        f" FROM (SELECT ST_Segmentize({alias}.g::geography,"
-        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry AS sg0) AS {alias}_w0"
-        f" OFFSET 0) AS {alias}_w)"
+        f"(SELECT ST_CollectionHomogenize(ST_Collect(CASE"
+        f" WHEN ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c) > 180"
+        f" AND ST_XMax({alias}_u.s) - ST_XMin({alias}_u.s)"
+        f" < ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c)"
+        f" THEN {alias}_u.s ELSE {alias}_u.c END))"
+        f" FROM (SELECT {alias}_d.c, ST_ShiftLongitude({alias}_d.c) AS s"
+        f" FROM (SELECT (ST_Dump(ST_Segmentize({alias}.g::geography,"
+        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry)).geom AS c) AS {alias}_d"
+        f" OFFSET 0) AS {alias}_u)"
     )
     sliced = (
         f"(SELECT ST_CollectionHomogenize(ST_Collect({alias}_p.p))"
