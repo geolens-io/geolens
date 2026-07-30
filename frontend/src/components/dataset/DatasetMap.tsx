@@ -11,7 +11,7 @@ import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
-import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
+import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -36,8 +36,8 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
-import { buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
-import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
 
 /** System columns excluded from the attribute form */
@@ -179,7 +179,9 @@ export const DatasetMap = memo(function DatasetMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth);
+  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth, () =>
+    refreshRasterTileSources(mapRef.current),
+  );
   // fix(#890): `url` is read to tell a raster/DEM auth failure (unrecoverable)
   // from a vector one (re-mintable).
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number; url?: string } }) => void) | null>(null);
@@ -674,7 +676,13 @@ export const DatasetMap = memo(function DatasetMap({
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
         const reminting = recoverTileAuth();
-        const recovering = reminting && !isRasterTileAuthError(e);
+        // fix(#907): a raster auth error counts as recovering while a session
+        // renewal is in flight — that renewal is what fixes it, and its
+        // post-rotation reload retries the tiles.
+        const recovering =
+          reminting &&
+          (!isRasterTileAuthError(e) ||
+            (isRefreshableRasterAuthError(e) && isSessionRenewalPending()));
         if (!recovering && !errorFiredRef.current) {
           errorFiredRef.current = true;
           onTileError?.();
@@ -697,6 +705,12 @@ export const DatasetMap = memo(function DatasetMap({
             fireReadyOnce(false);
             return;
           }
+          // fix(#907): a 401/403 lost to the tab-return refresh race is not a
+          // broken source — the post-rotation reload retries it moments later,
+          // and this listener is independent of the auth handler above, so
+          // without this it still latched the permanent error overlay that the
+          // reload cannot clear.
+          if (status === 401 && isSessionRenewalPending()) return;
           if (e.error?.message?.includes('raster-tile-source') ||
               e.error?.message?.includes('Error: HTTP') ||
               status === 404 ||
