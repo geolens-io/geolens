@@ -43,8 +43,11 @@ These run in CI and do not require manual checking:
 
 - **Source coherence** — `make version-check` (which runs
   `scripts/check_version_coherence.py`) asserts that every in-tree version site
-  agrees with the canonical `backend/pyproject.toml` version. The companion
-  writer, `scripts/bump_version.py`, enumerates the same set of sites.
+  agrees with the canonical `backend/pyproject.toml` version, including the five
+  lockfiles that embed the package's own version (`backend/uv.lock`,
+  `mcp/uv.lock`, and the root/`frontend`/`sdks/typescript` `package-lock.json`).
+  The companion writer, `scripts/bump_version.py`, stamps the same set of sites,
+  so no lockfile needs a hand edit at release time.
 - **Published coherence** — `.github/workflows/verify-published.yml` runs after
   a release and confirms, in a clean container, that PyPI `geolens` +
   `geolens-cli`, npm `@geolens/sdk`, the GHCR images, and the GitHub Release are
