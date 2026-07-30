@@ -103,6 +103,25 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     at x=180, translates the far side back by -360, and keeps the polygonal
     components. The result is a valid multipart geometry inside [-180, 180].
 
+    The decision is made PER POLYGON COMPONENT, not on the envelope of the whole
+    buffer (fix(#883 review)). One source feature can put components at both
+    seams — a ``MULTIPOINT`` holding (179.95, 45) and (0, 45) buffers to one
+    antimeridian-wrapping polygon plus one Greenwich-straddling polygon — and
+    those two want opposite treatment. Deciding once for the pair gets it wrong
+    either way, and which way depends on rounding: measured across a sweep of
+    the second point's longitude, the envelope test declined at lon ±0.05 and
+    left the antimeridian component self-intersecting and still hitting a bbox
+    over France, while at lon 0.0 it split the pair and blew the Greenwich
+    component up to 6 parts covering 11.6x the correct area, newly intersecting
+    a bbox at lon -100 that neither input was anywhere near. Splitting each
+    component on its own evidence gives 3 parts, exact area, and no remote hit.
+
+    ``ST_Dump`` then ``ST_CollectionHomogenize(ST_Collect(...))`` is what makes
+    that per-component pass type-preserving: the homogenize collapses a
+    single-component result back to POLYGON, so a component the guard declines
+    to touch comes out byte-identical rather than promoted to a one-part
+    MULTIPOLYGON.
+
     ``ST_ShiftLongitude`` runs BEFORE ``ST_MakeValid``, and the order is
     load-bearing. A wrapping ring is self-intersecting *in the planar domain*,
     so validating first repairs an artefact of the wrap: it nodes the seam and
@@ -113,7 +132,7 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     geodesic circle). ``ST_WrapX`` splits by intersection and does need valid
     input, so the validation stays, just after the shift.
 
-    Two conditions gate the split, and both carry their own weight.
+    Two conditions gate a component's split, and both carry their own weight.
 
     The planar span must exceed ``DATELINE_WRAP_SPAN_DEG``. A compact geometry
     with vertices just inside +180 and just inside -180 has a planar span near
@@ -134,13 +153,19 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     of its area. A seam-wrapping buffer collapses instead — 359.99° planar to
     0.25° shifted — which is exactly the signal being tested for.
 
+    The same span test also gates entry to the per-component pass at all, one
+    level out. It is a necessary condition: the envelope contains every
+    component, so if the envelope spans 180° or less then no component can span
+    more, and none can be wrapping. That makes the ordinary low-longitude buffer
+    a bare ``ELSE`` returning the geometry untouched, with no dump or re-collect
+    on the common path.
+
     ``geom_expr`` is evaluated inside an ``OFFSET 0``-fenced subquery — the
     same pull-up fence ``_wrap_not_empty`` and ``build_preview_sql`` use
     (fix(#700 review)) — because the CASE references the geometry several
-    times, and the shifted copy is fenced the same way one level out so
-    ``ST_ShiftLongitude`` also runs once. Measured over 2 000 rows: naive
-    inlining 212 ms, this shape 136 ms, unsplit baseline 121 ms; on an
-    all-non-crossing workload the fenced form is within ~2% of the baseline.
+    times, and the per-component shifted copy is fenced the same way so
+    ``ST_ShiftLongitude`` also runs once per component. ``EXPLAIN VERBOSE``
+    over 2 000 rows keeps ``ST_Buffer`` at one evaluation per row.
 
     NOT fixed here, and deliberately: a dataset that genuinely straddles the
     seam still registers a -180..180 ``spatial_extent``, because the
@@ -150,17 +175,33 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     directly ingested Fiji-area data; it needs a schema change, not a wider
     expression.
     """
+    # Per-component split, innermost first: dump the buffer into components,
+    # pair each with its shifted copy behind an OFFSET 0 fence, decide per
+    # component, dump the split results so every collected element is a bare
+    # polygon, then re-collect and homogenize.
+    parts = (
+        f"SELECT (ST_Dump(CASE"
+        f" WHEN ST_XMax({alias}_c.c) - ST_XMin({alias}_c.c)"
+        f" > {DATELINE_WRAP_SPAN_DEG}"
+        f" AND ST_XMax({alias}_c.s) - ST_XMin({alias}_c.s)"
+        f" < ST_XMax({alias}_c.c) - ST_XMin({alias}_c.c)"
+        " THEN ST_CollectionExtract("
+        f"ST_WrapX(ST_MakeValid({alias}_c.s), 180, -360), 3)"
+        f" ELSE {alias}_c.c END)).geom AS p"
+        f" FROM (SELECT {alias}_d.c, ST_ShiftLongitude({alias}_d.c) AS s"
+        f" FROM (SELECT (ST_Dump({alias}.g)).geom AS c) AS {alias}_d"
+        f" OFFSET 0) AS {alias}_c"
+    )
+    split = (
+        f"(SELECT ST_CollectionHomogenize(ST_Collect({alias}_p.p))"
+        f" FROM ({parts}) AS {alias}_p)"
+    )
     return (
         "(SELECT CASE"
         f" WHEN ST_XMax({alias}.g) - ST_XMin({alias}.g) > {DATELINE_WRAP_SPAN_DEG}"
-        f" AND ST_XMax({alias}.s) - ST_XMin({alias}.s)"
-        f" < ST_XMax({alias}.g) - ST_XMin({alias}.g)"
-        " THEN ST_CollectionExtract("
-        f"ST_WrapX(ST_MakeValid({alias}.s), 180, -360), 3)"
+        f" THEN {split}"
         f" ELSE {alias}.g END"
-        f" FROM (SELECT {alias}_g.g, ST_ShiftLongitude({alias}_g.g) AS s"
-        f" FROM (SELECT {geom_expr} AS g OFFSET 0) AS {alias}_g"
-        f" OFFSET 0) AS {alias})"
+        f" FROM (SELECT {geom_expr} AS g OFFSET 0) AS {alias})"
     )
 
 
