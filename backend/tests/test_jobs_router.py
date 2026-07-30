@@ -402,7 +402,14 @@ class TestGetJobStatus:
         assert len(data["warnings"]) == 1
         assert data["warnings"][0] == {
             "kind": "mercator_clip",
-            "details": {"dropped_features": 12, "clipped_features": 3},
+            # fix(#906): `clip_skipped` is an additive detail field with a
+            # False default, so a stored pre-#906 warning still validates and
+            # serializes with the flag present and clear.
+            "details": {
+                "dropped_features": 12,
+                "clipped_features": 3,
+                "clip_skipped": False,
+            },
         }
 
     async def test_get_job_surfaces_archive_failed(
