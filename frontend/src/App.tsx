@@ -135,12 +135,16 @@ export const appRoutes = (
             {/* Redirects from old routes */}
             <Route path="admin/share-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/embed-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
-            {/* Redirects from old routes */}
+            {/* Redirects from old routes.
+                fix(#871): no `admin/settings/appearance` entry here — a static
+                path outranks `admin/settings/:tab`, so the old
+                appearance→map redirect made the enterprise branding tab
+                unreachable. AdminSettingsPage's edition gate owns that URL
+                now (enterprise renders it, community sends it to general). */}
             <Route path="admin/settings/infrastructure" element={<Navigate to="/admin/overview" replace />} />
             <Route path="admin/general" element={<Navigate to="/admin/settings/general" replace />} />
             <Route path="admin/basemaps" element={<Navigate to="/admin/settings/map" replace />} />
             <Route path="admin/map-defaults" element={<Navigate to="/admin/settings/map" replace />} />
-            <Route path="admin/settings/appearance" element={<Navigate to="/admin/settings/map" replace />} />
             <Route path="admin/security" element={<Navigate to="/admin/settings/auth" replace />} />
             <Route path="admin/uploads" element={<Navigate to="/admin/settings/storage" replace />} />
             <Route path="admin/ai" element={<Navigate to="/admin/settings/ai" replace />} />
