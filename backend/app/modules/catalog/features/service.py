@@ -617,12 +617,14 @@ async def _refresh_count_and_extent(
     Returns (feature_count, extent_wkt) in a single query instead of the
     5 queries that extract_metadata() runs.
     """
-    # fix(#430 BA-18): records.spatial_extent is a POLYGON column, but ST_Extent of a
-    # single point / axis-collinear points casts to POINT / LINESTRING, which the
-    # column rejects (previously the caller silently skipped storing it, leaving a
-    # stale/NULL extent). ST_Expand always returns the bounding-box POLYGON, so we
-    # pad ONLY the degenerate (non-polygon) cases into a valid sub-mm-padded
-    # polygon; genuine polygon extents are returned byte-identical (no epsilon).
+    # fix(#430 BA-18): records.spatial_extent admits only POLYGON or MULTIPOLYGON
+    # (fix(#892) widened the typmod to geometry(Geometry, 4326) and moved the type
+    # guard into chk_records_spatial_extent_type), but ST_Extent of a single point /
+    # axis-collinear points casts to POINT / LINESTRING, which is still rejected
+    # (previously the caller silently skipped storing it, leaving a stale/NULL
+    # extent). ST_Expand always returns the bounding-box POLYGON, so we pad ONLY the
+    # degenerate (non-polygon) cases into a valid sub-mm-padded polygon; genuine
+    # polygon extents are returned byte-identical (no epsilon).
     result = await session.execute(
         text(
             f"SELECT COUNT(*), "
