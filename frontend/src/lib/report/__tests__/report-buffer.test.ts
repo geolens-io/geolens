@@ -474,6 +474,32 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 15 on #908: an accepted template may label its coordinates
+  // (`/z/{z}/x/{x}/y/{y}`), which no consecutive-segment rule can see.
+  it('collapses coordinates carried behind path labels', () => {
+    for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/z/12/x/${x}/y/${y}.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('does not mistake a labelled version for a coordinate', () => {
+    for (const version of [1, 2]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/v/${version}/z/12/x/1/y/1.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

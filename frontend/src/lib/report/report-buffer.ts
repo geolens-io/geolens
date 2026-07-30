@@ -222,6 +222,17 @@ function sourceIdOf(entry: ReportEntry): string {
  * A `maplibre` row keys on its source id as well and rarely needs any of this;
  * it matters for the `console` rows the viewer and dataset preview leave
  * behind, which carry no source at all.
+ *
+ * Scope, deliberately: the custom-basemap validator accepts `{z}/{x}/{y}`
+ * ANYWHERE in a URL, so the set of shapes a remote style can produce is open
+ * ended. This handles GeoLens's own tile URLs exactly, plus the conventional
+ * remote layouts, and for anything stranger it degrades toward counting one
+ * source more than once. That direction is the deliberate one — under-counting
+ * would hide a broken source from a problem reporter. Keying those rows on a
+ * real source identity, rather than inferring it from a URL, is the change that
+ * would close the gap properly; it needs `logUnhandledMapError` to carry the
+ * `sourceId` it already receives into what it logs, which is a bigger change
+ * than a badge count warrants.
  */
 // Per-tile or rotating query params: the credential set, plus the coordinate
 // names a tile template can use. A template may put the whole tile address in
@@ -264,7 +275,13 @@ function failureKey(message: string): string {
  * and swallow the version. Trying the tighter end-anchored form first pins the
  * match to the right, and the looser form only runs when nothing matched.
  */
-function normalizeTileAddress(message: string): string {
+// A numeric segment directly behind a coordinate LABEL, as in
+// `/z/12/x/1205/y/1539.png`. Name-driven for the same reason the query rule is:
+// `/v/1/` is a version, not a coordinate, and only the label tells them apart.
+const LABELLED_COORD = /\/(z|x|y|zoom|level|col|column|row|tilecol|tilerow|tilematrix)\/\d+/gi;
+
+function normalizeTileAddress(raw: string): string {
+  const message = raw.replace(LABELLED_COORD, '/$1/{n}');
   // `/12/1205/1539`, `/12/1205/1539.png`, or `/12/1205/[redacted-email]` (the
   // `@2x` case, which redact() eats as an email), hard against the end or a query.
   const withExtension = /\/\d+\/\d+\/(?:\d+(?:\.\w+)?|\[redacted-email\])(?=[?\s]|$)/g;
