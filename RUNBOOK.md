@@ -161,16 +161,22 @@ pg_restore --clean --if-exists --no-owner --no-acl \
   -d "$POSTGRES_DB" geolens_<timestamp>.dump
 uv run alembic downgrade 0016
 uv run alembic upgrade head
-uv run python scripts/prepare-tenant-rls.py
 ```
 
-The 0019 re-upgrade recreates the fixed provisioner/control/writer/sandbox/tile
-roles, recreates each tenant reader/writer role, and transfers restored tenant
-tables and sequences to the matching writer. Reapply the runtime login grants
-from `.env.example` afterward; those login credentials are deliberately not
-stored in the database dump. Verify that the API login can `SET ROLE` to one
-tenant writer/reader, the tile login can set only that tenant reader, and neither
-login owns catalog RLS tables or a `data_t_*` schema.
+The migration re-upgrade is the whole role-reconstruction step: 0019's upgrade
+recreates the fixed provisioner/control/writer/sandbox/tile roles, walks
+`catalog.tenants` to recreate each tenant reader/writer role via
+`provision_tenant_data_schema`, and transfers restored tenant tables and
+sequences to the matching writer. No separate script exists or is needed
+(fix(#950): an earlier revision of this recipe referenced a
+`prepare-tenant-rls.py` script that was never shipped). Reapply the runtime
+login grants from `.env.example` afterward; those login credentials are
+deliberately not stored in the database dump. Verify that the API login can
+`SET ROLE` to one tenant writer/reader, the tile login can set only that tenant
+reader, and neither login owns catalog RLS tables or a `data_t_*` schema — the
+backend re-checks the runtime login at boot
+(`assert_multi_tenant_runtime_role`) and refuses to start on an unsafe role, so
+a misconfigured restore fails loudly rather than serving cross-tenant data.
 
 ### Step-by-step: full restore (DB + object storage)
 

@@ -103,6 +103,35 @@ AZURE_TITILER_KEYS = frozenset(
 # uses to persist a value into .env.
 WRITE_RE = re.compile(r"^\s*update_env_value\s+([A-Z][A-Z0-9_]*)\b")
 
+# fix(#950): operator docs prescribed `scripts/prepare-tenant-rls.py`, a script
+# that never existed in any repo — the multi-tenant restore recipe was
+# unrunnable as written and nothing caught it. Every `scripts/<file>` path a
+# doc tells an operator to run must resolve to a real file.
+SCRIPT_DOC_FILES = (
+    "RUNBOOK.md",
+    "README.md",
+    "UPGRADING.md",
+    "EDITIONS.md",
+    "SUPPORT.md",
+    ".env.example",
+    ".env.test.example",
+)
+SCRIPT_REF_RE = re.compile(r"\bscripts/([A-Za-z0-9_.-]+\.(?:py|sh|mjs|sql))\b")
+
+
+def unresolvable_doc_script_refs() -> list[str]:
+    """Return doc-referenced scripts/ paths that do not exist in the repo."""
+    errors: list[str] = []
+    for name in SCRIPT_DOC_FILES:
+        doc = REPO_ROOT / name
+        if not doc.is_file():
+            continue
+        for lineno, line in enumerate(doc.read_text().splitlines(), start=1):
+            for filename in SCRIPT_REF_RE.findall(line):
+                if not (REPO_ROOT / "scripts" / filename).is_file():
+                    errors.append(f"{name}:{lineno} references scripts/{filename}")
+    return sorted(set(errors))
+
 
 def keys_written_by_installer(install_sh: Path) -> set[str]:
     """Return the set of env keys install.sh persists via update_env_value."""
@@ -334,6 +363,12 @@ def main() -> int:
     contract_errors = compose_contract_errors(COMPOSE_FILES)
     if contract_errors:
         failures.append(("Compose service capability contract drift", contract_errors))
+
+    phantom_scripts = unresolvable_doc_script_refs()
+    if phantom_scripts:
+        failures.append(
+            ("doc-referenced scripts/ paths that do not exist", phantom_scripts)
+        )
 
     if failures:
         print("environment contract drift detected:", file=sys.stderr)
