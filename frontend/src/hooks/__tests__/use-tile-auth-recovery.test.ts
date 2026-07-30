@@ -374,10 +374,15 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     let resolveRefresh: (value: boolean) => void = () => {};
     vi.mocked(tryRefresh).mockReturnValueOnce(
       new Promise<boolean>((resolve) => {
-        resolveRefresh = resolve;
+        // A real refresh writes the rotated token into the store before it
+        // resolves; the token comparison is what this path trusts.
+        resolveRefresh = (value) => {
+          useAuthStore.setState({ token: 'rotated' });
+          resolve(value);
+        };
       }),
     );
-    useAuthStore.setState({ expiresAt: Date.now() + 10_000 });
+    useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
     renderHook(() =>
       useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
     );
@@ -392,12 +397,13 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
   });
 
-  // codex round 2 on #964: tryRefresh RESOLVES false on a transient failure, so
-  // reloading unconditionally would retry against the same stale Bearer.
+  // codex on #964: `tryRefresh` resolves `!!token`, so it comes back TRUE for a
+  // transient failure that left the stale token in place. Reloading on that
+  // boolean would retry against the same Bearer and 401 again.
   it('does not reload when the refresh failed and nothing rotated', async () => {
     const recover = vi.fn(() => true);
     const onCredentialRenewed = vi.fn();
-    vi.mocked(tryRefresh).mockResolvedValueOnce(false);
+    vi.mocked(tryRefresh).mockResolvedValueOnce(true);
     useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
     renderHook(() =>
       useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
@@ -415,7 +421,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
   it('reloads when a concurrent mint rotates the token after our attempt failed', async () => {
     const recover = vi.fn(() => true);
     const onCredentialRenewed = vi.fn();
-    vi.mocked(tryRefresh).mockResolvedValueOnce(false);
+    vi.mocked(tryRefresh).mockResolvedValueOnce(true);
     useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
     renderHook(() =>
       useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
