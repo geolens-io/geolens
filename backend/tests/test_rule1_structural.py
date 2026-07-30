@@ -1458,10 +1458,17 @@ def test_delegated_guards_still_enforce_access() -> None:
     from app.modules.catalog.maps import service_layers
     from app.processing.tiles import router as tiles_router
 
+    # fix(#929 review): the bulk check delegates to the permission extension
+    # via apply_visibility_filter instead of inlining a policy mirror, so an
+    # overlay that replaces the extension governs the map-attach paths too.
+    bulk_calls = _calls_in(service_layers.bulk_check_dataset_access)
+    assert "apply_visibility_filter" in bulk_calls, (
+        "maps bulk_check_dataset_access no longer delegates to apply_visibility_filter"
+    )
     bulk = _source_of(service_layers.bulk_check_dataset_access)
-    assert all(term in bulk for term in ("visibility", "created_by", "DatasetGrant")), (
-        "maps bulk_check_dataset_access no longer filters by "
-        "visibility/ownership/grants"
+    assert "DatasetGrant" in bulk, (
+        "maps bulk_check_dataset_access no longer passes DatasetGrant, so "
+        "restricted grants would stop resolving"
     )
 
     tile_auth_calls = _calls_in(tiles_router._authorize_vector_tile_request)
