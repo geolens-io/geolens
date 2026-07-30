@@ -289,6 +289,53 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
     expect(mapState.setTiles).not.toHaveBeenCalled();
   });
 
+  // fix(#890): a raster auth failure is now recorded the same way an unrecovered
+  // 5xx tile error already was — one unsuppressed `maplibre` row from the handler
+  // plus the wrapper's console.error (which initReportCapture turns into a
+  // `console` row). That pairing is the buffer's shape for EVERY error no
+  // surface recovers, and it predates this PR; the #755 bug was a suppressed
+  // "recovered" row sitting next to it, not the pairing. Dropping either half
+  // for raster would cost the sourceId (the console row has none) or the devtools
+  // log (the surfaces without their own row have nothing else). This pins the
+  // parity so a future "dedupe raster" change has to face the 5xx case too.
+  it('records a raster 403 the same way an unrecovered 5xx is recorded', async () => {
+    const layer = makeLayer({ dataset_record_type: 'raster_dataset' });
+    await renderBuilderMap(layer);
+
+    const serverError = {
+      error: { message: 'AJAXError: (500)', status: 500, url: RASTER_TILE_URL },
+      sourceId: getSourceIdForLayer(layer),
+    };
+    act(() => {
+      mapState.fakeMap.emit('error', serverError);
+      mapState.onError?.(serverError);
+    });
+    const fiveHundred = pushedEntries();
+    const fiveHundredLogs = errorSpy.mock.calls.length;
+    // Guard against a vacuous comparison below.
+    expect(fiveHundred).toHaveLength(1);
+    expect(fiveHundred[0]).toMatchObject({ severity: 'error', suppressed: false });
+    expect(fiveHundredLogs).toBe(1);
+
+    reportState.push.mockClear();
+    errorSpy.mockClear();
+    const rasterError = {
+      error: { message: `AJAXError: (403): ${RASTER_TILE_URL}`, status: 403, url: RASTER_TILE_URL },
+      sourceId: getSourceIdForLayer(layer),
+    };
+    act(() => {
+      mapState.fakeMap.emit('error', rasterError);
+      mapState.onError?.(rasterError);
+    });
+
+    expect(pushedEntries()).toHaveLength(fiveHundred.length);
+    expect(pushedEntries()[0]).toMatchObject({
+      severity: fiveHundred[0].severity,
+      suppressed: fiveHundred[0].suppressed,
+    });
+    expect(errorSpy.mock.calls.length).toBe(fiveHundredLogs);
+  });
+
   it('still re-signs and re-mints a first-party VECTOR 403 (GUARD-03 / #621 intact)', async () => {
     const layer = makeLayer();
     const sourceId = getSourceIdForLayer(layer);

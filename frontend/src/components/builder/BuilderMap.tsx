@@ -644,6 +644,13 @@ export const BuilderMap = memo(function BuilderMap({
         // suppression/early-return logic below — suppressed errors (expected
         // no-data tiles, terrain/DEM mismatches) are frequently the actual bug
         // an engineer needs, so we flag rather than drop them here.
+        // fix(#890): an unsuppressed row here pairs with the `console` row
+        // initReportCapture derives from logUnhandledMapError's console.error —
+        // two rows per unrecovered failure. That is the buffer's long-standing
+        // shape for every error no surface recovers (any tile 5xx does the same;
+        // BuilderMap.raster-tile-auth.test.tsx pins the parity). Dropping either
+        // half for raster would cost the sourceId this row carries, or the
+        // devtools log the surfaces without a row of their own rely on.
         const isClientError = Boolean(status && status >= 400 && status < 500);
         const suppressedClientError = isClientError && !rasterAuthError;
         pushReportEntry({
