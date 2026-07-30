@@ -1041,12 +1041,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (14 stock SRIDs are GEOGCS in grads, where -360 is not a whole turn) and
     # the note that the envelope bounds X at ±180 too, so the warning built
     # from its counts cannot blame latitude for a lon-400 drop.
+    # fix(#906): +83 — the degenerate-envelope guard for narrow-validity CRSs
+    # (_mercator_envelope_degenerates plus the skip branch and clip_skipped
+    # accounting): 4415 of 8500 stock SRIDs collapse the safe envelope under
+    # ST_Transform and the clip then emptied the whole table silently.
     # fix(#934): +52 — the seam-aware extent-producer override: the
     # `_seam_crossing_extent_wkt` gate (naive width > 180 is the only case
     # where the shifted domain can win, so the common path skips the second
     # aggregate) and the crossing override wiring in `get_extent` and the
     # extract_metadata CTE. Ratchet stays exact.
-    "backend/app/processing/ingest/metadata.py": 1908,
+    "backend/app/processing/ingest/metadata.py": 2002,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
@@ -1099,7 +1103,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
     # fix(#929 review): -22 — _resolve_raster_access's inline RBAC mirror
     # replaced with delegation to the permission extension via the port.
-    "backend/app/processing/tiles/router.py": 2046,
+    # fix(#939): +23 — the degrees-vs-metres decision in
+    # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
+    # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
+    # documented at the site. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2069,
 }
 
 

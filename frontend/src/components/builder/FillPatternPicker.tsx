@@ -37,7 +37,11 @@ export function FillPatternPicker({ value, onChange, t }: FillPatternPickerProps
           title={t('style.fillPatternNone')}
           aria-label={t('style.fillPatternNone')}
           aria-pressed={!value}
-        />
+        >
+          {/* fix(#922): a childless button read as an empty square to sighted
+              users. A solid block is what "no pattern" actually draws. */}
+          <span className="h-5 w-5 rounded-sm bg-current" />
+        </button>
         {/* Pattern swatches */}
         {FILL_PATTERN_IDS.map((id) => {
           const label = t(`style.fillPatternName.${shortKey(id)}`);

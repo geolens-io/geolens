@@ -10,6 +10,7 @@ import {
   type BuilderLayerAction,
 } from '@/components/builder/builder-action-contract';
 import { resolveBasemapId } from '@/lib/basemap-utils';
+import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
@@ -38,6 +39,16 @@ import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
 import { useTileConfig } from '@/hooks/use-settings';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
+
+// fix(#913): the hydrated shape of mapData.terrain_config, shared by the load
+// path and the clean-state recheck so the two cannot drift.
+function savedTerrainConfig(mapData: { terrain_config?: MapTerrainConfig | null }): MapTerrainConfig | null {
+  if (!mapData.terrain_config) return null;
+  return {
+    ...mapData.terrain_config,
+    exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
+  };
+}
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -71,6 +82,18 @@ export function useBuilderLayers(
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // fix(#913): dirt this hook cannot re-derive from server state — plugin
+  // toggles and other page-owned edits that go through markDirty. recheckClean
+  // refuses to clear the flag while it is set; every reset back to "saved"
+  // clears it.
+  const opaqueDirtyRef = useRef(false);
+  const setHasUnsavedChangesTracked = useCallback(
+    (next: React.SetStateAction<boolean>) => {
+      if (next === false) opaqueDirtyRef.current = false;
+      setHasUnsavedChanges(next);
+    },
+    [],
+  );
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
@@ -233,6 +256,7 @@ export function useBuilderLayers(
       mapData.id !== layersMapIdRef.current
     ) {
       initializedRef.current = false;
+      opaqueDirtyRef.current = false;
       setHasUnsavedChanges(false);
     }
   }, [mapData]);
@@ -247,12 +271,7 @@ export function useBuilderLayers(
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       _setBasemapConfigRaw(mapData.basemap_config ?? null);
-      setLocalTerrainConfig(mapData.terrain_config
-        ? {
-            ...mapData.terrain_config,
-            exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
-          }
-        : null);
+      setLocalTerrainConfig(savedTerrainConfig(mapData));
       setGroupMeta({
         ...hydrated.groupMeta,
         ...((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {}),
@@ -823,7 +842,57 @@ export function useBuilderLayers(
     );
   }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
-  const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
+  const markDirty = useCallback(() => {
+    opaqueDirtyRef.current = true;
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // fix(#913): a banner Revert restores the saved layer through the ordinary
+  // mutation handlers, and every one of those marks the map dirty — so the
+  // revert itself re-dirtied the map and nothing ever cleared the flag. Rather
+  // than special-casing the revert path, recompute: clear the flag only when
+  // every layer matches the saved baseline AND no map-level field diverges from
+  // server state. Comparing the full layer objects (not just paint/layout/
+  // style_config, which is all hasUnsavedStyleChanges covers) is what keeps an
+  // outstanding opacity change, reorder, rename, visibility toggle, or layer
+  // add/remove from reading as clean.
+  const computeMapIsClean = useCallback((): boolean => {
+    if (!mapData || opaqueDirtyRef.current) return false;
+
+    const baseline = savedLayerBaselineRef.current;
+    const current = layersRef.current;
+    if (current.length !== baseline.length) return false;
+    const savedById = new Map(baseline.map((l) => [l.id, l]));
+    for (let i = 0; i < current.length; i += 1) {
+      const saved = savedById.get(current[i].id);
+      // Order matters (sort_order is persisted), so compare position too.
+      if (!saved || saved.id !== baseline[i].id || !deepEqual(current[i], saved)) return false;
+    }
+
+    if (localName !== mapData.name) return false;
+    if (localDescription !== (mapData.description ?? '')) return false;
+    if (localLegendTitle !== (mapData.legend_title ?? null)) return false;
+    if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
+    if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
+    if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
+    if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
+
+    return true;
+  }, [
+    mapData, localName, localDescription, localLegendTitle, localBasemap,
+    showBasemapLabels, basemapConfig, localTerrainConfig,
+  ]);
+
+  // The recheck must observe the reverted layers, so it runs in an effect after
+  // commit rather than inline in the revert handler. The nonce and the layer
+  // updates batch into the same render, so one request costs one pass.
+  const [recheckNonce, setRecheckNonce] = useState(0);
+  const requestCleanRecheck = useCallback(() => setRecheckNonce((n) => n + 1), []);
+  useEffect(() => {
+    if (recheckNonce === 0) return;
+    if (computeMapIsClean()) setHasUnsavedChanges(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fires only on an explicit request
+  }, [recheckNonce]);
 
   // fix(v1.6.0 audit D7): identity-stable "is this row a folder group?" lookup.
   // Reads through layersRef so callers (MapBuilderPage's memoized
@@ -953,7 +1022,8 @@ export function useBuilderLayers(
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
     localBasemap, setLocalBasemap,
-    hasUnsavedChanges, setHasUnsavedChanges,
+    hasUnsavedChanges, setHasUnsavedChanges: setHasUnsavedChangesTracked,
+    requestCleanRecheck,
     expandedLayerId,
     activeEditorTab,
     showBasemapLabels, setShowBasemapLabels,

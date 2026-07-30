@@ -89,6 +89,7 @@
     "mercatorClip": {
       "title": "Geometría fuera de los límites de Web Mercator",
       "description": "GeoLens sirve teselas Web Mercator, que cubren longitudes de -180° a 180° y latitudes de -85,06° a 85,06°. La geometría situada fuera de ese recuadro se recortó durante la importación. Las filas siguen en el conjunto de datos: solo cambió su geometría. Revise tanto el orden como el rango de las coordenadas de origen.",
+      "skippedDescription": "El sistema de coordenadas de origen tiene un área de validez estrecha: los límites de Web Mercator no pudieron expresarse en él y la comprobación de límites se omitió. No se eliminó ninguna geometría, pero puede seguir habiendo geometría fuera de las longitudes -180° a 180° o las latitudes -85,06° a 85,06°, que no se mostrará en el mapa.",
       "dropped_one": "{{count}} entidad perdió toda su geometría",
       "dropped_other": "{{count}} entidades perdieron toda su geometría",
       "clipped_one": "{{count}} entidad se recortó en el límite",

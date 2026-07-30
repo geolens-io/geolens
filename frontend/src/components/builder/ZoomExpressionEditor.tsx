@@ -83,7 +83,15 @@ export function ZoomExpressionEditor({
   onChange,
 }: ZoomExpressionEditorProps) {
   const { t } = useTranslation('builder');
-  const parsed = useMemo(() => parseZoomExpression(value), [value]);
+  // fix(#922): the sync effect below re-seeds `draft` whenever `parsed` changes
+  // identity, and invalid drafts are never emitted — so a re-hydration that
+  // replaces the paint array with an equal one (save, render-mode switch, style
+  // paste) silently reverted a half-typed stop. Key the memo on the SERIALIZED
+  // value so an unchanged expression keeps its identity. Same family as the
+  // applyLayerUpdate stale-ref clobber.
+  const valueKey = JSON.stringify(value ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- valueKey IS value, by content
+  const parsed = useMemo(() => parseZoomExpression(value), [valueKey]);
   const isUnsupportedExpression = Array.isArray(value) && !parsed;
   const scalarValue = isFiniteNumber(value) ? value : defaultValue;
   const fixedValue = parsed

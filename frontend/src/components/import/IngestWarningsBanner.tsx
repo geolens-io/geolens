@@ -66,13 +66,20 @@ function MercatorClipBody({
   warning: Extract<IngestJobWarning, { kind: 'mercator_clip' }>;
 }) {
   const { t } = useTranslation('import');
-  const { dropped_features: dropped, clipped_features: clipped } =
-    warning.details;
+  const {
+    dropped_features: dropped,
+    clipped_features: clipped,
+    clip_skipped: skipped,
+  } = warning.details;
   return (
     <div className="space-y-1">
       <p className="font-medium">{t('warnings.mercatorClip.title')}</p>
       <p className="text-xs text-muted-foreground">
-        {t('warnings.mercatorClip.description')}
+        {t(
+          skipped
+            ? 'warnings.mercatorClip.skippedDescription'
+            : 'warnings.mercatorClip.description',
+        )}
       </p>
       <ul className="mt-1 list-disc ps-4 text-xs">
         {dropped > 0 && (

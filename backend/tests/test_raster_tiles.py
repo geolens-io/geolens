@@ -154,6 +154,134 @@ class TestRasterTokenZoomMetadata:
     def test_falls_back_to_legacy_maxzoom_without_metadata(self):
         assert _raster_maxzoom_from_metadata(None, None) == 18
 
+    # fix(#939): the degrees-vs-metres decision was `epsg == 4326`, so every
+    # other geographic CRS had its degree resolutions read as metres and
+    # derived maxzoom 22 instead of 7 (measured on the live ETOPO 9518
+    # dataset). Fixtures mirror that raster: 21600x10800 at 1/60 degree.
+
+    _ETOPO_BOUNDS = [-180.0, -90.0, 180.0, 90.0]
+    _ETOPO_RES = 1.0 / 60.0
+
+    def _etopo_asset(self, *, epsg: int | None, crs_wkt: str | None) -> RasterAsset:
+        return RasterAsset(
+            dataset_id=uuid.uuid4(),
+            asset_uri="rasters/test/etopo.tif",
+            storage_backend="local",
+            epsg=epsg,
+            crs_wkt=crs_wkt,
+            res_x=self._ETOPO_RES,
+            res_y=self._ETOPO_RES,
+            width=21600,
+            height=10800,
+        )
+
+    def test_epsg_4326_without_wkt_still_reads_degrees(self):
+        asset = self._etopo_asset(epsg=4326, crs_wkt=None)
+        assert _raster_maxzoom_from_metadata(asset, self._ETOPO_BOUNDS) == 7
+
+    @pytest.mark.parametrize(
+        ("epsg", "crs_wkt"),
+        [
+            (
+                4326,
+                'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",'
+                'ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,2],'
+                'AXIS["latitude",north],AXIS["longitude",east],'
+                'ANGLEUNIT["degree",0.0174532925199433]]',
+            ),
+            (
+                4269,
+                'GEOGCS["NAD83",DATUM["North_American_Datum_1983",'
+                'SPHEROID["GRS 1980",6378137,298.257222101]],'
+                'UNIT["degree",0.0174532925199433]]',
+            ),
+            (
+                4258,
+                'GEOGCS["ETRS89",DATUM["European_Terrestrial_Reference_System_1989",'
+                'SPHEROID["GRS 1980",6378137,298.257222101]],'
+                'UNIT["degree",0.0174532925199433]]',
+            ),
+            (
+                4979,
+                'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",'
+                'ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,3],'
+                'AXIS["latitude",north],AXIS["longitude",east],'
+                'AXIS["ellipsoidal height",up],'
+                'ANGLEUNIT["degree",0.0174532925199433]]',
+            ),
+            (
+                7912,
+                'GEOGCRS["ITRF2014",DYNAMIC[FRAMEEPOCH[2010]],'
+                'DATUM["International Terrestrial Reference Frame 2014",'
+                'ELLIPSOID["GRS 1980",6378137,298.257222101]],CS[ellipsoidal,3],'
+                'AXIS["latitude",north],AXIS["longitude",east],'
+                'AXIS["ellipsoidal height",up],'
+                'ANGLEUNIT["degree",0.0174532925199433]]',
+            ),
+            (
+                # fix(#939 codex r3): WKT2:2015 spelling — GEODCRS with an
+                # ellipsoidal CS, the form rasterio still emits.
+                4269,
+                'GEODCRS["NAD83",DATUM["North American Datum 1983",'
+                'ELLIPSOID["GRS 1980",6378137,298.257222101]],'
+                "CS[ellipsoidal,2],"
+                'AXIS["geodetic latitude (Lat)",north],'
+                'AXIS["geodetic longitude (Lon)",east],'
+                'ANGLEUNIT["degree",0.0174532925199433]]',
+            ),
+            (
+                # EPSG:9518-style compound: geographic horizontal + vertical.
+                # This is the live ETOPO repro that derived maxzoom 22.
+                9518,
+                'COMPOUNDCRS["WGS 84 + EGM2008 height",'
+                'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",'
+                'ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,2],'
+                'AXIS["latitude",north],AXIS["longitude",east],'
+                'ANGLEUNIT["degree",0.0174532925199433]],'
+                'VERTCRS["EGM2008 height",VDATUM["EGM2008 geoid"],'
+                'CS[vertical,1],AXIS["gravity-related height",up],'
+                'LENGTHUNIT["metre",1]]]',
+            ),
+        ],
+    )
+    def test_geographic_crs_derives_same_maxzoom_as_4326(self, epsg, crs_wkt):
+        # Every wrong answer here is a plausible integer, so assert the exact
+        # value the 4326 path derives, not merely "not 22".
+        asset = self._etopo_asset(epsg=epsg, crs_wkt=crs_wkt)
+        assert _raster_maxzoom_from_metadata(asset, self._ETOPO_BOUNDS) == 7
+
+    def test_grads_geographic_crs_falls_back_to_bounds_estimate(self):
+        # fix(#939): a grads GEOGCS (NTF Paris family) is geographic but its
+        # stored resolution is neither metres nor degrees. Pinned behavior:
+        # skip the stored resolution and use the bounds/width estimate, which
+        # for this global fixture also lands on 7 (vs 22 if the grads value
+        # were read as metres).
+        grads_wkt = (
+            'GEOGCS["NTF (Paris)",DATUM["Nouvelle_Triangulation_Francaise_Paris",'
+            'SPHEROID["Clarke 1880 (IGN)",6378249.2,293.4660212936265]],'
+            'PRIMEM["Paris",2.33722917],UNIT["grad",0.01570796326794897]]'
+        )
+        asset = self._etopo_asset(epsg=4807, crs_wkt=grads_wkt)
+        assert _raster_maxzoom_from_metadata(asset, self._ETOPO_BOUNDS) == 7
+
+    def test_projected_meter_crs_with_wkt_unchanged(self):
+        # 3857 and friends keep reading res_x/res_y as metres.
+        asset = RasterAsset(
+            dataset_id=uuid.uuid4(),
+            asset_uri="rasters/test/dem.tif",
+            storage_backend="local",
+            epsg=3857,
+            crs_wkt=(
+                'PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",'
+                'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+                'UNIT["degree",0.0174532925199433]],'
+                'PROJECTION["Mercator_1SP"],UNIT["metre",1]]'
+            ),
+            res_x=1.39,
+            res_y=1.39,
+        )
+        assert _raster_maxzoom_from_metadata(asset, None) == 17
+
 
 async def _get_auth_header(client: AsyncClient, username: str, password: str) -> dict:
     resp = await client.post(

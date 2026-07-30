@@ -1340,6 +1340,83 @@ async def _shift_zero_to_360_longitudes(
     return True
 
 
+async def _mercator_envelope_degenerates(
+    session: AsyncSession, table_name: str, schema: str, src_srid: int
+) -> bool:
+    """True when the safe envelope collapses under ST_Transform into ``src_srid``.
+
+    fix(#906): for a CRS with a narrow area of validity, transforming the
+    global Mercator safe envelope collapses it — in EPSG:4807 (NTF Paris,
+    grads) every X of the envelope becomes 197.396 — and the clip's
+    intersection would then silently empty the entire table. Enumerated
+    against a stock ``spatial_ref_sys``: 4415 of 8500 SRIDs produce a
+    zero-area or collapsed envelope and another 108 error outright, so this
+    is a class, not an exotic corner.
+
+    Degenerate means any of:
+
+    - zero (or negative) area, or a collapsed X/Y range — the hard collapse
+      (EPSG:4807, every UTM zone, France's 2154, most national grids);
+    - a sliver: area under 1e-6 of its own bbox area — EPSG:2263 leaves a
+      19-square-foot bowtie stretched across a 3e16 sq ft bbox, and EPSG:5070
+      a 0.04 m² one; positive area, still data-destroying;
+    - for a projected CRS, an envelope bbox under 1000 linear units in either
+      dimension — EPSG:27700 collapses to a 0.005 m² *square* (ratio 1, so
+      the sliver test misses it) and polar stereographic 3031 to ~4 m across.
+      The floor is absolute, not relative to the table's extent, because a
+      3857 table with features genuinely beyond ±20 037 508 m is WIDER than
+      its correctly transformed envelope and is exactly what the clip exists
+      to trim (fix(#906 codex r1)). 1000 is orders of magnitude under any
+      sane world envelope in any projected linear unit (metres, feet, even
+      kilometres give ~40 075) and orders over every measured collapse.
+      Guarded to projected CRSs (see the four-mechanism table on #939)
+      because geographic units are degrees (the world is 360 wide) and a
+      geographic transform cannot collapse. The geographic test sees
+      through COMPD_CS (fix(#906 codex r2)): a compound geographic CRS like
+      stock 5498 (NAD83 + NAVD88) is degrees despite its prefix;
+    - the transform raising — the clip's own UPDATE would raise identically,
+      turning a bounds check into a failed ingest. Probed inside a SAVEPOINT
+      so the surrounding phase-2 transaction stays usable.
+    """
+    probe = text(
+        f"WITH env AS (SELECT ST_Transform({_MERCATOR_SAFE_ENVELOPE}, :srid) AS e) "
+        f"SELECT "
+        f"  e IS NULL OR ST_IsEmpty(e) OR ST_Area(e) <= 0 "
+        f"  OR ST_XMin(e) >= ST_XMax(e) OR ST_YMin(e) >= ST_YMax(e) "
+        f"  OR ST_Area(e) < 1e-6 * ((ST_XMax(e) - ST_XMin(e)) "
+        f"                        * (ST_YMax(e) - ST_YMin(e))) "
+        f"  OR ( "
+        # fix(#906 codex r2): the floor's geographic test must see through
+        # COMPD_CS — a compound geographic CRS (e.g. stock 5498, NAD83 +
+        # NAVD88) starts with COMPD_CS but its horizontal axes are degrees,
+        # and its valid 360x170-degree envelope would trip the 1000-unit
+        # floor. Geographic-horizontal here means: a GEOG keyword present and
+        # no PROJ keyword anywhere (every projected WKT1 nests a GEOGCS, so
+        # the PROJ test must win) — the same keyword logic as
+        # core.geo.wkt_is_geographic, in srtext form.
+        f"    NOT COALESCE((SELECT srtext ~* 'GEOG(CS|CRS)' "
+        f"                     AND srtext !~* 'PROJ(CS|CRS)' "
+        f"                  FROM spatial_ref_sys "
+        f"                  WHERE srid = :srid), false) "
+        f"    AND LEAST(ST_XMax(e) - ST_XMin(e), ST_YMax(e) - ST_YMin(e)) < 1000) "
+        f"FROM env"
+    ).bindparams(srid=src_srid)
+    try:
+        async with session.begin_nested():
+            result = await session.execute(probe)
+            return bool(result.scalar_one())
+    except DBAPIError:
+        logger.warning(
+            "Mercator envelope transform failed while probing for degeneracy; "
+            "treating the envelope as unusable in this CRS",
+            table=table_name,
+            schema=schema,
+            srid=src_srid,
+            exc_info=True,
+        )
+        return True
+
+
 async def clip_to_mercator_bounds(
     session: AsyncSession, table_name: str, schema: str = "data"
 ) -> "MercatorClipCounts | None":
@@ -1393,6 +1470,23 @@ async def clip_to_mercator_bounds(
         envelope = _MERCATOR_SAFE_ENVELOPE
     else:
         envelope = f"ST_Transform({_MERCATOR_SAFE_ENVELOPE}, {src_srid})"
+        # fix(#906): the guard runs AFTER the 0..360 shift above — that
+        # ordering is load-bearing (#888/#899): skipping the clip for a
+        # narrow-validity CRS must still leave the shift applied.
+        if await _mercator_envelope_degenerates(session, table_name, schema, src_srid):
+            logger.warning(
+                "Skipping the Web Mercator clip: the safe envelope degenerates "
+                "in the source CRS and the intersection would destroy data",
+                table=table_name,
+                schema=schema,
+                srid=src_srid,
+            )
+            return {
+                "shifted_longitudes": shifted,
+                "dropped_features": 0,
+                "clipped_features": 0,
+                "clip_skipped": True,
+            }
 
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
     if column_is_3d:

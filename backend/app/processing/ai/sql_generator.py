@@ -14,6 +14,7 @@ import uuid as _uuid
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.platform.analysis_sql import render_geodesic_buffer
 from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.schemas import ChatMapLayer
@@ -182,7 +183,30 @@ def build_sql_user_message(
 Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be generated). No explanation, no markdown, no code fences."""
 
 
-SQL_SYSTEM_PROMPT = """\
+# fix(#935): the prompt must never hand-write a metric buffer. The bare
+# ``ST_Buffer(geom::geography, N)::geometry`` form silently degrades for
+# inputs spanning >= 6 degrees of longitude (PostGIS projects the whole input
+# into ONE planar SRID, falling back to world Mercator at a 45 degree span,
+# error 1/cos(latitude)) and produces corrupt geometry for buffers crossing
+# the antimeridian. The real analysis path fixed both (#883, #900, #902) in
+# ``render_geodesic_buffer``; the prompt previously restated the SQL as prose
+# in four places and inherited neither fix. Rendering the expression from the
+# same generator at import time removes the drift class by construction —
+# ``tests/test_ai_sql_prompt_935.py`` pins the wiring.
+#
+# ``99999`` is a placeholder distance chosen because it cannot collide with
+# any other literal in the rendered expression; ``render_geometry_expr`` (not
+# ``render_geodesic_buffer``) owns distance validation, so the placeholder
+# render is safe.
+_GEODESIC_BUFFER_TEMPLATE = render_geodesic_buffer("<GEOM>", 99999).replace(
+    "99999", "<METERS>"
+)
+_GEODESIC_BUFFER_DENVER_EXAMPLE = render_geodesic_buffer(
+    "(SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')",
+    50000,
+)
+
+SQL_SYSTEM_PROMPT = f"""\
 You are a PostgreSQL/PostGIS SQL expert. Generate a single SELECT query to answer the user's question using the database schema provided in the user message.
 
 ## PostGIS Spatial Functions
@@ -191,7 +215,7 @@ ST_Intersects(geomA, geomB) -> boolean    -- True if geometries share any space
 ST_Contains(geomA, geomB) -> boolean      -- True if A fully contains B
 ST_Within(geomA, geomB) -> boolean        -- True if A is fully within B
 ST_DWithin(geogA, geogB, meters) -> bool  -- True if within distance (uses spatial index!)
-ST_Buffer(geom, radius) -> geometry       -- Buffer around geometry
+ST_Buffer(geom, radius) -> geometry       -- PLANAR buffer in the CRS's units (DEGREES on geom_4326); for meters use the Metric Buffers section below
 ST_Area(geom) -> float                    -- Area of polygon
 ST_Length(geom) -> float                  -- Length of a linestring
 ST_Distance(geomA, geomB) -> float        -- Distance between geometries
@@ -232,10 +256,20 @@ Vector columns are queried with these operators, NOT with similarity() or ILIKE
 ## IMPORTANT: Geography Casts for Meter-Based Results
 
 For distance in meters:  ST_Distance(a.geom_4326::geography, b.geom_4326::geography)
-For buffer in meters:    ST_Buffer(a.geom_4326::geography, 1000)::geometry
 For area in sq meters:   ST_Area(a.geom_4326::geography)
+For buffer in meters:    use the Metric Buffers expression below — NEVER a bare geography-cast buffer
 
-Without ::geography, distance/buffer/area use DEGREES (not meters)!
+Without ::geography, distance/area use DEGREES (not meters)!
+
+## Metric Buffers
+
+For "within X meters of" questions, prefer ST_DWithin(a.geom_4326::geography, b.geom_4326::geography, meters) — it needs no buffer geometry and uses the spatial index.
+
+When the buffer GEOMETRY itself is needed, a bare ST_Buffer(geom::geography, meters)::geometry silently degrades: PostGIS projects the whole input into one planar SRID, which falls back to world Mercator for inputs spanning 45 degrees of longitude or more (radius error 1/cos(latitude)), and a buffer crossing the antimeridian comes back as corrupt geometry. Use this expression instead, copied VERBATIM with <GEOM> replaced by the geometry expression and <METERS> replaced by the distance in meters:
+
+{_GEODESIC_BUFFER_TEMPLATE}
+
+It is long but mechanical: it slices wide inputs into per-projection bands, splits antimeridian-crossing output at +/-180, and dissolves the parts. Do not abbreviate it, do not re-derive it, and do not substitute the bare ST_Buffer form.
 
 ## Unit Conversions (apply in SQL, not after)
 
@@ -297,15 +331,12 @@ SELECT SUM(ST_Area(p.geom_4326::geography) / 4046.8564224) AS total_acres
 FROM data.parcels p
 WHERE p.zone_type = 'agricultural';
 
--- Buffer + intersect:
+-- Buffer + intersect (metric buffer geometry, using the Metric Buffers expression):
 SELECT p.name AS park_name
 FROM data.national_parks p
 WHERE ST_Intersects(
   p.geom_4326,
-  ST_Buffer(
-    (SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')::geography,
-    50000  -- 50km radius
-  )::geometry
+  {_GEODESIC_BUFFER_DENVER_EXAMPLE}
 );
 
 -- Proximity by coordinates (within 5 miles of a point):
@@ -329,20 +360,17 @@ WHERE c.name ILIKE '%spring%'
 ORDER BY population DESC
 LIMIT 20;
 
--- CTE (WITH clause) for multi-step analysis:
+-- CTE (WITH clause) for multi-step analysis (proximity via ST_DWithin — no buffer geometry needed):
 WITH big_cities AS (
   SELECT geom_4326, name, population
   FROM data.cities
   WHERE population > 500000
-),
-park_buffers AS (
-  SELECT name, ST_Buffer(geom_4326::geography, 10000)::geometry AS buf
-  FROM data.national_parks
 )
-SELECT pb.name AS park, COUNT(bc.name) AS nearby_big_city_count
-FROM park_buffers pb
-LEFT JOIN big_cities bc ON ST_Intersects(pb.buf, bc.geom_4326)
-GROUP BY pb.name
+SELECT np.name AS park, COUNT(bc.name) AS nearby_big_city_count
+FROM data.national_parks np
+LEFT JOIN big_cities bc
+  ON ST_DWithin(np.geom_4326::geography, bc.geom_4326::geography, 10000)
+GROUP BY np.name
 ORDER BY nearby_big_city_count DESC
 LIMIT 20;
 
@@ -354,6 +382,7 @@ ORDER BY distance
 LIMIT 10;
 
 -- Common Mistakes to Avoid:
+-- WRONG: ST_Buffer(geom_4326::geography, 1000)::geometry → wrong radius for wide inputs, corrupt across the antimeridian; use the Metric Buffers expression
 -- WRONG: ST_Distance(a.geom_4326, b.geom_4326) → returns DEGREES, not meters
 -- CORRECT: ST_Distance(a.geom_4326::geography, b.geom_4326::geography) → meters
 -- WRONG: WHERE column = NULL → always false; use WHERE column IS NULL
