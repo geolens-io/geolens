@@ -25,6 +25,14 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 - Frontend: `cd frontend && npx vitest run src/path/foo.test.ts`.
 - E2E: `npx playwright test e2e/foo.spec.ts --project=chromium` (stack must be running).
 
+### Working from a git worktree
+
+The dev stack bind-mounts the MAIN checkout (`./frontend` → `/app`, and `backend/app` → `/app/app` with `--reload`), so `localhost:8080` always serves `main` no matter which branch your worktree is on. Running `npx playwright test` from a worktree therefore validates code you did not write. Treat the result as meaningless: it has produced a false FAILURE, and the symmetric case is worse, because a worktree change that breaks e2e passes when the stack never had it. To exercise worktree app code, run Vite on the host at `:5174` with `API_PROXY_TARGET=http://localhost:8001` and point `E2E_BASE_URL` at it.
+
+One exception: a spec-only change (editing `e2e/*.spec.ts` with no app-code change) is validly testable from a worktree, because Playwright reads the specs from your worktree while the app code stays byte-identical to `main`.
+
+The host backend recipe above is also unrunnable verbatim from a worktree — the sandbox refuses `source` on a path outside the worktree and denies reading `.env*`. Copy `.env.test` into the worktree instead (it is gitignored; delete it when you are done) and run pytest from a wrapper script.
+
 ## Architecture
 
 Services (`docker-compose.yml`): Nginx (prod proxy; Vite proxy in dev) fronts the FastAPI `api` (catalog, search, OGC/STAC, vector tiles) and Titiler (COG raster tiles). A `worker` runs GDAL/ogr2ogr ingestion, dispatched via the Procrastinate job queue that lives *inside* PostgreSQL (no separate broker). PostgreSQL 18 (PostGIS + pgvector + pg_trgm) is the single source of truth; object storage is MinIO/S3; Valkey is the tile/query cache.
