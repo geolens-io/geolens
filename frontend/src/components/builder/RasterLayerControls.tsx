@@ -113,8 +113,8 @@ export function RasterLayerControls({
         </Select>
       </div>
 
-      {/* Colormap / Stretch (RASTER-STRETCH-03 / UI-01 / UI-02). Shared with
-          RasterEditor via RasterStretchControls. onPaintProp merges into the
+      {/* Colormap / Stretch (RASTER-STRETCH-03 / UI-01 / UI-02) via
+          RasterStretchControls. onPaintProp merges into the
           full paint dict to match this component's onPaintChange contract.
           Not shown for DEM (terrainrgb) or when band_count is unknown. */}
       <RasterStretchControls

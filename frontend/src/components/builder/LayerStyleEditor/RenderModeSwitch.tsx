@@ -5,7 +5,6 @@ import { CircleEditor } from './CircleEditor';
 import { SymbolEditor } from './SymbolEditor';
 import { HeatmapEditor } from './HeatmapEditor';
 import { ClusterEditor } from './ClusterEditor';
-import { RasterEditor } from './RasterEditor';
 import type { BaseStyleEditorProps } from './types';
 
 /**
@@ -20,8 +19,7 @@ export type EditorDispatchKey =
   | 'circle'
   | 'heatmap'
   | 'symbol'
-  | 'cluster'
-  | 'raster';
+  | 'cluster';
 
 interface RenderModeSwitchProps extends BaseStyleEditorProps {
   /**
@@ -46,7 +44,6 @@ const editorComponents: Record<EditorDispatchKey, React.ComponentType<BaseStyleE
   heatmap: HeatmapEditor,
   symbol: SymbolEditor,
   cluster: ClusterEditor,
-  raster: RasterEditor,
 };
 
 export function RenderModeSwitch({ dispatchKey, ...rest }: RenderModeSwitchProps): React.JSX.Element | null {
