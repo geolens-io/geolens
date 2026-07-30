@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { TileToken } from '@/api/tiles';
+import { useAuthStore } from '@/stores/auth-store';
 
 // fix(#621): one re-mint per cooldown window bounds the retry loop — MapLibre
 // can fire dozens of tile errors per pan, and a mint that just failed will not
@@ -37,8 +38,8 @@ const REMINT_SETTLE_MS = 10_000;
  * nothing about whether a mint ran. That makes it the only honest place to
  * report a re-mint from; `trigger` names the path that asked for one so the
  * report distinguishes a tab return from a tile error. It is injected (not
- * imported) so this module keeps no dependency beyond the TileToken type, and
- * held in a ref so the returned callback keeps a stable identity — ViewerMap and
+ * imported) so this hook stays free of any reporting dependency, and held in a
+ * ref so the returned callback keeps a stable identity — ViewerMap and
  * DatasetMap list it in `handleLoad`'s deps.
  */
 export function useTileAuthRecovery(
@@ -82,6 +83,22 @@ export function hasExpiringVectorToken(
 }
 
 /**
+ * fix(#907): true when the session access token is at or inside the same skew
+ * window. Raster/DEM tiles authenticate with that JWT through
+ * `buildTileTransformRequest`'s Authorization header, not with a signed tile
+ * sig, so `hasExpiringVectorToken` can never see their credential expire — a
+ * raster-only map has nothing that qualifies and 401s its whole tile surface
+ * once on tab return. `null` (anonymous / embed-token surfaces) is not
+ * expiring: there is no session credential to renew.
+ */
+export function hasExpiringSession(
+  expiresAt: number | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  return expiresAt != null && expiresAt - nowMs <= EXPIRY_SKEW_MS;
+}
+
+/**
  * fix(#755): re-mint tile tokens on the tab-return edge instead of after the
  * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
  * tab backgrounded for a few minutes routinely crosses one; MapLibre then
@@ -115,7 +132,16 @@ export function useVisibleTileTokenRefresh(
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
-      if (!hasExpiringVectorToken(getTokensRef.current())) return;
+      // fix(#907): the session JWT counts too. The re-mint routes through
+      // apiFetch, whose proactive refresh writes a fresh token into the store
+      // the raster Bearer header reads — so invalidating a raster-only map's
+      // token query is exactly what renews its tile credential.
+      if (
+        !hasExpiringVectorToken(getTokensRef.current()) &&
+        !hasExpiringSession(useAuthStore.getState().expiresAt)
+      ) {
+        return;
+      }
       recover('tab-return');
     };
     document.addEventListener('visibilitychange', onVisibilityChange);

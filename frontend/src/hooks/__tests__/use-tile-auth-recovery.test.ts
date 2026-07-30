@@ -1,10 +1,12 @@
 import { renderHook } from '@testing-library/react';
 import {
+  hasExpiringSession,
   hasExpiringVectorToken,
   useTileAuthRecovery,
   useVisibleTileTokenRefresh,
 } from '@/hooks/use-tile-auth-recovery';
 import type { TileToken } from '@/api/tiles';
+import { useAuthStore } from '@/stores/auth-store';
 
 // fix(#621): one re-mint per cooldown window — MapLibre can fire dozens of
 // tile errors per pan, and hammering the mint endpoint cannot help. Errors in
@@ -194,9 +196,33 @@ describe('hasExpiringVectorToken (fix #755)', () => {
   });
 });
 
+describe('hasExpiringSession (fix #907)', () => {
+  const now = 1_785_148_200_000; // ms
+
+  it('flags a session already past expiry', () => {
+    expect(hasExpiringSession(now - 1, now)).toBe(true);
+  });
+
+  it('flags a session inside the 60s skew window', () => {
+    expect(hasExpiringSession(now + 30_000, now)).toBe(true);
+    expect(hasExpiringSession(now + 60_000, now)).toBe(true);
+  });
+
+  it('leaves a comfortably fresh session alone', () => {
+    expect(hasExpiringSession(now + 60_001, now)).toBe(false);
+    expect(hasExpiringSession(now + 900_000, now)).toBe(false);
+  });
+
+  it('treats an absent expiry as not expiring (anonymous / embed-token surfaces)', () => {
+    expect(hasExpiringSession(null, now)).toBe(false);
+    expect(hasExpiringSession(undefined, now)).toBe(false);
+  });
+});
+
 describe('useVisibleTileTokenRefresh (fix #755)', () => {
   afterEach(() => {
     setVisibility('visible');
+    useAuthStore.setState({ expiresAt: null });
     vi.restoreAllMocks();
   });
 
@@ -307,5 +333,40 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
 
     expect(remint).not.toHaveBeenCalled();
     expect(onRemint).not.toHaveBeenCalled();
+  });
+
+  // fix(#907): raster/DEM tiles carry the session JWT in an Authorization
+  // header, so a raster-only map has no `exp` for hasExpiringVectorToken to
+  // see. Without the session half of the gate it 401s its whole tile surface
+  // once on tab return.
+  it('re-mints for a raster-only map whose session JWT is expiring', () => {
+    const recover = vi.fn(() => true);
+    useAuthStore.setState({ expiresAt: Date.now() + 10_000 });
+    renderHook(() => useVisibleTileTokenRefresh(() => [rasterToken], recover));
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(recover).toHaveBeenCalledWith('tab-return');
+  });
+
+  it('leaves a raster-only map alone while its session JWT is fresh', () => {
+    const recover = vi.fn(() => true);
+    useAuthStore.setState({ expiresAt: Date.now() + 3_600_000 });
+    renderHook(() => useVisibleTileTokenRefresh(() => [rasterToken], recover));
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(recover).not.toHaveBeenCalled();
+  });
+
+  it('still does nothing on the hidden edge when only the session is expiring', () => {
+    const recover = vi.fn(() => true);
+    useAuthStore.setState({ expiresAt: Date.now() + 10_000 });
+    renderHook(() => useVisibleTileTokenRefresh(() => [rasterToken], recover));
+
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(recover).not.toHaveBeenCalled();
   });
 });
