@@ -90,11 +90,17 @@ class DefaultPermissionExtension:
             conditions.append(
                 and_(
                     record_cls.visibility == "restricted",
-                    record_cls.id.in_(
-                        select(Dataset.record_id)
-                        .join(grant_cls, grant_cls.dataset_id == Dataset.id)
-                        .join(UserRole, grant_cls.role_id == UserRole.role_id)
-                        .where(UserRole.user_id == user.id)
+                    or_(
+                        # fix(#929): creator exemption — without it, a non-admin
+                        # owner who sets their own dataset to restricted loses
+                        # read access to it (grants have no write path).
+                        record_cls.created_by == user.id,
+                        record_cls.id.in_(
+                            select(Dataset.record_id)
+                            .join(grant_cls, grant_cls.dataset_id == Dataset.id)
+                            .join(UserRole, grant_cls.role_id == UserRole.role_id)
+                            .where(UserRole.user_id == user.id)
+                        ),
                     ),
                 )
             )
@@ -134,6 +140,11 @@ class DefaultPermissionExtension:
             return False
 
         if record.visibility == "restricted":
+            # fix(#929): creator exemption — restricted means "owner, admins,
+            # and grant holders"; the owner must never be locked out of their
+            # own dataset.
+            if record.created_by == user.id:
+                return True
             grant_result = await db.execute(
                 select(DatasetGrant.dataset_id)
                 .join(UserRole, DatasetGrant.role_id == UserRole.role_id)

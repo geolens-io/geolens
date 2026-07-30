@@ -32,11 +32,11 @@ Notes
 """
 
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from tests.alembic_helpers import run_alembic as _run_alembic
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,40 +46,6 @@ _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
 
 _PRE_TYPED_REVISION = "0011_allow_generic_geometry_type"
-
-
-def _run_alembic(
-    *args: str, extra_env: dict | None = None
-) -> subprocess.CompletedProcess:
-    """Run an alembic command via subprocess against the test DB.
-
-    Uses the backend .venv python so the env matches what pytest runs with.
-    PYTHONPATH is set so env.py can ``from app.core.config import settings``.
-    """
-    import os
-
-    from app.core.config import settings
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(_BACKEND_DIR)
-    # Target the per-worker TEST DB (isolated + conftest-migrated to head) so the
-    # destructive downgrade/upgrade roundtrips never mutate the SHARED main DB
-    # (`postgres` on CI), which would corrupt sibling workers and the drift check.
-    env["POSTGRES_DB"] = settings.postgres_db_test
-    # The dims fallback under test reads these from the subprocess env; strip
-    # any ambient values so each call sees exactly what the test injects.
-    env.pop("EMBEDDING_DIMS", None)
-    env.pop("ENV_ONLY_CONFIG", None)
-    if extra_env:
-        env.update(extra_env)
-
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", str(_ALEMBIC_INI), *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(_BACKEND_DIR),
-    )
 
 
 async def _fresh_query(query: str):

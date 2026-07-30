@@ -12,9 +12,9 @@ import { cn } from '@/lib/utils';
 /**
  * RasterStretchControls — the shared COLORMAP / STRETCH section for raster layers.
  *
- * Single source of truth used by BOTH raster editors:
- *  - `RasterLayerControls` (the editor LayerEditorPanel actually mounts for raster/vrt layers)
- *  - `LayerStyleEditor/RasterEditor` (mounted via RenderModeSwitch for non-raster paths)
+ * Consumed by `RasterLayerControls`, the editor LayerEditorPanel mounts for
+ * raster/vrt layers. (It previously also backed LayerStyleEditor/RasterEditor,
+ * which fix(#915) deleted as unreachable.)
  *
  * Gate-split:
  *  - STRETCH:  visible for any numeric band_count >= 1 (single AND multi-band) — RASTER-STRETCH-03

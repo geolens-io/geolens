@@ -24,7 +24,7 @@ type RasterPaintProperty = keyof typeof RASTER_PAINT_DEFAULTS;
 const RASTER_PAINT_PROPERTIES = Object.keys(RASTER_PAINT_DEFAULTS) as RasterPaintProperty[];
 
 /**
- * The 4 user-facing raster paint properties exposed in RasterEditor.
+ * The 4 user-facing raster paint properties exposed in RasterLayerControls.
  * Excludes raster-brightness-max (kept at default 1), raster-resampling,
  * raster-fade-duration (internal), and raster-opacity (routed separately
  * via buildRasterPaint). This is the single source of truth for which
