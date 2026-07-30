@@ -1473,6 +1473,11 @@ jobs:
     # A clean run includes fixture ingestion, 150+ checks, retries, and cleanup.
     # Keep enough headroom for the whole suite to finish on a shared runner.
     timeout-minutes: 30
+    # fix(#896): failing spec names travel to nightly-e2e-report as a job
+    # output (readable from `needs` even when this job fails), so the
+    # tracking issue can name specs instead of only "e2e-test: failure".
+    outputs:
+      failed_specs: ${{ steps.failed-specs.outputs.list }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1517,6 +1522,30 @@ jobs:
       # playwright-report/ artifact.
       - name: Run builder-hardening E2E suite (chromium)
         run: npx playwright test -c playwright.builder-hardening.config.ts --project=chromium-hardening --reporter=line
+
+      # fix(#896): extract the failing spec names from the json reporter
+      # output (playwright.config.ts) so the nightly report can say WHICH
+      # specs are red and how many attempts each burned — the six-day
+      # dataset-chat rot was invisible behind a bare "e2e-test: failure".
+      # Runs on failure too (the interesting case); a missing summary file
+      # (e.g. npm ci died before Playwright ran) yields an empty output.
+      # The builder-hardening suite uses --reporter=line and is not itemized.
+      - name: Summarize failing specs
+        id: failed-specs
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "list<<PW_SPECS_EOF"
+            if [ -f playwright-summary.json ]; then
+              jq -r '
+                [.. | objects | .specs? // empty | .[]
+                 | select(.ok == false)
+                 | "- `\(.file):\(.line)` \(.title) (attempts: \([.tests[].results[]] | length))"]
+                | unique | .[]
+              ' playwright-summary.json || true
+            fi
+            echo "PW_SPECS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload test results
         if: ${{ !cancelled() }}
@@ -1924,6 +1953,10 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           E2E_RESULT: ${{ needs.e2e-test.result }}
           A11Y_RESULT: ${{ needs.accessibility.result }}
+          # fix(#896): spec-level detail from the json reporter, so a
+          # deterministic spec break reads differently from a flake without
+          # anyone downloading traces.
+          FAILED_SPECS: ${{ needs.e2e-test.outputs.failed_specs }}
         run: |
           # --force makes label creation idempotent (updates in place if the
           # label already exists instead of erroring).
@@ -1939,6 +1972,14 @@ jobs:
             echo "- Run: $RUN_URL"
             echo ""
             echo "\`skipped\` means an upstream lint/test job failed on the scheduled run, so the browser suites never started."
+            if [ -n "$FAILED_SPECS" ]; then
+              echo ""
+              echo "Failing specs (default suite; attempts counts retries — 3/3 red is deterministic rot, not a flake):"
+              echo ""
+              echo "$FAILED_SPECS"
+              echo ""
+              echo "The builder-hardening suite runs with \`--reporter=line\` and is not itemized here — check the run log if \`e2e-test\` is red with no specs listed."
+            fi
           } > /tmp/nightly-body.md
 
           existing=$(gh issue list --label nightly-e2e --state open \
