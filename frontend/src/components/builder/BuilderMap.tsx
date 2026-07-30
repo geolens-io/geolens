@@ -13,12 +13,12 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
-import { logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
-import { pushReportEntry } from '@/lib/report';
+import { pushReportEntry, reportTileTokenRemint } from '@/lib/report';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import i18n from '@/i18n/i18n';
@@ -570,7 +570,12 @@ export const BuilderMap = memo(function BuilderMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the handler above
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => syncInputsRef.current.tokenMap.values(), recoverTileAuth);
+  // fix(#890): report it (suppressed) so the re-mint still leaves a trace.
+  useVisibleTileTokenRefresh(
+    () => syncInputsRef.current.tokenMap.values(),
+    recoverTileAuth,
+    () => reportTileTokenRemint('builder'),
+  );
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -624,19 +629,29 @@ export const BuilderMap = memo(function BuilderMap({
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so the editor knows a
       // real error has occurred (RES-3). Previously silenced in production.
-      errorHandlerRef.current = (e: { error: { message?: string; status?: number }; sourceId?: string }) => {
+      errorHandlerRef.current = (e: { error: { message?: string; status?: number; url?: string }; sourceId?: string }) => {
         const status = e.error?.status;
+        // fix(#890): a raster/DEM 401/403 has NO client-side cure — raster auth
+        // rides the Authorization header (setTransformRequest), so neither the
+        // GUARD-03 re-sign nor the #621 re-mint touches it. Claiming it
+        // "handled" (a suppressed warning) while logUnhandledMapError still
+        // console.errors the same failure is the #755 double-log shape, still
+        // live for raster/DEM. `isHandledTileAuthError` already excludes these,
+        // so the handler now agrees with it: report it as the unsuppressed
+        // error it is and let the toast + single console row own it.
+        const rasterAuthError = isRasterTileAuthError(e);
         // Capture EVERY map error into the problem-reporter buffer before the
         // suppression/early-return logic below — suppressed errors (expected
         // no-data tiles, terrain/DEM mismatches) are frequently the actual bug
         // an engineer needs, so we flag rather than drop them here.
         const isClientError = Boolean(status && status >= 400 && status < 500);
+        const suppressedClientError = isClientError && !rasterAuthError;
         pushReportEntry({
-          severity: isClientError ? 'warning' : 'error',
+          severity: suppressedClientError ? 'warning' : 'error',
           source: 'maplibre',
           message: e.error?.message || (status ? `Map error (HTTP ${status})` : 'Map error'),
           detail: e.sourceId ? `source: ${e.sourceId}` : undefined,
-          suppressed: isClientError || shouldSuppressBuilderMapError(e.error),
+          suppressed: suppressedClientError || shouldSuppressBuilderMapError(e.error),
         });
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
@@ -648,9 +663,13 @@ export const BuilderMap = memo(function BuilderMap({
             // dataset) so MapLibre retries with a fresh sig, and suppress the
             // toast for that recoverable case. Raster sources and genuine
             // no-token cases return false and fall through to the toast below.
+            // fix(#890): skip the whole recovery claim for a raster/DEM tile —
+            // `resignVectorSourceForRetry` returns false for it and the re-mint
+            // does nothing, so the old `resigned || reminted` check reported a
+            // recovery that never happened and swallowed the toast.
             const map = mapRef.current;
             const failingSourceId = e.sourceId;
-            if (map && failingSourceId) {
+            if (!rasterAuthError && map && failingSourceId) {
               const { layers: l, tokenMap: tm, tileConfig: tc } = syncInputsRef.current;
               const resigned = resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
               // fix(#621): the cached-token re-sign only cures the attach

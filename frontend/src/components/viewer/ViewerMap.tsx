@@ -13,7 +13,8 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
-import { logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { reportTileTokenRemint } from '@/lib/report';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
@@ -192,7 +193,12 @@ export const ViewerMap = memo(function ViewerMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => tokenMap.values(), recoverTileAuth);
+  // fix(#890): report it (suppressed) so the re-mint still leaves a trace.
+  useVisibleTileTokenRefresh(
+    () => tokenMap.values(),
+    recoverTileAuth,
+    () => reportTileTokenRemint('viewer'),
+  );
 
   // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
   // visibility is handled inside the hook (HT-12); this covers the client-side
@@ -404,7 +410,12 @@ export const ViewerMap = memo(function ViewerMap({
           // grant, expired signature). Previously the return value was
           // discarded and the surface stayed fully silent; fall through to
           // the existing deduped tile-error toast instead.
-          if (!recoverTileAuth()) {
+          // fix(#890): a raster/DEM tile auth failure never reaches the re-mint
+          // path — its auth rides the Authorization header, so the fresh token
+          // changes nothing. Skip the recovery attempt (which would return true
+          // and silence the surface) and surface the toast directly, matching
+          // `isHandledTileAuthError`, which keeps logging these.
+          if (isRasterTileAuthError(e) || !recoverTileAuth()) {
             toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
               id: 'viewer-map-error',
             });

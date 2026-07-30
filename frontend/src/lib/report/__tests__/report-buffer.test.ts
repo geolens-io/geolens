@@ -4,6 +4,7 @@ import {
   getReportEntries,
   pushReportEntry,
   reportNetworkError,
+  reportTileTokenRemint,
 } from '../report-buffer';
 
 beforeEach(() => {
@@ -53,5 +54,35 @@ describe('report buffer', () => {
     expect(offline.severity).toBe('error'); // status 0
     expect(notFound.severity).toBe('warning'); // 4xx
     expect(serverError.severity).toBe('error'); // 5xx
+  });
+});
+
+// fix(#890): #881 replaced the reactive 403 burst with a proactive tab-return
+// re-mint, which left no trace at all — the burst's warnings were at least
+// evidence that a recovery had happened. This tap restores that signal.
+describe('reportTileTokenRemint', () => {
+  it('records a suppressed entry naming the surface', () => {
+    reportTileTokenRemint('viewer');
+
+    const entries = getReportEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ severity: 'info', source: 'maplibre', suppressed: true });
+    expect(entries[0].message).toContain('viewer');
+  });
+
+  it('keeps two surfaces re-minting at once as separate entries', () => {
+    reportTileTokenRemint('viewer');
+    reportTileTokenRemint('dataset-preview');
+
+    expect(getReportEntries()).toHaveLength(2);
+  });
+
+  it('collapses repeat re-mints from the same surface into a count', () => {
+    reportTileTokenRemint('builder');
+    reportTileTokenRemint('builder');
+
+    const entries = getReportEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].count).toBe(2);
   });
 });

@@ -85,19 +85,30 @@ export function hasExpiringVectorToken(
  * Fires on the VISIBLE edge only: MapLibre 5 drops a `setTiles` reload while
  * the source's TileManager is paused (fix(#584)) and a hidden tab has no rAF,
  * so re-minting while still hidden would silently no-op.
+ *
+ * fix(#890): `onRemintRequested` restores the telemetry the old 403 burst gave
+ * for free — the warnings it produced were at least evidence that a recovery
+ * happened, and a proactive re-mint leaves none. It is INJECTED rather than
+ * imported so this module keeps zero dependencies beyond the TileToken type.
+ * It fires when this hook asks for a re-mint, not when one is confirmed: the
+ * shared throttle may fold the request into an in-flight mint, hence "requested".
  */
 export function useVisibleTileTokenRefresh(
   getTokens: () => Iterable<TileToken | null | undefined>,
   recover: () => boolean,
+  onRemintRequested?: () => void,
 ): void {
   const getTokensRef = useRef(getTokens);
   getTokensRef.current = getTokens;
+  const onRemintRequestedRef = useRef(onRemintRequested);
+  onRemintRequestedRef.current = onRemintRequested;
 
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
       if (!hasExpiringVectorToken(getTokensRef.current())) return;
       recover();
+      onRemintRequestedRef.current?.();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);

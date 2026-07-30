@@ -206,4 +206,62 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
 
     expect(remint).toHaveBeenCalledTimes(1);
   });
+
+  // fix(#890): the 403 burst this path replaced at least left warnings in the
+  // problem-report buffer as evidence that a recovery had happened. The reporter
+  // is INJECTED (not imported) so this module keeps no dependency on it.
+  it('reports the re-mint it requested', () => {
+    const recover = vi.fn(() => true);
+    const onRemintRequested = vi.fn();
+    const expired = vectorToken(expIn(-60));
+    renderHook(() => useVisibleTileTokenRefresh(() => [expired], recover, onRemintRequested));
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(onRemintRequested).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports nothing when it decides no re-mint is due', () => {
+    const recover = vi.fn(() => true);
+    const onRemintRequested = vi.fn();
+    const fresh = vectorToken(expIn(900));
+    const { unmount } = renderHook(() =>
+      useVisibleTileTokenRefresh(() => [fresh], recover, onRemintRequested),
+    );
+
+    // Fresh sig on the visible edge…
+    document.dispatchEvent(new Event('visibilitychange'));
+    // …and the hidden edge, which never re-mints at all.
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    setVisibility('visible');
+    unmount();
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(onRemintRequested).not.toHaveBeenCalled();
+  });
+
+  it('calls the LATEST reporter without re-registering the listener', () => {
+    const recover = vi.fn(() => true);
+    const first = vi.fn();
+    const second = vi.fn();
+    const expired = vectorToken(expIn(-60));
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const { rerender } = renderHook(
+      ({ report }: { report: () => void }) =>
+        useVisibleTileTokenRefresh(() => [expired], recover, report),
+      { initialProps: { report: first } },
+    );
+    const registrations = addSpy.mock.calls.filter(([event]) => event === 'visibilitychange').length;
+
+    rerender({ report: second });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(
+      addSpy.mock.calls.filter(([event]) => event === 'visibilitychange').length,
+    ).toBe(registrations);
+  });
 });

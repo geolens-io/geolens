@@ -119,6 +119,24 @@ export function reportNetworkError(opts: {
   });
 }
 
+/**
+ * fix(#890): convenience tap for the proactive tab-return tile-token re-mint
+ * (#755 / #881). The reactive 403 burst that re-mint replaced at least left
+ * evidence in this buffer that a recovery had happened; the visible-edge hook
+ * is silent, so a "tiles were briefly broken" report arrives with no trace of
+ * the token rotation. Suppressed — it is routine maintenance, never something
+ * to show the user — and `surface` is part of the message so two map surfaces
+ * re-minting at once don't collapse into one deduped entry.
+ */
+export function reportTileTokenRemint(surface: string): void {
+  pushReportEntry({
+    severity: 'info',
+    source: 'maplibre',
+    message: `Tile-token re-mint requested on tab return (${surface}, expiring signature)`,
+    suppressed: true,
+  });
+}
+
 function stringifyDetail(detail: unknown): string | undefined {
   if (detail == null) return undefined;
   if (typeof detail === 'string') return detail;

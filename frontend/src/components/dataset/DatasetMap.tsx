@@ -37,7 +37,8 @@ import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
-import { logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { reportTileTokenRemint } from '@/lib/report';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -173,8 +174,15 @@ export const DatasetMap = memo(function DatasetMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth);
-  const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number } }) => void) | null>(null);
+  // fix(#890): report it (suppressed) so the re-mint still leaves a trace.
+  useVisibleTileTokenRefresh(
+    () => [rawTileToken],
+    recoverTileAuth,
+    () => reportTileTokenRemint('dataset-preview'),
+  );
+  // fix(#890): `url` is read to tell a raster/DEM auth failure (unrecoverable)
+  // from a vector one (re-mintable).
+  const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number; url?: string } }) => void) | null>(null);
   // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
@@ -656,10 +664,15 @@ export const DatasetMap = memo(function DatasetMap({
       // stayed fully silent; now it falls through to the existing onTileError
       // error path. Auth failures surface even after a confirmed load (unlike
       // sporadic tile errors) because they break the whole tile surface.
-      tileAuthErrorHandlerRef.current = (e: { error?: { status?: number } }) => {
+      // fix(#890): a raster/DEM 401/403 is not recoverable here either — raster
+      // auth rides the Authorization header, so the re-mint returns true
+      // ("handled") without changing anything and the preview stayed silent
+      // behind a blank raster. Route it straight to the error path.
+      tileAuthErrorHandlerRef.current = (e: { error?: { status?: number; url?: string } }) => {
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
-        if (!recoverTileAuth() && !errorFiredRef.current) {
+        const recovering = !isRasterTileAuthError(e) && recoverTileAuth();
+        if (!recovering && !errorFiredRef.current) {
           errorFiredRef.current = true;
           onTileError?.();
         }
