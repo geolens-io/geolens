@@ -78,22 +78,9 @@ test.describe('builder analysis tools', () => {
     };
     expect(jobId).toBeTruthy();
 
-    // Abandon the builder mid-job: tracking is global (AnalysisJobWatcher in
-    // RootLayout), so completion must still surface on a different page — with
-    // "View dataset" rather than "Add to map", since no builder is mounted.
-    await page.getByRole('button', { name: 'Close panel' }).click();
-    await page.goto('/');
-    // Scope to the toast: the finished dataset also lands in the catalog list
-    // behind it (which is the query invalidation doing its job).
-    const completionToast = page
-      .locator('[data-sonner-toast]')
-      .filter({ hasText: OUTPUT_TITLE });
-    await expect(completionToast).toBeVisible({ timeout: 60_000 });
-    await expect(
-      completionToast.getByRole('button', { name: 'View dataset' }),
-    ).toBeVisible();
-
-    // Resolve the created dataset id for cleanup.
+    // fix(#894): resolve the id BEFORE asserting on the toast, so an assertion
+    // failure still cleans up. Previously each failed attempt leaked one output
+    // dataset (visible as the catalog count climbing across retries).
     for (let attempt = 0; attempt < 30; attempt++) {
       const res = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers });
       if (res.ok) {
@@ -107,5 +94,33 @@ test.describe('builder analysis tools', () => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     expect(createdDatasetId).toBeTruthy();
+
+    // Leave the builder: tracking is global (AnalysisJobWatcher in RootLayout),
+    // so the completion toast must still be standing on a different page.
+    //
+    // fix(#894): navigate CLIENT-SIDE rather than page.goto('/'). A materialize
+    // job here finishes in ~80 ms, so the toast is normally raised while the
+    // builder is still mounted; a hard reload then destroys it and rehydrates
+    // the store with job: null, leaving nothing to re-poll. That made the old
+    // assertion a coin flip on how fast the UI steps ran. The comment above the
+    // watcher claims a reloaded tab still reports, and it does — but only for a
+    // job still running at reload time, which an 80 ms job never is. Nothing to
+    // fix in the product: it toasted at completion, on the page the user was on.
+    await page.getByRole('button', { name: 'Close panel' }).click();
+    await page.locator('header nav').getByRole('link', { name: 'Maps' }).click();
+    await expect(page).toHaveURL(/\/maps$/);
+    // Scope to the toast: the finished dataset also lands in the catalog list
+    // behind it (which is the query invalidation doing its job).
+    const completionToast = page
+      .locator('[data-sonner-toast]')
+      .filter({ hasText: OUTPUT_TITLE });
+    await expect(completionToast).toBeVisible({ timeout: 60_000 });
+    // fix(#894): the action label is decided once, when the toast is raised —
+    // canAddToMap depends on MapBuilderPage being mounted at that instant. With
+    // a job this fast it is "Add to map"; a genuinely slow job gets
+    // "View dataset". Assert the actionable affordance, not which branch won.
+    await expect(
+      completionToast.getByRole('button', { name: /Add to map|View dataset/ }),
+    ).toBeVisible();
   });
 });
