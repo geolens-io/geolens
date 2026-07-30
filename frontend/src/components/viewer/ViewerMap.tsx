@@ -13,7 +13,7 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
-import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
@@ -424,7 +424,8 @@ export const ViewerMap = memo(function ViewerMap({
           // thing that DOES fix a raster 401, and whose post-rotation reload is
           // about to retry these tiles.
           const rasterUnrecoverable =
-            isRasterTileAuthError(e) && !isSessionRenewalPending();
+            isRasterTileAuthError(e) &&
+            !(isRefreshableRasterAuthError(e) && isSessionRenewalPending());
           if (rasterUnrecoverable || (!isRasterTileAuthError(e) && !recovering)) {
             toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
               id: 'viewer-map-error',

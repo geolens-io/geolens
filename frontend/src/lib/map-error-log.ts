@@ -58,6 +58,16 @@ export function isHandledTileAuthError(e: MapLibreErrorLike): boolean {
   return isFirstPartyTileUrl(e.error?.url);
 }
 
+/** fix(#907): the raster tile-auth case a session refresh can actually cure —
+ * a 401, i.e. the credential expired. A 403 is an upstream denial (Titiler or
+ * its object store passes that status through), so a fresh JWT changes
+ * nothing: suppressing it during a renewal would hide a real failure behind a
+ * window that then closes with no further request, leaving a blank map and no
+ * error overlay. */
+export function isRefreshableRasterAuthError(e: MapLibreErrorLike): boolean {
+  return e.error?.status === 401 && isRasterTileUrl(e.error?.url);
+}
+
 /** fix(#890): a 401/403 on a raster/DEM tile — the one tile-auth case NO
  * surface can recover (see `isRasterTileUrl`). Surfaces use it to skip their
  * vector re-sign / re-mint path so the failure surfaces once (toast + this
@@ -84,6 +94,6 @@ export function isRasterTileAuthError(e: MapLibreErrorLike): boolean {
  * raster auth failure is unrecoverable and still logs, exactly as #890 made it. */
 export function logUnhandledMapError(e: MapLibreErrorLike): void {
   if (isHandledTileAuthError(e)) return;
-  if (isRasterTileAuthError(e) && isSessionRenewalPending()) return;
+  if (isRefreshableRasterAuthError(e) && isSessionRenewalPending()) return;
   console.error(e.error);
 }

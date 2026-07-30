@@ -9,6 +9,7 @@ import {
   isHandledTileAuthError,
   isRasterTileAuthError,
   isRasterTileUrl,
+  isRefreshableRasterAuthError,
   logUnhandledMapError,
 } from '@/lib/map-error-log';
 import { isSessionRenewalPending } from '@/hooks/use-tile-auth-recovery';
@@ -201,9 +202,36 @@ describe('logUnhandledMapError during a session renewal (fix #907)', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  // codex on #907: Titiler and its object store pass a genuine 403 through, and
+  // a fresh JWT cannot cure that. Suppressing it would leave the preview blank
+  // with no overlay once the window closed.
+  it('still logs a raster 403 during a renewal', () => {
+    vi.mocked(isSessionRenewalPending).mockReturnValue(true);
+    logUnhandledMapError(ajaxError(403, '/raster-tiles/abc/tiles/12/1/1.png'));
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('still logs a non-auth raster failure during a renewal', () => {
     vi.mocked(isSessionRenewalPending).mockReturnValue(true);
     logUnhandledMapError(ajaxError(500, '/raster-tiles/abc/tiles/12/1/1.png'));
     expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('isRefreshableRasterAuthError (fix #907)', () => {
+  it('is true only for a raster 401', () => {
+    expect(isRefreshableRasterAuthError(ajaxError(401, '/raster-tiles/a/tiles/1/1/1.png'))).toBe(true);
+  });
+
+  it('is false for a raster 403 — an upstream denial a refresh cannot cure', () => {
+    expect(isRefreshableRasterAuthError(ajaxError(403, '/raster-tiles/a/tiles/1/1/1.png'))).toBe(false);
+  });
+
+  it('is false for a vector 401, which the re-sign path owns', () => {
+    expect(isRefreshableRasterAuthError(ajaxError(401, '/api/tiles/data.x/1/1/1.pbf'))).toBe(false);
+  });
+
+  it('is false for a non-auth raster failure', () => {
+    expect(isRefreshableRasterAuthError(ajaxError(500, '/raster-tiles/a/tiles/1/1/1.png'))).toBe(false);
   });
 });

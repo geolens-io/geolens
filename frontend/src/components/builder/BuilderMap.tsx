@@ -13,7 +13,7 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
-import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useTileTokenError } from './hooks/use-tile-token-error';
@@ -656,7 +656,10 @@ export const BuilderMap = memo(function BuilderMap({
         // fix(#907): a raster auth failure while a session renewal is running is
         // the visibility race, not a dead session — the post-rotation reload is
         // about to cure it, so it reports like any other transient.
-        const rasterAuthDuringRenewal = rasterAuthError && isSessionRenewalPending();
+        // Only a 401 — a raster 403 is an upstream denial a fresh JWT cannot
+        // cure, so it must still surface.
+        const rasterAuthDuringRenewal =
+          isRefreshableRasterAuthError(e) && isSessionRenewalPending();
         const isClientError = Boolean(status && status >= 400 && status < 500);
         const suppressedClientError = isClientError && (!rasterAuthError || rasterAuthDuringRenewal);
         pushReportEntry({

@@ -37,7 +37,7 @@ import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
-import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
 
 /** System columns excluded from the attribute form */
@@ -680,7 +680,9 @@ export const DatasetMap = memo(function DatasetMap({
         // renewal is in flight — that renewal is what fixes it, and its
         // post-rotation reload retries the tiles.
         const recovering =
-          reminting && (!isRasterTileAuthError(e) || isSessionRenewalPending());
+          reminting &&
+          (!isRasterTileAuthError(e) ||
+            (isRefreshableRasterAuthError(e) && isSessionRenewalPending()));
         if (!recovering && !errorFiredRef.current) {
           errorFiredRef.current = true;
           onTileError?.();
@@ -708,7 +710,7 @@ export const DatasetMap = memo(function DatasetMap({
           // and this listener is independent of the auth handler above, so
           // without this it still latched the permanent error overlay that the
           // reload cannot clear.
-          if ((status === 401 || status === 403) && isSessionRenewalPending()) return;
+          if (status === 401 && isSessionRenewalPending()) return;
           if (e.error?.message?.includes('raster-tile-source') ||
               e.error?.message?.includes('Error: HTTP') ||
               status === 404 ||
