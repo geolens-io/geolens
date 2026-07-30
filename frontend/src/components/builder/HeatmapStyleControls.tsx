@@ -80,7 +80,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
       <div className="space-y-1">
         <div className="text-xs font-medium">{t('style.heatmap.weight')}</div>
         <Select value={weightColumn} onValueChange={handleWeightColumnChange}>
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="h-8 text-xs" aria-label={t('style.heatmap.weight')}>
             <SelectValue placeholder={t('style.heatmap.weightNone')} />
           </SelectTrigger>
           <SelectContent>

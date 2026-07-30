@@ -97,7 +97,7 @@ export function FillEditor({
               onBuilderChange({ heightColumn: val === '' || val === '__none__' ? undefined : val });
             }}
           >
-            <SelectTrigger className="h-8 text-xs w-36">
+            <SelectTrigger className="h-8 text-xs w-36" aria-label={t('style.heightColumn', { defaultValue: 'Height column' })}>
               <SelectValue placeholder={t('style.none', { defaultValue: 'None' })} />
             </SelectTrigger>
             <SelectContent>
