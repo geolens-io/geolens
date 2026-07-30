@@ -17,7 +17,7 @@ import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log
 import { reportTileTokenRemint } from '@/lib/report';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
-import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
+import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { isViewerTerrainExpected, useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
@@ -420,7 +420,12 @@ export const ViewerMap = memo(function ViewerMap({
           // does for a vector tile: toast regardless, matching
           // `isHandledTileAuthError`, which keeps logging these.
           const recovering = recoverTileAuth();
-          if (isRasterTileAuthError(e) || !recovering) {
+          // fix(#907): …unless a session renewal is in flight, which is the one
+          // thing that DOES fix a raster 401, and whose post-rotation reload is
+          // about to retry these tiles.
+          const rasterUnrecoverable =
+            isRasterTileAuthError(e) && !isSessionRenewalPending();
+          if (rasterUnrecoverable || (!isRasterTileAuthError(e) && !recovering)) {
             toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
               id: 'viewer-map-error',
             });

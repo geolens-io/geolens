@@ -11,7 +11,7 @@ import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
-import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
+import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -676,7 +676,11 @@ export const DatasetMap = memo(function DatasetMap({
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
         const reminting = recoverTileAuth();
-        const recovering = reminting && !isRasterTileAuthError(e);
+        // fix(#907): a raster auth error counts as recovering while a session
+        // renewal is in flight — that renewal is what fixes it, and its
+        // post-rotation reload retries the tiles.
+        const recovering =
+          reminting && (!isRasterTileAuthError(e) || isSessionRenewalPending());
         if (!recovering && !errorFiredRef.current) {
           errorFiredRef.current = true;
           onTileError?.();

@@ -15,7 +15,7 @@ import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isM
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
-import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
+import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
 import { pushReportEntry, reportTileTokenRemint } from '@/lib/report';
@@ -653,8 +653,12 @@ export const BuilderMap = memo(function BuilderMap({
         // BuilderMap.raster-tile-auth.test.tsx pins the parity). Dropping either
         // half for raster would cost the sourceId this row carries, or the
         // devtools log the surfaces without a row of their own rely on.
+        // fix(#907): a raster auth failure while a session renewal is running is
+        // the visibility race, not a dead session — the post-rotation reload is
+        // about to cure it, so it reports like any other transient.
+        const rasterAuthDuringRenewal = rasterAuthError && isSessionRenewalPending();
         const isClientError = Boolean(status && status >= 400 && status < 500);
-        const suppressedClientError = isClientError && !rasterAuthError;
+        const suppressedClientError = isClientError && (!rasterAuthError || rasterAuthDuringRenewal);
         pushReportEntry({
           severity: suppressedClientError ? 'warning' : 'error',
           source: 'maplibre',
@@ -707,6 +711,9 @@ export const BuilderMap = memo(function BuilderMap({
                 return;
               }
             }
+            // fix(#907): don't tell the user to reload the page for a raster
+            // 401 that a renewal already in flight is seconds from healing.
+            if (rasterAuthDuringRenewal) return;
             // fix(#628): once the session is conclusively dead the global
             // signed-out dialog owns the UX — the stale reload-toast is
             // noise on top of it. Keep it only while a session exists.

@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import {
   hasExpiringSession,
+  isSessionRenewalPending,
   hasExpiringVectorToken,
   useTileAuthRecovery,
   useVisibleTileTokenRefresh,
@@ -456,6 +457,33 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     act(() => useAuthStore.setState({ token: null }));
 
     expect(onCredentialRenewed).not.toHaveBeenCalled();
+  });
+
+  // codex on #964: with the reload in place a raster 401 from the visibility
+  // race heals on its own, but the surfaces still told the user to reload the
+  // page. This is the window they use to suppress that.
+  it('marks a renewal pending for the surfaces, time-boxed', async () => {
+    const recover = vi.fn(() => true);
+    let resolveRefresh: (value: boolean) => void = () => {};
+    vi.mocked(tryRefresh).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+    useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
+    renderHook(() => useVisibleTileTokenRefresh(() => [rasterToken], recover));
+
+    const startedAt = Date.now();
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // Pending from the moment the renewal starts — the race 401s arrive before
+    // it resolves, which is the whole point.
+    expect(isSessionRenewalPending(startedAt)).toBe(true);
+    resolveRefresh(true);
+    await Promise.resolve();
+
+    // …and bounded, so a revoked grant that 403s long after still surfaces.
+    expect(isSessionRenewalPending(startedAt + 60_000)).toBe(false);
   });
 
   it('does not touch raster sources when only a vector sig is expiring', async () => {

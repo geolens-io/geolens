@@ -99,6 +99,28 @@ export function hasExpiringSession(
   return expiresAt != null && expiresAt - nowMs <= EXPIRY_SKEW_MS;
 }
 
+// fix(#907): how long a raster/DEM auth failure stays attributable to a
+// renewal we are actively running. MapLibre resumes its fetches the instant the
+// tab is visible and can 401 before the refresh lands, so those errors are the
+// expected shape of the race, not a dead session — and the post-rotation reload
+// is about to cure them. Time-boxed rather than open-ended: a revoked grant
+// 403s long after any renewal window and must still surface.
+const RENEWAL_SUPPRESS_MS = 10_000;
+
+let renewalPendingUntil = 0;
+
+/**
+ * fix(#907): true while a visible-edge session renewal is in flight (or has
+ * just reloaded the raster sources). The surfaces' error handlers use it to
+ * stop telling the user to reload the page for a raster 401 that is seconds
+ * from healing on its own. #890 made those failures unsuppressed because
+ * NOTHING could cure them; this narrows that to the window where something
+ * demonstrably is.
+ */
+export function isSessionRenewalPending(nowMs: number = Date.now()): boolean {
+  return nowMs < renewalPendingUntil;
+}
+
 // fix(#907): how long to keep watching for a rotation after our own refresh
 // attempt failed. Bounded so a permanently dead session leaves no listener
 // behind; the reactive 401 path still owns anything slower than this.
@@ -115,6 +137,13 @@ const RENEWAL_WATCH_MS = 30_000;
  * 401 against the same Bearer. */
 function reloadOnTokenRotation(reload: () => void): void {
   const tokenBefore = useAuthStore.getState().token;
+  renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
+  const reloadAndExtend = () => {
+    // Cover the errors already queued by the race, which arrive just after the
+    // reload is issued.
+    renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
+    reload();
+  };
   // A CHANGED token is not automatically a renewed one: when the session turns
   // out to be dead, `notifySessionExpired` logs out and moves the token to
   // null. Reloading on that would refetch every raster tile with no
@@ -123,7 +152,7 @@ function reloadOnTokenRotation(reload: () => void): void {
   const isRotation = (token: string | null) => token !== null && token !== tokenBefore;
   void tryRefresh().then(() => {
     if (isRotation(useAuthStore.getState().token)) {
-      reload();
+      reloadAndExtend();
       return;
     }
     let unsubscribe: (() => void) | null = null;
@@ -132,7 +161,7 @@ function reloadOnTokenRotation(reload: () => void): void {
       if (!isRotation(state.token)) return;
       clearTimeout(timer);
       unsubscribe?.();
-      reload();
+      reloadAndExtend();
     });
   });
 }
