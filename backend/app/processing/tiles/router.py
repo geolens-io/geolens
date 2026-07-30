@@ -26,7 +26,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.geo import extent_to_span_bbox
+from app.core.geo import extent_lon_span, extent_to_span_bbox
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import get_optional_user
@@ -383,8 +383,16 @@ def _degrees_resolution_to_meters(
 def _native_resolution_meters(
     asset: RasterAsset | None,
     bounds: list[float] | None,
+    *,
+    lon_span: float | None = None,
 ) -> float | None:
-    """Estimate native raster resolution in meters from stored COG metadata."""
+    """Estimate native raster resolution in meters from stored COG metadata.
+
+    ``lon_span`` is the extent's honest longitudinal width (``extent_lon_span``).
+    fix(#887): ``bounds`` is deliberately the monotonic span bbox, which reads
+    -180..180 for a seam-crossing extent, so the width has to arrive separately
+    or a 10°-wide Pacific raster measures 360° and collapses its own maxzoom.
+    """
     if asset is None:
         return None
 
@@ -403,7 +411,7 @@ def _native_resolution_meters(
 
     if not values and bounds and len(bounds) == 4 and asset.width and asset.height:
         minx, miny, maxx, maxy = bounds
-        span_x = _positive_number(maxx - minx)
+        span_x = _positive_number(lon_span if lon_span is not None else maxx - minx)
         span_y = _positive_number(maxy - miny)
         x_deg = span_x / asset.width if span_x else None
         y_deg = span_y / asset.height if span_y else None
@@ -415,9 +423,11 @@ def _native_resolution_meters(
 def _raster_maxzoom_from_metadata(
     asset: RasterAsset | None,
     bounds: list[float] | None,
+    *,
+    lon_span: float | None = None,
 ) -> int:
     """Choose raster source maxzoom from native resolution, with legacy fallback."""
-    resolution_m = _native_resolution_meters(asset, bounds)
+    resolution_m = _native_resolution_meters(asset, bounds, lon_span=lon_span)
     if resolution_m is None:
         return _DEFAULT_RASTER_MAXZOOM
 
@@ -1192,13 +1202,18 @@ def _build_tile_token_for_dataset(
     """
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         bounds = None
+        lon_span = None
         if dataset.record.spatial_extent is not None:
             # fix(#892): the SPAN, not the RFC 7946 spec bbox. These bounds feed
-            # _raster_maxzoom_from_metadata's `maxx - minx` span arithmetic and
-            # the tile source's own bounds; a west > east pair makes the span
-            # negative, which collapses the derived maxzoom and bounds the
+            # the tile source's own bounds; a west > east pair would bound the
             # source to nothing. -180..180 is over-broad but never inverted.
             bounds = extent_to_span_bbox(dataset.record.spatial_extent)
+            # fix(#887): and the honest width alongside it, because -180..180 is
+            # exactly as wrong for the resolution derivation as an inverted pair
+            # -- a seam-crossing raster measured 360° wide, understated its own
+            # resolution by 36x, and lost five zoom levels of maxzoom, so it
+            # stopped rendering as the user zoomed in.
+            lon_span = extent_lon_span(dataset.record.spatial_extent)
             if bounds is None:
                 logger.warning(
                     "Failed to parse spatial extent bounds",
@@ -1210,7 +1225,9 @@ def _build_tile_token_for_dataset(
             tile_url=f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
             bounds=bounds,
             minzoom=0,
-            maxzoom=_raster_maxzoom_from_metadata(raster_asset, bounds),
+            maxzoom=_raster_maxzoom_from_metadata(
+                raster_asset, bounds, lon_span=lon_span
+            ),
             tile_size=256,
             format="png",
         )

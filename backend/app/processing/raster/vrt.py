@@ -153,6 +153,49 @@ def _resolve_target_resolution(values: list[float], resolution_strategy: str) ->
     raise KeyError(resolution_strategy)
 
 
+def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
+    """Pick the longitude frame origin for a seam-straddling geographic mosaic.
+
+    fix(#887): ``min(left)`` / ``max(right)`` across sources sitting on both
+    sides of ±180 allocated a near-global raster with a huge empty middle -- a
+    10°-wide Pacific mosaic came out 360° wide, and every source landed at the
+    wrong ``dst_x_off``, so the VRT was both enormous and misregistered.
+    Re-frame the mosaic so the seam falls *inside* the frame instead of
+    splitting it: every source starting west of the returned origin is shifted
+    +360, which makes the hull contiguous again.
+
+    Returns the origin, or ``None`` when the plain -180..180 fold is already the
+    tightest hull and the geometry must be left exactly as it was.
+
+    Two guards, and BOTH are required -- either one alone is a coin flip
+    (see #883):
+
+    1. the plain hull must be wider than 180°. Nothing narrower can be improved
+       by a shift, and this is what leaves a mosaic ending flush at +180, and
+       one spanning -10..170 (exactly 180), in the plain frame.
+    2. the shifted hull must be *strictly* narrower than the plain one. A
+       genuinely global mosaic measures 360° in every frame, so it ties and
+       keeps -180..180 rather than being re-framed to an arbitrary origin.
+
+    Candidate origins are the source left edges, which is exhaustive: the
+    tightest circular hull of a set of intervals always starts at one of them.
+    """
+    plain_span = max(right for _, right in spans) - min(left for left, _ in spans)
+    if plain_span <= 180.0:
+        return None
+
+    best_origin: float | None = None
+    best_span = plain_span
+    for origin, _ in spans:
+        shifted_span = (
+            max(right + 360.0 if left < origin else right for left, right in spans)
+            - origin
+        )
+        if shifted_span < best_span:
+            best_origin, best_span = origin, shifted_span
+    return best_origin
+
+
 def _write_python_vrt(
     source_paths: list[str],
     output_path: str,
@@ -176,8 +219,28 @@ def _write_python_vrt(
         res_y = _resolve_target_resolution(
             [abs(ds.transform.e) for ds in datasets], resolution_strategy
         )
-        left = min(ds.bounds.left for ds in datasets)
-        right = max(ds.bounds.right for ds in datasets)
+
+        # fix(#887): only a geographic CRS wraps at ±180. Projected easting runs
+        # continuously across the seam, and its numbers are metres -- a 40 000 km
+        # wide EPSG:3857 pair clears the >180 guard trivially and a +360 shift
+        # would move a source by 360 *metres*. So gate the whole thing on EVERY
+        # source being geographic before computing any of the geometry.
+        all_geographic = all(
+            ds.crs is not None and ds.crs.is_geographic for ds in datasets
+        )
+        seam_origin = (
+            _seam_frame_origin([(ds.bounds.left, ds.bounds.right) for ds in datasets])
+            if all_geographic
+            else None
+        )
+        lon_offsets = [
+            360.0 if seam_origin is not None and ds.bounds.left < seam_origin else 0.0
+            for ds in datasets
+        ]
+        shifted = list(zip(datasets, lon_offsets, strict=True))
+
+        left = min(ds.bounds.left + offset for ds, offset in shifted)
+        right = max(ds.bounds.right + offset for ds, offset in shifted)
         bottom = min(ds.bounds.bottom for ds in datasets)
         top = max(ds.bounds.top for ds in datasets)
         width = max(1, int(round((right - left) / res_x)))
@@ -195,6 +258,7 @@ def _write_python_vrt(
             dataset,
             *,
             band_index: int,
+            lon_offset: float = 0.0,
         ) -> None:
             source = SubElement(parent, "SimpleSource")
             # STOR-03 (Phase 1210): write logical key + relativeToVRT="1" so the stored
@@ -232,7 +296,10 @@ def _write_python_vrt(
             dst_height = max(
                 1, int(round(dataset.height * abs(dataset.transform.e) / res_y))
             )
-            dst_x_off = int(round((dataset.bounds.left - left) / res_x))
+            # fix(#887): lon_offset places the source in the same re-framed
+            # longitude frame as `left`. Mixing frames here is how a
+            # seam-straddling source ended up half a world from its own pixels.
+            dst_x_off = int(round((dataset.bounds.left + lon_offset - left) / res_x))
             dst_y_off = int(round((top - dataset.bounds.top) / res_y))
             SubElement(
                 source,
@@ -245,7 +312,7 @@ def _write_python_vrt(
 
         if separate:
             band_number = 1
-            for dataset in datasets:
+            for dataset, lon_offset in shifted:
                 for source_band in range(1, dataset.count + 1):
                     band = SubElement(
                         root,
@@ -256,7 +323,9 @@ def _write_python_vrt(
                         ),
                         band=str(band_number),
                     )
-                    add_simple_source(band, dataset, band_index=source_band)
+                    add_simple_source(
+                        band, dataset, band_index=source_band, lon_offset=lon_offset
+                    )
                     band_number += 1
         else:
             band_count = first.count
@@ -274,8 +343,10 @@ def _write_python_vrt(
                     ),
                     band=str(band_number),
                 )
-                for dataset in datasets:
-                    add_simple_source(band, dataset, band_index=band_number)
+                for dataset, lon_offset in shifted:
+                    add_simple_source(
+                        band, dataset, band_index=band_number, lon_offset=lon_offset
+                    )
 
         ElementTree(root).write(output_path, encoding="utf-8", xml_declaration=True)
         return output_path

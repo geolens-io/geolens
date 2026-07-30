@@ -4,10 +4,24 @@ import hashlib
 import tempfile
 from pathlib import Path
 
+from app.core.geo import bbox_to_extent_wkt
 from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 
 _FLOAT_DTYPES = {"float32", "float64", "float16", "float", "complex"}
+
+# fix(#887): a footprint that wraps the whole world puts its left and right
+# edges on the SAME meridian, so transform_bounds can only report a zero-width
+# longitude range for it. Recognizing that needs an equality test, and the
+# tolerance is deliberately tight: a 2 m-wide sliver in EPSG:3832 still reports
+# 1.8e-5° of width, four orders of magnitude above this.
+_LON_DEGENERATE_TOL = 1e-9
+
+# fix(#887): second condition on the same check. A wrapping footprint puts the
+# raster centre a long way from that edge meridian (exactly 180° for a full
+# 360° wrap); a genuine zero-width sliver puts it right on top of it. Any
+# threshold between the two works -- 1° is comfortably clear of both.
+_WRAP_PROBE_MIN_DEGREES = 1.0
 
 
 def _is_float_dtype(dtype: str) -> bool:
@@ -44,32 +58,104 @@ def validate_raster_crs(file_path: str) -> None:
             )
 
 
+def _wrap180(lon: float) -> float:
+    """Fold a longitude into [-180, 180)."""
+    return ((lon + 180.0) % 360.0) - 180.0
+
+
+def _fold_geographic_bbox(
+    west: float, south: float, east: float, north: float
+) -> tuple[float, float, float, float]:
+    """Fold a geographic-CRS longitude range into the RFC 7946 §5.2 form.
+
+    fix(#887): GDAL passes geographic bounds through ``transform_bounds``
+    untouched, so a raster stored in the 0..360 longitude domain -- what plenty
+    of published global grids use, and what the seam-aware VRT builder in
+    ``vrt.py`` now emits for a straddling mosaic -- keeps an east past +180.
+    Wrap it, and let east fall *below* west when the footprint crosses the seam;
+    ``bbox_to_extent_wkt`` turns that pair into the two-ring extent.
+    """
+    span = east - west
+    if span >= 360.0:
+        # The footprint wraps the whole world. -180..180 is the honest answer
+        # and the only one a single ring can express.
+        return (-180.0, south, 180.0, north)
+    west = _wrap180(west)
+    east = west + span
+    if east > 180.0:
+        east -= 360.0
+    return (west, south, east, north)
+
+
+def _wgs84_bbox(src) -> tuple[float, float, float, float]:
+    """Reproject a raster's bounds to a WGS84 RFC 7946 §5.2 bbox.
+
+    Returns ``(west, south, east, north)`` with ``west > east`` when the
+    footprint crosses the antimeridian -- feed it to
+    :func:`app.core.geo.bbox_to_extent_wkt`, never to a hand-built ring.
+
+    fix(#887): the old code folded the reprojected bounds straight into a single
+    ``POLYGON``. GDAL's ``OCTTransformBounds`` already reports a seam-crossing
+    footprint as ``west > east`` (a Pacific COG in EPSG:3832 comes back as
+    175..-175), and a naive ring over that pair is a *valid* rectangle covering
+    the 350° on the wrong side of the world -- 35x the real footprint, not even
+    containing the data it describes.
+    """
+    from rasterio.warp import transform, transform_bounds
+
+    crs = src.crs
+    bounds = (
+        src.bounds.left,
+        src.bounds.bottom,
+        src.bounds.right,
+        src.bounds.top,
+    )
+    if crs is None:
+        # Without a CRS these are not longitudes at all (validate_raster_crs
+        # rejects such rasters at ingest), so there is nothing to normalize.
+        return bounds
+
+    if crs.to_epsg() == 4326:
+        return _fold_geographic_bbox(*bounds)
+
+    west, south, east, north = transform_bounds(crs, "EPSG:4326", *bounds)
+
+    # The one footprint transform_bounds cannot express is one that wraps the
+    # whole world: its left and right edges land on the same meridian, so the
+    # longitude range comes back zero-width (a global EPSG:3832 raster reads
+    # -30..-30) and the globe would register as a line. TWO conditions gate the
+    # repair, because either alone misfires: the range must be degenerate AND
+    # the raster centre must sit far from that edge meridian, which only a wrap
+    # produces -- a genuine zero-width source has its centre on the meridian.
+    if abs(east - west) <= _LON_DEGENERATE_TOL and bounds[2] > bounds[0]:
+        (center_lon,), _ = transform(
+            crs,
+            "EPSG:4326",
+            [(bounds[0] + bounds[2]) / 2],
+            [(bounds[1] + bounds[3]) / 2],
+        )
+        if abs(_wrap180(center_lon - west)) > _WRAP_PROBE_MIN_DEGREES:
+            return (-180.0, south, 180.0, north)
+
+    return _fold_geographic_bbox(west, south, east, north)
+
+
 def extract_raster_metadata(file_path: str) -> dict:
-    """Extract all raster metadata from a file using a single rasterio open pass."""
+    """Extract all raster metadata from a file using a single rasterio open pass.
+
+    ``bounds_wgs84`` is an RFC 7946 §5.2 bbox: ``west > east`` for a footprint
+    that crosses the antimeridian (fix(#887)). Callers that need a monotonic
+    span must close it the short way round, not subtract blindly.
+    """
     import rasterio
-    from rasterio.warp import transform_bounds
 
     with rasterio.open(file_path) as src:
         crs = src.crs
         crs_wkt = crs.to_wkt() if crs else None
         epsg = crs.to_epsg() if crs else None
 
-        # Transform bounds to WGS84
-        if crs and crs.to_epsg() != 4326:
-            bounds_wgs84 = transform_bounds(crs, "EPSG:4326", *src.bounds)
-        else:
-            bounds_wgs84 = (
-                src.bounds.left,
-                src.bounds.bottom,
-                src.bounds.right,
-                src.bounds.top,
-            )
-
-        left, bottom, right, top = bounds_wgs84
-        bbox_wkt = (
-            f"POLYGON(({left} {bottom}, {right} {bottom}, "
-            f"{right} {top}, {left} {top}, {left} {bottom}))"
-        )
+        bounds_wgs84 = _wgs84_bbox(src)
+        bbox_wkt = bbox_to_extent_wkt(*bounds_wgs84)
 
         res_x = abs(src.transform.a)
         res_y = abs(src.transform.e)

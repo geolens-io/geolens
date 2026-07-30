@@ -105,6 +105,26 @@ def extent_to_span_bbox(extent: object | None) -> list[float] | None:
         return None
 
 
+def extent_lon_span(extent: object | None) -> float | None:
+    """Longitudinal width of an extent in degrees, honest across ±180.
+
+    fix(#887): the companion to :func:`extent_to_span_bbox` for consumers that
+    need the *width* rather than a monotonic pair. ``extent_to_span_bbox``
+    reports -180..180 for a seam-crossing extent, so a caller that derives pixel
+    resolution from ``maxx - minx`` reads a 10°-wide Pacific raster as 360° wide
+    and understates its native resolution by 36x -- which cost the raster
+    tile-source five zoom levels of maxzoom, so it stopped rendering as the user
+    zoomed in. Read the RFC 7946 §5.2 ``west > east`` pair instead and close it
+    the short way round.
+    """
+    bbox = extent_to_bbox(extent)
+    if bbox is None:
+        return None
+    west, _, east, _ = bbox
+    span = east - west
+    return span + 360.0 if span < 0 else span
+
+
 def _ring(x0: float, south: float, x1: float, north: float) -> str:
     return f"({x0} {south},{x1} {south},{x1} {north},{x0} {north},{x0} {south})"
 
