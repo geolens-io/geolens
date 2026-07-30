@@ -186,6 +186,12 @@ _GDAL_DTYPE_MAP = {
 }
 
 
+# fix(#887): the absolute noise floor for a DstRect value, in PIXELS. Distinct
+# from LON_EPSILON_DEGREES, which is a longitude tolerance -- these are different
+# units and must not share a constant just because they share a magnitude.
+_PIXEL_EPSILON = 1e-9
+
+
 def _offset_text(value: float) -> str:
     """Render a DstRect offset or size, keeping a fractional pixel fractional.
 
@@ -199,8 +205,21 @@ def _offset_text(value: float) -> str:
     Shared by BOTH writers on purpose: the ``gdalbuildvrt`` frame rewrite and the
     CLI-less :func:`_write_python_vrt` fallback. They disagreeing about this rule
     is what codex round 7 caught, and two copies is how it would diverge again.
+
+    ``rel_tol=0`` is load-bearing. ``math.isclose`` compares against
+    ``max(rel_tol * max(|a|, |b|), abs_tol)``, so leaving the 1e-9 default alive
+    makes the tolerance GROW with the offset: at 1e8 pixels it reaches 0.1, and
+    at 1e9 it reaches 1.0, which silently rounded a real 0.49-pixel offset to a
+    whole number -- reintroducing at scale exactly the defect this function
+    exists to prevent. Only the absolute noise floor should ever be ignored.
+
+    The fixed-point rendering is deliberate rather than ``repr``: it settles the
+    value at 1e-10 of a pixel, which absorbs the accumulated arithmetic noise
+    that makes an exact half-pixel arrive as 248.49999999999852. ``repr`` would
+    round-trip that noise into the file. Ten decimal places is fourteen orders
+    of magnitude finer than anything GDAL resamples on.
     """
-    if math.isclose(value, round(value), abs_tol=1e-9):
+    if math.isclose(value, round(value), rel_tol=0.0, abs_tol=_PIXEL_EPSILON):
         return str(int(round(value)))
     return f"{value:.10f}".rstrip("0").rstrip(".")
 
@@ -241,7 +260,15 @@ _RADIANS_PER_DEGREE = math.pi / 180.0
 
 
 def _is_degree_based(crs) -> bool:
-    """True only for a geographic CRS whose angular unit is degrees."""
+    """True only for a geographic CRS whose angular unit is degrees.
+
+    fix(#887): ``rel_tol`` is correct HERE and wrong in :func:`_offset_text`, so
+    do not "fix" this one by symmetry. This compares two fixed physical
+    constants of the same tiny magnitude (0.01745 radians per degree against
+    whatever PROJ reports), where proportional agreement is the meaningful test
+    and the nearest wrong answer -- grads, at 0.01571 -- is 10% away. An offset
+    is an unbounded pixel count whose noise floor does not scale with it.
+    """
     if crs is None or not crs.is_geographic:
         return False
     try:

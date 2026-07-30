@@ -1098,6 +1098,39 @@ class TestSeamFrameRewrite:
             "— the sources were left scattered across a world"
         )
 
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (0.0, "0"),
+            (50.0, "50"),
+            (-0.0, "0"),
+            # Noise below the ABSOLUTE floor is still absorbed, so ordinary
+            # whole-pixel output keeps matching GDAL's own formatting.
+            (50.0000000001, "50"),
+            (49.99999999999999, "50"),
+        ],
+    )
+    def test_offset_text_renders_whole_pixels_as_integers(self, value, expected):
+        assert vrt_module._offset_text(value) == expected
+
+    @pytest.mark.parametrize(
+        "value", [248.5, 349.51, 1953.7508342789244, 100000000.05, 1000000000.49]
+    )
+    def test_offset_text_keeps_fractions_at_every_magnitude(self, value):
+        """A fraction must survive regardless of how large the offset is.
+
+        ``math.isclose`` compares against ``max(rel_tol * max(|a|,|b|), abs_tol)``,
+        so leaving the default ``rel_tol=1e-9`` alive makes the tolerance grow
+        with the offset — 0.1 px at 1e8, a full pixel at 1e9. A real 0.49-pixel
+        offset was being rounded away. Asserted as a property rather than an
+        exact string so the check is about the fraction surviving, not about
+        formatting.
+        """
+        rendered = vrt_module._offset_text(value)
+
+        assert "." in rendered, f"{value!r} was coerced to a whole pixel"
+        assert float(rendered) == pytest.approx(value, abs=1e-6)
+
     def test_whole_pixel_offsets_stay_integral(self, tmp_path):
         """The common case still reads like GDAL's own output, not ``50.0``.
 
