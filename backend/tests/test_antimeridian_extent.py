@@ -159,26 +159,38 @@ class TestBboxToExtentWkt:
             assert extent_to_bbox(_extent(wkt)) == list(bbox)
 
     @pytest.mark.parametrize(
-        ("bbox", "expected_type", "expected_bounds"),
+        ("bbox", "covered_lons"),
         [
-            # west sits on the seam: the west..180 half has zero width.
-            ((180.0, -20.0, -170.0, -15.0), "Polygon", (-180.0, -20.0, -170.0, -15.0)),
-            # east sits on the seam: the -180..east half has zero width.
-            ((170.0, -20.0, -180.0, -15.0), "Polygon", (170.0, -20.0, 180.0, -15.0)),
-            # Both ends on the seam: fall back to the full band, never to nothing.
-            ((180.0, -20.0, -180.0, -15.0), "Polygon", (-180.0, -20.0, 180.0, -15.0)),
+            # west sits on the seam: the west..180 half is padded to a sliver,
+            # never dropped — the feature stored at planar +180 must stay
+            # covered (fix(#934 codex r2)).
+            ((180.0, -20.0, -170.0, -15.0), (180.0, -175.0)),
+            # east sits on the seam: same, mirrored.
+            ((170.0, -20.0, -180.0, -15.0), (-180.0, 175.0)),
+            # Both ends on the seam: two slivers covering both representations
+            # of the seam meridian.
+            ((180.0, -20.0, -180.0, -15.0), (180.0, -180.0)),
         ],
     )
     def test_degenerate_crossing_halves_never_produce_an_invalid_ring(
-        self, bbox, expected_type, expected_bounds
+        self, bbox, covered_lons
     ):
-        """A remote bbox with west == 180 (or east == -180) would otherwise emit a
-        zero-width ring — an invalid geometry, the exact defect class this helper
-        exists to prevent."""
+        """A remote bbox with west == 180 (or east == -180) would otherwise emit
+        a zero-width ring — an invalid geometry, the exact defect class this
+        helper exists to prevent. fix(#934 codex r2): nor may the degenerate
+        half be dropped, which uncovered the feature at planar +180 and made
+        the read-back stop reporting a crossing."""
+        from shapely.geometry import Point
+
         shape = shapely_wkt.loads(bbox_to_extent_wkt(*bbox))
         assert shape.is_valid
-        assert shape.geom_type == expected_type
-        assert shape.bounds == expected_bounds
+        assert shape.geom_type == "MultiPolygon"
+        for lon in covered_lons:
+            assert shape.intersects(Point(lon, -17.5)), lon
+        # The read-back still identifies the extent as crossing.
+        read = extent_to_bbox(_extent(bbox_to_extent_wkt(*bbox)))
+        assert read is not None
+        assert read[0] > read[2]
 
 
 # ---------------------------------------------------------------------------
