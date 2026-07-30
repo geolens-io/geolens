@@ -3196,6 +3196,47 @@ class TestWideSingleComponentBuffer:
         assert row.chord_east is False
         assert row.chord_west is False
 
+    async def test_component_crossing_both_meridians_buffers_per_segment(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r3): a single component crossing BOTH the
+        antimeridian and the prime meridian is wide in either longitude
+        domain, so no whole-component unwrap exists — its planar form always
+        carries a seam jump. Such a component falls back to per-segment
+        buffering (every segmentized segment unwraps on its own evidence), so
+        the output is the true corridor: through the WESTERN hemisphere,
+        which the path actually traverses, and never the eastern one, where
+        the old planar chord landed."""
+        wkt = "LINESTRING(170 0, -170 0, -5 0, 5 0)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(-135, -30, -45, 30, 4326)) AS through_west,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(45, -30, 135, 30, 4326)) AS chord_east"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        assert row.parts == 2
+        # 195 degrees of equatorial path, 20 km wide, plus caps.
+        assert row.area == pytest.approx(434_433_852_432, rel=0.01)
+        assert row.through_west is True
+        assert row.chord_east is False
+
     async def test_narrow_single_part_is_still_byte_identical(
         self,
         test_db_session: AsyncSession,

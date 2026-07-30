@@ -348,8 +348,8 @@ def render_geodesic_buffer(
     width = f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)"
     band = (
         f"ST_MakeEnvelope("
-        f"ST_XMin({alias}_g.sg) + {alias}_i.i * {width}, -90,"
-        f" ST_XMin({alias}_g.sg) + ({alias}_i.i + 1) * {width}, 90, 4326)"
+        f"ST_XMin({alias}_g.uc) + {alias}_i.i * {width}, -90,"
+        f" ST_XMin({alias}_g.uc) + ({alias}_i.i + 1) * {width}, 90, 4326)"
     )
     # fix(#902 codex r1/r2): a geometry component that itself crosses the
     # antimeridian (LINESTRING(170 0, -170 0)) segmentizes to a vertex jump
@@ -370,31 +370,67 @@ def render_geodesic_buffer(
     # render_dateline_safe splits any re-wrapped output component afterwards.
     # Residual: a single COMPONENT crossing both meridians stays wide in both
     # domains and keeps planar slicing.
-    unwrapped = (
-        f"(SELECT ST_CollectionHomogenize(ST_Collect(CASE"
+    # fix(#902 codex r3): a component can carry a planar seam JUMP even after
+    # the per-component shift — a path crossing BOTH the antimeridian and the
+    # prime meridian is wide in both domains, so neither representation is a
+    # continuous chordless polyline. The jump is detectable exactly: after
+    # geography segmentization every genuine edge is ~20 km (~0.2°), so any
+    # planar segment wider than 180° IS the seam jump.
+    has_jump = (
+        f"EXISTS (SELECT 1 FROM ST_DumpSegments({alias}_g.uc) AS {alias}_e"
+        f" WHERE ST_XMax({alias}_e.geom) - ST_XMin({alias}_e.geom) > 180)"
+    )
+    # Per-component unwrap (codex r2): shift into the +360 domain when — and
+    # only when — shifting narrows THAT component's planar span, the same
+    # two-condition evidence rule render_dateline_safe applies. Per-vertex
+    # ST_ShiftLongitude is safe within a component because segmentized edges
+    # are ~20 km, except Greenwich-crossing edges, which shifting tears — and
+    # exactly then the narrowing test declines.
+    unwrap_components = (
+        f"SELECT CASE"
         f" WHEN ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c) > 180"
         f" AND ST_XMax({alias}_u.s) - ST_XMin({alias}_u.s)"
         f" < ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c)"
-        f" THEN {alias}_u.s ELSE {alias}_u.c END))"
+        f" THEN {alias}_u.s ELSE {alias}_u.c END AS uc"
         f" FROM (SELECT {alias}_d.c, ST_ShiftLongitude({alias}_d.c) AS s"
         f" FROM (SELECT (ST_Dump(ST_Segmentize({alias}.g::geography,"
         f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry)).geom AS c) AS {alias}_d"
-        f" OFFSET 0) AS {alias}_u)"
+        f" OFFSET 0) AS {alias}_u"
+    )
+    # Each component either slices into longitude bands (the local-projection
+    # pass) or — when it still carries a seam jump (codex r3) — falls back to
+    # per-SEGMENT buffering: every segmentized segment is ~20 km, so each one
+    # unwraps on its own evidence (the jump segment always narrows when
+    # shifted, a Greenwich segment never needs to), gets a local projection,
+    # and the dissolve merges the overlapping segment buffers into the
+    # corridor. Costlier per row, but confined to this irreducible shape.
+    # ST_WrapX folds shifted-domain pieces (lon up to ~540) back into
+    # [-180, 180] before the ::geography cast, which rejects out-of-range
+    # longitudes; a no-op for pieces already in range.
+    seg_unwrap = (
+        f"CASE"
+        f" WHEN ST_XMax({alias}_e2.geom) - ST_XMin({alias}_e2.geom) > 180"
+        f" AND ST_XMax(ST_ShiftLongitude({alias}_e2.geom))"
+        f" - ST_XMin(ST_ShiftLongitude({alias}_e2.geom))"
+        f" < ST_XMax({alias}_e2.geom) - ST_XMin({alias}_e2.geom)"
+        f" THEN ST_ShiftLongitude({alias}_e2.geom) ELSE {alias}_e2.geom END"
     )
     sliced = (
         f"(SELECT ST_CollectionHomogenize(ST_Collect({alias}_p.p))"
         f" FROM (SELECT (ST_Dump("
         f"ST_Buffer({alias}_c.c::geography, {distance})::geometry)).geom AS p"
         f" FROM (SELECT (ST_Dump({alias}_s.piece)).geom AS c"
-        f" FROM (SELECT {unwrapped} AS sg OFFSET 0) AS {alias}_g,"
-        # ST_WrapX folds a shifted-domain piece (lon up to ~540) back into
-        # [-180, 180] before the ::geography cast, which rejects out-of-range
-        # longitudes. A no-op for pieces already in range.
-        f" LATERAL (SELECT ST_WrapX(ST_Intersection({alias}_g.sg, {band}),"
+        f" FROM ({unwrap_components}) AS {alias}_g,"
+        f" LATERAL (SELECT ST_WrapX({seg_unwrap}, 180, -360) AS piece"
+        f" FROM ST_DumpSegments({alias}_g.uc) AS {alias}_e2"
+        f" WHERE {has_jump}"
+        f" UNION ALL"
+        f" SELECT ST_WrapX(ST_Intersection({alias}_g.uc, {band}),"
         f" 180, -360) AS piece"
         f" FROM generate_series(0, GREATEST(ceil("
-        f"(ST_XMax({alias}_g.sg) - ST_XMin({alias}_g.sg)) / {width})::int, 1) - 1)"
-        f" AS {alias}_i(i)) AS {alias}_s) AS {alias}_c"
+        f"(ST_XMax({alias}_g.uc) - ST_XMin({alias}_g.uc)) / {width})::int, 1) - 1)"
+        f" AS {alias}_i(i)"
+        f" WHERE NOT {has_jump}) AS {alias}_s) AS {alias}_c"
         f" WHERE NOT ST_IsEmpty({alias}_c.c)) AS {alias}_p)"
     )
     local = render_dateline_safe(sliced, alias=f"{alias}_m")
