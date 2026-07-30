@@ -104,17 +104,26 @@ function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds |
       !Array.isArray(bbox) ||
       bbox.length !== 4 ||
       bbox.some((value) => !Number.isFinite(value)) ||
-      bbox[0] > bbox[2] ||
       bbox[1] > bbox[3]
     ) {
       continue;
     }
 
+    // fix(#903): a `west > east` pair used to be dropped here, which made both
+    // fit paths and Zoom to Layer silent no-ops for a seam-crossing layer.
+    // Unwrap it past 180 instead — MapLibre normalizes the result, so a single
+    // crossing layer now fits the few degrees it occupies. Merging several
+    // layers still min/maxes in unwrapped space, which is no worse than the
+    // planar merge it replaces; a genuine union across the seam is the rollup
+    // problem #886/#934 solve on the backend, not something to invent here.
+    const [west, south, north] = [bbox[0], bbox[1], bbox[3]];
+    const east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
+
     hasBounds = true;
-    if (bbox[0] < minX) minX = bbox[0];
-    if (bbox[1] < minY) minY = bbox[1];
-    if (bbox[2] > maxX) maxX = bbox[2];
-    if (bbox[3] > maxY) maxY = bbox[3];
+    if (west < minX) minX = west;
+    if (south < minY) minY = south;
+    if (east > maxX) maxX = east;
+    if (north > maxY) maxY = north;
   }
 
   return hasBounds ? [[minX, minY], [maxX, maxY]] : null;

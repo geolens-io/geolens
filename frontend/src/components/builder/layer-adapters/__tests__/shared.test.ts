@@ -350,6 +350,17 @@ describe('normalizeRasterBounds (ADAPT-01)', () => {
     expect(normalizeRasterBounds([1, 2, 3, 4, 5])).toBeUndefined();
   });
 
+  // fix(#903): a MapLibre source `bounds` takes one increasing box, so an
+  // antimeridian-crossing pair matches no tile and the layer renders blank.
+  it('widens a seam-crossing pair to the monotonic world span', () => {
+    expect(normalizeRasterBounds([178.5, -20, -178.5, -15])).toEqual([-180, -20, 180, -15]);
+  });
+
+  it('leaves every non-crossing pair exactly as it was', () => {
+    expect(normalizeRasterBounds([-74.5, 40.5, -73.5, 41.5])).toEqual([-74.5, 40.5, -73.5, 41.5]);
+    expect(normalizeRasterBounds([-180, -90, 180, 90])).toEqual([-180, -90, 180, 90]);
+  });
+
   it('returns undefined when any element is not finite', () => {
     expect(normalizeRasterBounds([1, 2, 3, NaN])).toBeUndefined();
     expect(normalizeRasterBounds([1, Infinity, 3, 4])).toBeUndefined();

@@ -1,5 +1,6 @@
 import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import type { StyleConfig } from '@/types/api';
+import { toSpanBbox } from '@/lib/bbox';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
  *  These are read separately and applied to the outline line layer for polygons. */
@@ -56,11 +57,19 @@ export type RasterBounds = [number, number, number, number];
  * builder-audit #338 ADAPT-01: single raster-bounds guard hoisted from the verbatim
  * copies in raster-adapter, hillshade-adapter, and map-sync. Returns the bounds
  * as a 4-tuple, or undefined when the input is not exactly four finite numbers.
+ *
+ * fix(#903): every result feeds a MapLibre source `bounds`, which accepts one
+ * increasing box and nothing else — an antimeridian-crossing `west > east` pair
+ * matches NO tile, so the layer renders blank rather than misplaced. There is
+ * no way to express two boxes on one source, so the span form is the only
+ * option here: over-broad (it stops constraining tile requests) but visible.
+ * This is the keystone consumer named in the issue; the four call sites in
+ * map-sync and hillshade-adapter inherit the guard from here.
  */
 export function normalizeRasterBounds(bounds: number[] | null | undefined): RasterBounds | undefined {
   if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
   if (!bounds.every((value) => Number.isFinite(value))) return undefined;
-  return [bounds[0], bounds[1], bounds[2], bounds[3]];
+  return toSpanBbox([bounds[0], bounds[1], bounds[2], bounds[3]]);
 }
 
 /**
