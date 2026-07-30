@@ -201,6 +201,12 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
   const { t } = useTranslation('builder');
   const [open, setOpen] = useState(defaultOpen);
 
+  // fix(#916): symbol mode keeps circle paint on the layer (renderAs.ts:444) but
+  // real symbol layout — validate each block against what it actually holds.
+  // Validating the stored circle paint as 'symbol' rejected every key, so Apply
+  // always errored and the Paint block was a dead end for the whole mode.
+  const paintLayerType = layerType === 'symbol' ? 'circle' : layerType;
+
   return (
     <div className="border-t pt-2">
       <button
@@ -219,7 +225,7 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
             label={t('style.paintJson')}
             value={paint}
             onApply={onPaintChange}
-            layerType={layerType}
+            layerType={paintLayerType}
             block="paint"
           />
           <JsonBlock
