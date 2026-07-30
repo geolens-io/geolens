@@ -379,6 +379,85 @@ targets just need network reach to `api:8000` and `worker:8001`.
 > the `geolens_db_pool_*` gauges are not emitted and `GeoLensDbPoolSaturated`
 > never fires — pool health is the provider's responsibility there.
 
+### Database temp-file ceiling (`temp_file_limit`)
+
+The bundled Postgres config sets `temp_file_limit = 4GB` (`db/postgresql.conf`).
+Temporary spill files (`pgsql_tmp`) live on the same volume as the database
+itself, so an unbounded spill from a single runaway query — typically a large
+analysis dissolve or buffer — could fill the data volume and stop the whole
+cluster. The ceiling is a deliberate guard that converts that outage into one
+failed query.
+
+If you see this in the database logs or as a query error:
+
+```
+ERROR:  temporary file size exceeds "temp_file_limit" (4194304kB)
+```
+
+(SQLSTATE `53400`) — the guard worked as designed. The cluster keeps serving;
+only the offending session failed. Two responses:
+
+- **Filter the dataset**: the query genuinely needed more than 4GB of temp
+  spill, which usually means the analysis input should be narrowed (smaller
+  area of interest, fewer features) before rerunning.
+- **Raise the ceiling**: if the disk has the headroom and the workload is
+  legitimate, increase `temp_file_limit` in `db/postgresql.conf`, then
+  **recreate** the db container:
+
+  ```bash
+  docker compose up -d --force-recreate --wait db
+  ```
+
+  Recreate, not `restart` and not `pg_reload_conf()`. `db/postgresql.conf` is
+  bind-mounted as a single file, and most editors save by writing a new file
+  and renaming it over the old one; the running container keeps resolving the
+  inode it started with, so a reload re-reads the *old* contents and the
+  change appears to do nothing. Recreating re-resolves the mount. (If you
+  edited in place — `sed -i` does not qualify, it renames too — a reload is
+  enough, from inside the container where Compose has already set the
+  credentials; single quotes on purpose, so the variables expand in the
+  container shell rather than on the host, where `.env` values are not
+  exported.)
+
+  ```bash
+  docker compose exec db sh -c \
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT pg_reload_conf();"'
+  ```
+
+  Verify either way with `SHOW temp_file_limit;`.
+
+  `scripts/upgrade.sh` syncs `db/postgresql.conf` from the target release and
+  recreates the db container when it changed, but only while the file still
+  matches the release you are upgrading *from*. The comparison is on file
+  contents, not on `git status`, so tuning you committed or staged counts as
+  tuning: a customised config is never overwritten. The upgrade warns and
+  leaves your version in place, so re-check it against the release after any
+  upgrade that mentions a Postgres setting.
+
+  Two cases where the upgrade will not do it for you, both needing the
+  recreate command above by hand. The upgrader excludes itself from the
+  release-file sync so it is never swapped under itself mid-run, so an install
+  still running an upgrader from before this behaviour shipped skips the
+  config sync entirely; it picks it up on the following upgrade. And a
+  customised file is left alone by design. Either way, `SHOW
+  temp_file_limit;` after an upgrade tells you whether the running cluster has
+  the release's value.
+
+  The limit is enforced **per process**, not per query: every session
+  spilling at once gets the full ceiling, and a parallel query spills from
+  each worker process separately (`max_parallel_workers_per_gather = 1` in
+  the bundled config, so budget up to 2 processes per query). Size the
+  ceiling against available disk headroom divided by the peak number of
+  spilling processes — concurrent spill-heavy sessions times (1 + parallel
+  workers per gather) — not against one query in isolation. In practice the
+  per-user materialize cap keeps analysis at one CTAS per user at a time, so
+  the session count to budget for is the number of simultaneously active
+  analysis users plus any ad-hoc sessions.
+
+`log_temp_files = 64MB` logs every spill above 64MB, so temp-file pressure is
+visible in the database logs before it reaches the ceiling — a rising number of
+`temporary file:` log lines is the early-warning signal.
+
 ### Backup service healthcheck
 
 The `backup` service exposes a Docker **freshness** healthcheck:

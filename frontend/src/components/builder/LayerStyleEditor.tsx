@@ -41,6 +41,13 @@ interface LayerStyleEditorProps {
   onOpacityChange?: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  /**
+   * fix(#913): banner Revert restores the baseline through the ordinary mutation
+   * handlers, each of which marks the map dirty — so the revert re-dirtied the
+   * map and the header kept claiming unsaved work. The owner of the baseline
+   * re-derives cleanliness here; it only clears when the WHOLE map is clean.
+   */
+  onRevertToSaved?: () => void;
 }
 
 // Re-export hasUnsavedStyleChanges so existing callers (tests etc.) can still
@@ -129,6 +136,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   onOpacityChange,
   onStyleConfigChange,
   onLayoutChange,
+  onRevertToSaved,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
@@ -421,7 +429,27 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // Remount DataDrivenStyleEditor so its local ramp/mode/column re-seed from the
     // restored config instead of re-applying the just-discarded selection.
     setRevertNonce((n) => n + 1);
-  }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle]);
+    // The handlers above mark the map dirty; ask the baseline owner to recheck.
+    onRevertToSaved?.();
+  }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle, onRevertToSaved]);
+
+  // fix(#916 review): symbol mode keeps circle paint on the layer, and the
+  // switch back to Point restores style_config.savedCirclePaint, not
+  // layer.paint (renderAs.ts:426-433). Now that the Paint block accepts circle
+  // keys in symbol mode, an edit that only touched layer.paint would be
+  // silently discarded on switch-back — so keep the saved copy in step.
+  const handleAdvancedPaintChange = useCallback((next: Record<string, unknown>) => {
+    const merged = { ...builderPrivateKeys(paint), ...next };
+    if (renderMode === 'symbol') {
+      onStyleConfigChange(
+        layer.id,
+        { ...(layer.style_config ?? {}), savedCirclePaint: { ...merged } } as StyleConfig,
+        merged,
+      );
+      return;
+    }
+    onPaintChange(layer.id, merged);
+  }, [layer.id, layer.style_config, paint, renderMode, onPaintChange, onStyleConfigChange]);
 
   const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
 
@@ -595,7 +623,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           // fix(#770): re-merge the stripped `_`-prefixed private keys on Apply —
           // the editor never showed them, so a wholesale replace would drop them
           // (layout _minzoom/_maxzoom reset the layer's zoom range to 0–22).
-          onPaintChange={(p) => onPaintChange(layer.id, { ...builderPrivateKeys(paint), ...p })}
+          onPaintChange={handleAdvancedPaintChange}
           onLayoutChange={(l) => onLayoutChange(layer.id, { ...builderPrivateKeys(layoutObj), ...l })}
           layerType={advancedJsonLayerType}
         />

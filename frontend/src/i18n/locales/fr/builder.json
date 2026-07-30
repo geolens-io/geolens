@@ -302,7 +302,20 @@
       "offsetX": "Décalage X",
       "offsetY": "Décalage Y",
       "categoryMapping": "Icônes par valeur",
-      "categoryIcon": "Icône pour {{value}}"
+      "categoryIcon": "Icône pour {{value}}",
+      "anchorOption": {
+        "center": "Centre",
+        "top": "Haut",
+        "bottom": "Bas",
+        "left": "Gauche",
+        "right": "Droite",
+        "top-left": "En haut à gauche",
+        "top-right": "En haut à droite",
+        "bottom-left": "En bas à gauche",
+        "bottom-right": "En bas à droite"
+      },
+      "sampledValues": "Un échantillon des valeurs de cette colonne, pas toutes les valeurs du jeu de données.",
+      "unknownIcon": "Aucune icône nommée « {{icon}} » : cette valeur ne dessinera rien."
     },
     "arrow": {
       "title": "Direction des flèches",
