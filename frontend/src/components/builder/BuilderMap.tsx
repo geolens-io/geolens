@@ -13,12 +13,12 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
-import { logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
-import { pushReportEntry } from '@/lib/report';
+import { pushReportEntry, reportTileTokenRemint } from '@/lib/report';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import i18n from '@/i18n/i18n';
@@ -566,7 +566,12 @@ export const BuilderMap = memo(function BuilderMap({
   // fix(#621): shared tile-auth recovery — a vector tile 401/403 that the
   // cached-token re-sign can't cure kicks one throttled token re-mint; the
   // token-sync effect re-signs sources when the fresh batch lands.
-  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens);
+  // fix(#890): report every mint the recovery path actually kicks (suppressed),
+  // so a tab-return recovery still leaves a trace now that it no longer arrives
+  // wrapped in a 403 burst.
+  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens, (trigger) =>
+    reportTileTokenRemint('builder', trigger),
+  );
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the handler above
   // can heal them. Kick the same throttled re-mint on the visible edge.
@@ -624,19 +629,36 @@ export const BuilderMap = memo(function BuilderMap({
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so the editor knows a
       // real error has occurred (RES-3). Previously silenced in production.
-      errorHandlerRef.current = (e: { error: { message?: string; status?: number }; sourceId?: string }) => {
+      errorHandlerRef.current = (e: { error: { message?: string; status?: number; url?: string }; sourceId?: string }) => {
         const status = e.error?.status;
+        // fix(#890): a raster/DEM 401/403 is not cured by anything the recovery
+        // path produces — raster auth rides the Authorization header
+        // (setTransformRequest), so neither the GUARD-03 re-sign nor a fresh sig
+        // reaches it. Reporting it "handled" (a suppressed warning) while
+        // logUnhandledMapError still console.errors the same failure is the #755
+        // double-log shape, still live for raster/DEM. `isHandledTileAuthError`
+        // already excludes these, so the handler now agrees with it: report the
+        // unsuppressed error it is and let the toast + single console row own it.
+        const rasterAuthError = isRasterTileAuthError(e);
         // Capture EVERY map error into the problem-reporter buffer before the
         // suppression/early-return logic below — suppressed errors (expected
         // no-data tiles, terrain/DEM mismatches) are frequently the actual bug
         // an engineer needs, so we flag rather than drop them here.
+        // fix(#890): an unsuppressed row here pairs with the `console` row
+        // initReportCapture derives from logUnhandledMapError's console.error —
+        // two rows per unrecovered failure. That is the buffer's long-standing
+        // shape for every error no surface recovers (any tile 5xx does the same;
+        // BuilderMap.raster-tile-auth.test.tsx pins the parity). Dropping either
+        // half for raster would cost the sourceId this row carries, or the
+        // devtools log the surfaces without a row of their own rely on.
         const isClientError = Boolean(status && status >= 400 && status < 500);
+        const suppressedClientError = isClientError && !rasterAuthError;
         pushReportEntry({
-          severity: isClientError ? 'warning' : 'error',
+          severity: suppressedClientError ? 'warning' : 'error',
           source: 'maplibre',
           message: e.error?.message || (status ? `Map error (HTTP ${status})` : 'Map error'),
           detail: e.sourceId ? `source: ${e.sourceId}` : undefined,
-          suppressed: isClientError || shouldSuppressBuilderMapError(e.error),
+          suppressed: suppressedClientError || shouldSuppressBuilderMapError(e.error),
         });
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
@@ -652,7 +674,11 @@ export const BuilderMap = memo(function BuilderMap({
             const failingSourceId = e.sourceId;
             if (map && failingSourceId) {
               const { layers: l, tokenMap: tm, tileConfig: tc } = syncInputsRef.current;
-              const resigned = resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
+              // fix(#890): nothing here re-signs a raster/DEM source (its auth
+              // rides the Authorization header), so don't pretend to.
+              const resigned = rasterAuthError
+                ? false
+                : resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
               // fix(#621): the cached-token re-sign only cures the attach
               // race — when the sig itself has expired (stranded session),
               // it re-signs with the same stale sig forever. Also kick one
@@ -660,8 +686,15 @@ export const BuilderMap = memo(function BuilderMap({
               // the fresh batch, and a conclusively dead session surfaces
               // through the global signed-out handling (#628) via the mint
               // request itself.
+              // fix(#890) (codex P1): the re-mint runs for raster too — the mint
+              // request goes through apiFetch, whose proactive refresh renews an
+              // expiring JWT, and that Bearer is the ONLY thing that fixes a
+              // raster 401. What must not happen is treating it as recovery: the
+              // fresh sig cannot help a raster tile, so a raster failure falls
+              // through to the toast below and is reported unsuppressed, instead
+              // of reading as handled next to logUnhandledMapError's console row.
               const reminted = recoverTileAuth();
-              if (resigned || reminted) {
+              if (!rasterAuthError && (resigned || reminted)) {
                 pushReportEntry({
                   severity: 'warning',
                   source: 'maplibre',
