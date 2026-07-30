@@ -28,6 +28,8 @@ import shapely
 from shapely.errors import GEOSException
 from shapely.geometry import shape
 
+from app.core.geo import LON_EPSILON_DEGREES
+
 MAX_BUFFER_METERS = 100_000.0
 MAX_MASK_VERTICES = 5_000
 
@@ -404,8 +406,13 @@ def render_geodesic_buffer(
     unwrap_components = (
         f"SELECT CASE"
         f" WHEN ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c) > 180"
+        # fix(#902 codex r5): the shifted domain must win by the shared
+        # longitude epsilon — a mathematically tied span (global or
+        # pole-encircling rings on non-round boundaries) differs only by
+        # float noise after the ±360 round-trip, and a bare < would let that
+        # noise pick the per-vertex shift, tearing a Greenwich-crossing ring.
         f" AND ST_XMax({alias}_u.s) - ST_XMin({alias}_u.s)"
-        f" < ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c)"
+        f" < ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c) - {LON_EPSILON_DEGREES}"
         f" THEN {alias}_u.s ELSE {alias}_u.c END AS uc"
         f" FROM (SELECT {alias}_d.c, ST_ShiftLongitude({alias}_d.c) AS s"
         f" FROM (SELECT CASE"
@@ -432,6 +439,7 @@ def render_geodesic_buffer(
         f" AND ST_XMax(ST_ShiftLongitude({alias}_e2.geom))"
         f" - ST_XMin(ST_ShiftLongitude({alias}_e2.geom))"
         f" < ST_XMax({alias}_e2.geom) - ST_XMin({alias}_e2.geom)"
+        f" - {LON_EPSILON_DEGREES}"
         f" THEN ST_ShiftLongitude({alias}_e2.geom) ELSE {alias}_e2.geom END"
     )
     sliced = (

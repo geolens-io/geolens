@@ -1032,6 +1032,14 @@ class TestBuildPreviewSql:
             in buffer_expr
         )
         assert "ST_Dimension(_pb_d0.c0) >= 2" in buffer_expr
+        # fix(#902 codex r5): the shifted domain must win by the shared
+        # longitude epsilon in BOTH the per-component and per-segment
+        # unwraps, or ±360 float noise on a tied span tears a
+        # Greenwich-crossing ring via the per-vertex shift.
+        from app.core.geo import LON_EPSILON_DEGREES
+
+        assert buffer_expr.count(f"- ST_XMin(_pb_u.c) - {LON_EPSILON_DEGREES}") == 1
+        assert buffer_expr.count(f"- ST_XMin(_pb_e2.geom) - {LON_EPSILON_DEGREES}") == 1
         # Bands are anchored at the input's own XMin and cut a hair under the
         # zone width: at exactly 6.0° _ST_BestSRID leaves the local UTM zone.
         assert f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)" in buffer_expr
