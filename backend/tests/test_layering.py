@@ -932,6 +932,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_openai.py": 444,
         "backend/app/platform/extensions/defaults_catalog_port.py": 398,
         "backend/app/platform/extensions/defaults_processing_port.py": 406,
+        # fix(#929): +2 over the 350 default — the creator exemption on the
+        # restricted branch of filter_visible/can_access_dataset plus its
+        # rationale comments. Cap exact, zero headroom.
+        "backend/app/platform/extensions/defaults_extensions.py": 352,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -1093,7 +1097,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its maxzoom by five levels, so the honest width now travels alongside the
     # bounds as an explicit `lon_span` keyword.
     # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2066,
+    # fix(#929 review): -22 — _resolve_raster_access's inline RBAC mirror
+    # replaced with delegation to the permission extension via the port.
+    "backend/app/processing/tiles/router.py": 2046,
 }
 
 
