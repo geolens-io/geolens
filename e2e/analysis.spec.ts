@@ -250,11 +250,21 @@ test.describe('builder analysis tools', () => {
     await page.getByLabel('Operation').click();
     await page.getByRole('option', { name: 'Clip', exact: true }).click();
 
+    // Put the data under the cursor, with the panel already open so the fit
+    // runs against the final layout. Without this the map sits at its default
+    // view and a box drawn at the center lands in the Atlantic, so the clip
+    // matches nothing — which is what makes the preview assertion below
+    // meaningful: it passes only if the drawn screen coordinates unproject to
+    // the lng/lat the feature is actually at.
+    // Scoped by layer name: the basemap row's kebab shares the same prefix.
+    await page.getByRole('button', { name: `Layer options for ${seed.title}` }).click();
+    await page.getByTestId('kebab-zoom-to-layer').click();
+    await page.waitForTimeout(1500); // the fly-to animation
+
     await page.getByRole('button', { name: 'Draw clip area' }).click();
     await expect(page.getByText('Draw on the map — double-click to finish')).toBeVisible();
 
-    // Draw a box around the map center, where the single seeded feature sits
-    // (the builder fits to the layer's extent on load).
+    // Draw a box around the map center, which is now the seeded feature.
     const box = await canvas.boundingBox();
     if (!box) throw new Error('map canvas has no bounding box');
     const cx = box.x + box.width / 2;
