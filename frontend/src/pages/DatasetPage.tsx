@@ -237,7 +237,8 @@ export function DatasetPage() {
   });
 
   // S3: fetch the ingest job for this dataset to surface structured warnings
-  // (reserved_rename, dbf_truncation_collision, archive_failed, temporal_parse_errors).
+  // (reserved_rename, dbf_truncation_collision, mercator_clip, archive_failed,
+  // temporal_parse_errors).
   // 404 is a normal case — the dataset was registered from an existing table
   // or created via a non-ingest path.
   const { data: datasetJob } = useDatasetJobStatus(id ?? null);

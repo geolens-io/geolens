@@ -117,8 +117,8 @@ def sync_detailed(
 
     Used by the dataset detail page to surface ingest warnings permanently
     (S3 completion) — the job is the source of truth for
-    ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
-    / ``temporal_parse_errors`` metadata.
+    ``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /
+    ``archive_failed`` / ``temporal_parse_errors`` metadata.
 
     Returns the most recently created completed job for the dataset. When the
     dataset is visible but has no ingest job (e.g. registered from an existing
@@ -161,8 +161,8 @@ def sync(
 
     Used by the dataset detail page to surface ingest warnings permanently
     (S3 completion) — the job is the source of truth for
-    ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
-    / ``temporal_parse_errors`` metadata.
+    ``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /
+    ``archive_failed`` / ``temporal_parse_errors`` metadata.
 
     Returns the most recently created completed job for the dataset. When the
     dataset is visible but has no ingest job (e.g. registered from an existing
@@ -200,8 +200,8 @@ async def asyncio_detailed(
 
     Used by the dataset detail page to surface ingest warnings permanently
     (S3 completion) — the job is the source of truth for
-    ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
-    / ``temporal_parse_errors`` metadata.
+    ``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /
+    ``archive_failed`` / ``temporal_parse_errors`` metadata.
 
     Returns the most recently created completed job for the dataset. When the
     dataset is visible but has no ingest job (e.g. registered from an existing
@@ -242,8 +242,8 @@ async def asyncio(
 
     Used by the dataset detail page to surface ingest warnings permanently
     (S3 completion) — the job is the source of truth for
-    ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
-    / ``temporal_parse_errors`` metadata.
+    ``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /
+    ``archive_failed`` / ``temporal_parse_errors`` metadata.
 
     Returns the most recently created completed job for the dataset. When the
     dataset is visible but has no ingest job (e.g. registered from an existing

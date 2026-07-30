@@ -3003,8 +3003,8 @@ export interface paths {
          *
          *     Used by the dataset detail page to surface ingest warnings permanently
          *     (S3 completion) — the job is the source of truth for
-         *     ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
-         *     / ``temporal_parse_errors`` metadata.
+         *     ``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /
+         *     ``archive_failed`` / ``temporal_parse_errors`` metadata.
          *
          *     Returns the most recently created completed job for the dataset. When the
          *     dataset is visible but has no ingest job (e.g. registered from an existing
@@ -8304,7 +8304,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
         };
         /** KeywordCreate */
         KeywordCreate: {
@@ -9247,6 +9247,34 @@ export interface components {
          * @enum {string}
          */
         MapVisibility: "private" | "internal" | "public";
+        /**
+         * MercatorClipDetail
+         * @description fix(#888): how much geometry the Web Mercator clamp destroyed.
+         *
+         *     The clamp is a box, not a latitude cutoff: longitude -180 to 180 and
+         *     latitude -85.06 to 85.06. Either bound can be the one that cost the user
+         *     geometry, so clients must not present this as a latitude-only problem
+         *     (fix(#899 codex r1)).
+         *
+         *     ``dropped_features`` lost their geometry entirely (a valid point at lat
+         *     -89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in
+         *     reduced form.
+         */
+        MercatorClipDetail: {
+            /** Clipped Features */
+            clipped_features: number;
+            /** Dropped Features */
+            dropped_features: number;
+        };
+        /** MercatorClipWarning */
+        MercatorClipWarning: {
+            details: components["schemas"]["MercatorClipDetail"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "mercator_clip";
+        };
         /**
          * MetadataAssistRequest
          * @description Request body for metadata AI endpoints.

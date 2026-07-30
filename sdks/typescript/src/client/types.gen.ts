@@ -4481,7 +4481,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
 };
 
 /**
@@ -5852,6 +5852,42 @@ export type MapUpdate = {
  * MapVisibility
  */
 export type MapVisibility = 'private' | 'internal' | 'public';
+
+/**
+ * MercatorClipDetail
+ *
+ * fix(#888): how much geometry the Web Mercator clamp destroyed.
+ *
+ * The clamp is a box, not a latitude cutoff: longitude -180 to 180 and
+ * latitude -85.06 to 85.06. Either bound can be the one that cost the user
+ * geometry, so clients must not present this as a latitude-only problem
+ * (fix(#899 codex r1)).
+ *
+ * ``dropped_features`` lost their geometry entirely (a valid point at lat
+ * -89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in
+ * reduced form.
+ */
+export type MercatorClipDetail = {
+    /**
+     * Clipped Features
+     */
+    clipped_features: number;
+    /**
+     * Dropped Features
+     */
+    dropped_features: number;
+};
+
+/**
+ * MercatorClipWarning
+ */
+export type MercatorClipWarning = {
+    details: MercatorClipDetail;
+    /**
+     * Kind
+     */
+    kind: 'mercator_clip';
+};
 
 /**
  * MetadataAssistRequest

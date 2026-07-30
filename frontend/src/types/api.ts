@@ -396,9 +396,20 @@ export interface IngestDbfTruncationWarning {
   details: Array<{ truncated: string; originals: string[] }>;
 }
 
+/**
+ * fix(#888): the Web Mercator clamp (±85.06° lat) used to destroy geometry in
+ * silence. `dropped_features` lost their geometry entirely, `clipped_features`
+ * survived in reduced form.
+ */
+export interface IngestMercatorClipWarning {
+  kind: 'mercator_clip';
+  details: { dropped_features: number; clipped_features: number };
+}
+
 export type IngestJobWarning =
   | IngestReservedRenameWarning
-  | IngestDbfTruncationWarning;
+  | IngestDbfTruncationWarning
+  | IngestMercatorClipWarning;
 
 export interface OGCRecordProperties {
   type: string;

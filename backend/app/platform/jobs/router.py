@@ -26,6 +26,7 @@ from app.platform.jobs.models import IngestJob
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobStatusResponse,
+    MercatorClipWarning,
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
@@ -860,7 +861,9 @@ async def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
     logger = structlog.get_logger()
 
     warning_message: str | None = None
-    warnings: list[ReservedRenameWarning | DbfTruncationCollisionWarning] = []
+    warnings: list[
+        ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning
+    ] = []
     archive_failed = False
     temporal_parse_errors: dict[TemporalParseKey, str] = {}
     if job.user_metadata and isinstance(job.user_metadata, dict):
@@ -878,6 +881,8 @@ async def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
                         warnings.append(
                             DbfTruncationCollisionWarning.model_validate(raw)
                         )
+                    elif kind == "mercator_clip":
+                        warnings.append(MercatorClipWarning.model_validate(raw))
                     else:
                         logger.warning(
                             "Dropping ingest warning with unknown kind",
@@ -937,8 +942,8 @@ async def get_job_status_by_dataset(
 
     Used by the dataset detail page to surface ingest warnings permanently
     (S3 completion) — the job is the source of truth for
-    ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
-    / ``temporal_parse_errors`` metadata.
+    ``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /
+    ``archive_failed`` / ``temporal_parse_errors`` metadata.
 
     Returns the most recently created completed job for the dataset. When the
     dataset is visible but has no ingest job (e.g. registered from an existing

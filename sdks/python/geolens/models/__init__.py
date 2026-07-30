@@ -419,6 +419,8 @@ from .map_style_import_warning import MapStyleImportWarning
 from .map_summary_response import MapSummaryResponse
 from .map_update import MapUpdate
 from .map_visibility import MapVisibility
+from .mercator_clip_detail import MercatorClipDetail
+from .mercator_clip_warning import MercatorClipWarning
 from .metadata_assist_request import MetadataAssistRequest
 from .notification_status_response import NotificationStatusResponse
 from .notification_test_channel_result import NotificationTestChannelResult
@@ -1032,6 +1034,8 @@ __all__ = (
     "MapSummaryResponse",
     "MapUpdate",
     "MapVisibility",
+    "MercatorClipDetail",
+    "MercatorClipWarning",
     "MetadataAssistRequest",
     "NotificationStatusResponse",
     "NotificationTestChannelResult",

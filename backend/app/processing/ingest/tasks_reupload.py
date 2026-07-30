@@ -22,6 +22,7 @@ from app.processing.raster.cog import sha256_file
 
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
+    _append_mercator_clip_warning,
     _apply_reupload_swap,
     _archive_original_file,
     _bind_task_log_context,
@@ -342,6 +343,10 @@ async def reupload_file(
             metadata = staging_result.metadata
             sample_values = staging_result.sample_values
             three_d = staging_result.three_d
+
+            # fix(#888): tell the user when the Web Mercator clamp destroyed
+            # geometry instead of leaving them to discover it downstream.
+            _append_mercator_clip_warning(job, staging_result.mercator_clip)
 
             # 8. Apply shared reupload swap/version invariants
             await require_ingest_job_update(
@@ -664,7 +669,11 @@ async def reupload_service(
 
             has_geom = await ensure_geom_column(session, staging_tn, schema=_schema)
             if has_geom:
-                await clip_to_mercator_bounds(session, staging_tn, schema=_schema)
+                # fix(#888): same clamp accounting as the file-reupload path.
+                _append_mercator_clip_warning(
+                    job,
+                    await clip_to_mercator_bounds(session, staging_tn, schema=_schema),
+                )
                 await add_4326_column(session, staging_tn, 4326, schema=_schema)
             await grant_reader_access(
                 session,

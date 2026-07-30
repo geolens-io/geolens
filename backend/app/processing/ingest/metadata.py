@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.core.processing_port import Attribute, Dataset, Record
+    from app.processing.ingest.warnings import MercatorClipCounts
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -1181,12 +1182,115 @@ def detect_dbf_truncation_collisions(
 # Web Mercator (EPSG:3857) cannot represent latitudes beyond ±85.06°.
 # Geometries extending past this (e.g. Antarctica at -90°) cause
 # "transform: tolerance condition error" in ST_Transform.
+#
+# fix(#899 codex r1): this is a box, not a latitude cutoff — it bounds X at
+# ±180 as well. A point at lon 400 is dropped by the X bound with a perfectly
+# ordinary latitude, so the warning built from these counts must not tell the
+# user that latitude was the problem.
 _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
+
+# fix(#888): matches the WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
+# ships in spatial_ref_sys.srtext for lon/lat CRSs. 4326/4979/4269 match;
+# 2263/3857 (projected, X in feet/metres) do not.
+_GEOGRAPHIC_SRTEXT_RE = "^GEOG(CS|CRS)"
+
+# fix(#899 codex r1): geographic is not the same as degree-based. 14 SRIDs in a
+# stock PostGIS spatial_ref_sys are GEOGCS with an angular unit of grads — the
+# Paris-meridian family, 4807 NTF (Paris) and relatives — where a full circle
+# is 400, not 360. Translating one of those by -360 would move a valid feature
+# to a wrong place, so the unit has to be degrees before anything shifts. The
+# pattern covers WKT1 (`UNIT["degree"`) and WKT2 (`ANGLEUNIT["degree"`) in one
+# go, since the WKT2 spelling contains the WKT1 substring. The prefix test
+# above is what keeps a projected CRS out: 3857's srtext also carries
+# `UNIT["degree"` inside its nested GEOGCS.
+_DEGREE_UNIT_SRTEXT_RE = 'UNIT\\["degree'
+
+
+async def _shift_zero_to_360_longitudes(
+    session: AsyncSession, table_name: str, schema: str, src_srid: int
+) -> bool:
+    """Shift a 0..360-convention source into -180..180. True when it shifted.
+
+    fix(#888): a source written in the 0..360 Pacific convention (common in
+    ocean and climate data) is not out-of-range data — it is the same world
+    with a different origin. Clipping it to the Mercator envelope silently
+    deletes everything east of lon 180; translating it preserves every
+    feature. #883 showed that a single-condition guard on this class of
+    problem is a coin flip, so *all four* of these must hold before anything
+    moves:
+
+    1. The geometry column's CRS is lon/lat AND its angular unit is degrees.
+       "Longitude" is meaningless in a projected CRS, where X is metres or feet
+       and 300 is not out of range; and in a grads-based geographic CRS a full
+       circle is 400, so -360 is not a whole turn (fix(#899 codex r1)).
+    2. Table-wide min X >= 0. Any negative longitude means the source is
+       already -180..180; a source mixing both conventions is ambiguous, so
+       refuse to guess.
+    3. Table-wide max X > 180. This is the condition that separates a real
+       0..360 source from a dataset legitimately confined to the eastern
+       hemisphere (0..180 — Africa/Europe/Asia), which must not be flung
+       into -360..-180.
+    4. Table-wide max X <= 360. Past 360 is not the 0..360 convention at all
+       (wrong units, corrupt coordinates); leave those to the clamp.
+
+    Only rows whose *own* min X is >= 180 are translated, so a feature that
+    is already inside -180..180 keeps its exact coordinates. A feature that
+    straddles lon 180 in such a source needs an antimeridian split (#884 /
+    #886) rather than a translate: it stays put and is then reported by the
+    clip accounting in ``clip_to_mercator_bounds``.
+    """
+    tref = _qtable(table_name, schema=schema)
+
+    is_degree_lonlat = await session.scalar(
+        text(
+            "SELECT srtext ~* :geographic AND srtext ~* :degree_unit "
+            "FROM spatial_ref_sys WHERE srid = :srid"
+        ).bindparams(
+            geographic=_GEOGRAPHIC_SRTEXT_RE,
+            degree_unit=_DEGREE_UNIT_SRTEXT_RE,
+            srid=src_srid,
+        )
+    )
+    if not is_degree_lonlat:
+        return False
+
+    # The raw (unfolded) coordinate range is exactly what is wanted here —
+    # this is a convention probe, not a geographic extent, so it is not the
+    # antimeridian-naive extent fold tracked by #886.
+    bounds = (
+        await session.execute(
+            text(
+                f"SELECT ST_XMin(bb), ST_XMax(bb) FROM (SELECT ST_Extent(geom) AS bb FROM {tref}) s"
+            )
+        )
+    ).first()
+    if bounds is None or bounds[0] is None or bounds[1] is None:
+        return False
+    min_x, max_x = float(bounds[0]), float(bounds[1])
+    if min_x < 0 or max_x <= 180 or max_x > 360:
+        return False
+
+    result = await session.execute(
+        text(
+            f"UPDATE {tref} SET geom = ST_Translate(geom, -360, 0) "
+            f"WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) AND ST_XMin(geom) >= 180"
+        )
+    )
+    logger.info(
+        "Shifted 0..360 longitudes into -180..180 before the Mercator clip",
+        table=table_name,
+        schema=schema,
+        srid=src_srid,
+        min_x=min_x,
+        max_x=max_x,
+        rows_shifted=result.rowcount,
+    )
+    return True
 
 
 async def clip_to_mercator_bounds(
     session: AsyncSession, table_name: str, schema: str = "data"
-) -> None:
+) -> "MercatorClipCounts | None":
     """Clip geometries to the Web Mercator safe envelope (±85.06° lat).
 
     Only updates rows whose geometry actually extends beyond the bounds,
@@ -1206,6 +1310,13 @@ async def clip_to_mercator_bounds(
        geometry does not`. Wrap the result in `ST_Force3D` to put Z back
        (clipped vertices land at z=0, which is acceptable for the few rows
        that get clipped past ±85° lat).
+
+    fix(#888): returns the clip accounting — how many rows lost geometry
+    entirely (``dropped_features``) and how many survived in reduced form
+    (``clipped_features``) — so the caller can tell the user at the point of
+    loss instead of leaving them to hit "Analysis produced no features to
+    save" three steps later. Returns None when the table has no registered
+    ``geom`` metadata (nothing was inspected, let alone clipped).
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)
@@ -1220,9 +1331,11 @@ async def clip_to_mercator_bounds(
     )
     row = geom_meta.first()
     if row is None:
-        return  # column has no registered metadata — nothing safe to clip
+        return None  # column has no registered metadata — nothing safe to clip
     src_srid = int(row[0])
     column_is_3d = int(row[1]) >= 3
+
+    shifted = await _shift_zero_to_360_longitudes(session, table_name, schema, src_srid)
 
     if src_srid == 4326:
         envelope = _MERCATOR_SAFE_ENVELOPE
@@ -1233,16 +1346,43 @@ async def clip_to_mercator_bounds(
     if column_is_3d:
         clipped = f"ST_Force3D({clipped})"
 
-    await session.execute(
-        text(
-            f"UPDATE {_qtable(table_name, schema=schema)} "
-            f"SET geom = {clipped} "
-            f"WHERE NOT ST_CoveredBy(geom, {envelope})"
+    # fix(#888): count what the clip destroyed in the same statement that
+    # destroys it. Rows that were already empty are excluded from the WHERE so
+    # they cannot inflate the counts (the clip was a no-op for them anyway).
+    counts = (
+        await session.execute(
+            text(
+                f"WITH clip AS ("
+                f"  UPDATE {_qtable(table_name, schema=schema)} SET geom = {clipped} "
+                f"  WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) "
+                f"    AND NOT ST_CoveredBy(geom, {envelope}) "
+                f"  RETURNING geom AS new_geom"
+                f") SELECT "
+                f"count(*) FILTER (WHERE new_geom IS NULL OR ST_IsEmpty(new_geom)), "
+                f"count(*) FILTER (WHERE new_geom IS NOT NULL AND NOT ST_IsEmpty(new_geom)) "
+                f"FROM clip"
+            )
         )
-    )
+    ).first()
+    dropped_features = int(counts[0]) if counts is not None else 0
+    clipped_features = int(counts[1]) if counts is not None else 0
+    if dropped_features or clipped_features:
+        logger.warning(
+            "Geometry clipped to the Web Mercator safe envelope",
+            table=table_name,
+            schema=schema,
+            dropped_features=dropped_features,
+            clipped_features=clipped_features,
+            shifted_longitudes=shifted,
+        )
     # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
     # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
     # boundary so a downstream failure rolls back this clip atomically.
+    return {
+        "shifted_longitudes": shifted,
+        "dropped_features": dropped_features,
+        "clipped_features": clipped_features,
+    }
 
 
 async def add_4326_column(
