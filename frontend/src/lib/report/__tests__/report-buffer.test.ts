@@ -380,6 +380,32 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 11 on #908: a template may carry the whole tile address in the
+  // query string, which the custom-basemap validator accepts.
+  it('collapses a source whose coordinates ride the query string', () => {
+    for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/tile?z=12&x=${x}&y=${y}`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('keeps a source-defining query param while dropping the coordinates', () => {
+    for (const layer of ['roads', 'rivers']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://wms.example.com/?layer=${layer}&Z=5&X=1&Y=1`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

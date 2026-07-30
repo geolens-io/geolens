@@ -223,7 +223,16 @@ function sourceIdOf(entry: ReportEntry): string {
  * it matters for the `console` rows the viewer and dataset preview leave
  * behind, which carry no source at all.
  */
-const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX']);
+// Per-tile or rotating query params: the credential set, and every form
+// MapLibre can substitute a coordinate into. A template may put the whole tile
+// address in the query (`?z={z}&x={x}&y={y}`), which the custom-basemap
+// validator accepts, so those names are as per-tile as a path segment is.
+// Matched case-insensitively — the same params appear upper-cased in WMS-style
+// templates.
+const VOLATILE_TILE_PARAMS = new Set([
+  'sig', 'exp', 'scope', '_v',
+  'z', 'x', 'y', 'bbox', 'quadkey',
+]);
 
 function failureKey(message: string): string {
   return message
@@ -239,7 +248,7 @@ function failureKey(message: string): string {
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')
-        .filter((pair) => pair && !VOLATILE_TILE_PARAMS.has(pair.split('=')[0]));
+        .filter((pair) => pair && !VOLATILE_TILE_PARAMS.has(pair.split('=')[0].toLowerCase()));
       return kept.length > 0 ? `?${kept.join('&')}` : '';
     });
 }
