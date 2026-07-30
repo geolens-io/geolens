@@ -22,6 +22,7 @@ from app.modules.auth.dependencies import (
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
+from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
@@ -724,10 +725,22 @@ async def get_job_status(
 
     # Auto-fail jobs whose worker lease has expired. Fall back to started_at
     # for jobs created before heartbeat support was deployed.
+    #
+    # fix(#691): analysis materialize jobs use the short materialize lease
+    # rather than the 60-minute backstop, mirroring the per-user cap in
+    # router_analysis.py. The frontend polls this route for any job it
+    # tracks, so a hard-killed worker's analysis job flips to failed within
+    # the lease window and the Analysis panel's Create button re-enables at
+    # the same moment the server would admit a new materialize — the client
+    # follows the server's signal without needing heartbeat visibility.
     liveness_at = job.heartbeat_at or job.started_at
     if job.status == "running" and liveness_at is not None:
+        is_analysis = "analysis" in (job.user_metadata or {})
+        lease_seconds = (
+            ANALYSIS_MATERIALIZE_LEASE_SECONDS if is_analysis else JOB_TIMEOUT_SECONDS
+        )
         elapsed = (now - liveness_at).total_seconds()
-        if elapsed > JOB_TIMEOUT_SECONDS:
+        if elapsed > lease_seconds:
             await db.execute(
                 update(IngestJob)
                 .where(
@@ -735,7 +748,7 @@ async def get_job_status(
                     IngestJob.attempt_id == job.attempt_id,
                     IngestJob.status == "running",
                     func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-                    < now - timedelta(seconds=JOB_TIMEOUT_SECONDS),
+                    < now - timedelta(seconds=lease_seconds),
                 )
                 .values(
                     status="failed",
