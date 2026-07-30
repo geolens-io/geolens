@@ -470,6 +470,11 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
 # test in SQL against spatial_ref_sys.srtext.
 _WKT_DEGREE_UNIT_RE = re.compile(r'UNIT\["degree', re.IGNORECASE)
 
+# fix(#939 codex r4): a standalone WKT2 `CS[` keyword (ellipsoidal/Cartesian/
+# vertical...). The negative lookbehind keeps `GEOGCS[`/`VERTCS[`/... from
+# matching — those end in CS but are CRS keywords, not coordinate systems.
+_WKT2_CS_RE = re.compile(r"(?<![A-Z0-9_])CS\[", re.IGNORECASE)
+
 
 def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     """Whether a CRS WKT declares a degree angular unit anywhere.
@@ -479,7 +484,20 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     geographic — every projected WKT1 nests a GEOGCS whose UNIT is degrees,
     so call :func:`wkt_is_geographic` first. Returns None when no WKT is
     stored.
+
+    fix(#939 codex r4): in WKT2, other elements carry angular units of their
+    own — EPSG:4901's PRIME meridian is expressed in degrees while both
+    ellipsoidal axes are in grads — so an unrestricted scan would call a
+    grads CRS degree-based. When the WKT has a standalone ``CS[`` keyword
+    (WKT2), only the text from the first ``CS[`` on is searched: that is
+    where the coordinate-system and axis units live, and the PRIMEM sits
+    before it. WKT1 has no ``CS[`` and states the CRS unit once, so the whole
+    string is searched as before.
     """
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
-    return _WKT_DEGREE_UNIT_RE.search(crs_wkt) is not None
+    target = crs_wkt
+    cs_match = _WKT2_CS_RE.search(crs_wkt)
+    if cs_match is not None:
+        target = crs_wkt[cs_match.start() :]
+    return _WKT_DEGREE_UNIT_RE.search(target) is not None

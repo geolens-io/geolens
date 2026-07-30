@@ -74,6 +74,23 @@ def test_grads_geogcs_is_geographic_but_not_degrees():
     assert wkt_has_degree_unit(WKT1_GEOGRAPHIC_GRADS) is False
 
 
+def test_wkt2_grads_axes_with_degree_prime_meridian_are_not_degrees():
+    # fix(#939 codex r4): EPSG:4901's WKT2 expresses the PRIME meridian in
+    # degrees while both ellipsoidal axes are grads — the unit test must read
+    # the coordinate-system section, not the first angular unit anywhere.
+    wkt = (
+        'GEOGCRS["ATF (Paris)",'
+        'DATUM["Ancienne Triangulation Francaise (Paris)",'
+        'ELLIPSOID["Plessis 1817",6376523,308.64,LENGTHUNIT["metre",1]]],'
+        'PRIMEM["Paris RGS",2.33720833333333,ANGLEUNIT["degree",0.0174532925199433]],'
+        "CS[ellipsoidal,2],"
+        'AXIS["geodetic latitude (Lat)",north,ANGLEUNIT["grad",0.015707963267949]],'
+        'AXIS["geodetic longitude (Lon)",east,ANGLEUNIT["grad",0.015707963267949]]]'
+    )
+    assert wkt_is_geographic(wkt) is True
+    assert wkt_has_degree_unit(wkt) is False
+
+
 def test_degree_unit_missing_wkt_is_unknown():
     assert wkt_has_degree_unit(None) is None
     assert wkt_has_degree_unit("") is None
