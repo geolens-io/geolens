@@ -107,6 +107,13 @@ export function hasExpiringSession(
 // 403s long after any renewal window and must still surface.
 const RENEWAL_SUPPRESS_MS = 10_000;
 
+// A hard ceiling on how long an in-flight renewal can keep suppressing.
+// `refreshAccessToken` rides an unbounded fetch, so without this a hung request
+// would silence raster auth errors for the rest of the session.
+const RENEWAL_MAX_MS = 60_000;
+
+let renewalInFlight = false;
+let renewalDeadline = 0;
 let renewalPendingUntil = 0;
 
 /**
@@ -118,6 +125,13 @@ let renewalPendingUntil = 0;
  * demonstrably is.
  */
 export function isSessionRenewalPending(nowMs: number = Date.now()): boolean {
+  // Tied to the refresh PROMISE, not to a fixed deadline: a slow
+  // `/auth/refresh/` (or a slow stale raster request) can outlast any window
+  // picked in advance, and a 401 arriving in that gap would latch DatasetMap's
+  // permanent error overlay for tiles the eventual rotation heals. The grace
+  // period after it settles covers the reload and the errors the race already
+  // queued.
+  if (renewalInFlight && nowMs < renewalDeadline) return true;
   return nowMs < renewalPendingUntil;
 }
 
@@ -137,6 +151,8 @@ const RENEWAL_WATCH_MS = 30_000;
  * 401 against the same Bearer. */
 function reloadOnTokenRotation(reload: () => void): void {
   const tokenBefore = useAuthStore.getState().token;
+  renewalInFlight = true;
+  renewalDeadline = Date.now() + RENEWAL_MAX_MS;
   renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
   const reloadAndExtend = () => {
     // Cover the errors already queued by the race, which arrive just after the
@@ -151,6 +167,8 @@ function reloadOnTokenRotation(reload: () => void): void {
   // dialog. Only a non-null, different token is a rotation.
   const isRotation = (token: string | null) => token !== null && token !== tokenBefore;
   void tryRefresh().then(() => {
+    renewalInFlight = false;
+    renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
     if (isRotation(useAuthStore.getState().token)) {
       reloadAndExtend();
       return;

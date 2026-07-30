@@ -486,6 +486,37 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(isSessionRenewalPending(startedAt + 60_000)).toBe(false);
   });
 
+  // codex on #964: refreshAccessToken rides an unbounded fetch, so a fixed
+  // deadline could expire mid-flight and let a delayed raster 401 latch
+  // DatasetMap's permanent error overlay for tiles the rotation then heals.
+  it('stays pending for as long as the refresh is actually in flight', async () => {
+    const recover = vi.fn(() => true);
+    let settle: (value: boolean) => void = () => {};
+    vi.mocked(tryRefresh).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
+    renderHook(() => useVisibleTileTokenRefresh(() => [rasterToken], recover));
+
+    const startedAt = Date.now();
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // Well past the post-settle grace window, still in flight → still pending.
+    expect(isSessionRenewalPending(startedAt + 30_000)).toBe(true);
+    // …but not forever: a hung refresh must not silence the map for the rest
+    // of the session.
+    expect(isSessionRenewalPending(startedAt + 120_000)).toBe(false);
+
+    settle(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Settled: back to the bounded grace window.
+    expect(isSessionRenewalPending(Date.now() + 60_000)).toBe(false);
+  });
+
   it('does not touch raster sources when only a vector sig is expiring', async () => {
     const recover = vi.fn(() => true);
     const onCredentialRenewed = vi.fn();
