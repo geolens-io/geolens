@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 // fix(#431 codex r2): a mixed-geometry (GEOMETRY sentinel) layer's paint and
 // layout span three MapLibre layer types — the adapter fans the same dict out
@@ -113,11 +114,23 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const contentId = useId();
+  const errorId = useId();
 
-  function handleOpen() {
-    setText(JSON.stringify(value, null, 2));
+  // fix(#921 review): collapsing the block must not throw away a draft. Seed
+  // the text only when there is nothing to preserve; Apply and Cancel are the
+  // two explicit exits that reset it.
+  function handleToggle() {
+    if (editing) { setEditing(false); return; }
+    if (text === '') setText(JSON.stringify(value, null, 2));
     setError(null);
     setEditing(true);
+  }
+
+  function handleCancel() {
+    setText('');
+    setError(null);
+    setEditing(false);
   }
 
   function handleApply() {
@@ -144,6 +157,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
         }
       }
       onApply(parsed);
+      setText('');
       setError(null);
       setEditing(false);
     } catch {
@@ -151,38 +165,44 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
     }
   }
 
-  if (!editing) {
-    return (
-      <div>
-        <button
-          type="button"
-          className="cursor-pointer text-xs text-muted-foreground hover:text-foreground underline"
-          onClick={handleOpen}
-        >
-          {label}
-        </button>
-      </div>
-    );
-  }
-
+  // fix(#921): one disclosure button that stays mounted, so its expanded state is
+  // reportable; the error is announced and wired to the textarea.
   return (
     <div className="space-y-1.5">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <Textarea
-        className="text-xs font-mono resize-y min-h-[80px]"
-        value={text}
-        onChange={(e) => { setText(e.target.value); setError(null); }}
-        spellCheck={false}
-        aria-label={t('style.jsonTextareaAriaLabel', { block: label })}
-      />
-      {error && <div className="text-xs text-destructive">{error}</div>}
-      <div className="flex gap-1.5">
-        <Button size="sm" className="h-6 text-xs px-2" onClick={handleApply}>
-          {t('style.jsonApply')}
-        </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => setEditing(false)}>
-          {t('style.jsonCancel')}
-        </Button>
+      <button
+        type="button"
+        className={cn(
+          'cursor-pointer text-xs hover:text-foreground',
+          editing ? 'font-medium text-muted-foreground' : 'text-muted-foreground underline',
+        )}
+        onClick={handleToggle}
+        aria-expanded={editing}
+        aria-controls={contentId}
+      >
+        {label}
+      </button>
+      {/* fix(#921 review): the aria-controls target stays mounted and `hidden`
+          while collapsed — an id reference that resolves to nothing is exactly
+          what AT hits when it meets the collapsed trigger. */}
+      <div id={contentId} hidden={!editing} className="space-y-1.5">
+        <Textarea
+          className="text-xs font-mono resize-y min-h-[80px]"
+          value={text}
+          onChange={(e) => { setText(e.target.value); setError(null); }}
+          spellCheck={false}
+          aria-label={t('style.jsonTextareaAriaLabel', { block: label })}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+        />
+        {error && <div id={errorId} role="alert" className="text-xs text-destructive">{error}</div>}
+        <div className="flex gap-1.5">
+          <Button size="sm" className="h-6 text-xs px-2" onClick={handleApply}>
+            {t('style.jsonApply')}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={handleCancel}>
+            {t('style.jsonCancel')}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -200,6 +220,7 @@ export interface AdvancedJsonEditorProps {
 export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defaultOpen = false, layerType }: AdvancedJsonEditorProps) {
   const { t } = useTranslation('builder');
   const [open, setOpen] = useState(defaultOpen);
+  const blocksId = useId();
 
   // fix(#916): symbol mode keeps circle paint on the layer (renderAs.ts:444) but
   // real symbol layout — validate each block against what it actually holds.
@@ -214,13 +235,13 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
         className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-controls={blocksId}
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}
         <Code className="h-3 w-3" />
         {t('style.advancedJson')}
       </button>
-      {open && (
-        <div className="mt-2 space-y-3">
+      <div id={blocksId} hidden={!open} className="mt-2 space-y-3">
           <JsonBlock
             label={t('style.paintJson')}
             value={paint}
@@ -235,8 +256,7 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
             layerType={layerType}
             block="layout"
           />
-        </div>
-      )}
+      </div>
     </div>
   );
 }

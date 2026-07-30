@@ -749,7 +749,7 @@ export function DataDrivenStyleEditor({
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{t('dataDriven.mode')}</span>
         <Select value={mode} onValueChange={(v) => handleModeChange(v as 'categorical' | 'graduated')}>
-          <SelectTrigger className="h-7 text-xs flex-1">
+          <SelectTrigger className="h-7 text-xs flex-1" aria-label={t('dataDriven.mode')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -771,7 +771,7 @@ export function DataDrivenStyleEditor({
             value={target}
             onValueChange={(v) => handleTargetChange(v as 'color' | 'radius' | 'width')}
           >
-            <SelectTrigger className="h-7 text-xs flex-1">
+            <SelectTrigger className="h-7 text-xs flex-1" aria-label={t('dataDriven.target')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -792,7 +792,7 @@ export function DataDrivenStyleEditor({
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{t('dataDriven.column')}</span>
         <Select value={column} onValueChange={handleColumnChange}>
-          <SelectTrigger className="h-7 text-xs flex-1">
+          <SelectTrigger className="h-7 text-xs flex-1" aria-label={t('dataDriven.column')}>
             <SelectValue placeholder={t('dataDriven.selectColumn')} />
           </SelectTrigger>
           <SelectContent>
@@ -948,7 +948,7 @@ export function DataDrivenStyleEditor({
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('dataDriven.method')}</span>
             <Select value={method} onValueChange={(v) => setMethod(v as ClassificationMethod)}>
-              <SelectTrigger className="h-7 text-xs flex-1">
+              <SelectTrigger className="h-7 text-xs flex-1" aria-label={t('dataDriven.method')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
