@@ -108,11 +108,15 @@ SAFE_OPEN_ENV_HELPER = "gdal_safe_open_env"
 
 # The one module whose definitions of the helpers are canonical. Credit for
 # using a helper requires the name to be BOUND to this module (imported from
-# it, or used inside it) — a bare tail-name match would hand credit to a
-# local shadow or an unrelated `something.gdal_safe_open_env()` (codex round
-# 3 on #974).
+# it, or used inside it) — a bare tail-match would hand credit to a local
+# shadow or an unrelated `something.gdal_safe_open_env()` (codex round 3 on
+# #974). Module paths are matched EXACTLY (codex round 9): a suffix match
+# credited `from evil.processing.raster.vrt import ...`. The real tree
+# imports only the absolute form; relative imports (`from .vrt import ...`)
+# are not used and get no credit — the conservative failure direction.
 CANONICAL_HELPER_MODULE_REL = "processing/raster/vrt.py"
-CANONICAL_HELPER_MODULE_SUFFIX = "processing.raster.vrt"
+CANONICAL_HELPER_MODULE = "app.processing.raster.vrt"
+CANONICAL_HELPER_PARENT = "app.processing.raster"
 
 # (module path relative to backend/app, enclosing function name) ->
 # (expected UNWRAPPED rasterio.open count, justification). Adding a new
@@ -278,17 +282,23 @@ _FROM_IMPORT_KINDS: dict[str, dict[str, str]] = {
 
 def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
     module = node.module or ""
-    if module.endswith(CANONICAL_HELPER_MODULE_SUFFIX):
+    # codex round 9: exact module comparison, never a suffix match — a
+    # suffix credited `from evil.processing.raster.vrt import ...`. Relative
+    # imports (node.level > 0) are not spellings the tree uses; their names
+    # fall through to `bound` and earn no credit.
+    if node.level == 0 and module == CANONICAL_HELPER_MODULE:
         kinds = {
             SAFE_OPEN_ENV_HELPER: SAFE_OPEN_ENV_HELPER,
             SAFE_SUBPROCESS_ENV_HELPER: SAFE_SUBPROCESS_ENV_HELPER,
         }
-    elif module.endswith("processing.raster"):
+    elif node.level == 0 and module == CANONICAL_HELPER_PARENT:
         kinds = {"vrt": _KIND_MODALIAS}
-    else:
+    elif node.level == 0:
         # codex round 5 on #974: `from rasterio import open as ropen` was
         # invisible to the alias-guessing predicate — an unsafe miss.
         kinds = _FROM_IMPORT_KINDS.get(module, {})
+    else:
+        kinds = {}
     for alias in node.names:
         kind = kinds.get(alias.name)
         if kind is not None:
@@ -299,7 +309,7 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
 
 def _record_plain_import(info: _ScopeInfo, node: ast.Import) -> None:
     for alias in node.names:
-        if alias.name.endswith(CANONICAL_HELPER_MODULE_SUFFIX) and alias.asname:
+        if alias.name == CANONICAL_HELPER_MODULE and alias.asname:
             info.canonical[_KIND_MODALIAS].add(alias.asname)
         elif alias.name == "rasterio":
             # codex round 5: `import rasterio as rs` must be tracked as a
@@ -734,7 +744,9 @@ def _collect_gdal_cli_violations(
     for rel, tree in modules:
         _annotate_parents(tree)
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.List) and node.elts):
+            # codex round 9: tuples build argv vectors just as well as lists
+            # (subprocess.run(("gdalinfo", url))) — match both.
+            if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
                 continue
             first = node.elts[0]
             if not (isinstance(first, ast.Constant) and first.value in GDAL_CLI_TOOLS):
@@ -1211,6 +1223,37 @@ def test_guard_remote_fp_keyword_and_uppercase_scheme_are_caught():
     assert len(violations) == 2, violations
     assert any("(kw)" in v and "literally-remote" in v for v in violations)
     assert any("(upper)" in v and "literally-remote" in v for v in violations)
+
+
+def test_guard_tuple_argv_is_detected():
+    """codex round 9: a tuple argv (subprocess.run(("gdalinfo", url))) must
+    be judged exactly like a list argv."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\ndef runs(url):\n    subprocess.run(('gdalinfo', url))\n"
+        ),
+        {},
+    )
+    assert total == 1
+    assert len(violations) == 1 and "(runs)" in violations[0]
+
+
+def test_guard_evil_prefixed_module_gets_no_credit():
+    """codex round 9: module paths compare exactly — a suffix match credited
+    from evil.processing.raster.vrt import gdal_safe_open_env."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from evil.processing.raster.vrt import gdal_safe_open_env\n"
+            "def fn(path):\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 1 and "(fn)" in violations[0]
 
 
 def test_guard_blank_justification_fails():
