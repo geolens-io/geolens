@@ -504,7 +504,11 @@ services:
       VSI_CACHE: "TRUE"                                  # Enable /vsicurl block caching for range-request reuse
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"               # /vsicurl cache size in bytes (16 MB)
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"          # Merge adjacent HTTP range requests into fewer round-trips
-      GDAL_HTTP_FOLLOWLOCATION: "NO"                     # Revalidate remote object URLs at the API layer; TiTiler must not follow redirects
+      # fix(#937): GDAL_HTTP_FOLLOWLOCATION was set here as a redirect clamp; it is
+      # not a GDAL config option and never blocked a redirect — do not re-add it.
+      # No GDAL option disables redirect-following. TiTiler's real constraints are
+      # the CPL_VSIL_CURL_ALLOWED_EXTENSIONS allow-list above and API-layer URL
+      # validation; redirect exposure beyond those needs network-layer egress rules.
       AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
