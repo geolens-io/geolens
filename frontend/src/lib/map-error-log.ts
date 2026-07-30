@@ -11,6 +11,8 @@
 // Passing `logUnhandledMapError` as the <Map> `onError` prop keeps the
 // wrapper's default log for everything else and drops ONLY that handled case.
 
+import { isSessionRenewalPending } from '@/hooks/use-tile-auth-recovery';
+
 /** Structural subset of MapLibre's ErrorEvent that this module inspects.
  * MapLibre attaches `status`/`url` to AJAXError instances raised by tile
  * fetches; plain style/runtime errors carry neither. */
@@ -71,8 +73,17 @@ export function isRasterTileAuthError(e: MapLibreErrorLike): boolean {
 /** `onError` prop for @vis.gl/react-maplibre's <Map>: replicate the wrapper's
  * default `console.error` fallback, except for handled first-party tile-auth
  * 401/403s, which log nothing — the surface's `map.on('error')` handler
- * recovers those and reports them (suppressed) where applicable. */
+ * recovers those and reports them (suppressed) where applicable.
+ *
+ * fix(#907): a raster/DEM 401 is now handled too, but only while a session
+ * renewal is in flight — that renewal is what fixes it, and the post-rotation
+ * reload retries the tiles. Without this the surfaces suppress their own row
+ * while this fallback still console.errors the same failure, which
+ * `initReportCapture` turns into an unsuppressed red entry: the #755
+ * double-log shape, for a tab return that healed itself. Outside that window a
+ * raster auth failure is unrecoverable and still logs, exactly as #890 made it. */
 export function logUnhandledMapError(e: MapLibreErrorLike): void {
   if (isHandledTileAuthError(e)) return;
+  if (isRasterTileAuthError(e) && isSessionRenewalPending()) return;
   console.error(e.error);
 }

@@ -11,6 +11,11 @@ import {
   isRasterTileUrl,
   logUnhandledMapError,
 } from '@/lib/map-error-log';
+import { isSessionRenewalPending } from '@/hooks/use-tile-auth-recovery';
+
+vi.mock('@/hooks/use-tile-auth-recovery', () => ({
+  isSessionRenewalPending: vi.fn(() => false),
+}));
 
 function ajaxError(status: number, url: string) {
   return { error: { message: `AJAXError: (${status}): ${url}`, status, url } };
@@ -165,5 +170,40 @@ describe('isRasterTileAuthError (fix #890)', () => {
     expect(isRasterTileUrl(rasterUrl)).toBe(true);
     expect(isRasterTileUrl(vectorUrl)).toBe(false);
     expect(isRasterTileUrl(undefined)).toBe(false);
+  });
+});
+
+// fix(#907): a raster 401 is unrecoverable — EXCEPT while a session renewal is
+// in flight, which is the one thing that fixes it. Logging it then would leave
+// an unsuppressed red report entry for a tab return that healed itself.
+describe('logUnhandledMapError during a session renewal (fix #907)', () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(isSessionRenewalPending).mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  const rasterAuthError = ajaxError(401, '/raster-tiles/abc/tiles/12/1/1.png');
+
+  it('logs a raster 401 when no renewal is running', () => {
+    logUnhandledMapError(rasterAuthError);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent for a raster 401 while a renewal is running', () => {
+    vi.mocked(isSessionRenewalPending).mockReturnValue(true);
+    logUnhandledMapError(rasterAuthError);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('still logs a non-auth raster failure during a renewal', () => {
+    vi.mocked(isSessionRenewalPending).mockReturnValue(true);
+    logUnhandledMapError(ajaxError(500, '/raster-tiles/abc/tiles/12/1/1.png'));
+    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 });
