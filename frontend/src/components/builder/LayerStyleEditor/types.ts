@@ -40,7 +40,9 @@ export interface BaseStyleEditorProps {
    * setting a pattern deletes fill-color; clearing the pattern (id=undefined)
    * deletes fill-pattern and restores fill-color. Optional — only FillEditor uses it.
    */
-  onFillPatternChange?: (id: string | undefined) => void;
+  /** fix(#922): required — the fallback set fill-pattern to undefined instead of
+   *  deleting the key, exactly what the EDIT-05 mutual-exclusion rule forbids. */
+  onFillPatternChange: (id: string | undefined) => void;
   onToggleFill: () => void;
   onToggleStroke: () => void;
   onHeatmapPaintChange: (layerId: string, nextPaint: Record<string, unknown>) => void;

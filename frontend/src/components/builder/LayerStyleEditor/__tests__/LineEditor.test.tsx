@@ -62,6 +62,7 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
     onHeatmapPaintChange: vi.fn(),
     onSymbolConfigChange: vi.fn(),
     onBuilderChange: vi.fn(),
+    onFillPatternChange: vi.fn(),
     t: (key: string) => {
       const labels: Record<string, string> = {
         'style.line': 'Line',

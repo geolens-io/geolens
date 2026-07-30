@@ -76,7 +76,7 @@ export function FillEditor({
           {isPolygon && (
             <FillPatternPicker
               value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
-              onChange={onFillPatternChange ?? ((id) => onPaintProp('fill-pattern', id))}
+              onChange={onFillPatternChange}
               t={t}
             />
           )}

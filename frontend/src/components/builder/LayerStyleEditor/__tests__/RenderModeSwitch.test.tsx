@@ -59,6 +59,7 @@ const baseProps: Omit<BaseStyleEditorProps, 'dispatchKey'> = {
   onHeatmapPaintChange: vi.fn(),
   onSymbolConfigChange: vi.fn(),
   onBuilderChange: vi.fn(),
+    onFillPatternChange: vi.fn(),
   t: (key: string) => key,
 };
 
