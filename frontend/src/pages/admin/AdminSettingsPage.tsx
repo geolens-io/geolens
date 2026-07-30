@@ -28,7 +28,10 @@ import { useEdition } from '@/hooks/use-edition';
 import type { SettingItem } from '@/api/settings';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
-const ALL_TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions', 'appearance'] as const;
+// Exported for the App route-table guard (fix(#871)): a static
+// `admin/settings/<key>` route outranks `admin/settings/:tab`, so any static
+// path matching one of these keys silently steals the tab from this page.
+export const ALL_TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions', 'appearance'] as const;
 type TabKey = typeof ALL_TAB_KEYS[number];
 
 const TAB_LABELS: Record<TabKey, string> = {

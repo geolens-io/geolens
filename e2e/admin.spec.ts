@@ -228,17 +228,16 @@ test.describe('Admin Panel', () => {
   test('settings: appearance URL never renders the appearance tab on community', async ({ page }) => {
     await page.goto('/admin/settings/appearance');
 
-    // fix(#871): /admin/settings/appearance is currently shadowed by a static
-    // legacy redirect to /map for EVERY edition; the intended fix removes that
-    // route, after which AdminSettingsPage's edition gate sends community
-    // users to /general instead. This assertion is written as the INVARIANT
-    // that holds on both sides of that fix: a community admin never sees the
-    // appearance (branding) tab and lands on another valid settings tab. The
-    // exact destinations (community → general, enterprise → appearance) are
-    // pinned at the unit level in AdminSettingsPage.test.tsx — a community
-    // dev stack can only ever exhibit one edition in e2e.
-    await page.waitForURL(/\/admin\/settings\/(map|general)$/);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 });
+    // fix(#871): AdminSettingsPage's edition gate owns this URL now, so a
+    // community stack lands on /general (it used to be dragged to /map by a
+    // static legacy redirect that outranked `admin/settings/:tab`). The
+    // enterprise direction — same URL renders the branding tab — is pinned at
+    // the unit level in AdminSettingsPage.test.tsx, since the stack under
+    // test only ever has one edition.
+    await page.waitForURL('/admin/settings/general');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'General', exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
     // The appearance tab's branding toggle must never render for community.
     await expect(page.locator('#show-badge')).toHaveCount(0);
 
