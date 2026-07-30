@@ -73,6 +73,17 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   passed to the subprocess is not verified. Wiring the returned dict to the
   ``subprocess.run(env=...)`` argument is dataflow analysis — reviewer
   territory, documented, not promised.
+- Remote-source detection is LITERAL only (codex round 7): an open or argv
+  whose argument is, or obviously leads with, a remote-prefixed string
+  literal (http/https, ``/vsicurl*``, hardcoded ``/vsis3``/``/vsiaz``/
+  ``/vsigs``) gets no wrapper/safe-env credit, because no GDAL env stops a
+  redirect (#937 maintainer decision). A remote URL arriving through a
+  VARIABLE is argument provenance — dataflow this gate cannot do. That
+  safety does not live here: user-supplied URLs are gated by
+  ``validate_url_for_ssrf`` (with ``make_safe_client``'s per-hop
+  revalidation on httpx paths) before any fetch, and GDAL fetches are
+  constrained by the ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` allow-list, per
+  AGENTS.md Rule 2 as rewritten for #937.
 """
 
 from __future__ import annotations
@@ -431,6 +442,41 @@ def _inside_safe_open_env(node: ast.AST, rel: str) -> bool:
     return False
 
 
+# codex round 7 on #974: gdal_safe_open_env provides NO redirect protection
+# (the #937 fact), so wrapper credit must not extend to sources that are
+# lexically, obviously remote. A literal /vsis3//vsiaz//vsigs counts too:
+# managed-storage paths are always CONSTRUCTED from settings at runtime, so
+# a hardcoded literal is by definition outside the managed roots.
+_REMOTE_PREFIXES = (
+    "http://",
+    "https://",
+    "/vsicurl",
+    "/vsis3/",
+    "/vsiaz/",
+    "/vsigs/",
+)
+
+
+def _leading_literal(expr: ast.expr) -> str | None:
+    """The leftmost string literal of an expression, when one leads it:
+    a plain Constant, the first chunk of an f-string, or the left arm of a
+    ``+`` concatenation chain."""
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return expr.value
+    if isinstance(expr, ast.JoinedStr) and expr.values:
+        first = expr.values[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            return first.value
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+        return _leading_literal(expr.left)
+    return None
+
+
+def _is_remote_literal(expr: ast.expr) -> bool:
+    lit = _leading_literal(expr)
+    return lit is not None and lit.startswith(_REMOTE_PREFIXES)
+
+
 def _enclosing_function_node(
     node: ast.AST,
 ) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
@@ -503,6 +549,52 @@ def _blank_justification_violations(allowlist_name: str, allowlist: dict) -> lis
     return violations
 
 
+def _scan_rasterio_calls(modules: list[tuple[str, ast.Module]]):
+    """Walk every module once, returning the raw per-site accounting the
+    rasterio checks judge: (unwrapped_counts, unwrapped_lines, remote_sites,
+    env_counts, env_lines, total_open_calls)."""
+    unwrapped_counts: dict[tuple[str, str], int] = {}
+    unwrapped_lines: dict[tuple[str, str], list[int]] = {}
+    remote_sites: set[tuple[str, str]] = set()
+    env_counts: dict[tuple[str, str], int] = {}
+    env_lines: dict[tuple[str, str], list[int]] = {}
+    total_open_calls = 0
+
+    for rel, tree in modules:
+        _annotate_parents(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            kind = _rasterio_call_kind(node, rel)
+            if kind == "open":
+                total_open_calls += 1
+                site = (rel, _enclosing_function(node))
+                # codex round 7 on #974: a lexically remote source gets NO
+                # wrapper credit — gdal_safe_open_env carries no redirect
+                # protection (#937), so wrapping a remote open proves
+                # nothing. It must be allowlisted with its own review.
+                remote = bool(node.args) and _is_remote_literal(node.args[0])
+                if not remote and _inside_safe_open_env(node, rel):
+                    continue
+                if remote:
+                    remote_sites.add(site)
+                unwrapped_counts[site] = unwrapped_counts.get(site, 0) + 1
+                unwrapped_lines.setdefault(site, []).append(node.lineno)
+            elif kind == "Env":
+                site = (rel, _enclosing_function(node))
+                env_counts[site] = env_counts.get(site, 0) + 1
+                env_lines.setdefault(site, []).append(node.lineno)
+
+    return (
+        unwrapped_counts,
+        unwrapped_lines,
+        remote_sites,
+        env_counts,
+        env_lines,
+        total_open_calls,
+    )
+
+
 def _collect_rasterio_violations(
     modules: list[tuple[str, ast.Module]],
     open_allowlist: dict[tuple[str, str], tuple[int, str]],
@@ -520,12 +612,16 @@ def _collect_rasterio_violations(
     rasterio.Env constructions are counted per site too, so a second Env
     inside the wrapper function cannot ride the canonical entry.
     """
-    unwrapped_counts: dict[tuple[str, str], int] = {}
-    unwrapped_lines: dict[tuple[str, str], list[int]] = {}
-    env_counts: dict[tuple[str, str], int] = {}
-    env_lines: dict[tuple[str, str], list[int]] = {}
+    scan = _scan_rasterio_calls(modules)
+    (
+        unwrapped_counts,
+        unwrapped_lines,
+        remote_sites,
+        env_counts,
+        env_lines,
+        total_open_calls,
+    ) = scan
     violations: list[str] = []
-    total_open_calls = 0
 
     violations += _blank_justification_violations(
         "RASTERIO_OPEN_ALLOWLIST", open_allowlist
@@ -534,33 +630,25 @@ def _collect_rasterio_violations(
         "RASTERIO_ENV_ALLOWLIST", env_allowlist
     )
 
-    for rel, tree in modules:
-        _annotate_parents(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            kind = _rasterio_call_kind(node, rel)
-            if kind == "open":
-                total_open_calls += 1
-                site = (rel, _enclosing_function(node))
-                if _inside_safe_open_env(node, rel):
-                    continue
-                unwrapped_counts[site] = unwrapped_counts.get(site, 0) + 1
-                unwrapped_lines.setdefault(site, []).append(node.lineno)
-            elif kind == "Env":
-                site = (rel, _enclosing_function(node))
-                env_counts[site] = env_counts.get(site, 0) + 1
-                env_lines.setdefault(site, []).append(node.lineno)
-
     for site, count in sorted(unwrapped_counts.items()):
         rel, func = site
         lines = ",".join(str(n) for n in unwrapped_lines[site])
         if site not in open_allowlist:
-            violations.append(
-                f"{rel}:{lines} ({func}) calls rasterio.open outside "
-                f"`with {SAFE_OPEN_ENV_HELPER}():` — wrap it, or allowlist it "
-                "here with a justification (AGENTS.md Rule 2, #936)"
-            )
+            if site in remote_sites:
+                violations.append(
+                    f"{rel}:{lines} ({func}) opens a literally-remote source "
+                    "with rasterio — wrapper credit does not apply because "
+                    f"{SAFE_OPEN_ENV_HELPER} provides no redirect protection "
+                    "(#937); route the URL through validate_url_for_ssrf at "
+                    "the API layer and allowlist the site with a "
+                    "justification (AGENTS.md Rule 2, #936)"
+                )
+            else:
+                violations.append(
+                    f"{rel}:{lines} ({func}) calls rasterio.open outside "
+                    f"`with {SAFE_OPEN_ENV_HELPER}():` — wrap it, or allowlist "
+                    "it here with a justification (AGENTS.md Rule 2, #936)"
+                )
         elif count != open_allowlist[site][0]:
             violations.append(
                 f"{rel} ({func}) has {count} unwrapped rasterio.open call(s) "
@@ -615,6 +703,7 @@ def _collect_gdal_cli_violations(
     violations: list[str] = []
     total_argv_sites = 0
     unsafe_counts: dict[tuple[str, str, str], int] = {}
+    remote_keys: set[tuple[str, str, str]] = set()
     unsafe_lines: dict[tuple[str, str, str], list[int]] = {}
 
     violations += _blank_justification_violations("GDAL_CLI_CALL_ALLOWLIST", allowlist)
@@ -631,9 +720,15 @@ def _collect_gdal_cli_violations(
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
             scope: ast.AST = func_node if func_node is not None else tree
-            if _scope_uses_safe_env(scope, rel):
+            # codex round 7 on #974: an argv carrying a literally-remote
+            # element gets no safe-env credit — the safe env cannot stop a
+            # redirect (#937), so the site needs its own reviewed entry.
+            remote = any(_is_remote_literal(elt) for elt in node.elts[1:])
+            if not remote and _scope_uses_safe_env(scope, rel):
                 continue
             key = (rel, func_name, first.value)
+            if remote:
+                remote_keys.add(key)
             unsafe_counts[key] = unsafe_counts.get(key, 0) + 1
             unsafe_lines.setdefault(key, []).append(node.lineno)
 
@@ -641,13 +736,23 @@ def _collect_gdal_cli_violations(
         rel, func_name, tool = key
         lines = ",".join(str(n) for n in unsafe_lines[key])
         if key not in allowlist:
-            violations.append(
-                f"{rel}:{lines} ({func_name}) builds a {tool} argv without "
-                f"{SAFE_SUBPROCESS_ENV_HELPER} in the same function — route "
-                "the subprocess env through it, or allowlist this exact "
-                "(module, function, tool) with a justification "
-                "(AGENTS.md Rule 2, #936)"
-            )
+            if key in remote_keys:
+                violations.append(
+                    f"{rel}:{lines} ({func_name}) builds a {tool} argv with a "
+                    "literally-remote element — safe-env credit does not "
+                    "apply because no GDAL env stops a redirect (#937); gate "
+                    "the URL with validate_url_for_ssrf and allowlist this "
+                    "exact (module, function, tool) with a justification "
+                    "(AGENTS.md Rule 2, #936)"
+                )
+            else:
+                violations.append(
+                    f"{rel}:{lines} ({func_name}) builds a {tool} argv without "
+                    f"{SAFE_SUBPROCESS_ENV_HELPER} in the same function — "
+                    "route the subprocess env through it, or allowlist this "
+                    "exact (module, function, tool) with a justification "
+                    "(AGENTS.md Rule 2, #936)"
+                )
         elif count != allowlist[key][0]:
             violations.append(
                 f"{rel} ({func_name}) has {count} {tool} argv(s) at line(s) "
@@ -1008,6 +1113,55 @@ def test_guard_with_item_order_decides_credit():
     )
     assert len(violations) == 1, violations
     assert "(wrong)" in violations[0]
+
+
+def test_guard_remote_literal_open_gets_no_wrapper_credit():
+    """codex round 7: gdal_safe_open_env stops no redirect (#937), so a
+    wrapped open of a literally-remote source must still be flagged — plain
+    literal and f-string forms both."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env\n"
+            "def literal():\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open('https://example.com/a.tif'):\n"
+            "            pass\n"
+            "def fstring(host):\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open(f'https://{host}/b.tif'):\n"
+            "            pass\n"
+            "def local(path):\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 2, violations
+    assert all("literally-remote" in v and "#937" in v for v in violations)
+    assert any("(literal)" in v for v in violations)
+    assert any("(fstring)" in v for v in violations)
+
+
+def test_guard_remote_literal_argv_gets_no_safe_env_credit():
+    """codex round 7, CLI side: a safe-env call cannot credit an argv that
+    carries a remote-prefixed literal element."""
+    violations, _ = _collect_gdal_cli_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def remote():\n"
+            "    env = gdal_safe_env()\n"
+            "    return ['gdalinfo', '/vsicurl/https://example.com/a.tif'], env\n"
+            "def managed(path):\n"
+            "    env = gdal_safe_env()\n"
+            "    return ['gdalinfo', path], env\n"
+        ),
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "(remote)" in violations[0] and "literally-remote" in violations[0]
 
 
 def test_guard_blank_justification_fails():
