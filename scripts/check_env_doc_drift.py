@@ -121,11 +121,14 @@ SCRIPT_DOC_FILES = (
 # and README references scripts/README.md, and a pattern restricted to
 # single-component .py/.sh/.mjs/.sql paths silently skipped both. A trailing
 # extension is still required so that prose like "the scripts/ directory" and
-# bare directory names do not get resolved as files, and the lookbehind keeps
-# a URL path such as https://example.test/scripts/foo.py from being treated as
-# a repo-relative reference.
+# bare directory names do not get resolved as files.
+#
+# The optional `./` prefix is the executable form operator commands actually
+# use (`./scripts/restore.sh`), so it must match; the lookbehind then runs
+# against the character before that prefix, which keeps a URL path such as
+# https://example.test/scripts/foo.py from being resolved repo-relative.
 SCRIPT_REF_RE = re.compile(
-    r"(?<![A-Za-z0-9_./-])scripts/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-]+"
+    r"(?<![A-Za-z0-9_./-])(?:\./)?scripts/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-]+"
     r"(?:\.[A-Za-z0-9_-]+)+)\b"
 )
 
