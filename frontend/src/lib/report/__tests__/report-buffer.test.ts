@@ -140,6 +140,32 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 2 on #908: dropping the whole query string merged two cluster
+  // layers over the same dataset, which are distinct sources.
+  it('keeps two cluster sources over one dataset apart', () => {
+    for (const radius of [50, 80]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Internal Server Error (500): /api/tiles/clusters/data.trees/12/1/1.pbf?cluster_radius=${radius}&sig=abc`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
+  it('still collapses the same source across a rotated sig', () => {
+    for (const sig of ['abc', 'def']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Internal Server Error (500): /api/tiles/data.parcels/12/1/1.pbf?sig=${sig}&exp=1`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('keeps two different failing sources apart', () => {
     pushReportEntry({
       severity: 'error',

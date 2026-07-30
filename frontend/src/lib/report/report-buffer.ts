@@ -164,14 +164,25 @@ export function countDistinctFailures(list: ReportEntry[]): number {
  * fix(#908): collapse a message down to the failure it describes. MapLibre
  * builds an AJAXError message as `AJAXError: <status> (<code>): <url>`, so
  * without this every failing tile of ONE broken source is its own key and the
- * badge still runs to 9+. Drop the per-tile `/{z}/{x}/{y}` triple and any query
- * string (the signed `sig=` rotates on its own); the source path, the status,
- * and every non-tile message survive untouched.
+ * badge still runs to 9+.
+ *
+ * Only the parts that vary WITHIN one source are dropped: the per-tile
+ * `/{z}/{x}/{y}` triple and the rotating credential params. Everything that
+ * distinguishes one source from another stays — the path, the status, and the
+ * `cols`/`cluster_radius`/`cluster_max_zoom` params that make two cluster
+ * layers over the same dataset genuinely different sources.
  */
+const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v']);
+
 function failureKey(message: string): string {
   return message
     .replace(/\/\d+\/\d+\/\d+(\.\w+)?/g, '/{z}/{x}/{y}')
-    .replace(/\?\S*/g, '');
+    .replace(/\?(\S*)/g, (_match, query: string) => {
+      const kept = query
+        .split('&')
+        .filter((pair) => pair && !VOLATILE_TILE_PARAMS.has(pair.split('=')[0]));
+      return kept.length > 0 ? `?${kept.join('&')}` : '';
+    });
 }
 
 function stringifyDetail(detail: unknown): string | undefined {
