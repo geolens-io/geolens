@@ -499,5 +499,13 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     target = crs_wkt
     cs_match = _WKT2_CS_RE.search(crs_wkt)
     if cs_match is not None:
-        target = crs_wkt[cs_match.start() :]
+        # fix(#939 codex r5): stop at the NEXT coordinate system too. A
+        # BOUNDCRS carries a SOURCECRS and a TARGETCRS each with its own
+        # CS[...]; scanning to the end of the string would find the degree
+        # unit of a WGS 84 TARGETCRS behind a grads/radian SOURCECRS. The
+        # first CS section is the horizontal source's — the one the stored
+        # resolutions are expressed in.
+        next_cs = _WKT2_CS_RE.search(crs_wkt, cs_match.end())
+        end = next_cs.start() if next_cs is not None else len(crs_wkt)
+        target = crs_wkt[cs_match.start() : end]
     return _WKT_DEGREE_UNIT_RE.search(target) is not None

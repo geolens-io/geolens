@@ -132,6 +132,37 @@ def test_wkt2_2015_compound_geodcrs_is_geographic():
     assert wkt_is_geographic(wkt) is True
 
 
+def test_boundcrs_target_degree_unit_does_not_leak_into_the_source():
+    # fix(#939 codex r5): a BOUNDCRS binds a grads SOURCECRS to a degree
+    # TARGETCRS; the unit scan must stop at the source's CS section instead
+    # of finding the target's degree unit further down the string.
+    wkt = (
+        'BOUNDCRS[SOURCECRS[GEOGCRS["ATF (Paris)",'
+        'DATUM["Ancienne Triangulation Francaise (Paris)",'
+        'ELLIPSOID["Plessis 1817",6376523,308.64]],'
+        "CS[ellipsoidal,2],"
+        'AXIS["latitude",north,ANGLEUNIT["grad",0.015707963267949]],'
+        'AXIS["longitude",east,ANGLEUNIT["grad",0.015707963267949]]]],'
+        'TARGETCRS[GEOGCRS["WGS 84",'
+        'DATUM["World Geodetic System 1984",'
+        'ELLIPSOID["WGS 84",6378137,298.257223563]],'
+        "CS[ellipsoidal,2],"
+        'ANGLEUNIT["degree",0.0174532925199433]]],'
+        'ABRIDGEDTRANSFORMATION["ATF to WGS 84",'
+        'METHOD["Geocentric translations"],'
+        'PARAMETER["X-axis translation",-168],'
+        'PARAMETER["Y-axis translation",-60],'
+        'PARAMETER["Z-axis translation",320]]]'
+    )
+    assert wkt_has_degree_unit(wkt) is False
+
+    degree_source = wkt.replace(
+        'ANGLEUNIT["grad",0.015707963267949]',
+        'ANGLEUNIT["degree",0.0174532925199433]',
+    )
+    assert wkt_has_degree_unit(degree_source) is True
+
+
 def test_non_string_inputs_are_unknown_not_a_crash():
     # fix(#939 codex r2): callers hand these whatever sits on
     # RasterAsset.crs_wkt, including MagicMock in unit tests.
