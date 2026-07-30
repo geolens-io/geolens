@@ -7,15 +7,26 @@ in-process ``rasterio.open()`` involves no ``httpx`` and no subprocess, so
 the hook cannot see it, and a new GDAL CLI subprocess that hand-rolls its
 env instead of calling ``gdal_safe_env()`` trips nothing either.
 
-**THE INVARIANT: this gate has no silent-pass path.** Anything that looks
-like a guarded call and that the resolver cannot confidently classify as
-something else is reported as a VIOLATION — never dropped. Resolution
-failure resolves to a violation everywhere, by construction, so the whole
-family of "the resolver got confused here" shapes (function defaults,
-decorators, annotations, class bodies, star imports, expression heads it
-cannot root) fails loudly instead of passing quietly. Every conservative
-choice in this module is oriented that way: false alarms are cheap and
-visible; a silent miss is the failure that matters.
+**THE INVARIANT: no recognizable guarded call has a silent-pass path.**
+A call is recognizable when its head is an attribute named ``open``/``Env``,
+or a name that any binding this resolver follows ties to a rasterio
+callable — imports, aliases assigned from one (``ropen = rasterio.open``,
+``rs = rasterio``, and chains of those), or a ``from rasterio import *``.
+For every such call the answer is detected, confidently-something-else, or
+UNCLASSIFIED — and UNCLASSIFIED is a VIOLATION. Resolution failure resolves
+to a violation, so function defaults, decorators, annotations, star
+imports, unrootable expression heads, and aliases built through
+expressions the resolver cannot follow (``opener = getattr(rasterio,
+"open")``) all fail loudly instead of passing quietly. False alarms are
+cheap and visible; a silent miss is the failure that matters.
+
+What is outside the invariant, stated plainly: a rasterio callable that
+reaches a call site with NO lexical trace at all — arriving as a plain
+parameter, pulled out of a dict, returned by a factory in another module —
+is not recognizable as a guarded call by any AST rule, and this gate does
+not claim it. That is the same provenance boundary documented for remote
+URLs below, and it is enforced elsewhere (``validate_url_for_ssrf``,
+``make_safe_client``, the ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` clamp).
 
 This module closes that gap structurally, in the spirit of
 ``test_rule1_structural.py`` (#822): it walks every module under
@@ -44,12 +55,15 @@ going stale.
 
 Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 
-- rasterio detection resolves ACTUAL import bindings per scope (codex round
-  5): ``import rasterio [as X]`` and ``from rasterio import open/Env [as Y]``
-  are tracked, so aliased forms like ``rs.open(...)`` are seen. Fully
-  dynamic access (``getattr(rasterio, "open")``, ``importlib``) and
-  re-exports of rasterio callables through intermediate modules remain
-  invisible; no such shape exists in the codebase.
+- rasterio detection resolves ACTUAL bindings per scope (codex rounds 5 and
+  12): ``import rasterio [as X]``, ``from rasterio import open/Env [as Y]``,
+  and simple alias assignments from either (``ropen = rasterio.open``,
+  ``rs = rasterio``, chained) are tracked, so ``rs.open(...)`` and
+  ``ropen(...)`` are both seen. An alias built through an expression the
+  resolver cannot follow (``getattr``, a ternary, a factory call) is marked
+  unsure and its calls are UNCLASSIFIED violations. Re-exports of rasterio
+  callables through intermediate modules stay invisible; no such shape
+  exists in the codebase.
 - The CLI check is function-scoped with exact counts, not full dataflow: an
   argv is credited when its ENCLOSING FUNCTION references ``gdal_safe_env``,
   and unclamped argvs are counted per (module, function, tool) against the
@@ -119,6 +133,27 @@ GDAL_CLI_TOOLS = {
 }
 
 
+# GDAL/OGR utilities whose names match neither family prefix (codex round
+# 12). Union'd with the gdal*/ogr* rule below.
+GDAL_CLI_EXTRA_TOOLS = frozenset(
+    {
+        "nearblack",
+        "sozip",
+        "gnmmanage",
+        "gnmanalyse",
+        "pct2rgb",
+        "pct2rgb.py",
+        "rgb2pct",
+        "rgb2pct.py",
+        "8211view",
+        "8211createfromxml",
+        "8211dump",
+        "s57dump",
+        "dgnwritetest",
+    }
+)
+
+
 def _gdal_cli_tool_name(value: object) -> str | None:
     """The executable name when a literal argv head names a gdal*/ogr* tool.
 
@@ -131,6 +166,8 @@ def _gdal_cli_tool_name(value: object) -> str | None:
         return None
     name = PurePosixPath(value).name or value
     if name.startswith("gdal") or name.startswith("ogr"):
+        return name
+    if name in GDAL_CLI_EXTRA_TOOLS:
         return name
     return None
 
@@ -278,6 +315,27 @@ _KIND_MODALIAS = "__vrt_module_alias__"
 _KIND_RASTERIO_MOD = "__rasterio_module__"
 _KIND_RASTERIO_OPEN = "__rasterio_open__"
 _KIND_RASTERIO_ENV = "__rasterio_env__"
+# Names an alias chain points at a guarded callable through an expression
+# this resolver cannot follow exactly (codex round 12). Calling one is
+# UNCLASSIFIED — a violation, never a silent pass.
+_KIND_UNSURE = "__unsure_guarded__"
+
+# Kinds an assignment can propagate, and what an attribute of the rasterio
+# module resolves to.
+_RASTERIO_ATTR_KINDS = {"open": _KIND_RASTERIO_OPEN, "Env": _KIND_RASTERIO_ENV}
+_VRT_ATTR_KINDS = {
+    SAFE_OPEN_ENV_HELPER: _KIND_OPEN,
+    SAFE_SUBPROCESS_ENV_HELPER: _KIND_ENV,
+}
+_PROPAGATED_KINDS = (
+    _KIND_OPEN,
+    _KIND_ENV,
+    _KIND_MODALIAS,
+    _KIND_RASTERIO_MOD,
+    _KIND_RASTERIO_OPEN,
+    _KIND_RASTERIO_ENV,
+    _KIND_UNSURE,
+)
 
 _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
@@ -301,10 +359,18 @@ class _ScopeInfo:
             _KIND_RASTERIO_MOD: set(),
             _KIND_RASTERIO_OPEN: set(),
             _KIND_RASTERIO_ENV: set(),
+            _KIND_UNSURE: set(),
         }
         self.bound: set[str] = set()
         # `from rasterio import *` binds open/Env invisibly (codex round 11).
         self.star_from_rasterio = False
+        # name -> value expressions of simple `name = <expr>` assignments in
+        # THIS scope (codex round 12: `ropen = rasterio.open` must propagate
+        # the binding, not merely shadow it).
+        self.assign_values: dict[str, list[ast.expr]] = {}
+        # Names bound by anything other than a simple assignment (params,
+        # defs, imports, for/with/except targets, augmented assignment...).
+        self.other_bound: set[str] = set()
 
 
 # from-import module -> {imported name -> credit kind}. Names imported from
@@ -376,42 +442,75 @@ def _iter_immediate(node: ast.AST):
             yield from _iter_immediate(child)
 
 
+def _record_params(info: _ScopeInfo, scope: ast.AST) -> None:
+    if not isinstance(scope, _SCOPE_NODES):
+        return
+    args = scope.args
+    for a in (
+        *args.posonlyargs,
+        *args.args,
+        *args.kwonlyargs,
+        *([args.vararg] if args.vararg else []),
+        *([args.kwarg] if args.kwarg else []),
+    ):
+        info.bound.add(a.arg)
+        info.other_bound.add(a.arg)
+
+
+def _record_assign_targets(info: _ScopeInfo, scope: ast.AST) -> set[int]:
+    """Record simple ``name = <expr>`` targets, whose bindings PROPAGATE
+    (codex round 12) instead of merely shadowing. Returns their node ids."""
+    assign_target_nodes: set[int] = set()
+    for node in _iter_immediate(scope):
+        if isinstance(node, ast.Assign) and all(
+            isinstance(t, ast.Name) for t in node.targets
+        ):
+            for target in node.targets:
+                assign_target_nodes.add(id(target))
+                info.assign_values.setdefault(target.id, []).append(node.value)
+    return assign_target_nodes
+
+
+def _is_canonical_def(scope: ast.AST, node: ast.AST, rel: str) -> bool:
+    """True for the helper definitions inside the canonical module itself."""
+    return (
+        isinstance(scope, ast.Module)
+        and rel == CANONICAL_HELPER_MODULE_REL
+        and getattr(node, "name", None)
+        in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER)
+        and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+
+
+def _record_canonical_defs(info: _ScopeInfo, scope: ast.AST, rel: str) -> None:
+    if not (isinstance(scope, ast.Module) and rel == CANONICAL_HELPER_MODULE_REL):
+        return
+    for stmt in scope.body:
+        if _is_canonical_def(scope, stmt, rel):
+            info.canonical[stmt.name].add(stmt.name)
+
+
 def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
     cached = getattr(scope, "_rule2_scope_info", None)
     if cached is not None:
         return cached
     info = _ScopeInfo()
 
-    if isinstance(scope, _SCOPE_NODES):
-        args = scope.args
-        for a in (
-            *args.posonlyargs,
-            *args.args,
-            *args.kwonlyargs,
-            *([args.vararg] if args.vararg else []),
-            *([args.kwarg] if args.kwarg else []),
-        ):
-            info.bound.add(a.arg)
-
-    if isinstance(scope, ast.Module) and rel == CANONICAL_HELPER_MODULE_REL:
-        for stmt in scope.body:
-            if isinstance(
-                stmt, (ast.FunctionDef, ast.AsyncFunctionDef)
-            ) and stmt.name in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER):
-                info.canonical[stmt.name].add(stmt.name)
+    _record_params(info, scope)
+    assign_target_nodes = _record_assign_targets(info, scope)
+    _record_canonical_defs(info, scope, rel)
 
     for node in _iter_immediate(scope):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             _record_import(info, node)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if not (
-                isinstance(scope, ast.Module)
-                and rel == CANONICAL_HELPER_MODULE_REL
-                and node.name in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER)
-            ):
+            if not _is_canonical_def(scope, node, rel):
                 info.bound.add(node.name)
+                info.other_bound.add(node.name)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
             info.bound.add(node.id)
+            if id(node) not in assign_target_nodes:
+                info.other_bound.add(node.id)
 
     # codex round 10 on #974: a name both canonically bound AND rebound in
     # the same scope is left in BOTH sets. The old demotion subtracted it
@@ -421,8 +520,74 @@ def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
     # caller: helper credit treats ambiguous as no-credit, detection treats
     # ambiguous as detected.
 
+    # Cache BEFORE propagation: resolving assignment right-hand sides calls
+    # back into _classify_name for this same scope.
     scope._rule2_scope_info = info  # type: ignore[attr-defined]
+    _propagate_assignments(info, rel)
     return info
+
+
+def _assigned_kind(value: ast.expr, rel: str) -> str | None:
+    """The binding kind a simple assignment's right-hand side carries.
+
+    Handles ``x = rasterio``, ``x = rasterio.open``, ``x = vrt``,
+    ``x = gdal_safe_open_env`` and chains through further simple
+    assignments. Anything else that MENTIONS a guarded name resolves to
+    ``_KIND_UNSURE`` so calls through the alias flag rather than vanish
+    (codex round 12).
+    """
+    if isinstance(value, ast.Name):
+        for kind in _PROPAGATED_KINDS:
+            if _classify_name(value.id, kind, value, rel) in (_CANONICAL, _AMBIGUOUS):
+                return kind
+        return None
+    if isinstance(value, ast.Attribute):
+        root = _expression_root_name(value.value)
+        if root is None:
+            return None
+        if value.attr in _RASTERIO_ATTR_KINDS and _classify_name(
+            root.id, _KIND_RASTERIO_MOD, root, rel
+        ) in (_CANONICAL, _AMBIGUOUS):
+            return _RASTERIO_ATTR_KINDS[value.attr]
+        if value.attr in _VRT_ATTR_KINDS and _classify_name(
+            root.id, _KIND_MODALIAS, root, rel
+        ) in (_CANONICAL, _AMBIGUOUS):
+            return _VRT_ATTR_KINDS[value.attr]
+        return None
+    # Any other expression that MENTIONS a guarded binding (getattr(rasterio,
+    # ...), a ternary, a call returning one) cannot be followed exactly —
+    # mark the alias unsure so calling it is a violation, not a silent pass.
+    for node in ast.walk(value):
+        if isinstance(node, ast.Name):
+            for kind in (_KIND_RASTERIO_MOD, _KIND_RASTERIO_OPEN, _KIND_RASTERIO_ENV):
+                if _classify_name(node.id, kind, node, rel) in (
+                    _CANONICAL,
+                    _AMBIGUOUS,
+                ):
+                    return _KIND_UNSURE
+    return None
+
+
+def _propagate_assignments(info: _ScopeInfo, rel: str) -> None:
+    """Resolve ``name = <guarded thing>`` bindings to a fixed point."""
+    for _ in range(4):  # chains deeper than this are not worth following
+        changed = False
+        for name, values in info.assign_values.items():
+            kinds = {_assigned_kind(v, rel) for v in values}
+            resolved = {k for k in kinds if k is not None}
+            if not resolved:
+                continue
+            kind = _KIND_UNSURE if len(resolved) > 1 else resolved.pop()
+            if name in info.canonical[kind]:
+                continue
+            info.canonical[kind].add(name)
+            changed = True
+            # A name bound ONLY by propagating assignments is that binding,
+            # not a conflicting rebind — do not leave it looking ambiguous.
+            if name not in info.other_bound and None not in kinds:
+                info.bound.discard(name)
+        if not changed:
+            return
 
 
 _CANONICAL = "canonical"
@@ -523,7 +688,12 @@ def _inside_safe_open_env(node: ast.AST, rel: str) -> bool:
     prev: ast.AST = node
     current = getattr(node, "_rule2_parent", None)
     while current is not None:
-        if isinstance(current, _SCOPE_NODES):
+        # codex round 12: stop at the callable boundary for the DEFERRED
+        # BODY only. A signature expression (default, decorator, annotation)
+        # is evaluated eagerly, while an enclosing `with` is still active,
+        # so it keeps that wrapper's credit — the round-11 boundary rule
+        # reported such code unwrapped, a false positive.
+        if isinstance(current, _SCOPE_NODES) and not _in_signature(current, prev):
             return False
         if isinstance(current, (ast.With, ast.AsyncWith)):
             if isinstance(prev, ast.withitem):
@@ -701,6 +871,10 @@ def _rasterio_call_kind(node: ast.Call, rel: str) -> str | None:
         ):
             if _resolve_credit(func.id, kind, func, rel, ambiguous_counts=True):
                 return label
+        # An alias whose chain reaches a guarded callable through an
+        # expression this resolver cannot follow (codex round 12).
+        if _resolve_credit(func.id, _KIND_UNSURE, func, rel, ambiguous_counts=True):
+            return UNCLASSIFIED
     return None
 
 
@@ -1514,6 +1688,91 @@ def test_guard_path_qualified_argv_head_is_detected():
     assert len(violations) == 2, violations
     assert any("gdalinfo" in v for v in violations)
     assert any("ogr2ogr" in v for v in violations)
+
+
+def test_guard_alias_assignment_propagates_the_binding():
+    """codex round 12: `ropen = rasterio.open; ropen(url)` recorded only a
+    generic bound name, so the call was invisible — a silent-pass path
+    reachable by renaming, which falsified the module invariant. Aliases
+    propagate now, including module aliases and chains."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "ropen = rasterio.open\n"
+            "rs = rasterio\n"
+            "rs2 = rs\n"
+            "def direct(url):\n"
+            "    return ropen(url)\n"
+            "def chained(url):\n"
+            "    return rs2.open(url)\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 2, violations
+    assert any("(direct)" in v for v in violations)
+    assert any("(chained)" in v for v in violations)
+
+
+def test_guard_unfollowable_alias_is_unclassified_not_invisible():
+    """An alias built through an expression the resolver cannot follow must
+    land on the UNCLASSIFIED side rather than vanish."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "opener = getattr(rasterio, 'open')\n"
+            "def fn(url):\n"
+            "    return opener(url)\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "cannot resolve" in violations[0] and "(fn)" in violations[0]
+
+
+def test_guard_signature_default_keeps_enclosing_wrapper_credit():
+    """codex round 12: a default is evaluated eagerly, while an enclosing
+    `with gdal_safe_open_env():` is still active, so it IS protected. The
+    round-11 boundary rule reported it unwrapped — a false positive that
+    would have blocked correct code. The deferred BODY still gets no
+    credit."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env\n"
+            "def outer(path):\n"
+            "    with gdal_safe_open_env():\n"
+            "        def eager(src=rasterio.open(path)):\n"
+            "            return rasterio.open(path)\n"
+            "        return eager\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 2, (total, violations)
+    # Only the deferred body call is reported; the default keeps its credit.
+    assert len(violations) == 1, violations
+    assert "(eager)" in violations[0]
+
+
+def test_guard_non_prefixed_gdal_utilities_are_detected():
+    """codex round 12: GDAL ships utilities matching neither family prefix
+    (nearblack, sozip, gnmmanage, ...)."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    subprocess.run(['nearblack', path])\n"
+            "    subprocess.run(['/usr/bin/sozip', path])\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 2, violations
+    assert any("nearblack" in v for v in violations)
+    assert any("sozip" in v for v in violations)
 
 
 def test_guard_blank_justification_fails():
