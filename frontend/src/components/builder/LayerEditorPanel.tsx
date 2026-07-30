@@ -32,6 +32,10 @@ export interface LayerEditorHandlers {
   // boundaries (e.g. line→arrow leaving behind line-cap / line-join).
   onRenderModeChange?: (layerId: string, mode: RenderAsId) => void;
   onRemove: (layerId: string) => void;
+  /** fix(#913): called after a banner Revert so the page can re-derive whether
+   *  the map is still dirty (the revert itself routes through the ordinary
+   *  mutation handlers, which all mark it dirty). */
+  onRevertToSaved?: () => void;
 }
 
 interface LayerEditorPanelProps {
@@ -555,6 +559,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       onOpacityChange={handlers.onOpacityChange}
                       onStyleConfigChange={handlers.onStyleConfigChange}
                       onLayoutChange={handlers.onLayoutChange}
+                      onRevertToSaved={handlers.onRevertToSaved}
                     />
                   )}
                 </div>

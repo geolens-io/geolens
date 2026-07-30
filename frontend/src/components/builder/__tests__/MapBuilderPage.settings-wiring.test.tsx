@@ -14,9 +14,10 @@ import { usePluginStore } from '@/stores/map-plugin-store';
 
 let mockMapData: Record<string, unknown>;
 
-const { mockSetHasUnsavedChanges, mockSetBasemapConfig } = vi.hoisted(() => ({
+const { mockSetHasUnsavedChanges, mockSetBasemapConfig, mockMarkDirty } = vi.hoisted(() => ({
   mockSetHasUnsavedChanges: vi.fn(),
   mockSetBasemapConfig: vi.fn(),
+  mockMarkDirty: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -148,7 +149,8 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     initialViewState: null,
     ephemeralResult: null,
     groupMeta: {},
-    markDirty: vi.fn(),
+    markDirty: mockMarkDirty,
+    requestCleanRecheck: vi.fn(),
     handleToggleExpand: vi.fn(),
     handleTabChange: vi.fn(),
     handlePaintChange: vi.fn(),
@@ -230,6 +232,7 @@ describe('MapBuilderPage settings wiring (plugin dirty + projection persistence)
     mockMapData = makeMapData();
     mockSetHasUnsavedChanges.mockClear();
     mockSetBasemapConfig.mockClear();
+    mockMarkDirty.mockClear();
     usePluginStore.getState().replace([]);
     localStorage.clear();
   });
@@ -240,7 +243,9 @@ describe('MapBuilderPage settings wiring (plugin dirty + projection persistence)
     const measureSwitch = await screen.findByRole('switch', { name: 'Enable measurement' });
     fireEvent.click(measureSwitch);
 
-    expect(mockSetHasUnsavedChanges).toHaveBeenCalledWith(true);
+    // fix(#913): page-owned dirt routes through markDirty, which also records
+    // that the clean-state recheck cannot re-derive it from server state.
+    expect(mockMarkDirty).toHaveBeenCalled();
   });
 
   it('F3: choosing Globe writes projection into the basemap config', async () => {

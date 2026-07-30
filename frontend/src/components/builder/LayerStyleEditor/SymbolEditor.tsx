@@ -84,7 +84,7 @@ export function SymbolEditor({
           value={symbolConfig.iconAnchor ?? 'center'}
           onValueChange={(value) => onSymbolConfigChange({ iconAnchor: value as SymbolStyleConfig['iconAnchor'] })}
         >
-          <SelectTrigger className="h-8 text-xs w-36">
+          <SelectTrigger className="h-8 text-xs w-36" aria-label={t('style.symbol.anchor')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -124,7 +124,7 @@ export function SymbolEditor({
               categories: value === '__none__' ? undefined : currentCategories,
             })}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger className="h-8 text-xs" aria-label={t('style.symbol.categoryMapping')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

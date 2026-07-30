@@ -31,7 +31,7 @@ export function hasUnsavedStyleChanges(
 // Small inline deep-equality for plain JSON-ish values (objects, arrays,
 // primitives, null). Sufficient for paint/layout/style_config which are JSON.
 // Avoids pulling in lodash for a one-call surface.
-function deepEqual(a: unknown, b: unknown): boolean {
+export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
     return false;
