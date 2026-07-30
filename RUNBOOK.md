@@ -402,13 +402,24 @@ only the offending session failed. Two responses:
   area of interest, fewer features) before rerunning.
 - **Raise the ceiling**: if the disk has the headroom and the workload is
   legitimate, increase `temp_file_limit` in `db/postgresql.conf` and reload
-  (`docker compose exec db psql -U "$POSTGRES_USER" -c "SELECT pg_reload_conf();"`).
-  The limit is enforced **per session (backend process)**, so several
-  sessions spilling at once can each use the full ceiling — size it against
-  available disk headroom divided by the number of concurrent spill-heavy
-  sessions you expect, not against one query in isolation. In practice the
+  from inside the container, where Compose has already set the credentials
+  (single quotes on purpose — the variables must expand in the container
+  shell, not on the host, where `.env` values are not exported):
+
+  ```bash
+  docker compose exec db sh -c \
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT pg_reload_conf();"'
+  ```
+
+  The limit is enforced **per process**, not per query: every session
+  spilling at once gets the full ceiling, and a parallel query spills from
+  each worker process separately (`max_parallel_workers_per_gather = 1` in
+  the bundled config, so budget up to 2 processes per query). Size the
+  ceiling against available disk headroom divided by the peak number of
+  spilling processes — concurrent spill-heavy sessions times (1 + parallel
+  workers per gather) — not against one query in isolation. In practice the
   per-user materialize cap keeps analysis at one CTAS per user at a time, so
-  the concurrency to budget for is the number of simultaneously active
+  the session count to budget for is the number of simultaneously active
   analysis users plus any ad-hoc sessions.
 
 `log_temp_files = 64MB` logs every spill above 64MB, so temp-file pressure is
