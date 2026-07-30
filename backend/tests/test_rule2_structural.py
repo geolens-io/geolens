@@ -22,12 +22,11 @@ This module closes that gap structurally, in the spirit of
    ``gdal_safe_open_env`` itself — ad-hoc Env objects are how clamps drift.
 
 2. **GDAL CLI subprocess argv is built next to the safe env or justified,
-   per call.** Every argv list literal starting with a GDAL CLI tool
-   (``gdalbuildvrt``, ``gdaladdo``, ``gdalwarp``, ``gdal_translate``,
-   ``gdalinfo``, ``ogrinfo``, ``ogr2ogr``) must sit in a FUNCTION that
-   references ``gdal_safe_env``, or match a ``GDAL_CLI_CALL_ALLOWLIST``
-   entry keyed (module, function, tool) with an exact expected count and a
-   justification.
+   per call.** Every argv list or tuple literal whose head names a
+   gdal*/ogr* executable (the family, not a fixed list — codex round 10)
+   must sit in a FUNCTION that references ``gdal_safe_env``, or match a
+   ``GDAL_CLI_CALL_ALLOWLIST`` entry keyed (module, function, tool) with an
+   exact expected count and a justification.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears (or becomes wrapped) fails loudly instead of
@@ -93,6 +92,12 @@ from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 
+# The GDAL CLI executables the codebase is KNOWN to spawn today —
+# documentation, not the detection predicate. codex round 10 on #974: a
+# fixed membership list silently skipped every other family member
+# (gdal_rasterize, gdaltindex, ogrlineref, ...), so detection classifies by
+# family prefix instead — see _is_gdal_cli_tool. Verified against the tree:
+# family matching finds exactly the sites this list's members produce.
 GDAL_CLI_TOOLS = {
     "gdalbuildvrt",
     "gdaladdo",
@@ -102,6 +107,15 @@ GDAL_CLI_TOOLS = {
     "ogrinfo",
     "ogr2ogr",
 }
+
+
+def _is_gdal_cli_tool(value: object) -> bool:
+    """A string argv head naming any gdal*/ogr* executable counts as a GDAL
+    CLI needing the safe env — the family, not a fixed seven."""
+    return isinstance(value, str) and (
+        value.startswith("gdal") or value.startswith("ogr")
+    )
+
 
 SAFE_SUBPROCESS_ENV_HELPER = "gdal_safe_env"
 SAFE_OPEN_ENV_HELPER = "gdal_safe_open_env"
@@ -375,29 +389,43 @@ def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
         elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
             info.bound.add(node.id)
 
-    # A name both canonically imported AND Store-rebound in the same scope
-    # is ambiguous without order analysis — demote it (bound kills credit),
-    # keeping the conservative failure direction.
-    for kind_set in info.canonical.values():
-        kind_set -= info.bound
+    # codex round 10 on #974: a name both canonically bound AND rebound in
+    # the same scope is left in BOTH sets. The old demotion subtracted it
+    # from canonical, which resolved helper credit conservatively but also
+    # made a real rasterio.open() through the ambiguous name INVISIBLE to
+    # detection — the unsafe direction. _resolve_credit now decides per
+    # caller: helper credit treats ambiguous as no-credit, detection treats
+    # ambiguous as detected.
 
     scope._rule2_scope_info = info  # type: ignore[attr-defined]
     return info
 
 
-def _resolve_credit(name: str, kind: str, usage: ast.AST, rel: str) -> bool:
+def _resolve_credit(
+    name: str, kind: str, usage: ast.AST, rel: str, *, ambiguous_counts: bool = False
+) -> bool:
     """True when ``name`` at ``usage`` resolves to a canonical binding.
 
     Walks lexical scopes innermost-first (codex round 4): a scope whose own
     import binds the name canonically grants credit; a scope that rebinds it
     any other way kills credit; otherwise resolution continues outward to
     the module scope.
+
+    codex round 10: a name both canonically bound AND rebound in the same
+    scope is ambiguous without statement-order analysis, and the safe answer
+    differs by caller. Helper CREDIT must treat ambiguity as no
+    (``ambiguous_counts=False``, the default) so a maybe-shadowed helper
+    never vouches for anything. rasterio DETECTION must treat ambiguity as
+    yes (``ambiguous_counts=True``) so a maybe-rasterio open is flagged
+    rather than invisible. Both directions resolve toward a violation.
     """
     current = getattr(usage, "_rule2_parent", None)
     while current is not None:
         if isinstance(current, (*_SCOPE_NODES, ast.Module)):
             info = _scope_info(current, rel)
             if name in info.canonical[kind]:
+                if name in info.bound:
+                    return ambiguous_counts
                 return True
             if name in info.bound:
                 return False
@@ -550,19 +578,26 @@ def _rasterio_call_kind(node: ast.Call, rel: str) -> str | None:
     edges. Detection now uses the same per-scope binding resolution as
     helper credit: `import rasterio [as X]` binds X as the module,
     `from rasterio import open/Env [as Y]` binds Y as the function.
+
+    codex round 10: detection resolves with ``ambiguous_counts=True`` — an
+    imported-then-rebound rasterio name is DETECTED, never invisible.
     """
     func = node.func
     if isinstance(func, ast.Attribute) and func.attr in ("open", "Env"):
         base = func.value
         if isinstance(base, ast.Name) and _resolve_credit(
-            base.id, _KIND_RASTERIO_MOD, func, rel
+            base.id, _KIND_RASTERIO_MOD, func, rel, ambiguous_counts=True
         ):
             return func.attr
         return None
     if isinstance(func, ast.Name):
-        if _resolve_credit(func.id, _KIND_RASTERIO_OPEN, func, rel):
+        if _resolve_credit(
+            func.id, _KIND_RASTERIO_OPEN, func, rel, ambiguous_counts=True
+        ):
             return "open"
-        if _resolve_credit(func.id, _KIND_RASTERIO_ENV, func, rel):
+        if _resolve_credit(
+            func.id, _KIND_RASTERIO_ENV, func, rel, ambiguous_counts=True
+        ):
             return "Env"
     return None
 
@@ -749,7 +784,7 @@ def _collect_gdal_cli_violations(
             if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
                 continue
             first = node.elts[0]
-            if not (isinstance(first, ast.Constant) and first.value in GDAL_CLI_TOOLS):
+            if not (isinstance(first, ast.Constant) and _is_gdal_cli_tool(first.value)):
                 continue
             total_argv_sites += 1
             func_node = _enclosing_function_node(node)
@@ -1254,6 +1289,41 @@ def test_guard_evil_prefixed_module_gets_no_credit():
         {},
     )
     assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_import_then_reassign_open_is_detected_not_invisible():
+    """codex round 10: the old demotion made a rasterio.open through an
+    imported-then-rebound name invisible (not flagged, not counted) — the
+    unsafe direction. Ambiguity must classify as a violation."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def fn(path):\n"
+            "    with rasterio.open(path):\n"
+            "        pass\n"
+            "rasterio = None\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_gdal_family_tool_is_detected():
+    """codex round 10: any gdal*/ogr* executable is a GDAL CLI — a fixed
+    seven-name list skipped gdal_rasterize, gdaltindex, ogrlineref, ..."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def rasterize(url):\n"
+            "    subprocess.run(['gdal_rasterize', url, 'out.tif'])\n"
+        ),
+        {},
+    )
+    assert total == 1
+    assert len(violations) == 1 and "(rasterize)" in violations[0]
+    assert "gdal_rasterize" in violations[0]
 
 
 def test_guard_blank_justification_fails():
