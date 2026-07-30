@@ -47,7 +47,12 @@ from shapely import wkt as shapely_wkt
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.core.geo import bbox_to_extent_wkt, extent_lon_span, extent_to_bbox
+from app.core.geo import (
+    LON_EPSILON_DEGREES,
+    bbox_to_extent_wkt,
+    extent_lon_span,
+    extent_to_bbox,
+)
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.cog import extract_raster_metadata
@@ -1024,14 +1029,22 @@ class TestSeamFrameRewrite:
         assert min(off for off, _ in offsets) == pytest.approx(0.0, abs=1e-6), (
             "the frame must be anchored on a source"
         )
-        # The true circular footprint, closed the short way round.
-        true_span = (max(right for _, right in sources) + 360.0) - min(
-            left for left, _ in sources
+        # Recompute the expected hull independently, in the shifted frame, and
+        # require the raster to match it to within a pixel. A loose "< 359°"
+        # bound would pass a mosaic that is merely less broken than before; this
+        # pins the actual footprint.
+        shifted = [
+            (left + 360.0, right + 360.0)
+            if left < seam_origin - LON_EPSILON_DEGREES
+            else (left, right)
+            for left, right in sources
+        ]
+        expected_span = max(right for _, right in shifted) - min(
+            left for left, _ in shifted
         )
-        true_span = min(true_span % 360.0, 360.0 - (true_span % 360.0)) or true_span
-        assert width * res_x < 360.0 - 1.0, (
-            f"re-framed hull is {width * res_x:.2f}° — the sources were left "
-            "scattered across a world"
+        assert width * res_x == pytest.approx(expected_span, abs=2 * res_x), (
+            f"re-framed hull is {width * res_x:.4f}°, expected {expected_span:.4f}° "
+            "— the sources were left scattered across a world"
         )
 
     def test_whole_pixel_offsets_stay_integral(self, tmp_path):
