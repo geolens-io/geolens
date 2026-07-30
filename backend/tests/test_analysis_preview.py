@@ -927,7 +927,11 @@ class TestBuildPreviewSql:
     def test_buffer_sql(self):
         req = AnalysisPreviewRequest(operation="buffer", distance_meters=500)
         sql = build_preview_sql('"data"."t1"', req)
-        assert "ST_Buffer(ST_MakeValid(geom_4326)::geography, 500.0)::geometry" in sql
+        # fix(#891): the validated source is hoisted behind an OFFSET 0 fence so
+        # the projection guard can read it, so the buffer takes `_pb.g` rather
+        # than the column expression.
+        assert "SELECT ST_MakeValid(geom_4326) AS g OFFSET 0) AS _pb" in sql
+        assert "ST_Buffer(_pb.g::geography, 500.0)::geometry" in sql
         assert 'FROM "data"."t1"' in sql
         assert "ORDER BY gid" in sql
 
@@ -962,10 +966,15 @@ class TestBuildPreviewSql:
         assert "ST_MakeValid(ST_ShiftLongitude" not in buffer_expr
         # The buffer and each component's shifted copy stay behind an OFFSET 0
         # fence, so neither is re-evaluated per CASE reference (fix(#700
-        # review)). EXPLAIN VERBOSE holds ST_Buffer at one call per row.
-        assert buffer_expr.count("ST_Buffer(") == 1
-        assert buffer_expr.count("ST_ShiftLongitude(") == 1
-        assert buffer_expr.count("OFFSET 0") == 2
+        # review)). fix(#891) adds a second projection strategy, so both the
+        # buffer and the seam pass now have two rendered call sites — one per
+        # branch of the projection CASE, never both on the same row. EXPLAIN
+        # ANALYZE over a 2 000-row mix (285 wide multipart rows, 1 715
+        # single-part) put the per-component SubPlan at loops=285 and the
+        # whole-input SubPlan at loops=1715.
+        assert buffer_expr.count("ST_Buffer(") == 2
+        assert buffer_expr.count("ST_ShiftLongitude(") == 2
+        assert buffer_expr.count("OFFSET 0") == 5
 
         for op, kwargs in (
             ("centroid", {}),
@@ -973,6 +982,50 @@ class TestBuildPreviewSql:
         ):
             other_expr, _ = render_geometry_expr(op, **kwargs)
             assert "ST_ShiftLongitude" not in other_expr
+
+    def test_buffer_sql_projects_each_component_locally(self):
+        """fix(#891): ``ST_Buffer(...::geography, d)`` picks ONE planar SRID for
+        the whole input, so a multipart feature spread across longitudes is
+        buffered in a projection that suits at most one of its components.
+        """
+        from app.platform.analysis_sql import (
+            BUFFER_LOCAL_SRID_SPAN_DEG,
+            render_geometry_expr,
+        )
+
+        buffer_expr, _ = render_geometry_expr("buffer", distance_meters=500)
+        # Both guard conditions on the SOURCE, not on the buffer output, and on
+        # the VALIDATED source specifically: ST_MakeValid can raise the part
+        # count (a self-intersecting POLYGON with lobes 90° apart is one
+        # component as stored, two after validation), so reading geom_4326
+        # directly would send exactly this case down the whole-input path. That
+        # is what the extra OFFSET 0 fence pays for.
+        assert "(SELECT ST_MakeValid(geom_4326) AS g OFFSET 0) AS _pb" in buffer_expr
+        assert "ST_NumGeometries(_pb.g) > 1" in buffer_expr
+        assert (
+            f"ST_XMax(_pb.g) - ST_XMin(_pb.g) >= {BUFFER_LOCAL_SRID_SPAN_DEG}"
+            in buffer_expr
+        )
+        assert "ST_NumGeometries(geom_4326)" not in buffer_expr
+        # Each component is buffered on its own, and each component's buffer is
+        # dumped so ST_Collect never mixes POLYGON with MULTIPOLYGON into a
+        # GEOMETRYCOLLECTION.
+        assert "ST_Dump(ST_Buffer(_pb_c.c::geography, 500.0)::geometry)" in buffer_expr
+        assert "(ST_Dump(_pb.g)).geom AS c" in buffer_expr
+        assert "ST_CollectionHomogenize(ST_Collect(_pb_p.p))" in buffer_expr
+        # Pass order: seam split (_pb_m) INSIDE the union, never the reverse —
+        # unioning a still-wrapping component raises a GEOS side-location
+        # conflict and aborts the statement.
+        union_at = buffer_expr.index("ST_UnaryUnion(")
+        split_at = buffer_expr.index("ST_WrapX(ST_MakeValid(_pb_m_c.s)")
+        assert union_at < split_at
+        # The common path is a bare ELSE: the whole-input buffer, wrapped in the
+        # fix(#883) seam pass and nothing else — no dump, no re-collect, no
+        # dissolve.
+        else_at = buffer_expr.index("ELSE (SELECT CASE WHEN ST_XMax(_dl.g)")
+        assert buffer_expr.count("ST_UnaryUnion(") == 1
+        assert union_at < else_at
+        assert "ST_Buffer(_pb.g::geography, 500.0)::geometry" in buffer_expr[else_at:]
 
     def test_centroid_sql(self):
         req = AnalysisPreviewRequest(operation="centroid")
@@ -1008,16 +1061,27 @@ class TestBuildPreviewSql:
         don't triple-evaluate it — while the base table stays a plain FROM
         item whose pkey index can satisfy ORDER BY and early-terminate at
         the sandbox row cap."""
+        # fix(#891): buffer renders TWO ST_Buffer call sites — one per branch of
+        # the projection CASE — and exactly one of them is reachable on any given
+        # row, which EXPLAIN ANALYZE confirms (a 2 000-row mix put the
+        # per-component SubPlan at loops=285 and the whole-input SubPlan at
+        # loops=1715, summing to 2 000, not 4 000).
         cases = {
-            "ST_Intersection": AnalysisPreviewRequest(operation="clip", mask=CLIP_MASK),
-            "ST_Buffer": AnalysisPreviewRequest(operation="buffer", distance_meters=10),
-            "ST_Centroid": AnalysisPreviewRequest(operation="centroid"),
+            "ST_Intersection": (
+                AnalysisPreviewRequest(operation="clip", mask=CLIP_MASK),
+                1,
+            ),
+            "ST_Buffer": (
+                AnalysisPreviewRequest(operation="buffer", distance_meters=10),
+                2,
+            ),
+            "ST_Centroid": (AnalysisPreviewRequest(operation="centroid"), 1),
         }
-        for fn, req in cases.items():
+        for fn, (req, call_sites) in cases.items():
             sql = build_preview_sql('"data"."t1"', req)
             assert "CROSS JOIN LATERAL (SELECT" in sql
             assert "OFFSET 0" in sql
-            assert sql.count(fn) == 1
+            assert sql.count(fn) == call_sites
             assert sql.endswith("ORDER BY gid")
 
     def test_clip_by_layer_sql_subdivides_instead_of_unioning(self):
