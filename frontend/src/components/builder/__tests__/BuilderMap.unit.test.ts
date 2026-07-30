@@ -333,6 +333,23 @@ describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
       .toEqual([[-182, -20], [-177, -14]]);
   });
 
+  // codex round 3 on #903: no planar placement expresses "already contained"
+  // for a crossing layer inside a world-spanning one, so the search returned a
+  // span WIDER than the world it started from.
+  it('leaves world bounds alone when a crossing layer is added inside them', () => {
+    expect(getVisibleLayerBounds([layer([-180, -85, 180, 85]), layer([178, -20, -178, -15])]))
+      .toEqual([[-180, -85], [180, 85]]);
+  });
+
+  it('clamps any union that would exceed the full circle', () => {
+    const bounds = getVisibleLayerBounds([
+      layer([-180, -85, 180, 85]),
+      layer([178, -20, -178, -15]),
+      layer([-179, -18, -177, -14]),
+    ]);
+    expect(bounds![1][0] - bounds![0][0]).toBeLessThanOrEqual(360);
+  });
+
   it('leaves two ordinary layers exactly where they were', () => {
     expect(
       getVisibleLayerBounds([layer([-74.5, 40.5, -73.5, 41.5]), layer([-75, 40, -74, 41])]),

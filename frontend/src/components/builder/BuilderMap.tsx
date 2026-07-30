@@ -148,7 +148,18 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
     if (bbox[3] > maxY) maxY = bbox[3];
   }
 
-  return hasBounds ? [[minX, minY], [maxX, maxY]] : null;
+  if (!hasBounds) return null;
+  // No union of longitude intervals can be wider than the circle itself, so a
+  // merged span past 360° means the layers already cover the world and the
+  // placement search had nothing better to pick. Without this, adding a
+  // seam-crossing layer to a world-spanning one produced [-180, 182] — a wider
+  // key than the world bounds it started from, which moved the auto-fit for a
+  // layer that expanded nothing.
+  if (maxX - minX >= 360) {
+    minX = -180;
+    maxX = 180;
+  }
+  return [[minX, minY], [maxX, maxY]];
 }
 
 function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string {
