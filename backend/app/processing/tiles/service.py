@@ -351,6 +351,17 @@ def _build_cluster_tile_query(
     the tile (all past-max-zoom points; every cell whose centroid is
     in-tile).
 
+    fix(#874): ``expansion_zoom`` is derived per cluster instead of shipping
+    ``cluster_max_zoom + 1`` for every one of them. The bucket grid halves per
+    zoom, so the split zoom is the smallest zoom at which the cell's extreme
+    members fall in different cells of the same world-min-anchored grid —
+    exactly where this query would stop grouping them. Clamped to
+    ``cluster_max_zoom + 1`` (a cell that still holds together there expands
+    to raw points at the next zoom) and to MapLibre's ceiling of 22. Under
+    input-cap saturation the spread comes from the visible members only, so
+    the value can land later than the true split zoom — the pre-#874
+    behaviour — never earlier.
+
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
     unclustered features omit those properties and carry ``source_gid``.
@@ -500,6 +511,12 @@ grouped AS (
         bucket_y,
         count(*)::integer AS raw_point_count,
         min(gid)::bigint AS source_gid,
+        -- fix(#874): member spread, in exact double precision (ST_Extent would
+        -- return a float4-rounded box). Feeds the expansion_zoom derivation.
+        min(ST_X(geom_3857)) AS min_x,
+        max(ST_X(geom_3857)) AS max_x,
+        min(ST_Y(geom_3857)) AS min_y,
+        max(ST_Y(geom_3857)) AS max_y,
         ST_Centroid(ST_Collect(geom_3857)) AS geom_3857
     FROM anchored, bounds
     -- fix(#868, codex round 4 on PR #872): ownership applies BEFORE the
@@ -555,9 +572,27 @@ features AS (
                 THEN md5($1::text || ':' || $2::text || ':' || $3::text || ':' || grouped.bucket_x::text || ':' || grouped.bucket_y::text)
             ELSE NULL
         END AS cluster_id,
+        -- fix(#874): the zoom at which THIS cell actually splits, not a
+        -- constant. Bucket size halves per zoom, so the cell at zoom zz uses
+        -- bucket / 2^(zz - z) on the same world-min-anchored grid as the
+        -- `bucketed` CTE: the split zoom is the smallest zz where the cell's
+        -- extreme members no longer share one cell in x or in y. Nothing
+        -- clusters past cluster max zoom, so a cell that still holds together
+        -- there expands to raw points at $5 + 1; 22 is the MapLibre ceiling.
         CASE
             WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer
-                THEN LEAST($5::integer + 1, 22)
+                THEN LEAST(COALESCE((
+                    SELECT min(zz)
+                    FROM generate_series($1::integer + 1, $5::integer) AS zz,
+                        LATERAL (SELECT
+                            GREATEST(grid.bucket_w / power(2::float8, zz - $1::integer), 1.0) AS bw,
+                            GREATEST(grid.bucket_h / power(2::float8, zz - $1::integer), 1.0) AS bh
+                        ) split
+                    WHERE floor((grouped.min_x - grid.world_min_x) / split.bw)
+                            <> floor((grouped.max_x - grid.world_min_x) / split.bw)
+                       OR floor((grouped.min_y - grid.world_min_y) / split.bh)
+                            <> floor((grouped.max_y - grid.world_min_y) / split.bh)
+                ), $5::integer + 1), 22)
             ELSE NULL
         END AS expansion_zoom,
         grouped.source_gid{unclustered_attr_select},
@@ -581,7 +616,7 @@ features AS (
             256,
             true
         ) AS geom
-    FROM grouped{unclustered_attr_join}, bounds
+    FROM grouped{unclustered_attr_join}, bounds, grid
 )
 SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
 FROM features
