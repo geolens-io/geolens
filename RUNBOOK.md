@@ -254,9 +254,10 @@ upgrade is what fixes that, and the only way to reach it is to downgrade below
 > carries no owner or ACL metadata, `--clean` drops each schema together with
 > its ACLs and default privileges, and `scripts/restore.sh` restores
 > `--no-owner` and re-grants only the single-tenant `geolens_reader`
-> privileges on schema `data`. In multi-tenant mode every restore therefore
-> lands tenant relations owned by `$POSTGRES_USER` with no per-tenant grants,
-> and step 2 is the only shipped way to fix that. Removing that dependency is
+> privileges on schema `data`. Once per-tenant roles are in play, every
+> restore therefore lands tenant relations owned by `$POSTGRES_USER` with no
+> per-tenant grants, and step 2 is the only shipped way to fix that. Removing
+> that dependency is
 > the product gap this section is really describing — keep a globals dump
 > regardless, because it is the half you *can* solve today.
 
