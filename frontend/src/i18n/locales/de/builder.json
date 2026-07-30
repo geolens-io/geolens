@@ -210,8 +210,6 @@
     "resetTitle": "Stil dieses Layers zurücksetzen",
     "unsupportedBuilderState": "Dieser importierte Stil verwendet Einstellungen, die der visuelle Editor nicht sicher ändern kann. Gültige Einstellungen bleiben erhalten; verwenden Sie erweitertes JSON für nicht unterstützte Teile.",
     "sections": {
-      "render": "Darstellung",
-      "renderDescription": "Wählen Sie, wie dieser Punkt-Layer gezeichnet wird.",
       "dataDriven": "Datengesteuerter Stil",
       "dataDrivenDescription": "Färben oder skalieren Sie Features nach Attribut.",
       "appearance": "Farbe, Form und Sichtbarkeit",
@@ -286,11 +284,6 @@
     "zoomRange": "Zoombereich",
     "minZoom": "Min. Zoom",
     "maxZoom": "Max. Zoom",
-    "renderAs": "Darstellung",
-    "renderPoints": "Punkte",
-    "renderSymbol": "Symbole",
-    "renderHeatmap": "Heatmap",
-    "renderCluster": "Cluster",
     "none": "Keine",
     "symbol": {
       "title": "Symbol",
@@ -358,7 +351,6 @@
       "resampling": "Resampling",
       "resamplingLinear": "Linear",
       "resamplingNearest": "Nächster Nachbar",
-      "renderMode": "Darstellung",
       "renderRaster": "Raster",
       "renderHillshade": "Schummerung",
       "reset": "Zurücksetzen",
