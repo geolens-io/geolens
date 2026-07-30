@@ -28,7 +28,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
     update_ingest_job_for_attempt,
 )
-from app.core.db import async_session, tenant_task
+from app.core.db import tenant_task
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import extract_raster_metadata, sha256_file
 from app.processing.raster.quicklook import generate_quicklook
@@ -229,6 +229,7 @@ async def ingest_vrt(
     import shutil
     import tempfile
 
+    from app.core.db import async_session  # fix(#909): late-bind for tests
     from app.platform.extensions import get_processing_port
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset
@@ -554,6 +555,8 @@ async def regenerate_vrt(
     work and reopened for the metadata updates.
     """
     import asyncio
+
+    from app.core.db import async_session  # fix(#909): late-bind for tests
 
     _bind_task_log_context(
         task_name="regenerate_vrt",

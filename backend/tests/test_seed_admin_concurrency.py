@@ -22,7 +22,6 @@ import asyncio
 import pytest
 from sqlalchemy import func, select, text
 
-import app.api.main as main_module
 import app.core.db as db_module
 from app.api.main import (
     DEFAULT_ROLES,
@@ -59,10 +58,9 @@ async def _assert_blocks_until_lock_released(seed_coro_factory):
 
 
 async def test_seed_initial_admin_blocks_on_advisory_lock(test_db_session, monkeypatch):
-    # seed_initial_admin() resolves `async_session` from app.api.main's namespace;
-    # the client fixture only patches app.core.db.async_session, so repoint the
-    # seed at the same test engine — otherwise it writes to the default DB.
-    monkeypatch.setattr(main_module, "async_session", db_module.async_session)
+    # fix(#909): seed_initial_admin() now late-binds async_session from
+    # app.core.db, which the client fixture already patches — no per-module
+    # repoint needed.
 
     # Fresh-DB state (count==0) — the only state the prod guard seeds in. CASCADE
     # clears user_roles; the roles table survives (the client fixture seeded the
@@ -90,7 +88,8 @@ async def test_seed_roles_blocks_on_advisory_lock(test_db_session, monkeypatch):
     # blocks regardless of whether rows already exist — and truncating
     # catalog.roles CASCADE would strip the admin's role link without the fixture
     # re-linking it, poisoning the shared per-worker DB for later tests.
-    monkeypatch.setattr(main_module, "async_session", db_module.async_session)
+    # fix(#909): seed_roles late-binds async_session from app.core.db, which
+    # the client fixture already patches — no per-module repoint needed.
 
     await _assert_blocks_until_lock_released(seed_roles)
 

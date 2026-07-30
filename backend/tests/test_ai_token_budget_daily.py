@@ -127,7 +127,10 @@ async def test_record_token_usage_commits_own_session(monkeypatch):
             events["committed"] += 1
 
     monkeypatch.setattr(
-        "app.processing.ai.token_usage.async_session", lambda: _FakeSession()
+        # fix(#909): record_token_usage now late-binds async_session from the
+        # origin module, so the patch targets app.core.db, not the consumer.
+        "app.core.db.async_session",
+        lambda: _FakeSession(),
     )
 
     # First arg (caller session) is intentionally ignored — pass a sentinel that

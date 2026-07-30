@@ -10,7 +10,6 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import engine
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -58,6 +57,8 @@ async def _check_database() -> None:
     We additionally run a tiny query against the catalog schema so a
     genuinely unhealthy DB (hung, wrong schema, locks) reports as degraded.
     """
+    from app.core.db import engine  # fix(#909): late-bind for tests
+
     async with engine.connect() as conn:
         # Cheap connectivity check
         await conn.execute(text("SELECT 1"))
