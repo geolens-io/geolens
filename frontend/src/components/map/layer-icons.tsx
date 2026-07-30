@@ -3,6 +3,7 @@ import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
 import { getColorProperty, getRampColors } from '@/lib/color-ramps';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { fillPatternFromPaint, patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Darken a hex color by reducing each channel by ~30% for outline contrast */
@@ -22,6 +23,7 @@ export interface StyleHints {
   strokeWidth?: number;      // line-width raw value — map to SVG strokeWidth
   radius?: number;           // circle-radius raw value — map to SVG size hint
   isHeatmap?: boolean;       // render_mode === 'heatmap' — triggers radial gradient icon
+  fillPattern?: string;      // fix(#951): paint['fill-pattern'] — the swatch draws the pattern
 }
 
 /**
@@ -67,6 +69,11 @@ export function extractStyleHints(
     const fo = paint['fill-opacity'];
     if (typeof fo === 'number' && fo < 1) hints.fillOpacity = fo;
   }
+
+  // fix(#951 review): read the pattern independently of the POLYGON-only branch
+  // above — a GEOMETRY / GEOMETRYCOLLECTION layer renders a fill sublayer via
+  // the mixed adapter and gets the shape icon, but matches neither branch.
+  hints.fillPattern = fillPatternFromPaint(paint);
 
   if (gt.includes('POINT')) {
     if (!paint['_stroke-disabled']) {
@@ -176,6 +183,26 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint, discret
   }
   const Icon = isPoint ? Circle : Pentagon;
   const showOutline = !styleHints?.strokeDisabled;
+
+  // fix(#951): a patterned polygon draws the pattern INSTEAD of a fill, so the
+  // swatch shows the pattern rather than a solid colour that appears nowhere on
+  // the map. Deliberately a square chip, matching the picker and legend chips —
+  // the pentagon glyph has no fill we can pattern without duplicating all five
+  // patterns as SVG defs.
+  if (!isPoint && styleHints?.fillPattern) {
+    return (
+      <span
+        className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border"
+        style={{
+          color: colors[0] ?? MAP_COLORS.icon.fallback,
+          borderColor: showOutline ? (styleHints.strokeColor ?? MAP_COLORS.icon.outline) : 'transparent',
+          ...patternPreviewStyle(styleHints.fillPattern),
+          ...opacityStyle,
+        }}
+        aria-hidden="true"
+      />
+    );
+  }
 
   if (colors.length <= 1) {
     const color = colors[0] ?? MAP_COLORS.icon.fallback;

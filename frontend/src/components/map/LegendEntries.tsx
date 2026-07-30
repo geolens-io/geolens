@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { breakLabel } from '@/lib/legend-utils';
 import { getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
 
 /* ── Shared swatch rendering ─────────────────────── */
 
@@ -12,6 +13,8 @@ export interface SwatchStyle {
   opacity?: number;
   fillOpacity?: number;
   strokeWidth?: number;
+  /** fix(#951): paint['fill-pattern'] — the polygon chip draws the pattern, not a solid block. */
+  fillPattern?: string;
 }
 
 /** Compute compound opacity style from swatch style. */
@@ -60,10 +63,14 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
     );
   }
 
-  // Polygon / default: filled rectangle
+  // Polygon / default: filled rectangle — or the pattern preview when the layer
+  // carries a fill-pattern, since MapLibre draws the pattern INSTEAD of the fill
+  // (fix(#951): the chip used to show a solid block that appeared nowhere on the map).
   const borderColor = !s?.strokeDisabled ? (s?.outlineColor ?? MAP_COLORS.legendOutline) : undefined;
   const style: React.CSSProperties = {
-    backgroundColor: color,
+    ...(s?.fillPattern
+      ? { color, backgroundColor: 'transparent', ...patternPreviewStyle(s.fillPattern) }
+      : { backgroundColor: color }),
     ...(borderColor ? { borderColor } : {}),
     ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
     ...opacityStyle,
