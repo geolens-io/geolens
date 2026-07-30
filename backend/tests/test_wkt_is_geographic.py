@@ -79,6 +79,42 @@ def test_degree_unit_missing_wkt_is_unknown():
     assert wkt_has_degree_unit("") is None
 
 
+def test_wkt2_2015_geodcrs_ellipsoidal_is_geographic():
+    # fix(#939 codex r3): WKT2:2015 spells geographic CRSs GEODCRS; rasterio
+    # still emits this form (CRS.from_epsg(4269).to_wkt(version="WKT2_2015")).
+    wkt = (
+        'GEODCRS["NAD83",DATUM["North American Datum 1983",'
+        'ELLIPSOID["GRS 1980",6378137,298.257222101]],CS[ellipsoidal,2],'
+        'AXIS["geodetic latitude (Lat)",north],AXIS["geodetic longitude (Lon)",east],'
+        'ANGLEUNIT["degree",0.0174532925199433]]'
+    )
+    assert wkt_is_geographic(wkt) is True
+    assert wkt_has_degree_unit(wkt) is True
+
+
+def test_wkt2_2015_geodcrs_geocentric_is_not_geographic():
+    # A GEODCRS with a Cartesian CS is geocentric XYZ metres, not lon/lat.
+    wkt = (
+        'GEODCRS["WGS 84 (geocentric)",DATUM["World Geodetic System 1984",'
+        'ELLIPSOID["WGS 84",6378137,298.257223563]],CS[Cartesian,3],'
+        'AXIS["(X)",geocentricX],AXIS["(Y)",geocentricY],AXIS["(Z)",geocentricZ],'
+        'LENGTHUNIT["metre",1]]'
+    )
+    assert wkt_is_geographic(wkt) is False
+
+
+def test_wkt2_2015_compound_geodcrs_is_geographic():
+    wkt = (
+        'COMPOUNDCRS["NAD83 + height",'
+        'GEODCRS["NAD83",DATUM["North American Datum 1983",'
+        'ELLIPSOID["GRS 1980",6378137,298.257222101]],CS[ellipsoidal,2],'
+        'ANGLEUNIT["degree",0.0174532925199433]],'
+        'VERTCRS["NAVD88 height",VDATUM["NAVD88"],CS[vertical,1],'
+        'LENGTHUNIT["metre",1]]]'
+    )
+    assert wkt_is_geographic(wkt) is True
+
+
 def test_non_string_inputs_are_unknown_not_a_crash():
     # fix(#939 codex r2): callers hand these whatever sits on
     # RasterAsset.crs_wkt, including MagicMock in unit tests.

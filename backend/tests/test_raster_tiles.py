@@ -219,6 +219,17 @@ class TestRasterTokenZoomMetadata:
                 'ANGLEUNIT["degree",0.0174532925199433]]',
             ),
             (
+                # fix(#939 codex r3): WKT2:2015 spelling — GEODCRS with an
+                # ellipsoidal CS, the form rasterio still emits.
+                4269,
+                'GEODCRS["NAD83",DATUM["North American Datum 1983",'
+                'ELLIPSOID["GRS 1980",6378137,298.257222101]],'
+                "CS[ellipsoidal,2],"
+                'AXIS["geodetic latitude (Lat)",north],'
+                'AXIS["geodetic longitude (Lon)",east],'
+                'ANGLEUNIT["degree",0.0174532925199433]]',
+            ),
+            (
                 # EPSG:9518-style compound: geographic horizontal + vertical.
                 # This is the live ETOPO repro that derived maxzoom 22.
                 9518,

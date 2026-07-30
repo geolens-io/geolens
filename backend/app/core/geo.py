@@ -450,6 +450,17 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
         return False
     if "GEOGCRS" in head or "GEOGCS" in head:
         return True
+    # fix(#939 codex r3): WKT2:2015 spells geographic CRSs GEODCRS (2019
+    # renamed them GEOGCRS), and rasterio still emits the 2015 form. A
+    # GEODCRS is geographic when its coordinate system is ellipsoidal and
+    # geocentric (XYZ metres) when Cartesian — distinguish on the CS keyword
+    # rather than treating every GEODCRS either way.
+    if "GEODCRS" in head or "GEODETICCRS" in head:
+        if "ELLIPSOIDAL" in head:
+            return True
+        if "CARTESIAN" in head:
+            return False
+        return None
     return None
 
 
