@@ -116,11 +116,17 @@ SCRIPT_DOC_FILES = (
     ".env.example",
     ".env.test.example",
 )
-# Path components after scripts/ are allowed (codex review on #950's PR:
-# RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh, which a
-# single-component pattern silently skipped).
+# Nested path components and any extension are both in scope (codex review on
+# #950's PR): RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh
+# and README references scripts/README.md, and a pattern restricted to
+# single-component .py/.sh/.mjs/.sql paths silently skipped both. A trailing
+# extension is still required so that prose like "the scripts/ directory" and
+# bare directory names do not get resolved as files, and the lookbehind keeps
+# a URL path such as https://example.test/scripts/foo.py from being treated as
+# a repo-relative reference.
 SCRIPT_REF_RE = re.compile(
-    r"\bscripts/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:py|sh|mjs|sql))\b"
+    r"(?<![A-Za-z0-9_./-])scripts/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-]+"
+    r"(?:\.[A-Za-z0-9_-]+)+)\b"
 )
 
 
