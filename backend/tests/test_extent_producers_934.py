@@ -112,6 +112,38 @@ class TestGetExtent:
         finally:
             await _drop_table(test_db_session, table)
 
+    async def test_positive_seam_edge_still_covers_the_stored_row(
+        self, test_db_session
+    ):
+        """fix(#934 codex r2): features at +180 and -170. The winning shifted
+        fold is west == 180, whose west..180 half has zero width;
+        ``bbox_to_extent_wkt`` drops such halves, which would leave only the
+        -180..-170 lobe — and that ring does not contain the row stored at the
+        literal planar +180. The producer pads the +180 edge to a sliver first,
+        so both planar representations of the seam stay covered."""
+        table = await _make_table(test_db_session, [(180.0, -10.0), (-170.0, 10.0)])
+        try:
+            wkt = await get_extent(test_db_session, table)
+            assert wkt is not None
+            assert wkt.startswith("MULTIPOLYGON")
+            covered = (
+                await test_db_session.execute(
+                    text(
+                        f"SELECT count(*) FROM data.{table} t "
+                        "WHERE ST_Intersects(t.geom_4326, "
+                        "ST_GeomFromText(:wkt, 4326))"
+                    ).bindparams(wkt=wkt)
+                )
+            ).scalar_one()
+            assert covered == 2, "the extent must cover every row it describes"
+            bbox = _spec_bbox(wkt)
+            assert bbox is not None
+            assert bbox[0] == pytest.approx(180.0, abs=1e-6)
+            assert bbox[2] == pytest.approx(-170.0)
+            assert bbox[0] > bbox[2]
+        finally:
+            await _drop_table(test_db_session, table)
+
     async def test_negative_seam_edge_still_reads_as_crossing(self, test_db_session):
         """fix(#934 codex r3): features at -180 and 170. ST_ShiftLongitude
         maps the stored -180 to +180, so the winning shifted fold read as the

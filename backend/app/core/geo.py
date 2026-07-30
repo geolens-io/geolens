@@ -166,28 +166,30 @@ def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> 
         return f"POLYGON({_ring(west, south, east, north)})"
 
     # A crossing bbox whose west sits at +180 (or east at -180) has a zero-width
-    # half; emitting it verbatim would store an invalid ring, which is the class
-    # of defect this helper exists to prevent. fix(#934 codex r2): DROPPING that
-    # half is not the answer either -- a fold of features at exactly lon 180 and
-    # -170 produced only the -180..-170 lobe, which in planar coordinates no
-    # longer covers the feature stored at +180, and the read-back stopped
-    # identifying the extent as crossing at all. Pad the degenerate half to a
-    # sub-mm sliver instead (the same 1e-9 the ST_Expand degenerate paths use),
-    # so both seam representations stay covered. Only when the padding cannot
-    # produce two real halves (west and east both pinned to the same seam edge)
-    # fall back to the full -180..180 band -- never to nothing.
-    left_w, right_e = west, east
-    if left_w >= 180.0:
-        left_w = 180.0 - 1e-9
-    if right_e <= -180.0:
-        right_e = -180.0 + 1e-9
+    # half; emitting it anyway would store an invalid ring, which is the class of
+    # defect this helper exists to prevent. Keep only the halves with real width,
+    # and fall back to the full -180..180 band when neither has any -- an extent
+    # must never silently narrow to nothing.
+    #
+    # fix(#934 codex r2): dropping the zero-width half is right for every caller
+    # that passes a CONTINUOUS rectangle -- a raster footprint
+    # (``processing/raster/cog.py``) or a STAC item bbox
+    # (``catalog/sources/stac_router.py``). A 180..190 raster folds to the single
+    # -180..-170 ring and covers every pixel it has; there is nothing at the
+    # zero-width half to lose. It is NOT right for a fold over DISCRETE stored
+    # features, where a row can sit at the literal planar +180 that the -180 ring
+    # does not cover. That case is handled where it belongs, in
+    # :func:`seam_extent_wkt_for_table`, which pads the seam edge to a sliver
+    # before calling here -- so a degenerate half never reaches this drop.
     halves = [
         _ring(x0, south, x1, north)
-        for x0, x1 in ((left_w, 180.0), (-180.0, right_e))
+        for x0, x1 in ((west, 180.0), (-180.0, east))
         if x0 < x1
     ]
-    if len(halves) < 2:  # pragma: no cover - unreachable after padding
+    if not halves:
         return f"POLYGON({_ring(-180.0, south, 180.0, north)})"
+    if len(halves) == 1:
+        return f"POLYGON({halves[0]})"
     return f"MULTIPOLYGON({','.join(f'({h})' for h in halves)})"
 
 
@@ -416,6 +418,19 @@ async def seam_extent_wkt_for_table(
     if north - south < 1e-12:
         south -= 1e-9
         north += 1e-9
+    # fix(#934 codex r2): a fold whose west lands exactly on +180 (rows at
+    # planar 180 and -170), or whose east lands on -180, has a zero-width
+    # half. bbox_to_extent_wkt drops such halves, which is correct for its
+    # continuous-rectangle callers but wrong here: the dropped half is
+    # precisely where a discrete row is stored, so the -180..-170 lobe alone
+    # stopped covering the row at planar +180 and the read-back stopped
+    # reporting a crossing at all. Widen that seam edge to a sub-mm sliver
+    # (the same 1e-9 the ST_Expand degenerate paths use) so both planar
+    # representations of the seam meridian stay covered.
+    if west >= 180.0:
+        west = 180.0 - 1e-9
+    if east <= -180.0:
+        east = -180.0 + 1e-9
     return bbox_to_extent_wkt(west, south, east, north)
 
 
