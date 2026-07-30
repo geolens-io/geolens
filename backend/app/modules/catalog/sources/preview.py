@@ -113,7 +113,14 @@ async def run_service_preview(
 
     header_file_path: str | None = None
     try:
-        env = {**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"}
+        # fix(#937): this env used to set GDAL_HTTP_FOLLOWLOCATION=NO as a
+        # redirect defense. That is not a GDAL configuration option and never
+        # stopped a redirect; do not re-add it. The actual SSRF defense for
+        # this user-supplied service URL is validate_url_for_ssrf at
+        # submission time; libcurl under GDAL follows redirects
+        # unconditionally, so post-validation redirects must be bounded
+        # operationally (worker egress firewall).
+        env = {**os.environ}
         if token and (
             gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
         ):
