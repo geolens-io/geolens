@@ -110,6 +110,12 @@ WRITE_RE = re.compile(r"^\s*update_env_value\s+([A-Z][A-Z0-9_]*)\b")
 SCRIPT_DOC_FILES = (
     "RUNBOOK.md",
     "README.md",
+    # The translations carry the same operator-facing install/upgrade commands
+    # (codex review on #950's PR), so a path mistyped only in a translation is
+    # exactly as broken for the reader who follows it.
+    "README.de.md",
+    "README.es.md",
+    "README.fr.md",
     "UPGRADING.md",
     "EDITIONS.md",
     "SUPPORT.md",
