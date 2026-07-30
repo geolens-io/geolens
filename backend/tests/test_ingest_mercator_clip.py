@@ -175,6 +175,49 @@ class TestZeroTo360Shift(_FixtureTable):
         assert float(row[1]) == pytest.approx(-160.0)
         assert float(row[2]) == pytest.approx(-150.0)
 
+    async def test_pacific_crossing_source_is_preserved_with_a_naive_extent(
+        self, test_db_session
+    ):
+        """Pinning test: a Pacific-crossing 0..360 source keeps all its data.
+
+        A 150..250 source lands half on each side of the antimeridian, which is
+        correct per-feature and is the trade this fix makes deliberately: the
+        old behaviour destroyed everything past lon 180 instead.
+
+        The cost is that a bare ``ST_Extent`` over the result reads -180..180,
+        a near-global bbox for a source spanning 100 deg. That is the
+        antimeridian-naive extent fold tracked by #886, whose two call sites
+        live in ``metadata.py`` and are untouched here. When #886 folds the
+        extent properly this assertion should start failing, which is the
+        point: it is where the two fixes meet.
+        """
+        await _seed_points(
+            test_db_session,
+            [(150.0, 0.0), (170.0, 0.0), (190.0, 0.0), (250.0, 0.0)],
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert counts["shifted_longitudes"] is True
+        assert counts["dropped_features"] == 0
+        assert counts["clipped_features"] == 0
+        # Every feature survives, on the correct side of the antimeridian.
+        assert await _xs(test_db_session) == pytest.approx(
+            [150.0, 170.0, -170.0, -110.0]
+        )
+
+        extent = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_XMin(bb), ST_XMax(bb) "
+                    f"FROM (SELECT ST_Extent(geom) AS bb FROM data.{TABLE}) q"
+                )
+            )
+        ).first()
+        assert extent is not None
+        assert (float(extent[0]), float(extent[1])) == pytest.approx((-170.0, 170.0))
+
 
 # ---------------------------------------------------------------------------
 # 2. Near misses: the guard must leave these alone
