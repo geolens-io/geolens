@@ -464,7 +464,7 @@ describe('LayerStyleEditor - line paint controls', () => {
     );
 
     expect(screen.getByText('Color')).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Line opacity' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Width' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Gap' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Blur' })).toBeInTheDocument();
@@ -659,7 +659,7 @@ describe('LayerStyleEditor - circle zoom expression controls', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Opacity Stop 2 value'), { target: { value: '0.75' } });
+    fireEvent.change(screen.getByLabelText('Point opacity Stop 2 value'), { target: { value: '0.75' } });
 
     expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
       'circle-color': '#ff0000',
@@ -1319,8 +1319,8 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
       />,
     );
 
-    // Find the master opacity slider (aria-label = "Layer")
-    const slider = screen.getByRole('slider', { name: 'Layer' });
+    // Find the master opacity slider (aria-label = "Layer opacity")
+    const slider = screen.getByRole('slider', { name: 'Layer opacity' });
 
     // Simulate 3 rapid keydown events on the slider to change the value
     // Radix Slider responds to ArrowLeft/ArrowRight key events

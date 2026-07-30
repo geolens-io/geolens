@@ -43,7 +43,7 @@ export function CircleEditor({
         </>
       )}
       <ZoomExpressionEditor
-        label={t('style.opacity')}
+        label={t('style.pointOpacity')}
         value={getEditableNumericPaintValue(paint, 'circle-opacity', 1)}
         defaultValue={1}
         min={0} max={1} step={0.01} format="percent"
