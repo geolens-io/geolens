@@ -298,16 +298,25 @@ CREATE TABLE public.recover_job_tenant AS
 SQL
 ```
 
-**2c. Rebuild the topology.** One-shot `run --rm` containers, not `exec`, so
-this works with `api` stopped — and with the privileged migrator credential,
-since the runtime login is deliberately not allowed to do any of this.
+**2c. Rebuild the topology.** Run these against the **`migrate`** service with
+`--no-deps`, not against `api`. Both parts matter: `api`'s entrypoint runs
+`alembic upgrade heads` of its own accord before it would execute your command
+(`backend/scripts/api-entrypoint.sh`), and `api` declares
+`depends_on: migrate`, so without `--no-deps` Compose starts the `migrate`
+one-shot — with `.env`'s runtime credential rather than your override — and
+upgrades the schema before the downgrade ever runs. The `migrate` service has
+`entrypoint: []` and depends only on a healthy `db`, so it does exactly what
+you ask and nothing else.
 
 ```bash
-docker compose run --rm -e DATABASE_URL_OVERRIDE="<migrator-url>" \
-  api uv run alembic downgrade 0016
-docker compose run --rm -e DATABASE_URL_OVERRIDE="<migrator-url>" \
-  api uv run alembic upgrade head
+docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  migrate sh -c "uv run --no-dev alembic downgrade 0016"
+docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  migrate sh -c "uv run --no-dev alembic upgrade heads"
 ```
+
+The migrator credential is required: the least-privilege runtime login in
+`.env` is deliberately not allowed to do any of this.
 
 **2d. Put the attribution back.** Scoped to the rows the re-upgrade could not
 derive, which is also what keeps the parent-consistency triggers satisfied.
