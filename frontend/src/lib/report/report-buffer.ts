@@ -239,7 +239,10 @@ const VOLATILE_TILE_PARAMS = new Set([
   'sig', 'exp', 'scope', '_v',
   'z', 'x', 'y', 'zoom', 'level',
   'col', 'column', 'row',
-  'tilecol', 'tilerow', 'tilematrix', 'tilematrixset',
+  // WMTS: TileMatrix is the zoom and TileRow/TileCol the coordinates, but
+  // TileMatrixSet names the GRID (EPSG:3857 vs EPSG:4326) and is therefore
+  // source-defining — two basemaps can differ by nothing else.
+  'tilecol', 'tilerow', 'tilematrix',
   'bbox', 'quadkey',
 ]);
 

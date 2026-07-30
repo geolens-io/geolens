@@ -421,6 +421,18 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  it('keeps TileMatrixSet, which names the grid rather than a tile', () => {
+    for (const grid of ['EPSG:3857', 'EPSG:4326']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://wmts.example.com/?TileMatrixSet=${grid}&TileMatrix=12&TileRow=1&TileCol=1`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('keeps a numeric source-defining param, which is not a coordinate', () => {
     for (const layer of [3, 4]) {
       pushReportEntry({
