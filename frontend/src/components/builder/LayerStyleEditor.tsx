@@ -173,16 +173,16 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
   // Compute the dispatch key for RenderModeSwitch
   // For circle/point layers, sub-dispatch by renderMode
+  // fix(#915): getLayerType only ever returns 'circle' | 'line' | 'fill', so the
+  // old 'raster' fallback (and its editor) was unreachable — real raster layers
+  // are routed to RasterLayerControls by LayerEditorPanel.
   const dispatchKey: EditorDispatchKey = useMemo(() => {
     if (geomType === 'fill') return 'fill';
     if (geomType === 'line') return 'line';
-    if (geomType === 'circle') {
-      if (renderMode === 'heatmap') return 'heatmap';
-      if (renderMode === 'symbol') return 'symbol';
-      if (renderMode === 'cluster') return 'cluster';
-      return 'circle';
-    }
-    return 'raster';
+    if (renderMode === 'heatmap') return 'heatmap';
+    if (renderMode === 'symbol') return 'symbol';
+    if (renderMode === 'cluster') return 'cluster';
+    return 'circle';
   }, [geomType, renderMode]);
 
   const builderConfig = useMemo(
