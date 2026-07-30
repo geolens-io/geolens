@@ -333,11 +333,22 @@ DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
 SQL
 ```
 
-If 2c refuses, stop rather than forcing it: the refusing migrations are
-protecting data the current schema legitimately holds, and the remediations
-their error messages offer (widening seam extents to `-180..180`, remapping
-source formats) are themselves lossy. The reconstruction logic 2c is trying to
-reach is `_adopt_and_backfill_existing_tenants` in
+**If 2c refuses, the database it refused in is not salvageable — start over
+from the dump.** A failed downgrade does not roll back the ones that already
+succeeded. Several of these migrations do index work inside Alembic's
+`autocommit_block()` (0020, 0021, 0022 among them), which commits the DDL
+preceding it, so a refusal at 0021 leaves you past 0029's and 0022's discards
+with no transaction to undo them. Drop and recreate the target database, then
+re-run 2a and 2b against the untouched dump before attempting anything else.
+The dump file itself is never modified, so nothing is lost by restarting — but
+continuing in a half-downgraded database is how a recovery turns into a second
+incident.
+
+Do not force a refusal past its guard. Those migrations are protecting data
+the current schema legitimately holds, and the remediations their error
+messages offer — widening seam extents to `-180..180`, remapping source
+formats — are themselves lossy. The reconstruction logic 2c is trying to reach
+is `_adopt_and_backfill_existing_tenants` in
 `backend/alembic/versions/0019_tenant_provisioning_boundary.py`; making it
 runnable without the downgrade is a product gap, not something to work around
 by hand here.
