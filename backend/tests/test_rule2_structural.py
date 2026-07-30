@@ -7,6 +7,16 @@ in-process ``rasterio.open()`` involves no ``httpx`` and no subprocess, so
 the hook cannot see it, and a new GDAL CLI subprocess that hand-rolls its
 env instead of calling ``gdal_safe_env()`` trips nothing either.
 
+**THE INVARIANT: this gate has no silent-pass path.** Anything that looks
+like a guarded call and that the resolver cannot confidently classify as
+something else is reported as a VIOLATION — never dropped. Resolution
+failure resolves to a violation everywhere, by construction, so the whole
+family of "the resolver got confused here" shapes (function defaults,
+decorators, annotations, class bodies, star imports, expression heads it
+cannot root) fails loudly instead of passing quietly. Every conservative
+choice in this module is oriented that way: false alarms are cheap and
+visible; a silent miss is the failure that matters.
+
 This module closes that gap structurally, in the spirit of
 ``test_rule1_structural.py`` (#822): it walks every module under
 ``backend/app/`` as an AST and asserts two properties.
@@ -88,7 +98,7 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 from __future__ import annotations
 
 import ast
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 
@@ -109,12 +119,20 @@ GDAL_CLI_TOOLS = {
 }
 
 
-def _is_gdal_cli_tool(value: object) -> bool:
-    """A string argv head naming any gdal*/ogr* executable counts as a GDAL
-    CLI needing the safe env — the family, not a fixed seven."""
-    return isinstance(value, str) and (
-        value.startswith("gdal") or value.startswith("ogr")
-    )
+def _gdal_cli_tool_name(value: object) -> str | None:
+    """The executable name when a literal argv head names a gdal*/ogr* tool.
+
+    codex round 11 on #974: containers routinely spell the head as a path
+    (``/usr/bin/gdalinfo``, ``./bin/ogr2ogr``), which matched neither family
+    prefix — normalize to the basename before classifying. The family, not a
+    fixed seven (codex round 10).
+    """
+    if not isinstance(value, str):
+        return None
+    name = PurePosixPath(value).name or value
+    if name.startswith("gdal") or name.startswith("ogr"):
+        return name
+    return None
 
 
 SAFE_SUBPROCESS_ENV_HELPER = "gdal_safe_env"
@@ -285,6 +303,8 @@ class _ScopeInfo:
             _KIND_RASTERIO_ENV: set(),
         }
         self.bound: set[str] = set()
+        # `from rasterio import *` binds open/Env invisibly (codex round 11).
+        self.star_from_rasterio = False
 
 
 # from-import module -> {imported name -> credit kind}. Names imported from
@@ -314,6 +334,10 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
     else:
         kinds = {}
     for alias in node.names:
+        if alias.name == "*":
+            if module == "rasterio":
+                info.star_from_rasterio = True
+            continue
         kind = kinds.get(alias.name)
         if kind is not None:
             info.canonical[kind].add(alias.asname or alias.name)
@@ -401,6 +425,48 @@ def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
     return info
 
 
+_CANONICAL = "canonical"
+_AMBIGUOUS = "ambiguous"
+_OTHER = "other"
+_UNRESOLVED = "unresolved"
+
+
+def _in_signature(scope: ast.AST, child: ast.AST) -> bool:
+    """True when ``child`` is the signature part of ``scope`` — a default,
+    decorator, or annotation.
+
+    Those expressions evaluate in the ENCLOSING scope, not the new one
+    (codex round 11 on #974: ``def f(rasterio=rasterio.open(url))`` consulted
+    the new function's params and misresolved the open). Handled as the
+    general lexical rule rather than a special case for defaults.
+    """
+    if not isinstance(scope, _SCOPE_NODES):
+        return False
+    if child is getattr(scope, "args", None):
+        return True
+    if child in getattr(scope, "decorator_list", []):
+        return True
+    return child is getattr(scope, "returns", None)
+
+
+def _classify_name(name: str, kind: str, usage: ast.AST, rel: str) -> str:
+    """Resolve ``name`` at ``usage`` to one of the four classes."""
+    prev: ast.AST = usage
+    current = getattr(usage, "_rule2_parent", None)
+    while current is not None:
+        if isinstance(current, (*_SCOPE_NODES, ast.Module)) and not _in_signature(
+            current, prev
+        ):
+            info = _scope_info(current, rel)
+            if name in info.canonical[kind]:
+                return _AMBIGUOUS if name in info.bound else _CANONICAL
+            if name in info.bound:
+                return _OTHER
+        prev = current
+        current = getattr(current, "_rule2_parent", None)
+    return _UNRESOLVED
+
+
 def _resolve_credit(
     name: str, kind: str, usage: ast.AST, rel: str, *, ambiguous_counts: bool = False
 ) -> bool:
@@ -419,17 +485,11 @@ def _resolve_credit(
     yes (``ambiguous_counts=True``) so a maybe-rasterio open is flagged
     rather than invisible. Both directions resolve toward a violation.
     """
-    current = getattr(usage, "_rule2_parent", None)
-    while current is not None:
-        if isinstance(current, (*_SCOPE_NODES, ast.Module)):
-            info = _scope_info(current, rel)
-            if name in info.canonical[kind]:
-                if name in info.bound:
-                    return ambiguous_counts
-                return True
-            if name in info.bound:
-                return False
-        current = getattr(current, "_rule2_parent", None)
+    cls = _classify_name(name, kind, usage, rel)
+    if cls == _CANONICAL:
+        return True
+    if cls == _AMBIGUOUS:
+        return ambiguous_counts
     return False
 
 
@@ -568,38 +628,92 @@ def _scope_uses_safe_env(root: ast.AST, rel: str) -> bool:
     return False
 
 
+UNCLASSIFIED = "unclassified"
+
+
+def _expression_root_name(expr: ast.expr) -> ast.Name | None:
+    """The leftmost ``Name`` an expression is rooted at, if any:
+    ``a.b.c`` -> ``a``, ``Path(p).open`` -> ``Path``, ``d[i].open`` -> ``d``."""
+    current: ast.expr | None = expr
+    while current is not None:
+        if isinstance(current, ast.Name):
+            return current
+        if isinstance(current, ast.Attribute):
+            current = current.value
+        elif isinstance(current, ast.Call):
+            current = current.func
+        elif isinstance(current, ast.Subscript):
+            current = current.value
+        else:
+            return None
+    return None
+
+
 def _rasterio_call_kind(node: ast.Call, rel: str) -> str | None:
-    """Return "open"/"Env" when the call resolves to rasterio.open /
-    rasterio.Env through actual import bindings, else None.
+    """Classify a call as ``"open"``/``"Env"``/``UNCLASSIFIED``, else None.
 
     codex round 5 on #974: the previous predicate GUESSED alias spellings
     ("rasterio" in the name, or "rio"), so `import rasterio as rs` made
     `rs.open(...)` invisible — an unsafe miss, unlike the conservative
-    edges. Detection now uses the same per-scope binding resolution as
-    helper credit: `import rasterio [as X]` binds X as the module,
-    `from rasterio import open/Env [as Y]` binds Y as the function.
+    edges. Detection uses per-scope binding resolution: `import rasterio
+    [as X]` binds X as the module, `from rasterio import open/Env [as Y]`
+    binds Y as the callable.
 
-    codex round 10: detection resolves with ``ambiguous_counts=True`` — an
-    imported-then-rebound rasterio name is DETECTED, never invisible.
+    codex round 10: ambiguous (bound both ways) resolves to DETECTED.
+
+    codex round 11 — THE INVARIANT: a call that LOOKS like a rasterio
+    open/Env by name and that the resolver cannot confidently classify as
+    something else is ``UNCLASSIFIED``, which is a violation. Never a silent
+    drop. Only two things end detection: a confident non-rasterio binding
+    (``Image.open``, ``path.open``, a param, a stdlib import), or a bare
+    unbound ``open``/``Env`` name, which can only be the Python builtin —
+    rasterio's callables have to be imported to be called bare, and the
+    import is exactly what binds them. A ``from rasterio import *`` makes
+    even that ambiguous, so it flags too.
     """
     func = node.func
     if isinstance(func, ast.Attribute) and func.attr in ("open", "Env"):
-        base = func.value
-        if isinstance(base, ast.Name) and _resolve_credit(
-            base.id, _KIND_RASTERIO_MOD, func, rel, ambiguous_counts=True
-        ):
+        root = _expression_root_name(func.value)
+        if root is None:
+            # A head this resolver cannot root (literal, lambda call, ...).
+            return UNCLASSIFIED
+        cls = _classify_name(root.id, _KIND_RASTERIO_MOD, root, rel)
+        if cls in (_CANONICAL, _AMBIGUOUS):
             return func.attr
+        if cls == _OTHER:
+            return None
+        return UNCLASSIFIED
+    if isinstance(func, ast.Name) and func.id in ("open", "Env"):
+        for kind, label in (
+            (_KIND_RASTERIO_OPEN, "open"),
+            (_KIND_RASTERIO_ENV, "Env"),
+        ):
+            cls = _classify_name(func.id, kind, func, rel)
+            if cls in (_CANONICAL, _AMBIGUOUS):
+                return label
+        if _star_imports_rasterio(func, rel):
+            return UNCLASSIFIED
         return None
     if isinstance(func, ast.Name):
-        if _resolve_credit(
-            func.id, _KIND_RASTERIO_OPEN, func, rel, ambiguous_counts=True
+        for kind, label in (
+            (_KIND_RASTERIO_OPEN, "open"),
+            (_KIND_RASTERIO_ENV, "Env"),
         ):
-            return "open"
-        if _resolve_credit(
-            func.id, _KIND_RASTERIO_ENV, func, rel, ambiguous_counts=True
-        ):
-            return "Env"
+            if _resolve_credit(func.id, kind, func, rel, ambiguous_counts=True):
+                return label
     return None
+
+
+def _star_imports_rasterio(usage: ast.AST, rel: str) -> bool:
+    """True when any enclosing scope does ``from rasterio import *``, which
+    can bind ``open``/``Env`` invisibly."""
+    current: ast.AST | None = usage
+    while current is not None:
+        if isinstance(current, (*_SCOPE_NODES, ast.Module)):
+            if _scope_info(current, rel).star_from_rasterio:
+                return True
+        current = getattr(current, "_rule2_parent", None)
+    return False
 
 
 def _blank_justification_violations(allowlist_name: str, allowlist: dict) -> list[str]:
@@ -618,12 +732,13 @@ def _blank_justification_violations(allowlist_name: str, allowlist: dict) -> lis
 def _scan_rasterio_calls(modules: list[tuple[str, ast.Module]]):
     """Walk every module once, returning the raw per-site accounting the
     rasterio checks judge: (unwrapped_counts, unwrapped_lines, remote_sites,
-    env_counts, env_lines, total_open_calls)."""
+    env_counts, env_lines, unclassified, total_open_calls)."""
     unwrapped_counts: dict[tuple[str, str], int] = {}
     unwrapped_lines: dict[tuple[str, str], list[int]] = {}
     remote_sites: set[tuple[str, str]] = set()
     env_counts: dict[tuple[str, str], int] = {}
     env_lines: dict[tuple[str, str], list[int]] = {}
+    unclassified: list[str] = []
     total_open_calls = 0
 
     for rel, tree in modules:
@@ -652,6 +767,17 @@ def _scan_rasterio_calls(modules: list[tuple[str, ast.Module]]):
                 site = (rel, _enclosing_function(node))
                 env_counts[site] = env_counts.get(site, 0) + 1
                 env_lines.setdefault(site, []).append(node.lineno)
+            elif kind is UNCLASSIFIED:
+                # THE INVARIANT (codex round 11): unclassifiable is a
+                # violation, never a silent pass.
+                unclassified.append(
+                    f"{rel}:{node.lineno} ({_enclosing_function(node)}) calls "
+                    "something named open/Env that this guard cannot resolve "
+                    "to a definite binding — make the binding obvious (import "
+                    "rasterio normally, or name the object) so the gate can "
+                    "classify it; unclassifiable is a violation by "
+                    "construction (AGENTS.md Rule 2, #936)"
+                )
 
     return (
         unwrapped_counts,
@@ -659,6 +785,7 @@ def _scan_rasterio_calls(modules: list[tuple[str, ast.Module]]):
         remote_sites,
         env_counts,
         env_lines,
+        unclassified,
         total_open_calls,
     )
 
@@ -687,9 +814,10 @@ def _collect_rasterio_violations(
         remote_sites,
         env_counts,
         env_lines,
+        unclassified,
         total_open_calls,
     ) = scan
-    violations: list[str] = []
+    violations: list[str] = list(unclassified)
 
     violations += _blank_justification_violations(
         "RASTERIO_OPEN_ALLOWLIST", open_allowlist
@@ -784,7 +912,12 @@ def _collect_gdal_cli_violations(
             if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
                 continue
             first = node.elts[0]
-            if not (isinstance(first, ast.Constant) and _is_gdal_cli_tool(first.value)):
+            tool_name = (
+                _gdal_cli_tool_name(first.value)
+                if isinstance(first, ast.Constant)
+                else None
+            )
+            if tool_name is None:
                 continue
             total_argv_sites += 1
             func_node = _enclosing_function_node(node)
@@ -796,7 +929,7 @@ def _collect_gdal_cli_violations(
             remote = any(_is_remote_literal(elt) for elt in node.elts[1:])
             if not remote and _scope_uses_safe_env(scope, rel):
                 continue
-            key = (rel, func_name, first.value)
+            key = (rel, func_name, tool_name)
             if remote:
                 remote_keys.add(key)
             unsafe_counts[key] = unsafe_counts.get(key, 0) + 1
@@ -1324,6 +1457,63 @@ def test_guard_gdal_family_tool_is_detected():
     assert total == 1
     assert len(violations) == 1 and "(rasterize)" in violations[0]
     assert "gdal_rasterize" in violations[0]
+
+
+def test_guard_signature_expression_open_is_detected():
+    """codex round 11: defaults, decorators, and annotations evaluate in the
+    ENCLOSING scope. The walk used to consult the new function's params
+    first, so def f(rasterio=rasterio.open(url)) was neither counted nor
+    rejected — invisible, the failure class the invariant forbids."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def fn(rasterio=rasterio.open('https://example.com/a.tif')):\n"
+            "    return rasterio\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "literally-remote" in violations[0]
+
+
+def test_guard_unclassifiable_call_is_a_violation():
+    """THE INVARIANT (codex round 11): a call the resolver cannot classify —
+    here an .open() on a name bound nowhere it can see — is reported, never
+    dropped. The sibling call on a confidently-bound non-rasterio object
+    stays silent, so the invariant costs no false alarms on normal code."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "from PIL import Image\n"
+            "def unresolvable(url):\n"
+            "    return mystery.open(url)\n"
+            "def fine(path):\n"
+            "    return Image.open(path)\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "(unresolvable)" in violations[0]
+    assert "cannot resolve" in violations[0]
+
+
+def test_guard_path_qualified_argv_head_is_detected():
+    """codex round 11: containers spell the executable as a path; the head
+    normalizes to its basename before family classification."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def runs(url):\n"
+            "    subprocess.run(['/usr/bin/gdalinfo', url])\n"
+            "    subprocess.run(['./bin/ogr2ogr', 'out.gpkg', url])\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 2, violations
+    assert any("gdalinfo" in v for v in violations)
+    assert any("ogr2ogr" in v for v in violations)
 
 
 def test_guard_blank_justification_fails():
