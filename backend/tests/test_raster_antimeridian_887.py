@@ -25,6 +25,7 @@ extent MUST take ``clean_tables`` — see ``TestRasterTokenAcrossTheSeam``.
 """
 
 import io
+import math
 import shutil
 import subprocess
 import threading
@@ -955,6 +956,83 @@ class TestSeamFrameRewrite:
         )
         # And not over-allocated either — exactly the containing integer.
         assert width == 299
+
+    @pytest.mark.parametrize("res_x", [0.02, 0.01666666666666667, 1.0 / 3.0, 0.007])
+    @pytest.mark.parametrize(
+        "lefts",
+        [
+            (175.001, -180.0),
+            (175.123456789, -180.0),
+            (174.99999999, -179.87654321),
+            (170.3333333333, -175.6666666667),
+            (179.9, -180.0, -179.4),
+            (160.07, 170.07, -180.0, -170.0),
+        ],
+    )
+    def test_reframing_invariants_hold_for_off_grid_mosaics(
+        self, tmp_path, res_x, lefts
+    ):
+        """Property sweep over the whole re-framing path (#887).
+
+        Every one of these mosaics straddles ±180 with edges and resolutions
+        chosen to be awkward in binary, which is what makes `gdalbuildvrt` emit
+        fractional offsets and what makes a reconstructed edge land a hair off
+        its true value. Two invariants must survive all of them:
+
+        1. the raster CONTAINS every source (``rasterXSize >= max(xOff+xSize)``);
+        2. the sources are not left scattered across a world — the re-framed hull
+           must be near the real footprint, not ~360°.
+
+        This is the shape that caught the frame-chooser noise bug when
+        example-based tests did not. A bare ``<`` at any of the six comparison
+        sites in this path fails invariant 2 here.
+        """
+        widths = [4.0] * len(lefts)
+        sources = [(left, left + w) for left, w in zip(lefts, widths, strict=True)]
+
+        # What gdalbuildvrt emits: the plain min/max fold over -180..180.
+        old_left = min(left for left, _ in sources)
+        old_right = max(right for _, right in sources)
+        plain_width = max(1, math.ceil(round((old_right - old_left) / res_x, 6)))
+        rects = "".join(
+            f'<ComplexSource><DstRect xOff="{(left - old_left) / res_x!r}" yOff="0" '
+            f'xSize="{(right - left) / res_x!r}" ySize="10" /></ComplexSource>'
+            for left, right in sources
+        )
+        vrt = tmp_path / f"prop_{abs(hash((res_x, lefts)))}.vrt"
+        vrt.write_text(
+            f'<VRTDataset rasterXSize="{plain_width}" rasterYSize="10">'
+            f"<GeoTransform> {old_left!r}, {res_x!r}, 0.0, 5.0, 0.0, -{res_x!r}</GeoTransform>"
+            f'<VRTRasterBand dataType="Byte" band="1">{rects}</VRTRasterBand>'
+            "</VRTDataset>"
+        )
+
+        seam_origin = _seam_frame_origin(sources)
+        assert seam_origin is not None, "fixture must straddle the seam"
+        shift_vrt_longitude_frame(str(vrt), seam_origin)
+
+        root = parse_vrt(str(vrt)).getroot()
+        width = int(root.get("rasterXSize"))
+        offsets = [
+            (float(d.get("xOff")), float(d.get("xSize"))) for d in root.iter("DstRect")
+        ]
+        far_edge = max(off + size for off, size in offsets)
+
+        assert width >= far_edge, (
+            f"raster {width} px clips a source ending at {far_edge}"
+        )
+        assert min(off for off, _ in offsets) == pytest.approx(0.0, abs=1e-6), (
+            "the frame must be anchored on a source"
+        )
+        # The true circular footprint, closed the short way round.
+        true_span = (max(right for _, right in sources) + 360.0) - min(
+            left for left, _ in sources
+        )
+        true_span = min(true_span % 360.0, 360.0 - (true_span % 360.0)) or true_span
+        assert width * res_x < 360.0 - 1.0, (
+            f"re-framed hull is {width * res_x:.2f}° — the sources were left "
+            "scattered across a world"
+        )
 
     def test_whole_pixel_offsets_stay_integral(self, tmp_path):
         """The common case still reads like GDAL's own output, not ``50.0``.

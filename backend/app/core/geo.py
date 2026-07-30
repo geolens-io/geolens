@@ -105,6 +105,20 @@ def extent_to_span_bbox(extent: object | None) -> list[float] | None:
         return None
 
 
+# fix(#887): the shared floor for any float comparison that gates a longitude
+# shift, a re-frame, or a domain choice. Adding and subtracting 360, or
+# reconstructing an edge from a serialized pixel offset, is not bit-exact, so
+# values describing the SAME edge routinely disagree by ~1e-14 degrees. A bare
+# `<` then lets that noise decide a branch that moves geometry by a third of a
+# world. This batch hit it three times -- ``_narrower_domain`` in the rollup
+# folds (#886/#928), the VRT frame chooser, and the VRT frame rewrite -- so the
+# constant lives here and every such site imports it instead of inventing a bare
+# comparison. 1e-9 degrees is ~0.1 mm: orders of magnitude above the noise,
+# orders below any real distinction. ``_SEAM_TOL`` and ``_DOMAIN_MARGIN`` above
+# are the same value applied locally.
+LON_EPSILON_DEGREES = 1e-9
+
+
 def extent_lon_span(extent: object | None) -> float | None:
     """Longitudinal width of an extent in degrees, honest across ±180.
 

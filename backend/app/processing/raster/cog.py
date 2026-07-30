@@ -4,7 +4,7 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-from app.core.geo import bbox_to_extent_wkt, wrap_longitude
+from app.core.geo import LON_EPSILON_DEGREES, bbox_to_extent_wkt, wrap_longitude
 from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 
@@ -71,9 +71,12 @@ def _fold_geographic_bbox(
     ``bbox_to_extent_wkt`` turns that pair into the two-ring extent.
     """
     span = east - west
-    if span >= 360.0:
+    if span >= 360.0 - LON_EPSILON_DEGREES:
         # The footprint wraps the whole world. -180..180 is the honest answer
-        # and the only one a single ring can express.
+        # and the only one a single ring can express. The tolerance matters: a
+        # 0..360 global raster whose span measures 359.99999999999994 would
+        # otherwise fall through and be re-expressed as a west > east pair, i.e.
+        # a domain flip decided by last-bit noise.
         return (-180.0, south, 180.0, north)
     # One fold is enough at both sites: `west` is a raster's own left edge, which
     # sits within a single wrap of range for any real geographic grid, and `span`

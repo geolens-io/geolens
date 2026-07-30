@@ -6,6 +6,8 @@ import subprocess
 from contextlib import ExitStack
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
+from app.core.geo import LON_EPSILON_DEGREES
+
 
 # IA-P1-03 (Phase 1068): clamp the GDAL VSI surface that VRT processing
 # can reach. CPL_VSIL_CURL_ALLOWED_EXTENSIONS gates which URL-fetched
@@ -215,15 +217,6 @@ def _is_degree_based(crs) -> bool:
     return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
 
 
-# fix(#887): how much narrower the shifted hull must measure before it wins.
-# `left + 360` is not bit-exact for an arbitrary mantissa, so a global mosaic on
-# non-round tile boundaries can measure fractionally narrower shifted than plain
-# and re-frame itself on noise alone -- the same trap #886/#928 hit in the rollup
-# folds. 1e-9 degrees is ~0.1 mm: orders of magnitude above the noise, orders
-# below any re-framing worth doing.
-_SPAN_MARGIN = 1e-9
-
-
 def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     """Pick the longitude frame origin for a seam-straddling geographic mosaic.
 
@@ -258,17 +251,20 @@ def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     tightest circular hull of a set of intervals always starts at one of them.
     """
     plain_span = max(right for _, right in spans) - min(left for left, _ in spans)
-    if plain_span <= 180.0:
+    if plain_span <= 180.0 + LON_EPSILON_DEGREES:
         return None
 
     best_origin: float | None = None
     best_span = plain_span
     for origin, _ in spans:
         shifted_span = (
-            max(right + 360.0 if left < origin else right for left, right in spans)
+            max(
+                right + 360.0 if left < origin - LON_EPSILON_DEGREES else right
+                for left, right in spans
+            )
             - origin
         )
-        if shifted_span < best_span - _SPAN_MARGIN:
+        if shifted_span < best_span - LON_EPSILON_DEGREES:
             best_origin, best_span = origin, shifted_span
     return best_origin
 
@@ -312,7 +308,10 @@ def _write_python_vrt(
             else None
         )
         lon_offsets = [
-            360.0 if seam_origin is not None and ds.bounds.left < seam_origin else 0.0
+            360.0
+            if seam_origin is not None
+            and ds.bounds.left < seam_origin - LON_EPSILON_DEGREES
+            else 0.0
             for ds in datasets
         ]
         shifted = list(zip(datasets, lon_offsets, strict=True))
@@ -591,8 +590,14 @@ def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
     for rect in rects:
         x_off = float(rect.get("xOff", "0"))
         x_size = float(rect.get("xSize", "0"))
+        # `src_left` is RECONSTRUCTED from a serialized pixel offset while
+        # `seam_origin` was read straight off the source, so the two describe the
+        # same edge by different arithmetic and disagree by ~1e-14 degrees. A bare
+        # `<` then shifts the origin source itself: for old_left=-180, res_x=0.02,
+        # xOff=17750.05 and seam_origin=175.001 it reconstructs 175.00099999999998,
+        # every tile gets +360, and the mosaic stays 17998 px wide instead of 300.
         src_left = old_left + x_off * res_x
-        shift = 360.0 if src_left < seam_origin else 0.0
+        shift = 360.0 if src_left < seam_origin - LON_EPSILON_DEGREES else 0.0
         placements.append((rect, src_left + shift, x_size))
 
     new_left = min(left for _, left, _ in placements)
