@@ -4,6 +4,7 @@ export {
   reportNetworkError,
   reportTileTokenRemint,
   clearReportEntries,
+  countDistinctFailures,
   getReportEntries,
   useReportEntries,
 } from './report-buffer';
