@@ -566,16 +566,16 @@ export const BuilderMap = memo(function BuilderMap({
   // fix(#621): shared tile-auth recovery — a vector tile 401/403 that the
   // cached-token re-sign can't cure kicks one throttled token re-mint; the
   // token-sync effect re-signs sources when the fresh batch lands.
-  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens);
+  // fix(#890): report every mint the recovery path actually kicks (suppressed),
+  // so a tab-return recovery still leaves a trace now that it no longer arrives
+  // wrapped in a 403 burst.
+  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens, (trigger) =>
+    reportTileTokenRemint('builder', trigger),
+  );
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the handler above
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  // fix(#890): report it (suppressed) so the re-mint still leaves a trace.
-  useVisibleTileTokenRefresh(
-    () => syncInputsRef.current.tokenMap.values(),
-    recoverTileAuth,
-    () => reportTileTokenRemint('builder'),
-  );
+  useVisibleTileTokenRefresh(() => syncInputsRef.current.tokenMap.values(), recoverTileAuth);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -663,15 +663,15 @@ export const BuilderMap = memo(function BuilderMap({
             // dataset) so MapLibre retries with a fresh sig, and suppress the
             // toast for that recoverable case. Raster sources and genuine
             // no-token cases return false and fall through to the toast below.
-            // fix(#890): skip the whole recovery claim for a raster/DEM tile —
-            // `resignVectorSourceForRetry` returns false for it and the re-mint
-            // does nothing, so the old `resigned || reminted` check reported a
-            // recovery that never happened and swallowed the toast.
             const map = mapRef.current;
             const failingSourceId = e.sourceId;
-            if (!rasterAuthError && map && failingSourceId) {
+            if (map && failingSourceId) {
               const { layers: l, tokenMap: tm, tileConfig: tc } = syncInputsRef.current;
-              const resigned = resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
+              // fix(#890): nothing here re-signs a raster/DEM source (its auth
+              // rides the Authorization header), so don't pretend to.
+              const resigned = rasterAuthError
+                ? false
+                : resignVectorSourceForRetry(map, failingSourceId, l, tm, tc);
               // fix(#621): the cached-token re-sign only cures the attach
               // race — when the sig itself has expired (stranded session),
               // it re-signs with the same stale sig forever. Also kick one
@@ -679,8 +679,15 @@ export const BuilderMap = memo(function BuilderMap({
               // the fresh batch, and a conclusively dead session surfaces
               // through the global signed-out handling (#628) via the mint
               // request itself.
+              // fix(#890, codex P1): the re-mint runs for raster too — the mint
+              // request goes through apiFetch, whose proactive refresh renews an
+              // expiring JWT, and that Bearer is the ONLY thing that fixes a
+              // raster 401. What must not happen is treating it as recovery: the
+              // fresh sig cannot help a raster tile, so a raster failure falls
+              // through to the toast below and is reported unsuppressed, instead
+              // of reading as handled next to logUnhandledMapError's console row.
               const reminted = recoverTileAuth();
-              if (resigned || reminted) {
+              if (!rasterAuthError && (resigned || reminted)) {
                 pushReportEntry({
                   severity: 'warning',
                   source: 'maplibre',

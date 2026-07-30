@@ -170,16 +170,16 @@ export const DatasetMap = memo(function DatasetMap({
   // fix(#621): shared tile-auth recovery — a tile 401/403 kicks one throttled
   // token re-mint; the refreshed token re-renders the declarative <Source>
   // with a freshly signed URL.
-  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens);
+  // fix(#890): report every mint the recovery path actually kicks (suppressed),
+  // so a tab-return recovery still leaves a trace now that it no longer arrives
+  // wrapped in a 403 burst.
+  const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens, (trigger) =>
+    reportTileTokenRemint('dataset-preview', trigger),
+  );
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  // fix(#890): report it (suppressed) so the re-mint still leaves a trace.
-  useVisibleTileTokenRefresh(
-    () => [rawTileToken],
-    recoverTileAuth,
-    () => reportTileTokenRemint('dataset-preview'),
-  );
+  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth);
   // fix(#890): `url` is read to tell a raster/DEM auth failure (unrecoverable)
   // from a vector one (re-mintable).
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number; url?: string } }) => void) | null>(null);
@@ -664,14 +664,16 @@ export const DatasetMap = memo(function DatasetMap({
       // stayed fully silent; now it falls through to the existing onTileError
       // error path. Auth failures surface even after a confirmed load (unlike
       // sporadic tile errors) because they break the whole tile surface.
-      // fix(#890): a raster/DEM 401/403 is not recoverable here either — raster
-      // auth rides the Authorization header, so the re-mint returns true
-      // ("handled") without changing anything and the preview stayed silent
-      // behind a blank raster. Route it straight to the error path.
+      // fix(#890): a raster/DEM 401/403 is not cured by a fresh sig — raster auth
+      // rides the Authorization header, so the re-mint returned true ("handled")
+      // without changing anything and the preview stayed silent behind a blank
+      // raster. Still kick the re-mint (its apiFetch renews an expiring JWT,
+      // which IS what a raster 401 needs — codex P1), but never let its `true`
+      // stand in for recovery: route a raster failure to the error path.
       tileAuthErrorHandlerRef.current = (e: { error?: { status?: number; url?: string } }) => {
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
-        const recovering = !isRasterTileAuthError(e) && recoverTileAuth();
+        const recovering = recoverTileAuth() && !isRasterTileAuthError(e);
         if (!recovering && !errorFiredRef.current) {
           errorFiredRef.current = true;
           onTileError?.();

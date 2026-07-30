@@ -61,6 +61,71 @@ describe('useTileAuthRecovery', () => {
     expect(result.current()).toBe(true);
     expect(remint).toHaveBeenCalledTimes(2);
   });
+
+  // fix(#890): telemetry lives here because this is the only place that knows a
+  // mint actually started — the returned boolean is `true` both for a fresh mint
+  // and for an error riding the settle window, and `false` mid-cooldown.
+  describe('onRemint telemetry (fix #890)', () => {
+    it('fires once per real mint, with the trigger that asked for it', () => {
+      const remint = vi.fn();
+      const onRemint = vi.fn();
+      const { result } = renderHook(() => useTileAuthRecovery(remint, onRemint));
+
+      expect(result.current('tab-return')).toBe(true);
+
+      expect(onRemint).toHaveBeenCalledTimes(1);
+      expect(onRemint).toHaveBeenCalledWith('tab-return');
+    });
+
+    it('defaults the trigger for the reactive tile-error path', () => {
+      const onRemint = vi.fn();
+      const { result } = renderHook(() => useTileAuthRecovery(vi.fn(), onRemint));
+
+      result.current();
+
+      expect(onRemint).toHaveBeenCalledWith('tile-error');
+    });
+
+    it('stays silent when the throttle swallows the call (no mint ran)', () => {
+      const remint = vi.fn();
+      const onRemint = vi.fn();
+      const now = Date.now();
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+      const { result } = renderHook(() => useTileAuthRecovery(remint, onRemint));
+
+      expect(result.current('tab-return')).toBe(true);
+      // Settle window: returns true WITHOUT minting — reporting here would claim
+      // a rotation that never happened.
+      nowSpy.mockReturnValue(now + 5_000);
+      expect(result.current('tab-return')).toBe(true);
+      // Cooldown gap: returns false, still no mint.
+      nowSpy.mockReturnValue(now + 20_000);
+      expect(result.current('tab-return')).toBe(false);
+
+      expect(remint).toHaveBeenCalledTimes(1);
+      expect(onRemint).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls the LATEST reporter without churning the callback identity', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const remint = vi.fn();
+      const { result, rerender } = renderHook(
+        ({ report }: { report: (trigger: string) => void }) => useTileAuthRecovery(remint, report),
+        { initialProps: { report: first as (trigger: string) => void } },
+      );
+      const recover = result.current;
+
+      rerender({ report: second as (trigger: string) => void });
+      // Identity must survive an inline-arrow reporter: ViewerMap and DatasetMap
+      // list this callback in `handleLoad`'s deps.
+      expect(result.current).toBe(recover);
+      result.current();
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 // fix(#755): tile sigs are minted on 900 s `round_expiry()` boundaries, so a tab
@@ -207,27 +272,28 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(remint).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#890): the 403 burst this path replaced at least left warnings in the
-  // problem-report buffer as evidence that a recovery had happened. The reporter
-  // is INJECTED (not imported) so this module keeps no dependency on it.
-  it('reports the re-mint it requested', () => {
+  // fix(#890): the trigger is what makes the re-mint traceable — the reactive
+  // 403 burst this path replaced at least left warnings behind as evidence that
+  // a recovery happened. `useTileAuthRecovery` turns it into one report per
+  // actual mint (see its onRemint suite above).
+  it('names itself as the trigger so the report can distinguish a tab return', () => {
     const recover = vi.fn(() => true);
-    const onRemintRequested = vi.fn();
     const expired = vectorToken(expIn(-60));
-    renderHook(() => useVisibleTileTokenRefresh(() => [expired], recover, onRemintRequested));
+    renderHook(() => useVisibleTileTokenRefresh(() => [expired], recover));
 
     document.dispatchEvent(new Event('visibilitychange'));
 
     expect(recover).toHaveBeenCalledTimes(1);
-    expect(onRemintRequested).toHaveBeenCalledTimes(1);
+    expect(recover).toHaveBeenCalledWith('tab-return');
   });
 
-  it('reports nothing when it decides no re-mint is due', () => {
-    const recover = vi.fn(() => true);
-    const onRemintRequested = vi.fn();
+  it('reports nothing through the recovery hook when no re-mint is due', () => {
+    const remint = vi.fn();
+    const onRemint = vi.fn();
     const fresh = vectorToken(expIn(900));
+    const { result } = renderHook(() => useTileAuthRecovery(remint, onRemint));
     const { unmount } = renderHook(() =>
-      useVisibleTileTokenRefresh(() => [fresh], recover, onRemintRequested),
+      useVisibleTileTokenRefresh(() => [fresh], result.current),
     );
 
     // Fresh sig on the visible edge…
@@ -239,29 +305,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     unmount();
     document.dispatchEvent(new Event('visibilitychange'));
 
-    expect(onRemintRequested).not.toHaveBeenCalled();
-  });
-
-  it('calls the LATEST reporter without re-registering the listener', () => {
-    const recover = vi.fn(() => true);
-    const first = vi.fn();
-    const second = vi.fn();
-    const expired = vectorToken(expIn(-60));
-    const addSpy = vi.spyOn(document, 'addEventListener');
-    const { rerender } = renderHook(
-      ({ report }: { report: () => void }) =>
-        useVisibleTileTokenRefresh(() => [expired], recover, report),
-      { initialProps: { report: first } },
-    );
-    const registrations = addSpy.mock.calls.filter(([event]) => event === 'visibilitychange').length;
-
-    rerender({ report: second });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledTimes(1);
-    expect(
-      addSpy.mock.calls.filter(([event]) => event === 'visibilitychange').length,
-    ).toBe(registrations);
+    expect(remint).not.toHaveBeenCalled();
+    expect(onRemint).not.toHaveBeenCalled();
   });
 });

@@ -253,14 +253,19 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
       mapState.onError?.(event);
     });
 
-    // No recovery was possible, so none may be claimed.
-    expect(tileTokenState.invalidate).not.toHaveBeenCalled();
+    // fix(#890, codex P1): the re-mint still runs — its apiFetch renews an
+    // expiring JWT, the one thing that can fix a raster 401 — but nothing about
+    // it recovers the tile, so no recovery may be CLAIMED.
+    expect(tileTokenState.invalidate).toHaveBeenCalledTimes(1);
     expect(pushedEntries()).toHaveLength(1);
     expect(pushedEntries()[0]).toMatchObject({ suppressed: false, severity: 'error', source: 'maplibre' });
     expect(pushedEntries().some((e) => String(e.message).includes('re-mint requested'))).toBe(false);
     // …and the single honest log is the wrapper's console.error.
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledWith(event.error);
+    // The mint that did run is reported once, attributed to the error path.
+    expect(reportState.remint).toHaveBeenCalledTimes(1);
+    expect(reportState.remint).toHaveBeenCalledWith('builder', 'tile-error');
   });
 
   it('surfaces the auth toast for a raster 401 instead of swallowing it', async () => {

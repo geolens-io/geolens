@@ -120,19 +120,21 @@ export function reportNetworkError(opts: {
 }
 
 /**
- * fix(#890): convenience tap for the proactive tab-return tile-token re-mint
- * (#755 / #881). The reactive 403 burst that re-mint replaced at least left
- * evidence in this buffer that a recovery had happened; the visible-edge hook
- * is silent, so a "tiles were briefly broken" report arrives with no trace of
- * the token rotation. Suppressed — it is routine maintenance, never something
- * to show the user — and `surface` is part of the message so two map surfaces
- * re-minting at once don't collapse into one deduped entry.
+ * fix(#890): convenience tap for a tile-token re-mint. The reactive 403 burst
+ * the proactive tab-return re-mint (#755 / #881) replaced at least left evidence
+ * in this buffer that a recovery had happened; the visible-edge path is silent,
+ * so a "tiles were briefly broken" report arrives with no trace of the token
+ * rotation that fixed it. Called from `useTileAuthRecovery` only when a mint
+ * actually starts, so one entry means one mint. Suppressed — routine
+ * maintenance, never something to show the user — and both `surface` and
+ * `trigger` are in the message so concurrent surfaces and the tab-return vs
+ * tile-error paths stay separate entries instead of one deduped row.
  */
-export function reportTileTokenRemint(surface: string): void {
+export function reportTileTokenRemint(surface: string, trigger: string): void {
   pushReportEntry({
     severity: 'info',
     source: 'maplibre',
-    message: `Tile-token re-mint requested on tab return (${surface}, expiring signature)`,
+    message: `Tile tokens re-minted (${surface}, ${trigger})`,
     suppressed: true,
   });
 }

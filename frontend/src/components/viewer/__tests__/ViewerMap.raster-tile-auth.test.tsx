@@ -159,12 +159,15 @@ describe('ViewerMap raster/DEM tile auth errors (fix #890)', () => {
     vi.mocked(toast.error).mockClear();
   });
 
-  it('surfaces the tile-error toast for a raster 403 without attempting a re-mint', async () => {
+  it('surfaces the tile-error toast for a raster 403 instead of reading the re-mint as recovery', async () => {
     await renderViewer();
 
     mapState.fakeMap.emit('error', { error: { status: 403, url: RASTER_URL } });
 
-    expect(tokenState.refreshTokens).not.toHaveBeenCalled();
+    // fix(#890, codex P1): the re-mint still runs — its apiFetch renews an
+    // expiring JWT, which is what a raster 401/403 actually needs — but its
+    // `true` must not silence the surface the way it does for a vector tile.
+    expect(tokenState.refreshTokens).toHaveBeenCalledTimes(1);
     expect(toast.error).toHaveBeenCalledTimes(1);
     expect(toast.error).toHaveBeenCalledWith(
       expect.any(String),
