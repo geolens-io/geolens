@@ -57,6 +57,7 @@ from app.processing.raster.vrt import (
     shift_vrt_longitude_frame,
     sources_seam_frame_origin,
 )
+from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.processing.tiles.router import _raster_maxzoom_from_metadata
 
 
@@ -889,6 +890,80 @@ class TestSeamFrameRewriteAgainstRealGdal:
         with rasterio.open(out) as ds:
             assert (ds.width, ds.height) == (100, 50)
             assert ds.mask_flag_enums[0][0].name == "per_dataset"
+
+    def test_frame_origin_is_computed_not_taken_from_argv_order(self, tmp_path):
+        """Three sources whose frame origin is the SECOND one on the command line.
+
+        Catches a whole class of "just use the first source" errors: the origin is
+        175 (``p1``), so the sources must land 2, 1, 3 across the hull, not in the
+        order they were passed.
+        """
+        sources = [
+            self._nodata_tile(
+                tmp_path / "p0.tif", bounds=(-180.0, 0.0, -175.0, 5.0), value=1
+            ),
+            self._nodata_tile(
+                tmp_path / "p1.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=2
+            ),
+            self._nodata_tile(
+                tmp_path / "p2.tif", bounds=(-175.0, 0.0, -170.0, 5.0), value=3
+            ),
+        ]
+
+        out = vrt_module._build_vrt(sources, str(tmp_path / "three.vrt"), "finest")
+
+        with rasterio.open(out) as ds:
+            assert (ds.width, ds.height) == (150, 50)
+            assert ds.bounds.left == pytest.approx(175.0)
+            assert ds.bounds.right == pytest.approx(190.0)
+            row = ds.read(1)[0]
+
+        assert set(row[:50].tolist()) == {2}
+        assert set(row[50:100].tolist()) == {1}
+        assert set(row[100:].tolist()) == {3}
+
+    def test_band_stack_keeps_per_band_nodata_across_the_seam(self, tmp_path):
+        """``-separate`` through the real binary: each band keeps its own source."""
+        sources = [
+            self._nodata_tile(
+                tmp_path / "bw.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7
+            ),
+            self._nodata_tile(
+                tmp_path / "be.tif", bounds=(-180.0, 0.0, -175.0, 5.0), value=9
+            ),
+        ]
+
+        out = build_vrt("band_stack", sources, str(tmp_path / "stack.vrt"), "finest")
+
+        with rasterio.open(out) as ds:
+            assert (ds.width, ds.height) == (100, 50)
+            assert ds.bounds.left == pytest.approx(175.0)
+            assert ds.count == 2
+            assert ds.nodatavals == (0.0, 0.0)
+            # Band 1 carries the western tile, band 2 the eastern one; the rest of
+            # each band is fill. A mis-shifted frame would put them on top of
+            # each other or off the raster entirely.
+            assert set(ds.read(1)[:, :50].ravel().tolist()) == {7}
+            assert set(ds.read(2)[:, 50:].ravel().tolist()) == {9}
+
+    def test_rewritten_vrt_still_accepts_the_stor03_source_rewrite(self, tmp_path):
+        """``rewrite_vrt_sources`` runs after this at the store site (STOR-03)."""
+        sources = [
+            self._nodata_tile(
+                tmp_path / "sw.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7
+            ),
+            self._nodata_tile(
+                tmp_path / "se.tif", bounds=(-180.0, 0.0, -175.0, 5.0), value=9
+            ),
+        ]
+        out = vrt_module._build_vrt(sources, str(tmp_path / "seam.vrt"), "finest")
+
+        rewrite_vrt_sources(Path(out), vrt_storage_key="rasters/x/source.vrt")
+
+        with rasterio.open(out) as ds:
+            assert (ds.width, ds.height) == (100, 50)
+            assert ds.bounds.left == pytest.approx(175.0)
+            assert ds.nodata == 0.0
 
     def test_non_crossing_build_is_byte_identical_to_plain_gdalbuildvrt(self, tmp_path):
         """Nothing off the seam changes shape because of this PR."""
