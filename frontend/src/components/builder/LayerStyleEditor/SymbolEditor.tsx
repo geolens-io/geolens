@@ -3,7 +3,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SliderRow } from '../HeatmapStyleControls';
 import { IconPicker } from '../IconPicker';
 import type { BaseStyleEditorProps } from './types';
+import { useMapIcons } from '@/hooks/use-maps';
 import type { SymbolStyleConfig } from '@/types/api';
+
+// fix(#920): the anchor dropdown rendered these raw tokens in every locale.
+const ICON_ANCHORS = [
+  'center', 'top', 'bottom', 'left', 'right',
+  'top-left', 'top-right', 'bottom-left', 'bottom-right',
+] as const;
 
 export function SymbolEditor({
   layer,
@@ -13,14 +20,31 @@ export function SymbolEditor({
 }: BaseStyleEditorProps) {
   const sampleColumns = layer.dataset_column_info ?? [];
   const categoryColumn = symbolConfig.categoryColumn ?? '';
+  // fix(#920): show every value the backend returned instead of an arbitrary 6.
+  // dataset_sample_values is a SAMPLE, not the column's distinct values — the
+  // backend caps it at 10 per column, drawn from the first 10k rows — so the
+  // section is labelled as a sample rather than claiming "6 of N".
   const sampleValues = categoryColumn
-    ? (layer.dataset_sample_values?.[categoryColumn] ?? []).slice(0, 6)
+    ? (layer.dataset_sample_values?.[categoryColumn] ?? [])
     : [];
   const currentCategories = symbolConfig.categories ?? [];
 
+  const iconsQuery = useMapIcons();
+  const knownIcons = iconsQuery.data?.icons;
+  function iconResolves(icon: string): boolean {
+    // Only judge once the list has loaded — an in-flight query must not flag
+    // every row as broken.
+    if (!knownIcons?.length) return true;
+    return knownIcons.some((entry) => entry.sprite_id === icon);
+  }
+
   function updateCategory(value: string | number | null, icon: string) {
     const existing = currentCategories.filter((entry) => entry.value !== value);
-    onSymbolConfigChange({ categories: [...existing, { value, icon }], categoryColumn });
+    // fix(#920): an empty icon is not a mapping. The adapter already skips it,
+    // but storing {value, icon: ''} left junk in saved style_config and made the
+    // row render blank instead of the fallback icon it actually draws.
+    const next = icon ? [...existing, { value, icon }] : existing;
+    onSymbolConfigChange({ categories: next, categoryColumn });
   }
 
   return (
@@ -60,8 +84,8 @@ export function SymbolEditor({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].map((anchor) => (
-              <SelectItem key={anchor} value={anchor}>{anchor}</SelectItem>
+            {ICON_ANCHORS.map((anchor) => (
+              <SelectItem key={anchor} value={anchor}>{t(`style.symbol.anchorOption.${anchor}`)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -106,17 +130,31 @@ export function SymbolEditor({
               ))}
             </SelectContent>
           </Select>
+          {categoryColumn && sampleValues.length > 0 && (
+            <p className="text-mini leading-snug text-muted-foreground">{t('style.symbol.sampledValues')}</p>
+          )}
           {sampleValues.map((value) => {
             const mapped = currentCategories.find((entry) => entry.value === value)?.icon ?? symbolConfig.iconImage ?? 'marker';
+            const unknown = !iconResolves(mapped);
             return (
-              <div key={String(value)} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{String(value)}</span>
-                <Input
-                  className="h-7 text-xs"
-                  value={mapped}
-                  aria-label={t('style.symbol.categoryIcon', { value: String(value) })}
-                  onChange={(event) => updateCategory(value as string | number | null, event.target.value)}
-                />
+              <div key={String(value)} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{String(value)}</span>
+                  <Input
+                    className="h-7 text-xs"
+                    value={mapped}
+                    aria-label={t('style.symbol.categoryIcon', { value: String(value) })}
+                    aria-invalid={unknown || undefined}
+                    onChange={(event) => updateCategory(value as string | number | null, event.target.value)}
+                  />
+                </div>
+                {/* fix(#920): a typo used to land in the match expression and draw
+                    nothing at all, with no indication anything was wrong. */}
+                {unknown && (
+                  <p className="text-mini text-warning" role="alert">
+                    {t('style.symbol.unknownIcon', { icon: mapped })}
+                  </p>
+                )}
               </div>
             );
           })}
