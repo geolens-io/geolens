@@ -176,12 +176,15 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     over 2 000 rows keeps ``ST_Buffer`` at one evaluation per row.
 
     NOT fixed here, and deliberately: a dataset that genuinely straddles the
-    seam still registers a -180..180 ``spatial_extent``, because the
-    ``geometry(Polygon, 4326)`` column cannot express the west > east bbox that
-    RFC 7946 § 5.2 and the STAC spec use for antimeridian-crossing extents.
-    That representation gap predates the analysis tools and equally affects
-    directly ingested Fiji-area data; it needs a schema change, not a wider
-    expression.
+    seam still registers a -180..180 ``spatial_extent``. The column is no longer
+    what stops it — fix(#892) widened the typmod to ``geometry(Geometry, 4326)``
+    with ``chk_records_spatial_extent_type`` allowing POLYGON or MULTIPOLYGON,
+    which is the two-ring form RFC 7946 § 5.2's west > east bbox corresponds to,
+    and the STAC harvest path already stores it. What flattens the extent here
+    is the derivation: this path registers ``ST_Extent``, one envelope over
+    everything, so a two-lobed result collapses to the full span. That predates
+    the analysis tools and equally affects directly ingested Fiji-area data; it
+    needs a seam-aware extent derivation, not a wider column.
     """
     # Per-component split, innermost first: dump the buffer into components,
     # pair each with its shifted copy behind an OFFSET 0 fence, decide per

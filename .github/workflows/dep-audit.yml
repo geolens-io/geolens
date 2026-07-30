@@ -32,6 +32,14 @@ jobs:
           cache-dependency-glob: "backend/uv.lock"
       - name: Verify lockfile in sync
         run: uv lock --check
+      # fix(#889): mcp/ is the other project with its own uv.lock, and it had no
+      # full-lock gate at all — which is why it silently lagged two releases
+      # while the backend lock's drift eventually surfaced. `make version-check`
+      # (#877) asserts only the version FIELDS in both locks; this catches
+      # dependency-tree drift.
+      - name: Verify lockfile in sync — MCP server
+        working-directory: mcp
+        run: uv lock --check
       - name: Export locked prod requirements
         run: uv export --locked --no-dev --format requirements-txt -o /tmp/reqs.txt
       - name: pip-audit (OSV + PyPI advisory DB)

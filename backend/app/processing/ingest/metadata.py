@@ -341,11 +341,11 @@ async def get_extent(
 ) -> str | None:
     """Get the 4326 bbox extent as POLYGON WKT (or None for empty tables).
 
-    fix(#430 BA-18): records.spatial_extent is a POLYGON column. ST_Extent of a single
-    point / axis-collinear points casts to POINT / LINESTRING, which the column
-    rejects (crashing the reupload swap that stores this verbatim). Pad ONLY the
-    degenerate cases into a valid sub-mm polygon; genuine polygon extents are
-    returned byte-identical, matching refresh_dataset_metadata so the two paths agree.
+    fix(#430 BA-18): spatial_extent admits POLYGON or MULTIPOLYGON only (fix(#892):
+    typmod geometry(Geometry, 4326) + chk_records_spatial_extent_type). ST_Extent of a
+    single point / axis-collinear points casts to a rejected POINT / LINESTRING, crashing
+    the reupload swap that stores this verbatim. Pad ONLY the degenerate cases into a valid
+    sub-mm polygon; genuine extents stay byte-identical, matching refresh_dataset_metadata.
     """
     _validate_table_name(table_name)
     result = await session.execute(
@@ -884,7 +884,7 @@ async def extract_metadata(
                             LIMIT 1
                         ) AS geometry_type,
                         -- fix(#430 BA-18): pad only degenerate (point/line) extents
-                        -- into a valid POLYGON the spatial_extent column accepts.
+                        -- into a POLYGON; spatial_extent rejects POINT/LINESTRING.
                         CASE
                             WHEN ST_Extent(geom_4326) IS NULL THEN NULL
                             WHEN GeometryType(ST_Extent(geom_4326)::geometry) = 'POLYGON'

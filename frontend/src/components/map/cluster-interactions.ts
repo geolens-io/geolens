@@ -97,6 +97,15 @@ export function clusterAggregateFeatureInfo(
   };
 }
 
+// MapLibre's own zoom ceiling, and the value the tile server clamps
+// `expansion_zoom` to (see `backend/app/processing/tiles/service.py`). Named so
+// the ceiling case below is greppable instead of a repeated literal.
+export const CLUSTER_ZOOM_CEILING = 22;
+
+function clampClusterZoom(zoom: number) {
+  return Math.min(Math.max(zoom, 0), CLUSTER_ZOOM_CEILING);
+}
+
 async function clusterExpansionZoom(
   map: Pick<MaplibreMap, 'getSource' | 'getZoom'>,
   feature: ClusterFeatureLike,
@@ -104,7 +113,7 @@ async function clusterExpansionZoom(
 ) {
   const properties = feature.properties ?? {};
   const explicitZoom = numericProperty(properties, 'expansion_zoom');
-  if (explicitZoom != null) return Math.min(Math.max(explicitZoom, 0), 22);
+  if (explicitZoom != null) return clampClusterZoom(explicitZoom);
 
   const clusterId = numericProperty(properties, 'cluster_id');
   const source = map.getSource(sourceId) as ClusterSourceWithExpansion | undefined;
@@ -112,15 +121,15 @@ async function clusterExpansionZoom(
     return new Promise<number>((resolve) => {
       source.getClusterExpansionZoom!(clusterId, (error, zoom) => {
         if (error || !Number.isFinite(zoom)) {
-          resolve(Math.min((map.getZoom?.() ?? 0) + 2, 22));
+          resolve(clampClusterZoom((map.getZoom?.() ?? 0) + 2));
           return;
         }
-        resolve(Math.min(Math.max(zoom, 0), 22));
+        resolve(clampClusterZoom(zoom));
       });
     });
   }
 
-  return Math.min((map.getZoom?.() ?? 0) + 2, 22);
+  return clampClusterZoom((map.getZoom?.() ?? 0) + 2);
 }
 
 export async function activateClusterFeature(
@@ -130,7 +139,18 @@ export async function activateClusterFeature(
 ) {
   const center = clusterFeatureCoordinates(feature);
   if (!center) return false;
-  const zoom = await clusterExpansionZoom(map, feature, sourceId);
+  const target = await clusterExpansionZoom(map, feature, sourceId);
+  // fix(#893): ease to the expansion zoom only when it is deeper than where we
+  // already are. Two ways it is not. At CLUSTER_ZOOM_CEILING with
+  // cluster_max_zoom=22 the server's now-honest value (#882) IS the current
+  // zoom. And a parent cluster tile still drawn overzoomed while its
+  // replacement loads reports the shallow expansion zoom of the level it was
+  // cut at, which used to ease the user BACKWARDS out of the view they were
+  // zooming into. Falling back to the current zoom recentres without moving the
+  // zoom — at the ceiling no zoom can split the cluster, so recentring is the
+  // whole honest response, and a click can never lose ground.
+  const currentZoom = map.getZoom?.() ?? 0;
+  const zoom = target > currentZoom ? target : currentZoom;
   map.easeTo({
     center,
     zoom,
