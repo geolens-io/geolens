@@ -474,7 +474,28 @@ def _leading_literal(expr: ast.expr) -> str | None:
 
 def _is_remote_literal(expr: ast.expr) -> bool:
     lit = _leading_literal(expr)
-    return lit is not None and lit.startswith(_REMOTE_PREFIXES)
+    if lit is None:
+        return False
+    # codex round 8: URL schemes are case-insensitive, so HTTPS:// must be
+    # caught — compare those lowercased. The /vsi* prefixes stay exact:
+    # GDAL's VSI handler lookup is case-sensitive, so /VSICURL/ would not
+    # reach the network in the first place.
+    lowered = lit.lower()
+    if lowered.startswith(("http://", "https://")):
+        return True
+    return lit.startswith(tuple(p for p in _REMOTE_PREFIXES if p.startswith("/")))
+
+
+def _open_source_expr(node: ast.Call) -> ast.expr | None:
+    """The source argument of a rasterio.open call: first positional, or the
+    ``fp`` keyword (codex round 8: ``rasterio.open(fp="https://...")``
+    slipped past a positional-only inspection)."""
+    if node.args:
+        return node.args[0]
+    for kw in node.keywords:
+        if kw.arg == "fp":
+            return kw.value
+    return None
 
 
 def _enclosing_function_node(
@@ -573,7 +594,9 @@ def _scan_rasterio_calls(modules: list[tuple[str, ast.Module]]):
                 # wrapper credit — gdal_safe_open_env carries no redirect
                 # protection (#937), so wrapping a remote open proves
                 # nothing. It must be allowlisted with its own review.
-                remote = bool(node.args) and _is_remote_literal(node.args[0])
+                # codex round 8: the source may arrive as the fp keyword.
+                source = _open_source_expr(node)
+                remote = source is not None and _is_remote_literal(source)
                 if not remote and _inside_safe_open_env(node, rel):
                     continue
                 if remote:
@@ -1162,6 +1185,32 @@ def test_guard_remote_literal_argv_gets_no_safe_env_credit():
     )
     assert len(violations) == 1, violations
     assert "(remote)" in violations[0] and "literally-remote" in violations[0]
+
+
+def test_guard_remote_fp_keyword_and_uppercase_scheme_are_caught():
+    """codex round 8: the remote check must also see the fp keyword form
+    and case-varied URL schemes; a hand-written /VSICURL/ literal stays
+    uncredited-but-local because GDAL's VSI lookup is case-sensitive and
+    would never reach the network."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env\n"
+            "def kw():\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open(fp='https://example.com/a.tif'):\n"
+            "            pass\n"
+            "def upper():\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open('HTTPS://example.com/b.tif'):\n"
+            "            pass\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 2, violations
+    assert any("(kw)" in v and "literally-remote" in v for v in violations)
+    assert any("(upper)" in v and "literally-remote" in v for v in violations)
 
 
 def test_guard_blank_justification_fails():
