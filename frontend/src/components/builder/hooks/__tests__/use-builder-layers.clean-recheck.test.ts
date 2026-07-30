@@ -131,6 +131,21 @@ describe('useBuilderLayers — clean-state recheck', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('ignores untouched surrounding whitespace in a saved description', () => {
+    // The hook hydrates localDescription from the RAW server value, so trimming
+    // only the local side left such maps permanently dirty.
+    const layer = makeBuilderLayer();
+    const { result } = render({ ...makeBuilderMap([layer]), description: '  notes  ' } as MapResponse);
+
+    act(() => result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' }));
+    act(() => {
+      result.current.handlePaintChange(layer.id, layer.paint as Record<string, unknown>);
+      result.current.requestCleanRecheck();
+    });
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
   it('keeps the flag when a folder expansion is still pending', () => {
     // Folder expansion IS persisted (prepareLayersForPersistence reads groupMeta),
     // so a still-expanded folder must not read as clean.

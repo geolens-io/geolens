@@ -890,7 +890,8 @@ export function useBuilderLayers(
     // `localDescription.trim() || null`, and a trimmed-or-null legend title, so
     // an untrimmed local value would otherwise read as permanently dirty.
     if (localName && localName !== mapData.name) return false;
-    if ((localDescription.trim() || null) !== (mapData.description ?? null)) return false;
+    const savedDescription = mapData.description ?? null;
+    if ((localDescription.trim() || null) !== (savedDescription?.trim() || null)) return false;
     const savedLegend = mapData.legend_title ?? null;
     if ((localLegendTitle?.trim() || null) !== (savedLegend?.trim() || null)) return false;
     if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
