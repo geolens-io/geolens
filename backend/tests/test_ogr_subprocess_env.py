@@ -119,8 +119,9 @@ async def test_no_token_no_header_file_created():
     # No header file, no header env var.
     assert "GDAL_HTTP_HEADERS" not in captured_env
     assert "GDAL_HTTP_HEADER_FILE" not in captured_env
-    # FOLLOWLOCATION should still be NO.
-    assert captured_env.get("GDAL_HTTP_FOLLOWLOCATION") == "NO"
+    # fix(#937): GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and provides no
+    # redirect protection; it must not be reintroduced as if it did.
+    assert "GDAL_HTTP_FOLLOWLOCATION" not in captured_env
 
 
 @pytest.mark.asyncio

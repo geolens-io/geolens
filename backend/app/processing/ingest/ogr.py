@@ -702,12 +702,10 @@ async def run_ogr2ogr(
     if layer_name:
         cmd.append(layer_name)
 
-    # HYG-03 (Phase 1070, v1014 IN-02): GDAL_HTTP_FOLLOWLOCATION is NOT set
-    # here because `run_ogr2ogr` processes LOCAL FILE PATHS only; libcurl
-    # redirect control is irrelevant when there are no HTTP fetches. The
-    # service-URL sibling `run_ogr2ogr_service` (below) DOES set
-    # GDAL_HTTP_FOLLOWLOCATION=NO because it issues real HTTP requests.
-    # See Phase 1061 Plan 04 SUMMARY for the SEC-S04 redirect-bypass closure.
+    # HYG-03 (Phase 1070, v1014 IN-02): `run_ogr2ogr` processes LOCAL FILE
+    # PATHS only, so it issues no HTTP fetches; the service-URL sibling
+    # `run_ogr2ogr_service` (below) is the one with an HTTP surface — see the
+    # fix(#937) note there for what actually bounds it.
     # In multi-tenant mode PGOPTIONS also selects the active tenant's writer
     # role for this independently opened libpq connection.
     proc = await asyncio.create_subprocess_exec(
@@ -835,20 +833,24 @@ async def run_ogr2ogr_service(
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
 
-    # Phase 1061 SEC-S04: disable libcurl redirect-following inside ogr2ogr so
-    # that a service URL pointing at a public proxy cannot 302 the GDAL HTTP
-    # driver to an internal IP (169.254.169.254 / 10.x / 127.x).
-    # validate_url_for_ssrf runs at submission time but ogr2ogr does its own
-    # HTTP; GDAL_HTTP_FOLLOWLOCATION=NO is the only way to disable
-    # redirect-following in libcurl under GDAL.
+    # fix(#937): Phase 1061 SEC-S04 set GDAL_HTTP_FOLLOWLOCATION=NO here,
+    # believing it disabled libcurl redirect-following inside ogr2ogr. It is
+    # not a GDAL configuration option and never did anything; measured on GDAL
+    # 3.10.3 (the worker image) and 3.12.1, a 302 is followed identically with
+    # and without it, and GDAL exposes no option that stops it. Do not re-add
+    # it. The defenses this path actually has: validate_url_for_ssrf rejects
+    # private/link-local hosts at submission time, and the subprocess runs
+    # under a wall-clock timeout.
     #
-    # SEC-008: unlike the httpx path (make_safe_client pins the validated IP via
-    # _SSRFGuardTransport), libcurl under GDAL resolves DNS itself with no
-    # per-request pin hook, so a connect-time DNS-rebinding TOCTOU between
-    # submission-time validation and this subprocess fetch remains. It is
-    # bounded by GDAL_HTTP_FOLLOWLOCATION=NO (no redirect rebinding) and must be
-    # mitigated operationally (egress firewall / blocking link-local metadata
-    # IPs at the network layer).
+    # SEC-008 (re-derived for #937): unlike the httpx path (make_safe_client
+    # pins the validated IP via _SSRFGuardTransport and re-validates every 3xx
+    # Location), libcurl under GDAL resolves DNS itself with no per-request pin
+    # hook and follows redirects unconditionally. So BOTH a connect-time
+    # DNS-rebinding TOCTOU and a post-validation 302 to an internal IP
+    # (169.254.169.254 / 10.x / 127.x) remain open on this path — the previous
+    # sign-off recorded the redirect half as bounded, which was wrong. Both
+    # must be mitigated operationally: egress firewalling of the worker and
+    # blocking link-local/metadata IPs at the network layer.
     #
     # IA-P1-06 (Phase 1068): Authorization headers MUST NOT pass through the
     # subprocess env (visible via /proc/<pid>/environ for the lifetime of the
@@ -859,7 +861,7 @@ async def run_ogr2ogr_service(
     try:
         env = _tenant_writer_subprocess_env(
             schema,
-            base_env={**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"},
+            base_env={**os.environ},
         )
         assert env is not None  # base_env is always returned in single-tenant mode
         if token and service_type in ("wfs", "ogcapi_features"):
