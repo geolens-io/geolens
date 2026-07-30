@@ -210,9 +210,10 @@ function sourceIdOf(entry: ReportEntry): string {
  * badge still runs to 9+.
  *
  * Only the parts that vary WITHIN one source are dropped: the tile address in
- * each of MapLibre's supported forms (`{z}/{x}/{y}`, `{quadkey}`, the
- * `{bbox-epsg-3857}` query param, and the `{prefix}` shard label, all reachable
- * through an admin-configured remote style) and the rotating credential params.
+ * each of MapLibre's supported forms — `{z}/{x}/{y}`, `{quadkey}`, the
+ * `{bbox-epsg-3857}` query param, the `{prefix}` shard label, and the `{ratio}`
+ * suffix a retina display resolves to `@2x`, all reachable through an
+ * admin-configured remote style — and the rotating credential params.
  * Everything that distinguishes one source from another stays — the rest of the
  * path, the status, and the `cols`/`cluster_radius`/`cluster_max_zoom` params.
  *
@@ -232,12 +233,19 @@ function failureKey(message: string): string {
     // Tile coordinates, anchored to the end of the path — that is where z/x/y
     // always sit, and anchoring is what keeps an all-numeric `{prefix}` segment
     // (`/00/5/1/1.png`) from being mistaken for the zoom.
-    .replace(/\/\d+\/\d+\/\d+(\.\w+)?(?=[?\s]|$)/g, '/{z}/{x}/{y}')
+    // The `y` segment is an alternation because `redact()` runs FIRST, at
+    // capture time, and a retina tile ending `/1539@2x.png` looks exactly like
+    // an email address to it — so what actually reaches this function is
+    // `/12/1205/[redacted-email]`, with the coordinate already gone.
+    .replace(
+      /\/\d+\/\d+\/(?:\d+(?:@\d+x)?(?:\.\w+)?|\[redacted-email\])(?=[?\s]|$)/g,
+      '/{z}/{x}/{y}',
+    )
     // A quadkey is the LAST path segment, one base-4 run whose length is the
     // zoom level — so it is anchored at the end rather than length-gated, or a
     // zoom-3 tile (`/031.png`) would stay a distinct key while a zoom-12 one
     // collapsed. Anchoring is what keeps a mid-path `/2/` from matching.
-    .replace(/\/[0-3]+(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
+    .replace(/\/[0-3]+(@\d+x)?(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
     // …and only then the path-segment form of `{prefix}`, on what is left.
     .replace(/\/[0-9a-f]{2}(?=\/)/gi, '/{prefix}')
     .replace(/\?(\S*)/g, (_match, query: string) => {

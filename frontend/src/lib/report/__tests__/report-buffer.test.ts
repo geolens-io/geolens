@@ -347,6 +347,22 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 7 on #908: {ratio} resolves to an @2x suffix on a retina
+  // display. Note what the buffer actually stores: redact() runs at capture and
+  // reads `/1539@2x.png` as an email, so the y coordinate is already gone by
+  // the time the key is computed.
+  it('collapses a retina source whose tiles carry an @2x suffix', () => {
+    for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/12/${x}/${y}@2x.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');
