@@ -35,7 +35,11 @@ export function SymbolEditor({
     // Only judge once the list has loaded — an in-flight query must not flag
     // every row as broken.
     if (!knownIcons?.length) return true;
-    return knownIcons.some((entry) => entry.sprite_id === icon);
+    // The renderer accepts a fully qualified id (spriteIconId in symbol-adapter
+    // keeps anything containing ':'), while /maps/icons returns the bare slug —
+    // compare on the slug so `geolens:marker` is not reported as missing.
+    const slug = icon.includes(':') ? icon.slice(icon.indexOf(':') + 1) : icon;
+    return knownIcons.some((entry) => entry.sprite_id === slug);
   }
 
   function updateCategory(value: string | number | null, icon: string) {
@@ -134,7 +138,11 @@ export function SymbolEditor({
             <p className="text-mini leading-snug text-muted-foreground">{t('style.symbol.sampledValues')}</p>
           )}
           {sampleValues.map((value) => {
-            const mapped = currentCategories.find((entry) => entry.value === value)?.icon ?? symbolConfig.iconImage ?? 'marker';
+            // `||` not `??`: a map saved by the previous handler can hold
+            // {value, icon: ''}, and the adapter renders the FALLBACK for those
+            // — showing a blank field and flagging it as broken would be wrong.
+            const mapped = currentCategories.find((entry) => entry.value === value)?.icon
+              || symbolConfig.iconImage || 'marker';
             const unknown = !iconResolves(mapped);
             return (
               <div key={String(value)} className="space-y-1">

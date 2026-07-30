@@ -127,6 +127,38 @@ describe('SymbolEditor — category mapping (fix #920)', () => {
     expect(onSymbolConfigChange).toHaveBeenCalledWith({ categories: [], categoryColumn: 'kind' });
   });
 
+  it('shows the fallback for a legacy empty-icon entry rather than flagging it', () => {
+    render(
+      <SymbolEditor
+        {...makeProps(makeLayer(['a']), {
+          symbolConfig: {
+            iconImage: 'star',
+            categoryColumn: 'kind',
+            // Shape a map saved by the previous handler could hold.
+            categories: [{ value: 'a', icon: '' }],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByRole('textbox', { name: 'Icon for a' })).toHaveValue('star');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('accepts a fully qualified sprite id the renderer resolves', () => {
+    render(
+      <SymbolEditor
+        {...makeProps(makeLayer(['a']), {
+          symbolConfig: {
+            iconImage: 'marker',
+            categoryColumn: 'kind',
+            categories: [{ value: 'a', icon: 'geolens:star' }],
+          },
+        })}
+      />,
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('translates the anchor options instead of rendering raw tokens', () => {
     render(<SymbolEditor {...makeProps(makeLayer(['a']))} />);
     expect(screen.getByText('anchor:center')).toBeInTheDocument();
