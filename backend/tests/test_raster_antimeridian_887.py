@@ -130,9 +130,14 @@ def _project(epsg: int, lonlat_bounds: tuple[float, float, float, float]):
     return (xs[0], ys[0], xs[1], ys[1])
 
 
-def _dst_x_offs(vrt_path: str) -> list[int]:
+def _dst_x_offs(vrt_path: str) -> list[float]:
+    """Destination x offsets — float, because they are legitimately fractional.
+
+    Both writers keep sub-pixel offsets (fix(#887)), so this must not coerce to
+    int; `50.0 == 50` keeps whole-pixel assertions readable.
+    """
     root = parse_vrt(vrt_path).getroot()
-    return [int(d.get("xOff")) for d in root.iter("DstRect")]
+    return [float(d.get("xOff")) for d in root.iter("DstRect")]
 
 
 def _vrt_geotransform(vrt_path: str) -> list[float]:
@@ -519,9 +524,55 @@ class TestSeamStraddlingVrt:
         out = _write_python_vrt(sources, str(tmp_path / "proj.vrt"), "finest")
 
         assert _vrt_geotransform(out)[0] == pytest.approx(-half)
-        # 4.0075e7 m of easting at 2e4 m/px: the eastern tile starts 1954 px in.
+        # 4.0075e7 m of easting at 2e4 m/px. The eastern tile starts 1953.75 px
+        # in and keeps that fraction — these sources are off the output grid, and
+        # rounding to 1954 would slide them a quarter pixel (fix(#887)).
         assert _vrt_size(out) == (2004, 50)
-        assert _dst_x_offs(out) == [0, 1954]
+        offsets = _dst_x_offs(out)
+        assert offsets[0] == 0
+        assert offsets[1] == pytest.approx(1953.7508342789, abs=1e-6)
+
+    def test_fallback_keeps_fractional_geometry_like_the_rewrite(self, tmp_path):
+        """The fallback writer obeys the same geometry rule as the rewrite.
+
+        Both writers now go through ``_offset_text`` and ``_containing_pixels``.
+        Before that, this fallback rounded a source needing ``xOff`` 248.5 down
+        to 248 and sized the 298.5-pixel hull at 298 — sliding the eastern tile
+        half a pixel and clipping the edge. It is unreachable in the shipped
+        worker (the image installs ``gdal-bin``), but two writers disagreeing
+        about one rule is what produced the first regression in this PR.
+        """
+        sources = [
+            _write_tif(
+                tmp_path / "w.tif",
+                epsg=4326,
+                bounds=(175.03, 0.0, 180.0, 2.0),
+                width=50,
+                height=20,
+            ),
+            _write_tif(
+                tmp_path / "e.tif",
+                epsg=4326,
+                bounds=(-180.0, 0.0, -179.0, 2.0),
+                width=50,
+                height=20,
+            ),
+        ]
+
+        out = _write_python_vrt(sources, str(tmp_path / "frac.vrt"), "finest")
+
+        root = parse_vrt(out).getroot()
+        rects = [
+            (float(d.get("xOff")), float(d.get("xSize"))) for d in root.iter("DstRect")
+        ]
+        width = int(root.get("rasterXSize"))
+
+        assert rects[1][0] == pytest.approx(248.5), (
+            "the eastern tile must keep its half-pixel offset"
+        )
+        far_edge = max(off + size for off, size in rects)
+        assert far_edge == pytest.approx(298.5)
+        assert width == 299, "the hull must be rounded UP to contain 298.5 px"
 
     def test_band_stack_seam_sources_share_the_shifted_frame(self, tmp_path):
         """``-separate`` band stacks re-frame identically to a mosaic."""

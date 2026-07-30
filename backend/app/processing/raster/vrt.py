@@ -186,6 +186,40 @@ _GDAL_DTYPE_MAP = {
 }
 
 
+def _offset_text(value: float) -> str:
+    """Render a DstRect offset or size, keeping a fractional pixel fractional.
+
+    fix(#887): ``gdalbuildvrt`` emits sub-pixel geometry whenever a source is not
+    aligned to the chosen output grid -- a mixed-resolution mosaic produced
+    ``xOff="17751.5"`` and ``xOff="349.51"`` here. Rounding those to whole pixels
+    slides the source by up to half an output pixel and changes how GDAL
+    resamples it, so keep the fraction and only drop a trailing ``.0`` so the
+    common whole-pixel case still reads like GDAL's own output.
+
+    Shared by BOTH writers on purpose: the ``gdalbuildvrt`` frame rewrite and the
+    CLI-less :func:`_write_python_vrt` fallback. They disagreeing about this rule
+    is what codex round 7 caught, and two copies is how it would diverge again.
+    """
+    if math.isclose(value, round(value), abs_tol=1e-9):
+        return str(int(round(value)))
+    return f"{value:.10f}".rstrip("0").rstrip(".")
+
+
+def _containing_pixels(span_px: float) -> int:
+    """Pixel count that CONTAINS a span -- round UP, never to nearest.
+
+    fix(#887): a mosaic whose sources end at pixel 298.5 needs 299 pixels; 298
+    leaves the last half pixel outside the dataset and GDAL clips it, which no
+    pixel-count assertion catches because a 50-pixel source still reads back as
+    50 pixels. GDAL sizes its own mosaics this way (measured: max xOff+xSize
+    298.5 -> rasterXSize 299, and 440.51 -> 441). ``round`` first so float noise
+    on an exact boundary cannot add a stray pixel.
+
+    Shared by both writers, same reasoning as :func:`_offset_text`.
+    """
+    return max(1, math.ceil(round(span_px, 6)))
+
+
 def _resolve_target_resolution(values: list[float], resolution_strategy: str) -> float:
     if resolution_strategy == "finest":
         return min(values)
@@ -320,8 +354,10 @@ def _write_python_vrt(
         right = max(ds.bounds.right + offset for ds, offset in shifted)
         bottom = min(ds.bounds.bottom for ds in datasets)
         top = max(ds.bounds.top for ds in datasets)
-        width = max(1, int(round((right - left) / res_x)))
-        height = max(1, int(round((top - bottom) / res_y)))
+        # fix(#887): same containment rule as the gdalbuildvrt rewrite. Rounding
+        # to nearest sized a 298.5-pixel hull at 298 and clipped the edge.
+        width = _containing_pixels((right - left) / res_x)
+        height = _containing_pixels((top - bottom) / res_y)
 
         root = Element("VRTDataset", rasterXSize=str(width), rasterYSize=str(height))
         if first_crs is not None:
@@ -367,24 +403,24 @@ def _write_python_vrt(
                 xSize=str(dataset.width),
                 ySize=str(dataset.height),
             )
-            dst_width = max(
-                1, int(round(dataset.width * abs(dataset.transform.a) / res_x))
-            )
-            dst_height = max(
-                1, int(round(dataset.height * abs(dataset.transform.e) / res_y))
-            )
-            # fix(#887): lon_offset places the source in the same re-framed
-            # longitude frame as `left`. Mixing frames here is how a
-            # seam-straddling source ended up half a world from its own pixels.
-            dst_x_off = int(round((dataset.bounds.left + lon_offset - left) / res_x))
-            dst_y_off = int(round((top - dataset.bounds.top) / res_y))
+            # fix(#887): destination geometry stays fractional, exactly as the
+            # gdalbuildvrt rewrite keeps it -- both go through _offset_text. The
+            # integer rounding this replaces put a source needing xOff 248.5 at
+            # 248, sliding it half an output pixel and changing its resampling.
+            dst_width = dataset.width * abs(dataset.transform.a) / res_x
+            dst_height = dataset.height * abs(dataset.transform.e) / res_y
+            # lon_offset places the source in the same re-framed longitude frame
+            # as `left`. Mixing frames here is how a seam-straddling source ended
+            # up half a world from its own pixels.
+            dst_x_off = (dataset.bounds.left + lon_offset - left) / res_x
+            dst_y_off = (top - dataset.bounds.top) / res_y
             SubElement(
                 source,
                 "DstRect",
-                xOff=str(dst_x_off),
-                yOff=str(dst_y_off),
-                xSize=str(dst_width),
-                ySize=str(dst_height),
+                xOff=_offset_text(dst_x_off),
+                yOff=_offset_text(dst_y_off),
+                xSize=_offset_text(dst_width),
+                ySize=_offset_text(dst_height),
             )
 
         if separate:
@@ -501,21 +537,6 @@ def sources_seam_frame_origin(source_paths: list[str]) -> float | None:
     return _seam_frame_origin(spans)
 
 
-def _offset_text(value: float) -> str:
-    """Render a DstRect offset, keeping a fractional pixel fractional.
-
-    fix(#887): ``gdalbuildvrt`` emits sub-pixel offsets whenever a source is not
-    aligned to the chosen output grid -- a mixed-resolution mosaic produced
-    ``xOff="17751.5"`` and ``xOff="349.51"`` here. Rounding those to whole pixels
-    would slide the source by up to half an output pixel and change how GDAL
-    resamples it, so keep the fraction and only drop a trailing ``.0`` so the
-    common whole-pixel case still reads like GDAL's own output.
-    """
-    if math.isclose(value, round(value), abs_tol=1e-9):
-        return str(int(round(value)))
-    return f"{value:.10f}".rstrip("0").rstrip(".")
-
-
 def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
     """Re-anchor a built VRT's longitude frame so the seam falls inside it.
 
@@ -603,14 +624,10 @@ def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
     new_left = min(left for _, left, _ in placements)
     offsets = [((left - new_left) / res_x, size) for _, left, size in placements]
 
-    # The raster must CONTAIN every source, so round the width UP. A source
-    # ending at pixel 298.5 needs 299 pixels; 298 leaves its final half pixel
-    # outside the dataset and GDAL clips it -- which no pixel-count assertion
-    # catches, since a 50-pixel source still reads back as 50 pixels. GDAL sizes
-    # its own mosaics the same way (measured: max xOff+xSize 298.5 -> 299).
-    # Round before ceil so float noise on an exact boundary cannot add a pixel.
+    # The raster must CONTAIN every source -- see _containing_pixels, shared with
+    # the fallback writer so the two cannot disagree about this rule.
     span_px = max(offset + size for offset, size in offsets)
-    root.set("rasterXSize", str(max(1, math.ceil(round(span_px, 6)))))
+    root.set("rasterXSize", str(_containing_pixels(span_px)))
     geotransform[0] = new_left
     gt_node.text = ", ".join(repr(v) for v in geotransform)
     for (rect, _, _), (offset, _) in zip(placements, offsets, strict=True):
