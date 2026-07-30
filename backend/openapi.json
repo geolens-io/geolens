@@ -10255,6 +10255,11 @@
         "additionalProperties": false,
         "description": "fix(#888): how much geometry the Web Mercator clamp destroyed.\n\nThe clamp is a box, not a latitude cutoff: longitude -180 to 180 and\nlatitude -85.06 to 85.06. Either bound can be the one that cost the user\ngeometry, so clients must not present this as a latitude-only problem\n(fix(#899 codex r1)).\n\n``dropped_features`` lost their geometry entirely (a valid point at lat\n-89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in\nreduced form.",
         "properties": {
+          "clip_skipped": {
+            "default": false,
+            "title": "Clip Skipped",
+            "type": "boolean"
+          },
           "clipped_features": {
             "minimum": 0.0,
             "title": "Clipped Features",

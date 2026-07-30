@@ -1288,6 +1288,70 @@ async def _shift_zero_to_360_longitudes(
     return True
 
 
+async def _mercator_envelope_degenerates(
+    session: AsyncSession, table_name: str, schema: str, src_srid: int
+) -> bool:
+    """True when the safe envelope collapses under ST_Transform into ``src_srid``.
+
+    fix(#906): for a CRS with a narrow area of validity, transforming the
+    global Mercator safe envelope collapses it — in EPSG:4807 (NTF Paris,
+    grads) every X of the envelope becomes 197.396 — and the clip's
+    intersection would then silently empty the entire table. Enumerated
+    against a stock ``spatial_ref_sys``: 4415 of 8500 SRIDs produce a
+    zero-area or collapsed envelope and another 108 error outright, so this
+    is a class, not an exotic corner.
+
+    Degenerate means any of:
+
+    - zero (or negative) area, or a collapsed X/Y range — the hard collapse
+      (EPSG:4807, every UTM zone, France's 2154, most national grids);
+    - a sliver: area under 1e-6 of its own bbox area — EPSG:2263 leaves a
+      19-square-foot bowtie stretched across a 3e16 sq ft bbox, and EPSG:5070
+      a 0.04 m² one; positive area, still data-destroying;
+    - for a projected CRS, an envelope narrower or shorter than the table's
+      own extent — EPSG:27700 collapses to a 0.005 m² *square* (ratio 1, so
+      the sliver test misses it) and polar stereographic 3031 to ~4 m across.
+      Guarded to projected CRSs via the ``_GEOGRAPHIC_SRTEXT_RE`` probe
+      (see the four-mechanism table on #939) because a geographic transform
+      cannot collapse, while genuinely polar geographic data (taller than
+      the ±85.06 band) must keep being clipped;
+    - the transform raising — the clip's own UPDATE would raise identically,
+      turning a bounds check into a failed ingest. Probed inside a SAVEPOINT
+      so the surrounding phase-2 transaction stays usable.
+    """
+    probe = text(
+        f"WITH env AS (SELECT ST_Transform({_MERCATOR_SAFE_ENVELOPE}, :srid) AS e), "
+        f"dat AS (SELECT ST_Extent(geom)::geometry AS x FROM "
+        f"{_qtable(table_name, schema=schema)}) "
+        f"SELECT "
+        f"  e IS NULL OR ST_IsEmpty(e) OR ST_Area(e) <= 0 "
+        f"  OR ST_XMin(e) >= ST_XMax(e) OR ST_YMin(e) >= ST_YMax(e) "
+        f"  OR ST_Area(e) < 1e-6 * ((ST_XMax(e) - ST_XMin(e)) "
+        f"                        * (ST_YMax(e) - ST_YMin(e))) "
+        f"  OR ( "
+        f"    NOT COALESCE((SELECT srtext ~* :geographic FROM spatial_ref_sys "
+        f"                  WHERE srid = :srid), false) "
+        f"    AND x IS NOT NULL "
+        f"    AND ((ST_XMax(e) - ST_XMin(e)) < (ST_XMax(x) - ST_XMin(x)) "
+        f"      OR (ST_YMax(e) - ST_YMin(e)) < (ST_YMax(x) - ST_YMin(x)))) "
+        f"FROM env, dat"
+    ).bindparams(srid=src_srid, geographic=_GEOGRAPHIC_SRTEXT_RE)
+    try:
+        async with session.begin_nested():
+            result = await session.execute(probe)
+            return bool(result.scalar_one())
+    except DBAPIError:
+        logger.warning(
+            "Mercator envelope transform failed while probing for degeneracy; "
+            "treating the envelope as unusable in this CRS",
+            table=table_name,
+            schema=schema,
+            srid=src_srid,
+            exc_info=True,
+        )
+        return True
+
+
 async def clip_to_mercator_bounds(
     session: AsyncSession, table_name: str, schema: str = "data"
 ) -> "MercatorClipCounts | None":
@@ -1341,6 +1405,23 @@ async def clip_to_mercator_bounds(
         envelope = _MERCATOR_SAFE_ENVELOPE
     else:
         envelope = f"ST_Transform({_MERCATOR_SAFE_ENVELOPE}, {src_srid})"
+        # fix(#906): the guard runs AFTER the 0..360 shift above — that
+        # ordering is load-bearing (#888/#899): skipping the clip for a
+        # narrow-validity CRS must still leave the shift applied.
+        if await _mercator_envelope_degenerates(session, table_name, schema, src_srid):
+            logger.warning(
+                "Skipping the Web Mercator clip: the safe envelope degenerates "
+                "in the source CRS and the intersection would destroy data",
+                table=table_name,
+                schema=schema,
+                srid=src_srid,
+            )
+            return {
+                "shifted_longitudes": shifted,
+                "dropped_features": 0,
+                "clipped_features": 0,
+                "clip_skipped": True,
+            }
 
     clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
     if column_is_3d:

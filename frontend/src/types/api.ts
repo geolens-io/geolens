@@ -403,7 +403,13 @@ export interface IngestDbfTruncationWarning {
  */
 export interface IngestMercatorClipWarning {
   kind: 'mercator_clip';
-  details: { dropped_features: number; clipped_features: number };
+  details: {
+    dropped_features: number;
+    clipped_features: number;
+    // fix(#906): the clip was skipped because the Mercator safe envelope
+    // degenerates in the source CRS; counts are 0/0 and nothing was removed.
+    clip_skipped?: boolean;
+  };
 }
 
 export type IngestJobWarning =
