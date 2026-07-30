@@ -149,7 +149,7 @@ export function DetailPanel(props: DetailPanelProps) {
       )}
 
       <TabsContent value="access" className="space-y-6">
-        <AccessTab dataset={dataset} />
+        <AccessTab dataset={dataset} canEdit={canEdit} />
       </TabsContent>
     </Tabs>
   );

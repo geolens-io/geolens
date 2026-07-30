@@ -30,9 +30,10 @@ interface ImportMetadataFormProps {
   } | null;
 }
 
+// fix(#927/#929): no `restricted` — see RegisterForm. Visibility is now
+// private/public at import time, and the dataset Access tab owns changing it.
 const VISIBILITY_OPTIONS = [
   { value: 'private', labelKey: 'metadata.visibilityPrivate' },
-  { value: 'restricted', labelKey: 'metadata.visibilityRestricted' },
   { value: 'public', labelKey: 'metadata.visibilityPublic' },
 ];
 
