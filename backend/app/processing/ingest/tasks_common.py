@@ -217,6 +217,9 @@ class StagingResult:
     three_d: dict
     has_geometry: bool
     geometry_type: str | None
+    # fix(#888): clip_to_mercator_bounds accounting, so the caller (which owns
+    # the job row) can warn the user about geometry the clamp destroyed.
+    mercator_clip: dict | None = None
 
 
 _connector_kwargs: dict = {
@@ -271,10 +274,11 @@ def _append_job_warning(job, warning: "IngestJobWarning") -> None:
     absent. Caller is responsible for committing the session.
 
     The ``warning`` argument is a TypedDict from
-    ``app.ingest.warnings.IngestJobWarning`` — either
-    ``ReservedRenameWarning`` or ``DbfTruncationCollisionWarning``. Routing
-    through the producer helpers in that module closes the type gap between
-    the Python task code and the Pydantic ``JobStatusResponse`` (TYPE-1).
+    ``app.ingest.warnings.IngestJobWarning`` — one of
+    ``ReservedRenameWarning``, ``DbfTruncationCollisionWarning``, or
+    ``MercatorClipWarning``. Routing through the producer helpers in that
+    module closes the type gap between the Python task code and the Pydantic
+    ``JobStatusResponse`` (TYPE-1).
     """
     warnings_list = list((job.user_metadata or {}).get("warnings", []))
     warnings_list.append(warning)
@@ -282,6 +286,20 @@ def _append_job_warning(job, warning: "IngestJobWarning") -> None:
         **(job.user_metadata or {}),
         "warnings": warnings_list,
     }
+
+
+def _append_mercator_clip_warning(job, clip: dict | None) -> None:
+    """Warn when the Web Mercator clamp destroyed geometry (fix(#888)).
+
+    ``clip`` is the ``clip_to_mercator_bounds`` return value. No-ops for the
+    no-loss clip that every ordinary dataset produces, so each of the three
+    ingest call sites stays a single unconditional statement.
+    """
+    from app.processing.ingest.warnings import make_mercator_clip_warning
+
+    warning = make_mercator_clip_warning(clip)
+    if warning is not None:
+        _append_job_warning(job, warning)
 
 
 def _parse_temporal_fields(
@@ -656,10 +674,13 @@ async def _run_staging_pipeline(
     )
 
     _schema = _current_tenant_schema()
+    mercator_clip = None
     if has_geometry:
         has_geometry = await ensure_geom_column(session, table_name, schema=_schema)
         if has_geometry:
-            await clip_to_mercator_bounds(session, table_name, schema=_schema)
+            mercator_clip = await clip_to_mercator_bounds(
+                session, table_name, schema=_schema
+            )
             if effective_srid is not None:
                 await add_4326_column(
                     session, table_name, effective_srid, schema=_schema
@@ -696,6 +717,7 @@ async def _run_staging_pipeline(
         three_d=three_d,
         has_geometry=has_geometry,
         geometry_type=metadata.get("geometry_type"),
+        mercator_clip=mercator_clip,
     )
 
 
@@ -1090,7 +1112,10 @@ async def _finalize_ingest(ctx: IngestContext):
         assert ctx.effective_srid is not None, (
             "effective_srid must be set when has_geometry is True"
         )
-        await clip_to_mercator_bounds(session, table_name, schema=_schema)
+        # fix(#888): the clamp is intentional, staying silent about it was not.
+        _append_mercator_clip_warning(
+            job, await clip_to_mercator_bounds(session, table_name, schema=_schema)
+        )
         await add_4326_column(session, table_name, ctx.effective_srid, schema=_schema)
 
     # Grant reader access (per-tenant schema+role in multi_tenant; data/geolens_reader in single_tenant)

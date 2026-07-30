@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from ..models.job_status_response_temporal_parse_errors import (
         JobStatusResponseTemporalParseErrors,
     )
+    from ..models.mercator_clip_warning import MercatorClipWarning
     from ..models.reserved_rename_warning import ReservedRenameWarning
 
 
@@ -52,7 +53,7 @@ class JobStatusResponse:
         rows_processed (int | None | Unset):
         temporal_parse_errors (JobStatusResponseTemporalParseErrors | Unset):
         warning_message (None | str | Unset):
-        warnings (list[DbfTruncationCollisionWarning | ReservedRenameWarning] | Unset):
+        warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning] | Unset):
     """
 
     can_retry: bool
@@ -71,12 +72,18 @@ class JobStatusResponse:
     rows_processed: int | None | Unset = UNSET
     temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset = UNSET
     warning_message: None | str | Unset = UNSET
-    warnings: list[DbfTruncationCollisionWarning | ReservedRenameWarning] | Unset = (
-        UNSET
-    )
+    warnings: (
+        list[
+            DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning
+        ]
+        | Unset
+    ) = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.dbf_truncation_collision_warning import (
+            DbfTruncationCollisionWarning,
+        )
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
         can_retry = self.can_retry
@@ -153,6 +160,8 @@ class JobStatusResponse:
                 warnings_item: dict[str, Any]
                 if isinstance(warnings_item_data, ReservedRenameWarning):
                     warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, DbfTruncationCollisionWarning):
+                    warnings_item = warnings_item_data.to_dict()
                 else:
                     warnings_item = warnings_item_data.to_dict()
 
@@ -199,6 +208,7 @@ class JobStatusResponse:
         from ..models.job_status_response_temporal_parse_errors import (
             JobStatusResponseTemporalParseErrors,
         )
+        from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
         d = dict(src_dict)
@@ -337,7 +347,12 @@ class JobStatusResponse:
 
         _warnings = d.pop("warnings", UNSET)
         warnings: (
-            list[DbfTruncationCollisionWarning | ReservedRenameWarning] | Unset
+            list[
+                DbfTruncationCollisionWarning
+                | MercatorClipWarning
+                | ReservedRenameWarning
+            ]
+            | Unset
         ) = UNSET
         if _warnings is not UNSET:
             warnings = []
@@ -345,7 +360,11 @@ class JobStatusResponse:
 
                 def _parse_warnings_item(
                     data: object,
-                ) -> DbfTruncationCollisionWarning | ReservedRenameWarning:
+                ) -> (
+                    DbfTruncationCollisionWarning
+                    | MercatorClipWarning
+                    | ReservedRenameWarning
+                ):
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
@@ -354,11 +373,21 @@ class JobStatusResponse:
                         return warnings_item_type_0
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_1 = DbfTruncationCollisionWarning.from_dict(
+                            data
+                        )
+
+                        return warnings_item_type_1
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    warnings_item_type_1 = DbfTruncationCollisionWarning.from_dict(data)
+                    warnings_item_type_2 = MercatorClipWarning.from_dict(data)
 
-                    return warnings_item_type_1
+                    return warnings_item_type_2
 
                 warnings_item = _parse_warnings_item(warnings_item_data)
 

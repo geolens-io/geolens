@@ -36,7 +36,32 @@ class DbfTruncationCollisionWarning(TypedDict):
     details: list[DbfTruncationDetail]
 
 
-IngestJobWarning = ReservedRenameWarning | DbfTruncationCollisionWarning
+class MercatorClipDetail(TypedDict):
+    dropped_features: int
+    clipped_features: int
+
+
+class MercatorClipWarning(TypedDict):
+    kind: Literal["mercator_clip"]
+    details: MercatorClipDetail
+
+
+class MercatorClipCounts(TypedDict):
+    """Return shape of ``clip_to_mercator_bounds`` (fix(#888)).
+
+    ``shifted_longitudes`` records whether the source was recognised as
+    0..360 and translated into -180..180 before the clip ran; the two counts
+    describe what the clip itself destroyed.
+    """
+
+    shifted_longitudes: bool
+    dropped_features: int
+    clipped_features: int
+
+
+IngestJobWarning = (
+    ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning
+)
 
 
 def make_reserved_rename_warning(
@@ -73,4 +98,38 @@ def make_dbf_truncation_warning(
             )
             for c in collisions
         ],
+    )
+
+
+def make_mercator_clip_warning(
+    clip: MercatorClipCounts | None,
+) -> MercatorClipWarning | None:
+    """Build a ``mercator_clip`` warning, or None when no geometry was lost.
+
+    fix(#888): the Web Mercator clamp is intentional, but it used to run
+    silently — a valid point at lat -89.95 became ``MULTIPOINT EMPTY`` and the
+    user only found out when a later analysis reported "produced no features
+    to save". This producer turns the clip accounting into the user-visible
+    warning, and returns None for the overwhelmingly common no-loss clip so
+    the "warn only when the user actually lost data" decision lives here
+    rather than being re-derived at each ingest call site.
+
+    Shapes that are not the documented counts dict (a stale producer, a
+    monkeypatched stand-in) yield None rather than a malformed warning: same
+    fail-closed stance the router takes when it re-parses these.
+    """
+    if not isinstance(clip, dict):
+        return None
+    dropped = clip.get("dropped_features")
+    clipped = clip.get("clipped_features")
+    if not isinstance(dropped, int) or not isinstance(clipped, int):
+        return None
+    if dropped <= 0 and clipped <= 0:
+        return None
+    return MercatorClipWarning(
+        kind="mercator_clip",
+        details=MercatorClipDetail(
+            dropped_features=dropped,
+            clipped_features=clipped,
+        ),
     )

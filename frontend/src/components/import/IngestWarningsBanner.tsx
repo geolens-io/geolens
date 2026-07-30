@@ -60,6 +60,32 @@ function DbfTruncationBody({
   );
 }
 
+function MercatorClipBody({
+  warning,
+}: {
+  warning: Extract<IngestJobWarning, { kind: 'mercator_clip' }>;
+}) {
+  const { t } = useTranslation('import');
+  const { dropped_features: dropped, clipped_features: clipped } =
+    warning.details;
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">{t('warnings.mercatorClip.title')}</p>
+      <p className="text-xs text-muted-foreground">
+        {t('warnings.mercatorClip.description')}
+      </p>
+      <ul className="mt-1 list-disc ps-4 text-xs">
+        {dropped > 0 && (
+          <li>{t('warnings.mercatorClip.dropped', { count: dropped })}</li>
+        )}
+        {clipped > 0 && (
+          <li>{t('warnings.mercatorClip.clipped', { count: clipped })}</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * Surface structured ingest warnings to the user. Rendered on the upload
  * success screen (JobProgress) so operators can see silent pipeline rewrites
@@ -110,6 +136,11 @@ export function IngestWarningsBanner({
             if (warning.kind === 'dbf_truncation_collision') {
               return (
                 <DbfTruncationBody key={`dbf-${idx}`} warning={warning} />
+              );
+            }
+            if (warning.kind === 'mercator_clip') {
+              return (
+                <MercatorClipBody key={`mercator-${idx}`} warning={warning} />
               );
             }
             return null;

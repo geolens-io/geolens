@@ -86,6 +86,14 @@
       "title": "Collisions de noms de champs Shapefile",
       "description": "Les noms de champs DBF Shapefile sont limités à 10 caractères. Deux champs source ou plus ont été réduits au même nom tronqué et ont pu être fusionnés lors de l'importation."
     },
+    "mercatorClip": {
+      "title": "Géométrie au-delà de la limite de latitude Web Mercator",
+      "description": "GeoLens diffuse des tuiles Web Mercator, qui ne peuvent pas représenter les latitudes au-delà de ±85,06°. La géométrie dépassant cette limite a été découpée lors de l'importation. Les lignes restent dans le jeu de données : seule leur géométrie a changé.",
+      "dropped_one": "{{count}} entité a perdu toute sa géométrie",
+      "dropped_other": "{{count}} entités ont perdu toute leur géométrie",
+      "clipped_one": "{{count}} entité a été rognée à ±85,06° de latitude",
+      "clipped_other": "{{count}} entités ont été rognées à ±85,06° de latitude"
+    },
     "archiveFailed": {
       "title": "Échec de l'archivage du fichier original",
       "description": "Le jeu de données a été importé avec succès, mais la copie du fichier source original vers le stockage durable a échoué. Le jeu de données reste interrogeable ; retéléchargez-le si vous avez besoin de restaurer le fichier original."

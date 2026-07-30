@@ -1024,12 +1024,25 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # shrinking must lower the cap in the same commit.
     "backend/app/api/main.py": 1282,
     "backend/app/modules/catalog/maps/schemas.py": 1312,
-    "backend/app/processing/ingest/metadata.py": 1716,
+    # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
+    # in silence — it clipped away everything east of lon 180 in a 0..360
+    # source, and it reduced valid polar geometry to EMPTY without telling
+    # anyone. The added lines are `_shift_zero_to_360_longitudes` plus the
+    # clip accounting the warning is built from, and roughly half of them are
+    # the four-condition guard write-up: #883 established that a
+    # single-condition guard on antimeridian/longitude-convention problems is
+    # a coin flip, so the conditions and their near misses are documented at
+    # the code rather than only in the issue. Ratchet stays exact.
+    "backend/app/processing/ingest/metadata.py": 1833,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
     "backend/app/processing/ingest/router.py": 1482,
-    "backend/app/processing/ingest/tasks_common.py": 1606,
+    # fix(#888): +25 — the `mercator_clip` StagingResult field and the
+    # `_append_mercator_clip_warning` emitter that keeps the three ingest call
+    # sites a single statement each (`reupload_file` is already at the C901
+    # complexity ceiling, so the branch cannot live inline). Ratchet stays exact.
+    "backend/app/processing/ingest/tasks_common.py": 1631,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

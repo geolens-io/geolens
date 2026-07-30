@@ -329,6 +329,40 @@ class TestGetJobStatus:
         originals = {r["original"] for r in renames}
         assert originals == {"geom", "gid"}
 
+    async def test_get_job_surfaces_mercator_clip_warning(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#888): the Mercator-clamp drop count reaches the job status API.
+
+        Built through the real producer chain (clip accounting ->
+        ``_append_mercator_clip_warning`` -> ``user_metadata``) rather than a
+        hand-written dict, so the whole channel is under test and a producer
+        rename cannot leave this passing against a stale literal.
+        """
+        from app.processing.ingest.tasks_common import _append_mercator_clip_warning
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
+        job.user_metadata = {"title": "Antarctic stations"}
+        _append_mercator_clip_warning(
+            job,
+            {
+                "shifted_longitudes": False,
+                "dropped_features": 12,
+                "clipped_features": 3,
+            },
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["warnings"]) == 1
+        assert data["warnings"][0] == {
+            "kind": "mercator_clip",
+            "details": {"dropped_features": 12, "clipped_features": 3},
+        }
+
     async def test_get_job_surfaces_archive_failed(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

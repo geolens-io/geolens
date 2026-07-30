@@ -51,8 +51,29 @@ class DbfTruncationCollisionWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class MercatorClipDetail(BaseModel):
+    """fix(#888): how much geometry the Web Mercator clamp destroyed.
+
+    ``dropped_features`` lost their geometry entirely (a valid point at lat
+    -89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in
+    reduced form.
+    """
+
+    dropped_features: int = Field(ge=0)
+    clipped_features: int = Field(ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class MercatorClipWarning(BaseModel):
+    kind: Literal["mercator_clip"]
+    details: MercatorClipDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
-    ReservedRenameWarning | DbfTruncationCollisionWarning,
+    ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning,
     Field(discriminator="kind"),
 ]
 

@@ -7610,6 +7610,7 @@
               "discriminator": {
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
+                  "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning"
                 },
                 "propertyName": "kind"
@@ -7620,6 +7621,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/DbfTruncationCollisionWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/MercatorClipWarning"
                 }
               ]
             },
@@ -10246,6 +10250,47 @@
         ],
         "title": "MapVisibility",
         "type": "string"
+      },
+      "MercatorClipDetail": {
+        "additionalProperties": false,
+        "description": "fix(#888): how much geometry the Web Mercator clamp destroyed.\n\n``dropped_features`` lost their geometry entirely (a valid point at lat\n-89.95 becomes ``MULTIPOINT EMPTY``); ``clipped_features`` survived in\nreduced form.",
+        "properties": {
+          "clipped_features": {
+            "minimum": 0.0,
+            "title": "Clipped Features",
+            "type": "integer"
+          },
+          "dropped_features": {
+            "minimum": 0.0,
+            "title": "Dropped Features",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dropped_features",
+          "clipped_features"
+        ],
+        "title": "MercatorClipDetail",
+        "type": "object"
+      },
+      "MercatorClipWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/MercatorClipDetail"
+          },
+          "kind": {
+            "const": "mercator_clip",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "MercatorClipWarning",
+        "type": "object"
       },
       "MetadataAssistRequest": {
         "description": "Request body for metadata AI endpoints.",
@@ -40361,7 +40406,7 @@
     },
     "/jobs/by-dataset/{dataset_id}": {
       "get": {
-        "description": "Look up the most recent ingest job for a dataset.\n\nUsed by the dataset detail page to surface ingest warnings permanently\n(S3 completion) \u2014 the job is the source of truth for\n``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``\n/ ``temporal_parse_errors`` metadata.\n\nReturns the most recently created completed job for the dataset. When the\ndataset is visible but has no ingest job (e.g. registered from an existing\ntable, or a remote/STAC dataset), returns ``200`` with a ``null`` body\ninstead of 404 \u2014 a \"no job\" outcome is normal for these datasets and a\n404 would needlessly pollute the browser console on the dataset detail\npage. A genuine 404 is still raised when the dataset is not visible to the\nuser, to avoid leaking job existence (see visibility check below).",
+        "description": "Look up the most recent ingest job for a dataset.\n\nUsed by the dataset detail page to surface ingest warnings permanently\n(S3 completion) \u2014 the job is the source of truth for\n``reserved_rename`` / ``dbf_truncation_collision`` / ``mercator_clip`` /\n``archive_failed`` / ``temporal_parse_errors`` metadata.\n\nReturns the most recently created completed job for the dataset. When the\ndataset is visible but has no ingest job (e.g. registered from an existing\ntable, or a remote/STAC dataset), returns ``200`` with a ``null`` body\ninstead of 404 \u2014 a \"no job\" outcome is normal for these datasets and a\n404 would needlessly pollute the browser console on the dataset detail\npage. A genuine 404 is still raised when the dataset is not visible to the\nuser, to avoid leaking job existence (see visibility check below).",
         "operationId": "get_job_status_by_dataset_jobs_by_dataset__dataset_id__get",
         "parameters": [
           {
