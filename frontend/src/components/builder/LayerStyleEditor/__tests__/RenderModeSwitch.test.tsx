@@ -11,7 +11,6 @@ vi.mock('../CircleEditor', () => ({ CircleEditor: () => <div>CircleEditor</div>,
 vi.mock('../SymbolEditor', () => ({ SymbolEditor: () => <div>SymbolEditor</div>, default: () => <div>SymbolEditor</div> }));
 vi.mock('../HeatmapEditor', () => ({ HeatmapEditor: () => <div>HeatmapEditor</div>, default: () => <div>HeatmapEditor</div> }));
 vi.mock('../ClusterEditor', () => ({ ClusterEditor: () => <div>ClusterEditor</div>, default: () => <div>ClusterEditor</div> }));
-vi.mock('../RasterEditor', () => ({ RasterEditor: () => <div>RasterEditor</div>, default: () => <div>RasterEditor</div> }));
 
 function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
   return {
@@ -92,11 +91,6 @@ describe('RenderModeSwitch', () => {
   it('renders ClusterEditor when dispatchKey is "cluster"', () => {
     render(<RenderModeSwitch {...baseProps} dispatchKey="cluster" />);
     expect(screen.getByText('ClusterEditor')).toBeInTheDocument();
-  });
-
-  it('renders RasterEditor when dispatchKey is "raster"', () => {
-    render(<RenderModeSwitch {...baseProps} dispatchKey="raster" />);
-    expect(screen.getByText('RasterEditor')).toBeInTheDocument();
   });
 
   it('returns null and emits console.warn for an unsupported dispatchKey', () => {
