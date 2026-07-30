@@ -318,9 +318,9 @@ def prepare_with_overviews(
             resampling = "average" if _is_float_dtype(dtype) else "nearest"
 
         # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
-        # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS, VRT_VIRTUAL_OVERVIEWS,
-        # GDAL_HTTP_FOLLOWLOCATION) on top of the per-call extras. v1015 Phase
-        # 1068 originally scoped these to _build_vrt only.
+        # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS, VRT_VIRTUAL_OVERVIEWS) on top of
+        # the per-call extras. v1015 Phase 1068 originally scoped these to
+        # _build_vrt only.
         env = gdal_safe_env(
             extras={"GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
         )

@@ -1,11 +1,16 @@
 """KNOWN-03 (Phase 1071): GDAL CLI subprocess env overlay coverage.
 
 v1015 Phase 1068 IA-P1-03 scoped ``_VRT_SAFE_ENV`` (with
-``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``, ``VRT_VIRTUAL_OVERVIEWS``,
-``GDAL_HTTP_FOLLOWLOCATION``) to ``gdalbuildvrt`` only via ``_build_vrt``.
-Phase 1071 extends the same clamp to the sibling raster subprocesses in
-``cog.py``: ``gdaladdo`` (overview generation), ``gdalwarp`` (CRS
-reprojection), and ``gdal_translate`` (COG translation).
+``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` and ``VRT_VIRTUAL_OVERVIEWS``) to
+``gdalbuildvrt`` only via ``_build_vrt``. Phase 1071 extends the same clamp
+to the sibling raster subprocesses in ``cog.py``: ``gdaladdo`` (overview
+generation), ``gdalwarp`` (CRS reprojection), and ``gdal_translate`` (COG
+translation).
+
+fix(#937): the overlay used to also carry ``GDAL_HTTP_FOLLOWLOCATION=NO``.
+That is not a GDAL configuration option and never blocked a redirect;
+``_assert_clamps`` now asserts it stays ABSENT so it cannot be reintroduced
+as a claimed defense.
 
 These tests pin the captured ``env=`` kwarg for each subprocess invocation
 so a future refactor cannot silently regress the overlay shape.
@@ -20,23 +25,25 @@ from contextlib import contextmanager
 from unittest import mock
 
 
-# The three clamp keys/values must match _VRT_SAFE_ENV in
-# backend/app/processing/raster/vrt.py:17. Re-stated here so a careless
+# The clamp keys/values must match _VRT_SAFE_ENV in
+# backend/app/processing/raster/vrt.py. Re-stated here so a careless
 # edit to that dict trips these tests.
 EXPECTED_CLAMPS = {
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "tif,tiff,vrt",
     "VRT_VIRTUAL_OVERVIEWS": "NO",
-    "GDAL_HTTP_FOLLOWLOCATION": "NO",
 }
 
 
 def _assert_clamps(env: dict) -> None:
-    """All three KNOWN-03 clamps must be set on the captured env."""
+    """The KNOWN-03 clamps must be set on the captured env."""
     assert env is not None, "subprocess.run was invoked without env="
     for key, expected in EXPECTED_CLAMPS.items():
         assert env.get(key) == expected, (
             f"clamp {key} missing/wrong: expected {expected!r}, got {env.get(key)!r}"
         )
+    # fix(#937): not a GDAL option, provides no redirect protection — must
+    # not reappear in any GDAL subprocess env as if it did.
+    assert "GDAL_HTTP_FOLLOWLOCATION" not in env
 
 
 @contextmanager
@@ -263,7 +270,7 @@ class TestGdalSafeEnvHelper:
         from app.processing.raster.vrt import gdal_safe_env
 
         with pytest.raises(ValueError, match="security clamps"):
-            gdal_safe_env(extras={"GDAL_HTTP_FOLLOWLOCATION": "YES"})
+            gdal_safe_env(extras={"CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "exe"})
 
 
 # ---------------------------------------------------------------------------

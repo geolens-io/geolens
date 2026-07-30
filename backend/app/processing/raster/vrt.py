@@ -14,10 +14,19 @@ from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
 # extensions GDAL will open; VRT_VIRTUAL_OVERVIEWS=NO blocks the implicit
 # overview-pyramid expansion that could pull additional remote sources
 # during a VRT build.
+#
+# fix(#937): this dict used to also set GDAL_HTTP_FOLLOWLOCATION=NO as a
+# redirect clamp. That is not a GDAL configuration option (it is absent from
+# cpl_known_config_options.h) and was measured to have no effect on GDAL
+# 3.10.3 and 3.12.1 — a 302 is followed identically with and without it.
+# GDAL exposes NO option that stops redirect-following, so redirect safety
+# must be structural: never hand a caller-controlled host to GDAL. Here that
+# means user-uploaded VRTs reject URL and /vsi sources outright
+# (ingest/validation.py) and the raster pipeline only opens managed-storage
+# paths (bucket from settings, key validated by resolve_storage_key).
 _VRT_SAFE_ENV: dict[str, str] = {
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "tif,tiff,vrt",
     "VRT_VIRTUAL_OVERVIEWS": "NO",
-    "GDAL_HTTP_FOLLOWLOCATION": "NO",
 }
 
 
@@ -35,9 +44,13 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     - VRT_VIRTUAL_OVERVIEWS="NO" — blocks the implicit overview-pyramid
       expansion that could pull additional remote sources during a
       build.
-    - GDAL_HTTP_FOLLOWLOCATION="NO" — pinned with the SEC-S04 SSRF
-      redirect-bypass defense; libcurl will not follow 3xx hops out
-      of the explicitly-validated source URL.
+
+    fix(#937): NO redirect clamp is applied, because none exists. The
+    GDAL_HTTP_FOLLOWLOCATION=NO this env used to carry is not a GDAL
+    configuration option and never stopped a 3xx; do not re-add it. If a
+    subprocess can be pointed at a caller-controlled URL, the fix is to
+    not do that (validate at the API layer, fetch only managed storage),
+    not an env var.
 
     Phase 1071 KNOWN-03 (v1015 Phase 1068 tech-debt followup): the
     clamps were originally scoped to _build_vrt only; they now apply
@@ -46,9 +59,9 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     Args:
         extras: Optional per-call additions (e.g. ``{"GDAL_CACHEMAX": "200"}``).
             extras MUST NOT collide with security clamp keys in ``_VRT_SAFE_ENV``
-            (``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``, ``VRT_VIRTUAL_OVERVIEWS``,
-            ``GDAL_HTTP_FOLLOWLOCATION``). A ``ValueError`` is raised on collision
-            so callers cannot silently disable the security clamps.
+            (``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``, ``VRT_VIRTUAL_OVERVIEWS``).
+            A ``ValueError`` is raised on collision so callers cannot silently
+            disable the security clamps.
             Pass ``None`` (the default) for the base clamp only.
 
     Returns:
@@ -78,14 +91,10 @@ def gdal_safe_open_env():
     :func:`_write_python_vrt`, which must open the sources it is asked to build
     from -- the only in-process source access left in this module.
 
-    fix(#887): note what this does NOT buy. Measured on GDAL 3.12.1,
-    ``GDAL_HTTP_FOLLOWLOCATION`` is not a GDAL configuration option at all --
-    ``gdalinfo --config GDAL_HTTP_FOLLOWLOCATION NO --debug ON`` answers
-    ``Warning 1: Unknown configuration option 'GDAL_HTTP_FOLLOWLOCATION'`` and
-    follows the 302 anyway, in-process and in the subprocess alike. So this env
-    carries the two clamps that ARE real (the ``/vsicurl`` extension allow-list
-    and ``VRT_VIRTUAL_OVERVIEWS``) and provides no redirect protection to
-    anybody.
+    fix(#887, #937): the two clamps carried here (the ``/vsicurl`` extension
+    allow-list and ``VRT_VIRTUAL_OVERVIEWS``) are the real ones. Neither this
+    env nor any GDAL option provides redirect protection — see the
+    ``_VRT_SAFE_ENV`` note above.
     """
     import rasterio
 

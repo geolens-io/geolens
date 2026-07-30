@@ -50,6 +50,7 @@ restore/
 # Playwright
 playwright/.auth/
 playwright-report/
+playwright-summary.json
 test-results/
 blob-report/
 .playwright-mcp/

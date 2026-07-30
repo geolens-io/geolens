@@ -109,7 +109,7 @@ Reference implementations:
 
 Any new `httpx.AsyncClient` configured with `follow_redirects=True` MUST be constructed via `make_safe_client()` from `backend/app/modules/catalog/sources/security.py` — never directly with `httpx.AsyncClient(follow_redirects=True, ...)`. The factory installs the per-hop `_revalidate_redirect` event hook that re-runs `validate_url_for_ssrf` against every 3xx `Location` header.
 
-The same applies to ogr2ogr / GDAL subprocess calls that fetch user-supplied URLs: set `GDAL_HTTP_FOLLOWLOCATION=NO` in the subprocess env. Reference: `backend/app/processing/ingest/ogr.py` (service-ingest path).
+GDAL and ogr2ogr CANNOT be made redirect-safe from the inside: `GDAL_HTTP_FOLLOWLOCATION` is not a GDAL option (setting it does nothing — #937), and GDAL exposes no option that disables redirect-following. For any GDAL/ogr2ogr/rasterio path the defenses are structural, in this order: (1) prefer never handing a caller-controlled URL to GDAL at all — fetch only managed storage (`/vsis3/`, `/vsiaz/`, local paths with validated keys) and never probe remote sources in-process; (2) where a user-supplied service URL must be fetched (service ingest/preview), `validate_url_for_ssrf` gates it at submission time and residual redirect/DNS-rebinding exposure is bounded operationally (worker egress firewall); (3) subprocess envs come from `gdal_safe_env()` / `gdal_safe_open_env()` in `backend/app/processing/raster/vrt.py`, which apply the real clamps (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS`, `VRT_VIRTUAL_OVERVIEWS`). Never re-add `GDAL_HTTP_FOLLOWLOCATION` anywhere; it reads as a defense and is a no-op.
 
 **Rule 3 — Never reintroduce known-public credential literals**
 

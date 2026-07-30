@@ -1,6 +1,8 @@
-import { render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen } from '@/test/test-utils';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
+import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useTileConfig } from '@/hooks/use-settings';
+import { toast } from 'sonner';
 import { AccessTab } from '../tabs/AccessTab';
 import type { DatasetResponse } from '@/types/api';
 
@@ -12,8 +14,18 @@ vi.mock('@/hooks/use-settings', () => ({
   useTileConfig: vi.fn(),
 }));
 
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
+  useUpdateDataset: vi.fn(),
+}));
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseTileConfig = vi.mocked(useTileConfig);
+const mockUseUpdateDataset = vi.mocked(useUpdateDataset);
+const mutate = vi.fn();
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
@@ -98,6 +110,11 @@ describe('AccessTab', () => {
       },
       isLoading: false,
     } as unknown as ReturnType<typeof useDistributions>);
+    mutate.mockReset();
+    mockUseUpdateDataset.mockReturnValue({
+      mutate,
+      isPending: false,
+    } as unknown as ReturnType<typeof useUpdateDataset>);
     mockUseTileConfig.mockReturnValue({
       data: {
         public_api_url: 'https://catalog.example.com/api',
@@ -142,5 +159,92 @@ describe('AccessTab', () => {
     );
 
     expect(screen.queryByText('Access via API')).not.toBeInTheDocument();
+  });
+  // fix(#927): visibility was read-only after import — the only way to publish a
+  // private dataset was to re-import it.
+  describe('visibility control', () => {
+    beforeEach(() => {
+      // jsdom has no layout, and Radix's Select scrolls the active item into
+      // view when the popup mounts.
+      HTMLElement.prototype.scrollIntoView = vi.fn();
+    });
+
+    function openVisibilitySelect() {
+      fireEvent.keyDown(screen.getByRole('combobox', { name: 'Visibility' }), {
+        key: 'ArrowDown',
+      });
+    }
+
+    it('renders a read-only badge for viewers and non-owner editors', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} />);
+
+      expect(screen.queryByRole('combobox', { name: 'Visibility' })).not.toBeInTheDocument();
+      expect(screen.getByText('Private')).toBeInTheDocument();
+    });
+
+    it('lets an owner or admin move a dataset from private to public', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+      openVisibilitySelect();
+      fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0][0]).toEqual({
+        datasetId: 'ds-1',
+        data: { visibility: 'public' },
+      });
+    });
+
+    it('does not offer restricted as a move', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+      openVisibilitySelect();
+
+      expect(screen.queryByRole('option', { name: 'Restricted' })).not.toBeInTheDocument();
+    });
+
+    // A one-way exit: a SQL-managed or pre-existing `restricted` dataset keeps
+    // displaying what it is, and is never silently coerced to something else.
+    it('shows a stored restricted value as the disabled current option', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'restricted' })} canEdit />);
+
+      expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent('Restricted');
+
+      openVisibilitySelect();
+      expect(screen.getByRole('option', { name: 'Restricted' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      expect(screen.getByRole('option', { name: 'Private' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      expect(screen.getByRole('option', { name: 'Public' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+    });
+
+    // The backend rejects public → private with a 422 while a public map uses
+    // the dataset. #931 owns turning that prose into its own message; what must
+    // not happen here is the select snapping back with nothing said.
+    it('surfaces a rejected change instead of swallowing it', () => {
+      mutate.mockImplementation((_vars, opts) => opts?.onError?.(new Error('nope')));
+      render(<AccessTab dataset={makeDataset({ visibility: 'public' })} canEdit />);
+
+      openVisibilitySelect();
+      fireEvent.click(screen.getByRole('option', { name: 'Private' }));
+
+      expect(toast.error).toHaveBeenCalled();
+    });
+
+    it('does not fire a mutation when the value is unchanged', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'public' })} canEdit />);
+
+      openVisibilitySelect();
+      fireEvent.click(screen.getByRole('option', { name: 'Public' }));
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
   });
 });

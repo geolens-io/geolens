@@ -7,6 +7,22 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Corrections
+
+- **The 1.4.3 redirect mitigation for GDAL fetches did not work.** That
+  release claimed raster preview and Titiler tile fetches "no longer follow
+  HTTP redirects" via `GDAL_HTTP_FOLLOWLOCATION=NO`. The variable is not a
+  GDAL configuration option and never had any effect: GDAL followed
+  redirects with it set exactly as without, verified on GDAL 3.10.3 and
+  3.12.1, and GDAL exposes no option that disables redirect-following. The
+  inert variable has been removed everywhere so it cannot be mistaken for a
+  defense. The protections that do apply are URL validation at the API
+  layer (`validate_url_for_ssrf`, with per-redirect revalidation on httpx
+  paths), the `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` allow-list on GDAL
+  fetches, and fetching only managed storage in the raster pipeline;
+  deployments that need a hard redirect bound for user-supplied service
+  URLs should enforce it with worker egress rules. (#937)
+
 ## [1.6.1] - 2026-07-29
 
 ### Added

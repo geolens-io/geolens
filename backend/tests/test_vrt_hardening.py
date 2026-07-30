@@ -6,7 +6,12 @@ Pins the 3-layer defense added in Phase 1068:
 - validate_vrt_body rejects non-VRT XML, '..' segments, absolute paths, raw
   URLs, and GDAL VSI paths in user-uploaded <SourceFilename> values
 - _build_vrt subprocess env applies CPL_VSIL_CURL_ALLOWED_EXTENSIONS +
-  VRT_VIRTUAL_OVERVIEWS=NO + GDAL_HTTP_FOLLOWLOCATION=NO
+  VRT_VIRTUAL_OVERVIEWS=NO
+
+fix(#937): the env used to also carry GDAL_HTTP_FOLLOWLOCATION=NO as a
+redirect clamp. That is not a GDAL configuration option and never blocked a
+redirect; the safe-env test below now asserts it stays ABSENT so it cannot
+be reintroduced as a claimed defense.
 
 Requirement: IA-P1-03
 Phase: 1068
@@ -258,4 +263,6 @@ class TestGdalBuildVrtSafeEnv:
         assert captured_env is not None
         assert captured_env.get("CPL_VSIL_CURL_ALLOWED_EXTENSIONS") == "tif,tiff,vrt"
         assert captured_env.get("VRT_VIRTUAL_OVERVIEWS") == "NO"
-        assert captured_env.get("GDAL_HTTP_FOLLOWLOCATION") == "NO"
+        # fix(#937): not a GDAL option, provides no redirect protection —
+        # must not be reintroduced as if it did.
+        assert "GDAL_HTTP_FOLLOWLOCATION" not in captured_env
