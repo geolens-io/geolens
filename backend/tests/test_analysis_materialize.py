@@ -2707,6 +2707,39 @@ class TestBufferAtDateline:
         assert row.area == pytest.approx(2 * math.pi * 10_000**2, rel=0.02)
 
 
+async def _component_radius_range(
+    session: AsyncSession, table_name: str, source_wkt: str
+) -> list[tuple[int, float, float]]:
+    """Geodesic distance from each source component to the vertices of the
+    output part covering it — the metric the projection bugs actually distort.
+
+    Area alone hides part of it: an equal-area fallback projection keeps the
+    total while deforming each component (measured 9 240 - 10 824 m for a
+    requested 10 000 m at a 150° span).
+    """
+    rows = (
+        await session.execute(
+            text(
+                "WITH src AS (SELECT (ST_Dump("
+                "  ST_SetSRID(ST_GeomFromText(:wkt), 4326))).path[1] AS ix,"
+                " (ST_Dump(ST_SetSRID(ST_GeomFromText(:wkt), 4326))).geom AS p),"
+                " out AS (SELECT (ST_Dump(geom_4326)).geom AS part"
+                f"         FROM data.{table_name}),"  # noqa: S608
+                " paired AS (SELECT src.ix, src.p, out.part FROM src, out"
+                "            WHERE ST_Intersects(out.part, src.p))"
+                " SELECT paired.ix AS ix,"
+                "        min(ST_Distance(paired.p::geography,"
+                "                        v.geom::geography)) AS min_r,"
+                "        max(ST_Distance(paired.p::geography,"
+                "                        v.geom::geography)) AS max_r"
+                " FROM paired, LATERAL ST_DumpPoints(paired.part) AS v"
+                " GROUP BY paired.ix ORDER BY paired.ix"
+            ).bindparams(wkt=source_wkt)
+        )
+    ).all()
+    return [(r.ix, r.min_r, r.max_r) for r in rows]
+
+
 class TestBufferMultipartProjection:
     """fix(#891): ``ST_Buffer(...::geography, d)`` picks ONE planar working SRID
     for the whole input, so a multipart feature whose components sit far apart in
@@ -2716,34 +2749,7 @@ class TestBufferMultipartProjection:
     async def _radius_range(
         self, session: AsyncSession, table_name: str, source_wkt: str
     ) -> list[tuple[int, float, float]]:
-        """Geodesic distance from each source component to the vertices of the
-        output part covering it — the metric the bug actually distorts.
-
-        Area alone hides part of it: an equal-area fallback projection keeps the
-        total while deforming each component (measured 9 240 - 10 824 m for a
-        requested 10 000 m at a 150° span).
-        """
-        rows = (
-            await session.execute(
-                text(
-                    "WITH src AS (SELECT (ST_Dump("
-                    "  ST_SetSRID(ST_GeomFromText(:wkt), 4326))).path[1] AS ix,"
-                    " (ST_Dump(ST_SetSRID(ST_GeomFromText(:wkt), 4326))).geom AS p),"
-                    " out AS (SELECT (ST_Dump(geom_4326)).geom AS part"
-                    f"         FROM data.{table_name}),"  # noqa: S608
-                    " paired AS (SELECT src.ix, src.p, out.part FROM src, out"
-                    "            WHERE ST_Intersects(out.part, src.p))"
-                    " SELECT paired.ix AS ix,"
-                    "        min(ST_Distance(paired.p::geography,"
-                    "                        v.geom::geography)) AS min_r,"
-                    "        max(ST_Distance(paired.p::geography,"
-                    "                        v.geom::geography)) AS max_r"
-                    " FROM paired, LATERAL ST_DumpPoints(paired.part) AS v"
-                    " GROUP BY paired.ix ORDER BY paired.ix"
-                ).bindparams(wkt=source_wkt)
-            )
-        ).all()
-        return [(r.ix, r.min_r, r.max_r) for r in rows]
+        return await _component_radius_range(session, table_name, source_wkt)
 
     async def test_components_90_degrees_apart_keep_their_radius(
         self,
@@ -2965,6 +2971,336 @@ class TestBufferMultipartProjection:
         assert radii
         for _ix, _min_r, max_r in radii:
             assert max_r == pytest.approx(10_000, rel=0.005)
+
+
+class TestWideSingleComponentBuffer:
+    """fix(#902): a SINGLE component wider than one UTM zone was still buffered
+    in one non-local projection — per-component dumping (#891/#900) cannot touch
+    it because there is nothing to dump into. The wide branch now slices the
+    geography-segmentized input into sub-zone longitude bands and dissolves.
+
+    Two metrics, per the issue's warning that pooled area hides the failure:
+
+    - per SOURCE VERTEX: nearest geodesic distance to the buffer boundary,
+      asserted within ±1% of the requested distance (the acceptance bar);
+    - over the WHOLE boundary: every vertex's distance to the source line,
+      bounded to [-2%, +1%]. The floor is looser than the bar deliberately:
+      ``ST_UnaryUnion`` nodes adjacent slice buffers and exposes vertices on
+      the INTERIOR of circle-approximation chords (sagitta 0.48% at the
+      default quad_segs=8, plus the neighbor slice's own ±0.25% projection
+      error), which even an exact whole-input buffer exhibits as chord dip —
+      its vertices just happen to sit on the circle. Both unfixed failure
+      modes sit far outside the bracket: world Mercator produced 7 079 -
+      7 087 m (-29%) and the wide Lambert 9 240 - 10 824 m (±8%).
+    """
+
+    async def _radius_stats(
+        self, session: AsyncSession, table_name: str, source_wkt: str
+    ) -> tuple[list[float], float, float]:
+        """(per-source-vertex nearest distances, boundary min, boundary max)."""
+        per_vertex = [
+            float(r[0])
+            for r in (
+                await session.execute(
+                    text(
+                        "WITH s AS (SELECT (ST_DumpPoints("
+                        "  ST_SetSRID(ST_GeomFromText(:wkt), 4326))).geom AS sv)"
+                        " SELECT ST_Distance(s.sv::geography,"
+                        "   ST_Boundary(geom_4326)::geography)"
+                        f" FROM s, data.{table_name}"  # noqa: S608
+                    ).bindparams(wkt=source_wkt)
+                )
+            ).all()
+        ]
+        row = (
+            await session.execute(
+                text(
+                    "WITH v AS (SELECT (ST_DumpPoints(geom_4326)).geom AS bv"
+                    f"           FROM data.{table_name})"  # noqa: S608
+                    " SELECT min(ST_Distance("
+                    "   ST_SetSRID(ST_GeomFromText(:wkt), 4326)::geography,"
+                    "   v.bv::geography)) AS min_d,"
+                    " max(ST_Distance("
+                    "   ST_SetSRID(ST_GeomFromText(:wkt), 4326)::geography,"
+                    "   v.bv::geography)) AS max_d"
+                    " FROM v"
+                ).bindparams(wkt=source_wkt)
+            )
+        ).one()
+        return per_vertex, float(row.min_d), float(row.max_d)
+
+    def _assert_radius(self, stats: tuple[list[float], float, float]) -> None:
+        per_vertex, min_d, max_d = stats
+        assert per_vertex
+        for d in per_vertex:
+            assert d == pytest.approx(10_000, rel=0.01)
+        assert min_d >= 10_000 * 0.98
+        assert max_d <= 10_000 * 1.01
+
+    async def test_90_degree_linestring_matches_piecewise_truth(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The regression fixture from the issue. Measured before the fix:
+        85 485 981 084 m² — 63.7% of the 134 146 143 319 m² piecewise truth —
+        because a 90° span lands in world Mercator (radius 7 079 - 7 087 m for
+        a requested 10 000 m at lat 45)."""
+        wkt = "LINESTRING(0 45, 90 45)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_Area(geom_4326::geography) AS area"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        assert row.area == pytest.approx(134_146_143_319, rel=0.01)
+        self._assert_radius(
+            await self._radius_stats(test_db_session, out.table_name, wkt)
+        )
+
+    async def test_span_past_135_degrees_holds_shape_not_just_area(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Past ~135° PostGIS climbs into a wide Lambert (999061), which is
+        equal-area: total AREA recovers while the shape stays deformed by about
+        ±8% (measured 9 240 - 10 824 m radius). So this fixture asserts the
+        radius, which an area-only assertion cannot see."""
+        wkt = "LINESTRING(-80 45, 80 45)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT ST_IsValid(geom_4326) AS valid FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        self._assert_radius(
+            await self._radius_stats(test_db_session, out.table_name, wkt)
+        )
+
+    async def test_high_latitude_wide_linestring_keeps_its_radius(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """World Mercator's error is 1/cos(latitude), so lat 60 is where the
+        unfixed path lost the most (a quarter of the intended area). The bar
+        must hold out to high latitudes, per the acceptance criteria."""
+        wkt = "LINESTRING(0 60, 150 60)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        self._assert_radius(
+            await self._radius_stats(test_db_session, out.table_name, wkt)
+        )
+
+    async def test_seam_crossing_single_linestring_has_no_false_chord(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r1): a single geometry that itself crosses the
+        antimeridian segmentizes to a vertex jump from ~+180 to ~-180, and a
+        planar band cut read that jump as a near-global chord — the buffer
+        touched every longitude band. The slice pass unwraps into the shifted
+        domain first, so the output is two seam parts and nothing anywhere
+        else."""
+        wkt = "LINESTRING(170 0, -170 0)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_XMin(geom_4326) AS xmin, ST_XMax(geom_4326) AS xmax,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(-100, -30, 100, 30, 4326)) AS false_chord"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 2
+        assert row.xmin >= -180.0
+        assert row.xmax <= 180.0
+        # A 20-degree equatorial line: ~2 226 km x 20 km plus the end caps.
+        assert row.area == pytest.approx(44_822_856_266, rel=0.01)
+        # The old planar cut buffered a chord across the middle of the world.
+        assert row.false_chord is False
+
+    async def test_seam_and_greenwich_components_unwrap_independently(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r2): a feature holding a seam-crossing component AND
+        a Greenwich-crossing one fails a feature-wide unwrap test in both
+        domains, which left the seam component's planar chord in place. The
+        unwrap decides per component, so the seam component shifts and the
+        Greenwich one stays."""
+        wkt = "MULTILINESTRING((170 0, -170 0),(-5 0, 5 0))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="MultiLineString",
+            geometry_type="MULTILINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(45, -30, 135, 30, 4326)) AS chord_east,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(-135, -30, -45, 30, 4326)) AS chord_west"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        # Two seam parts plus the intact Greenwich part.
+        assert row.parts == 3
+        # 20-degree + 10-degree equatorial lines, 20 km wide, plus caps.
+        assert row.area == pytest.approx(67_447_048_946, rel=0.01)
+        assert row.chord_east is False
+        assert row.chord_west is False
+
+    async def test_component_crossing_both_meridians_buffers_per_segment(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r3): a single component crossing BOTH the
+        antimeridian and the prime meridian is wide in either longitude
+        domain, so no whole-component unwrap exists — its planar form always
+        carries a seam jump. Such a component falls back to per-segment
+        buffering (every segmentized segment unwraps on its own evidence), so
+        the output is the true corridor: through the WESTERN hemisphere,
+        which the path actually traverses, and never the eastern one, where
+        the old planar chord landed."""
+        wkt = "LINESTRING(170 0, -170 0, -5 0, 5 0)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(-135, -30, -45, 30, 4326)) AS through_west,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(45, -30, 135, 30, 4326)) AS chord_east"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        assert row.parts == 2
+        # 195 degrees of equatorial path, 20 km wide, plus caps.
+        assert row.area == pytest.approx(434_433_852_432, rel=0.01)
+        assert row.through_west is True
+        assert row.chord_east is False
+
+    async def test_wide_polygon_keeps_its_interior_and_planar_shape(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r4): polygonal components are densified PLANAR-ly —
+        geography-segmentizing a ring reinterprets long planar edges as great
+        arcs and moved the region itself (this fixture's lat-45 center fell
+        outside its own area). The buffer of a wide polygon must cover the
+        polygon, planar edges included."""
+        wkt = "POLYGON((0 40, 90 40, 90 50, 0 50, 0 40))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="Polygon",
+            geometry_type="POLYGON",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Covers(geom_4326,"
+                    "   ST_SetSRID(ST_MakePoint(45, 45), 4326)) AS covers_center,"
+                    " ST_Covers(geom_4326,"
+                    "   ST_GeomFromText(:src, 4326)) AS covers_source"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                ).bindparams(src=wkt)
+            )
+        ).one()
+        assert row.valid is True
+        assert row.covers_center is True
+        # A buffer must contain what it buffers.
+        assert row.covers_source is True
+        # Planar polygon area (~7.9e12 m²) plus the 10 km rim.
+        assert row.area == pytest.approx(8_039_566_379_240, rel=0.01)
+
+    async def test_narrow_single_part_is_still_byte_identical(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The gate must not fire below the span threshold: a 2°-wide
+        LINESTRING keeps the bare whole-input buffer byte for byte. If this
+        moves, the gate is wrong — the blast radius accepted for fix(#902) is
+        wide inputs only."""
+        wkt = "LINESTRING(0 45, 2 45)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        same = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_AsEWKB(geom_4326) = ST_AsEWKB(ST_Buffer("
+                    "  ST_GeomFromText(:wkt, 4326)::geography, 10000)::geometry)"
+                    "   AS identical"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                ).bindparams(wkt=wkt)
+            )
+        ).one()
+        assert same.identical is True
 
 
 # ---------------------------------------------------------------------------
