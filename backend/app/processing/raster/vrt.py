@@ -215,6 +215,15 @@ def _is_degree_based(crs) -> bool:
     return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
 
 
+# fix(#887): how much narrower the shifted hull must measure before it wins.
+# `left + 360` is not bit-exact for an arbitrary mantissa, so a global mosaic on
+# non-round tile boundaries can measure fractionally narrower shifted than plain
+# and re-frame itself on noise alone -- the same trap #886/#928 hit in the rollup
+# folds. 1e-9 degrees is ~0.1 mm: orders of magnitude above the noise, orders
+# below any re-framing worth doing.
+_SPAN_MARGIN = 1e-9
+
+
 def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     """Pick the longitude frame origin for a seam-straddling geographic mosaic.
 
@@ -235,9 +244,15 @@ def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     1. the plain hull must be wider than 180°. Nothing narrower can be improved
        by a shift, and this is what leaves a mosaic ending flush at +180, and
        one spanning -10..170 (exactly 180), in the plain frame.
-    2. the shifted hull must be *strictly* narrower than the plain one. A
-       genuinely global mosaic measures 360° in every frame, so it ties and
-       keeps -180..180 rather than being re-framed to an arbitrary origin.
+    2. the shifted hull must be narrower than the plain one *by a real margin*.
+       A genuinely global mosaic measures 360° in every frame, so it ties and
+       keeps -180..180 rather than being re-framed to an arbitrary origin. The
+       margin matters: ``left + 360`` is not bit-exact for an arbitrary mantissa,
+       so a global mosaic on non-round tile boundaries can measure
+       359.99999999999994 shifted against 360.00000000000006 plain and win a
+       bare ``<`` on nothing but noise (the same trap #886/#928 hit in the
+       rollup folds). ``_SPAN_MARGIN`` is far above that noise and far below any
+       real gain.
 
     Candidate origins are the source left edges, which is exhaustive: the
     tightest circular hull of a set of intervals always starts at one of them.
@@ -253,7 +268,7 @@ def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
             max(right + 360.0 if left < origin else right for left, right in spans)
             - origin
         )
-        if shifted_span < best_span:
+        if shifted_span < best_span - _SPAN_MARGIN:
             best_origin, best_span = origin, shifted_span
     return best_origin
 

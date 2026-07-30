@@ -388,6 +388,31 @@ class TestSeamFrameOrigin:
     def test_guard_boundaries(self, label, spans, expected):
         assert _seam_frame_origin(spans) == expected, label
 
+    def test_global_mosaic_on_non_round_boundaries_is_not_reframed(self):
+        """Float noise must not win the "is the shifted hull narrower" contest.
+
+        ``left + 360`` is not bit-exact for an arbitrary mantissa, so a global
+        tiling whose boundaries are not round numbers can measure fractionally
+        narrower in a shifted frame than in the plain one. With a bare ``<`` this
+        exact fixture re-frames a *global* mosaic to origin 160.3; the margin is
+        what keeps it at ``None``. Same trap #886/#928 hit in the rollup folds.
+        """
+        step = 360.0 / 36
+        spans = [(-179.7 + step * i, -179.7 + step * (i + 1)) for i in range(36)]
+
+        assert _seam_frame_origin(spans) is None
+
+    @pytest.mark.parametrize(
+        "spans,expected",
+        [
+            ([(175.0, 180.0), (-180.0, -175.0)], 175.0),
+            ([(175.123456789, 180.0), (-180.0, -175.987654321)], 175.123456789),
+        ],
+    )
+    def test_margin_does_not_suppress_a_real_crossing(self, spans, expected):
+        """The margin is 0.1 mm — it must not swallow a genuine 5° seam pair."""
+        assert _seam_frame_origin(spans) == pytest.approx(expected)
+
     def test_shifted_hull_is_the_tightest_available(self):
         """The chosen origin must minimise the hull, not merely improve on it."""
         spans = [(100.0, 170.0), (-170.0, -100.0), (-50.0, -40.0)]
