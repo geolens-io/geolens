@@ -435,12 +435,17 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     so a CRS *name* or remark that merely mentions PROJCS/GEOGCS (e.g.
     ``GEOGCRS["adjusted from PROJCS ..."]``) cannot misclassify the WKT.
     """
-    if not crs_wkt:
+    # isinstance, not truthiness: callers hand this whatever sits on
+    # RasterAsset.crs_wkt, including mocks in tests; a non-string is an
+    # unknown CRS, not a crash.
+    if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
-    # Blank quoted content: WKT strings cannot contain the quote character
-    # itself (WKT2 escapes it by doubling, which still terminates each pair),
-    # so this never eats a structural keyword.
-    head = re.sub(r'"[^"]*"', '""', crs_wkt[:2000]).upper()
+    # Blank quoted content BEFORE truncating: WKT strings cannot contain the
+    # quote character itself (WKT2 escapes it by doubling, which still
+    # terminates each pair), so this never eats a structural keyword — and
+    # blanking first means a pathologically long quoted name cannot push the
+    # real keywords past the truncation point (fix(#939 codex r2)).
+    head = re.sub(r'"[^"]*"', '""', crs_wkt)[:2000].upper()
     if "PROJCRS" in head or "PROJCS" in head:
         return False
     if "GEOGCRS" in head or "GEOGCS" in head:
@@ -464,6 +469,6 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     so call :func:`wkt_is_geographic` first. Returns None when no WKT is
     stored.
     """
-    if not crs_wkt:
+    if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
     return _WKT_DEGREE_UNIT_RE.search(crs_wkt) is not None

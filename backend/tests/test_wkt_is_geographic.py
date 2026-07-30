@@ -79,6 +79,25 @@ def test_degree_unit_missing_wkt_is_unknown():
     assert wkt_has_degree_unit("") is None
 
 
+def test_non_string_inputs_are_unknown_not_a_crash():
+    # fix(#939 codex r2): callers hand these whatever sits on
+    # RasterAsset.crs_wkt, including MagicMock in unit tests.
+    from unittest.mock import MagicMock
+
+    assert wkt_is_geographic(MagicMock()) is None  # type: ignore[arg-type]
+    assert wkt_has_degree_unit(MagicMock()) is None  # type: ignore[arg-type]
+    assert wkt_is_geographic(12345) is None  # type: ignore[arg-type]
+
+
+def test_long_quoted_name_cannot_hide_the_keywords():
+    # fix(#939 codex r2): quoted content is blanked BEFORE the 2000-char
+    # truncation, so a pathologically long name containing PROJCS cannot
+    # misclassify (or declassify) the WKT.
+    long_name = ("PROJCS padding " * 200)[:2500]
+    wkt = f'GEOGCRS["{long_name}",DATUM["World Geodetic System 1984"]]'
+    assert wkt_is_geographic(wkt) is True
+
+
 def test_keywords_inside_quoted_names_are_ignored():
     # fix(#939 codex r1): a CRS name or remark mentioning PROJCS must not
     # flip a geographic WKT to projected (and vice versa).
