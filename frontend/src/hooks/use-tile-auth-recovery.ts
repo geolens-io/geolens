@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { TileToken } from '@/api/tiles';
+import { useAuthStore } from '@/stores/auth-store';
+import { tryRefresh } from '@/api/client';
 
 // fix(#621): one re-mint per cooldown window bounds the retry loop — MapLibre
 // can fire dozens of tile errors per pan, and a mint that just failed will not
@@ -37,8 +39,8 @@ const REMINT_SETTLE_MS = 10_000;
  * nothing about whether a mint ran. That makes it the only honest place to
  * report a re-mint from; `trigger` names the path that asked for one so the
  * report distinguishes a tab return from a tile error. It is injected (not
- * imported) so this module keeps no dependency beyond the TileToken type, and
- * held in a ref so the returned callback keeps a stable identity — ViewerMap and
+ * imported) so this hook stays free of any reporting dependency, and held in a
+ * ref so the returned callback keeps a stable identity — ViewerMap and
  * DatasetMap list it in `handleLoad`'s deps.
  */
 export function useTileAuthRecovery(
@@ -82,6 +84,107 @@ export function hasExpiringVectorToken(
 }
 
 /**
+ * fix(#907): true when the session access token is at or inside the same skew
+ * window. Raster/DEM tiles authenticate with that JWT through
+ * `buildTileTransformRequest`'s Authorization header, not with a signed tile
+ * sig, so `hasExpiringVectorToken` can never see their credential expire — a
+ * raster-only map has nothing that qualifies and 401s its whole tile surface
+ * once on tab return. `null` (anonymous / embed-token surfaces) is not
+ * expiring: there is no session credential to renew.
+ */
+export function hasExpiringSession(
+  expiresAt: number | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  return expiresAt != null && expiresAt - nowMs <= EXPIRY_SKEW_MS;
+}
+
+// fix(#907): how long a raster/DEM auth failure stays attributable to a
+// renewal we are actively running. MapLibre resumes its fetches the instant the
+// tab is visible and can 401 before the refresh lands, so those errors are the
+// expected shape of the race, not a dead session — and the post-rotation reload
+// is about to cure them. Time-boxed rather than open-ended: a revoked grant
+// 403s long after any renewal window and must still surface.
+const RENEWAL_SUPPRESS_MS = 10_000;
+
+// A hard ceiling on how long an in-flight renewal can keep suppressing.
+// `refreshAccessToken` rides an unbounded fetch, so without this a hung request
+// would silence raster auth errors for the rest of the session.
+const RENEWAL_MAX_MS = 60_000;
+
+let renewalInFlight = false;
+let renewalDeadline = 0;
+let renewalPendingUntil = 0;
+
+/**
+ * fix(#907): true while a visible-edge session renewal is in flight (or has
+ * just reloaded the raster sources). The surfaces' error handlers use it to
+ * stop telling the user to reload the page for a raster 401 that is seconds
+ * from healing on its own. #890 made those failures unsuppressed because
+ * NOTHING could cure them; this narrows that to the window where something
+ * demonstrably is.
+ */
+export function isSessionRenewalPending(nowMs: number = Date.now()): boolean {
+  // Tied to the refresh PROMISE, not to a fixed deadline: a slow
+  // `/auth/refresh/` (or a slow stale raster request) can outlast any window
+  // picked in advance, and a 401 arriving in that gap would latch DatasetMap's
+  // permanent error overlay for tiles the eventual rotation heals. The grace
+  // period after it settles covers the reload and the errors the race already
+  // queued.
+  if (renewalInFlight && nowMs < renewalDeadline) return true;
+  return nowMs < renewalPendingUntil;
+}
+
+// fix(#907): how long to keep watching for a rotation after our own refresh
+// attempt failed. Bounded so a permanently dead session leaves no listener
+// behind; the reactive 401 path still owns anything slower than this.
+const RENEWAL_WATCH_MS = 30_000;
+
+/** Run `reload` once the session token has actually rotated — immediately when
+ * our own refresh produced the new one, otherwise on the first store change a
+ * concurrent mint's refresh writes, and never if neither happens.
+ *
+ * The token comparison is the ONLY evidence used. `tryRefresh` resolves
+ * `!!useAuthStore.getState().token` (api/client.ts), so it answers "is there
+ * still a token", not "did it rotate" — it comes back true for a transient
+ * failure that left the stale one in place, and reloading on that would just
+ * 401 against the same Bearer. */
+function reloadOnTokenRotation(reload: () => void): void {
+  const tokenBefore = useAuthStore.getState().token;
+  renewalInFlight = true;
+  renewalDeadline = Date.now() + RENEWAL_MAX_MS;
+  renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
+  const reloadAndExtend = () => {
+    // Cover the errors already queued by the race, which arrive just after the
+    // reload is issued.
+    renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
+    reload();
+  };
+  // A CHANGED token is not automatically a renewed one: when the session turns
+  // out to be dead, `notifySessionExpired` logs out and moves the token to
+  // null. Reloading on that would refetch every raster tile with no
+  // Authorization header at all — a second 401 burst, on top of the signed-out
+  // dialog. Only a non-null, different token is a rotation.
+  const isRotation = (token: string | null) => token !== null && token !== tokenBefore;
+  void tryRefresh().then(() => {
+    renewalInFlight = false;
+    renewalPendingUntil = Date.now() + RENEWAL_SUPPRESS_MS;
+    if (isRotation(useAuthStore.getState().token)) {
+      reloadAndExtend();
+      return;
+    }
+    let unsubscribe: (() => void) | null = null;
+    const timer = setTimeout(() => unsubscribe?.(), RENEWAL_WATCH_MS);
+    unsubscribe = useAuthStore.subscribe((state) => {
+      if (!isRotation(state.token)) return;
+      clearTimeout(timer);
+      unsubscribe?.();
+      reloadAndExtend();
+    });
+  });
+}
+
+/**
  * fix(#755): re-mint tile tokens on the tab-return edge instead of after the
  * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
  * tab backgrounded for a few minutes routinely crosses one; MapLibre then
@@ -108,14 +211,36 @@ export function hasExpiringVectorToken(
 export function useVisibleTileTokenRefresh(
   getTokens: () => Iterable<TileToken | null | undefined>,
   recover: (trigger?: string) => boolean,
+  onCredentialRenewed?: () => void,
 ): void {
   const getTokensRef = useRef(getTokens);
   getTokensRef.current = getTokens;
+  const onCredentialRenewedRef = useRef(onCredentialRenewed);
+  onCredentialRenewedRef.current = onCredentialRenewed;
 
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
-      if (!hasExpiringVectorToken(getTokensRef.current())) return;
+      // fix(#907): the session JWT counts too. Raster/DEM tiles authenticate
+      // with it through `buildTileTransformRequest`'s Authorization header,
+      // not a signed sig, so `hasExpiringVectorToken` can never see their
+      // credential expire and a raster-only map had nothing to trigger on.
+      const sessionExpiring = hasExpiringSession(useAuthStore.getState().expiresAt);
+      if (!hasExpiringVectorToken(getTokensRef.current()) && !sessionExpiring) return;
+      if (sessionExpiring) {
+        // fix(#907) (codex P1): renewing the credential is not enough on its
+        // own — MapLibre resumes its fetches as soon as the tab is visible and
+        // races the refresh, and a raster descriptor does not change across
+        // one, so nothing in the token→setTiles plumbing retries the tiles that
+        // 401'd. Reload them explicitly, but only once the token has ACTUALLY
+        // rotated: `tryRefresh` resolves false on a transient failure (offline,
+        // 429), and reloading against the same stale Bearer would just 401
+        // again. `recover`'s own mint collapses into this same refresh (the
+        // in-flight singleton in api/client.ts), so this costs no extra request
+        // — and when our attempt is the one that fails, that mint's later
+        // rotation is what the store subscription below picks up.
+        reloadOnTokenRotation(() => onCredentialRenewedRef.current?.());
+      }
       recover('tab-return');
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
