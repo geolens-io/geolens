@@ -501,6 +501,25 @@ class TestAnonymousAccess:
         other_search_ids = [f["id"] for f in other_search.json()["features"]]
         assert str(restricted.id) not in other_search_ids
 
+        # Mirrored gate (codex review on the #929 PR): the maps bulk access
+        # check replicates can_access_dataset's policy and must apply the
+        # same creator exemption, or the owner cannot add their restricted
+        # dataset to a map.
+        from sqlalchemy import select
+
+        from app.modules.auth.models import User
+        from app.modules.catalog.maps.service import bulk_check_dataset_access
+
+        owner_user = (
+            await test_db_session.execute(
+                select(User).where(User.id == uuid.UUID(owner_id))
+            )
+        ).scalar_one()
+        accessible = await bulk_check_dataset_access(
+            test_db_session, [restricted.id], owner_user, {"editor"}
+        )
+        assert restricted.id in accessible
+
     async def test_anon_get_attributes_public(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

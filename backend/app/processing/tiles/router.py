@@ -784,7 +784,9 @@ async def _resolve_raster_access(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
                 )
 
-            if visibility == "restricted":
+            # fix(#929): creator exemption mirrors can_access_dataset —
+            # restricted means "owner, admins, and grant holders".
+            if visibility == "restricted" and created_by != user.id:
                 from app.modules.auth.models import UserRole
                 from app.modules.catalog.datasets.domain.models import DatasetGrant
 

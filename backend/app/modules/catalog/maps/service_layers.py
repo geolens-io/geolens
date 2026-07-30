@@ -51,7 +51,12 @@ async def bulk_check_dataset_access(
         elif visibility == "private" and created_by == user.id:
             accessible.add(ds_id)
         elif visibility == "restricted":
-            restricted_ids.append(ds_id)
+            # fix(#929): creator exemption mirrors can_access_dataset —
+            # restricted means "owner, admins, and grant holders".
+            if created_by == user.id:
+                accessible.add(ds_id)
+            else:
+                restricted_ids.append(ds_id)
 
     # Batch-check grants for restricted datasets
     if restricted_ids:
