@@ -500,6 +500,20 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
+  // codex round 16 on #908: a style may define a source id containing spaces,
+  // and stopping the parse at whitespace merged two of them.
+  it('keeps two sources apart when their ids share a first word', () => {
+    const message = 'AJAXError: Not Found (404): https://tiles.example.com/5/1/1.png';
+    // Interleaved: the buffer's own collapse compares the message and ignores
+    // detail, so back-to-back rows would merge before the key is ever computed.
+    pushReportEntry({ severity: 'error', source: 'maplibre', message, detail: 'source: terrain primary' });
+    pushReportEntry({ severity: 'error', source: 'runtime', message: 'unrelated' });
+    pushReportEntry({ severity: 'error', source: 'maplibre', message, detail: 'source: terrain fallback' });
+
+    // Two map sources plus the unrelated runtime error.
+    expect(countDistinctFailures(getReportEntries())).toBe(3);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

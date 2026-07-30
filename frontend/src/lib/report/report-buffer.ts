@@ -197,8 +197,11 @@ export function countDistinctFailures(list: ReportEntry[]): number {
  * (`detail: "source: <id>"`). Empty when the error carries none — style and
  * glyph errors do not. */
 function sourceIdOf(entry: ReportEntry): string {
-  const match = /(?:^|\s)source:\s*(\S+)/.exec(entry.detail ?? '');
-  return match?.[1] ?? '';
+  // Everything after the marker, not just the first word: a style may define a
+  // source id containing spaces, and `terrain primary` / `terrain fallback`
+  // must not both truncate to `terrain`.
+  const match = /(?:^|\s)source:\s*(.+)$/.exec(entry.detail ?? '');
+  return match?.[1].trim() ?? '';
 }
 
 /**
