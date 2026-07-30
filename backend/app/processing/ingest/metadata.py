@@ -1308,21 +1308,25 @@ async def _mercator_envelope_degenerates(
     - a sliver: area under 1e-6 of its own bbox area — EPSG:2263 leaves a
       19-square-foot bowtie stretched across a 3e16 sq ft bbox, and EPSG:5070
       a 0.04 m² one; positive area, still data-destroying;
-    - for a projected CRS, an envelope narrower or shorter than the table's
-      own extent — EPSG:27700 collapses to a 0.005 m² *square* (ratio 1, so
+    - for a projected CRS, an envelope bbox under 1000 linear units in either
+      dimension — EPSG:27700 collapses to a 0.005 m² *square* (ratio 1, so
       the sliver test misses it) and polar stereographic 3031 to ~4 m across.
+      The floor is absolute, not relative to the table's extent, because a
+      3857 table with features genuinely beyond ±20 037 508 m is WIDER than
+      its correctly transformed envelope and is exactly what the clip exists
+      to trim (fix(#906 codex r1)). 1000 is orders of magnitude under any
+      sane world envelope in any projected linear unit (metres, feet, even
+      kilometres give ~40 075) and orders over every measured collapse.
       Guarded to projected CRSs via the ``_GEOGRAPHIC_SRTEXT_RE`` probe
-      (see the four-mechanism table on #939) because a geographic transform
-      cannot collapse, while genuinely polar geographic data (taller than
-      the ±85.06 band) must keep being clipped;
+      (see the four-mechanism table on #939) because geographic units are
+      degrees (the world is 360 wide) and a geographic transform cannot
+      collapse;
     - the transform raising — the clip's own UPDATE would raise identically,
       turning a bounds check into a failed ingest. Probed inside a SAVEPOINT
       so the surrounding phase-2 transaction stays usable.
     """
     probe = text(
-        f"WITH env AS (SELECT ST_Transform({_MERCATOR_SAFE_ENVELOPE}, :srid) AS e), "
-        f"dat AS (SELECT ST_Extent(geom)::geometry AS x FROM "
-        f"{_qtable(table_name, schema=schema)}) "
+        f"WITH env AS (SELECT ST_Transform({_MERCATOR_SAFE_ENVELOPE}, :srid) AS e) "
         f"SELECT "
         f"  e IS NULL OR ST_IsEmpty(e) OR ST_Area(e) <= 0 "
         f"  OR ST_XMin(e) >= ST_XMax(e) OR ST_YMin(e) >= ST_YMax(e) "
@@ -1331,10 +1335,8 @@ async def _mercator_envelope_degenerates(
         f"  OR ( "
         f"    NOT COALESCE((SELECT srtext ~* :geographic FROM spatial_ref_sys "
         f"                  WHERE srid = :srid), false) "
-        f"    AND x IS NOT NULL "
-        f"    AND ((ST_XMax(e) - ST_XMin(e)) < (ST_XMax(x) - ST_XMin(x)) "
-        f"      OR (ST_YMax(e) - ST_YMin(e)) < (ST_YMax(x) - ST_YMin(x)))) "
-        f"FROM env, dat"
+        f"    AND LEAST(ST_XMax(e) - ST_XMin(e), ST_YMax(e) - ST_YMin(e)) < 1000) "
+        f"FROM env"
     ).bindparams(srid=src_srid, geographic=_GEOGRAPHIC_SRTEXT_RE)
     try:
         async with session.begin_nested():

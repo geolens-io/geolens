@@ -552,8 +552,8 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
     ):
         """EPSG:2263 (NY Long Island, ftUS) leaves a 19-square-foot 'world' —
         positive area, so a bare area check misses it, but clipping real NY
-        data against it would still destroy everything. The envelope-smaller-
-        than-the-data test is what catches it."""
+        data against it would still destroy everything. The sliver test
+        (area under 1e-6 of the envelope's own bbox area) catches it."""
         await _seed_points(
             test_db_session,
             [(984000.0, 150000.0), (1030000.0, 200000.0)],
@@ -580,6 +580,26 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
             "dropped_features": 0,
             "clipped_features": 0,
         }
+
+    async def test_data_wider_than_the_envelope_is_still_clipped(self, test_db_session):
+        """fix(#906 codex r1): a 3857 table with a feature genuinely beyond
+        ±20 037 508 m is WIDER than its correctly transformed envelope. The
+        degeneracy floor must be absolute (envelope size), never relative to
+        the data extent, or exactly the geometry this routine exists to trim
+        would skip the clip."""
+        await _seed_points(
+            test_db_session,
+            [(0.0, 0.0), (25_000_000.0, 0.0)],
+            srid=3857,
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert "clip_skipped" not in counts
+        assert counts["dropped_features"] == 1
+        # The in-bounds feature survives; the out-of-bounds one is emptied.
+        assert await _nonempty_count(test_db_session) == 1
 
     async def test_geographic_3d_crs_polar_clip_is_unchanged(self, test_db_session):
         """EPSG:4979 stays on the clip path: geographic transforms cannot

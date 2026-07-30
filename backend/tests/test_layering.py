@@ -1037,7 +1037,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (14 stock SRIDs are GEOGCS in grads, where -360 is not a whole turn) and
     # the note that the envelope bounds X at ±180 too, so the warning built
     # from its counts cannot blame latitude for a lon-400 drop.
-    "backend/app/processing/ingest/metadata.py": 1856,
+    # fix(#906): +83 — the degenerate-envelope guard for narrow-validity CRSs
+    # (_mercator_envelope_degenerates plus the skip branch and clip_skipped
+    # accounting): 4415 of 8500 stock SRIDs collapse the safe envelope under
+    # ST_Transform and the clip then emptied the whole table silently.
+    # Ratchet stays exact.
+    "backend/app/processing/ingest/metadata.py": 1939,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
