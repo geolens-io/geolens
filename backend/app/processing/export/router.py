@@ -327,7 +327,12 @@ async def export_dataset_endpoint(
                 format,
                 schema=data_schema,
                 target_srs=target_crs,
-                bbox=bbox_parsed,
+                # fix(#885): an antimeridian bbox is filtered by a server-side
+                # geom_4326 predicate, so a bbox only travels with a dataset that
+                # HAS geometry. csv is the one ogr format a non-spatial dataset
+                # can reach (gate 6 blocks the rest), and -spat was already a
+                # no-op there ("Cannot set spatial filter: no geometry field").
+                bbox=bbox_parsed if dataset.geometry_type is not None else None,
                 where=where,
                 column_info=dataset.column_info,
             )

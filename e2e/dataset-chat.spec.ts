@@ -222,7 +222,16 @@ test.describe('Dataset AI chat', () => {
     // a fast local run may not reproduce it — the deterministic regression
     // test lives in use-ephemeral-layers.test.ts); what this spec pins down is
     // the full stash → pickup → overlay integration, which jsdom cannot.
-    await expect(page.getByText(/Query result · 2 features/)).toBeVisible({ timeout: 15_000 });
+    // fix(#894): #674 renamed this badge's copy "Query result" → "Result" (the
+    // badge stopped being query-only once analysis previews reused it) and this
+    // assertion was never updated, so the spec has failed every nightly since.
+    // Scope to role="status": EphemeralBadge renders the label twice — the
+    // sr-only live region plus an aria-hidden visible copy — so a bare getByText
+    // matches two nodes and trips strict mode. The aria-hidden copy is out of
+    // the accessibility tree, so the role lookup resolves to exactly one.
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Result · 2 features' }),
+    ).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-coord-readout="true"]')).toContainText(
       '40.75° N · 73.95° W',
       { timeout: 15_000 },
