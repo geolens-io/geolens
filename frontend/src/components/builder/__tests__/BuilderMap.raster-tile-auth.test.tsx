@@ -197,13 +197,16 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   } as unknown as MapLayerResponse;
 }
 
+let errorSpy: ReturnType<typeof vi.spyOn>;
+
 async function renderBuilderMap(layer: MapLayerResponse) {
   await act(async () => {
     render(<BuilderMap layers={[layer]} basemapStyle="openfreemap-positron" />);
   });
-  // Drop the mount-time token→setTiles sync so the assertions below only see
-  // what the error handler did.
+  // Drop the mount-time token→setTiles sync (and anything React logged during
+  // it) so the assertions below only see what the error handler did.
   mapState.setTiles.mockClear();
+  errorSpy.mockClear();
 }
 
 /** Entries the surface handler pushed for a map error (report buffer rows). */
@@ -212,8 +215,6 @@ function pushedEntries() {
 }
 
 describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
-  let errorSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => {
     mapState.reset();
     tileTokenState.invalidate.mockClear();
