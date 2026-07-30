@@ -99,6 +99,32 @@ export function hasExpiringSession(
   return expiresAt != null && expiresAt - nowMs <= EXPIRY_SKEW_MS;
 }
 
+// fix(#907): how long to keep watching for a rotation after our own refresh
+// attempt failed. Bounded so a permanently dead session leaves no listener
+// behind; the reactive 401 path still owns anything slower than this.
+const RENEWAL_WATCH_MS = 30_000;
+
+/** Run `reload` once the session token has actually rotated — immediately when
+ * our own refresh produced the new one, otherwise on the first store change a
+ * concurrent mint's refresh writes, and never if neither happens. */
+function reloadOnTokenRotation(reload: () => void): void {
+  const tokenBefore = useAuthStore.getState().token;
+  void tryRefresh().then((refreshed) => {
+    if (refreshed || useAuthStore.getState().token !== tokenBefore) {
+      reload();
+      return;
+    }
+    let unsubscribe: (() => void) | null = null;
+    const timer = setTimeout(() => unsubscribe?.(), RENEWAL_WATCH_MS);
+    unsubscribe = useAuthStore.subscribe((state) => {
+      if (state.token === tokenBefore) return;
+      clearTimeout(timer);
+      unsubscribe?.();
+      reload();
+    });
+  });
+}
+
 /**
  * fix(#755): re-mint tile tokens on the tab-return edge instead of after the
  * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
@@ -147,10 +173,14 @@ export function useVisibleTileTokenRefresh(
         // own — MapLibre resumes its fetches as soon as the tab is visible and
         // races the refresh, and a raster descriptor does not change across
         // one, so nothing in the token→setTiles plumbing retries the tiles that
-        // 401'd. Wait for the renewal, then reload them explicitly. `recover`'s
-        // own mint collapses into this same refresh (the module-level in-flight
-        // singleton in api/client.ts), so this costs no extra request.
-        void tryRefresh().then(() => onCredentialRenewedRef.current?.());
+        // 401'd. Reload them explicitly, but only once the token has ACTUALLY
+        // rotated: `tryRefresh` resolves false on a transient failure (offline,
+        // 429), and reloading against the same stale Bearer would just 401
+        // again. `recover`'s own mint collapses into this same refresh (the
+        // in-flight singleton in api/client.ts), so this costs no extra request
+        // — and when our attempt is the one that fails, that mint's later
+        // rotation is what the store subscription below picks up.
+        reloadOnTokenRotation(() => onCredentialRenewedRef.current?.());
       }
       recover('tab-return');
     };

@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import {
   hasExpiringSession,
   hasExpiringVectorToken,
@@ -225,7 +225,7 @@ describe('hasExpiringSession (fix #907)', () => {
 describe('useVisibleTileTokenRefresh (fix #755)', () => {
   afterEach(() => {
     setVisibility('visible');
-    useAuthStore.setState({ expiresAt: null });
+    useAuthStore.setState({ token: null, expiresAt: null });
     vi.mocked(tryRefresh).mockReset();
     vi.mocked(tryRefresh).mockResolvedValue(true);
     vi.restoreAllMocks();
@@ -389,6 +389,45 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     resolveRefresh(true);
     await Promise.resolve();
     await Promise.resolve();
+    expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
+  });
+
+  // codex round 2 on #964: tryRefresh RESOLVES false on a transient failure, so
+  // reloading unconditionally would retry against the same stale Bearer.
+  it('does not reload when the refresh failed and nothing rotated', async () => {
+    const recover = vi.fn(() => true);
+    const onCredentialRenewed = vi.fn();
+    vi.mocked(tryRefresh).mockResolvedValueOnce(false);
+    useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
+    renderHook(() =>
+      useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
+    );
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onCredentialRenewed).not.toHaveBeenCalled();
+  });
+
+  // …but the mint `recover` kicks may rotate it a moment later, and that
+  // rotation has to reload the tiles too, or the holes stay until the user pans.
+  it('reloads when a concurrent mint rotates the token after our attempt failed', async () => {
+    const recover = vi.fn(() => true);
+    const onCredentialRenewed = vi.fn();
+    vi.mocked(tryRefresh).mockResolvedValueOnce(false);
+    useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
+    renderHook(() =>
+      useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
+    );
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCredentialRenewed).not.toHaveBeenCalled();
+
+    act(() => useAuthStore.setState({ token: 'rotated-by-the-mint' }));
+
     expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
   });
 
