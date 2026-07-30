@@ -1,4 +1,5 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import type { TileToken } from '@/api/tiles';
 
 // fix(#621): one re-mint per cooldown window bounds the retry loop — MapLibre
 // can fire dozens of tile errors per pan, and a mint that just failed will not
@@ -41,4 +42,64 @@ export function useTileAuthRecovery(remint: () => void) {
     remint();
     return true;
   }, [remint]);
+}
+
+// fix(#755): a sig that expires seconds from now is already useless — MapLibre's
+// resumed tile requests would reach the server after the boundary. Treat any
+// vector token inside this window as due for a re-mint.
+const EXPIRY_SKEW_MS = 60_000;
+
+/**
+ * fix(#755): true when any vector token is past `exp` or within
+ * EXPIRY_SKEW_MS of it. Raster tokens carry no expiry (their `tile_url` is
+ * stable and auth rides the Authorization header), so they never qualify.
+ * `exp` is the unix-seconds expiry the mint endpoint stamps into the tile URL.
+ */
+export function hasExpiringVectorToken(
+  tokens: Iterable<TileToken | null | undefined>,
+  nowMs: number = Date.now(),
+): boolean {
+  for (const token of tokens) {
+    if (token?.kind !== 'vector') continue;
+    if (token.exp * 1000 - nowMs <= EXPIRY_SKEW_MS) return true;
+  }
+  return false;
+}
+
+/**
+ * fix(#755): re-mint tile tokens on the tab-return edge instead of after the
+ * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
+ * tab backgrounded for a few minutes routinely crosses one; MapLibre then
+ * resumes its fetches with the stale `sig` and every visible tile 403s before
+ * the reactive GUARD-03 / #621 handler heals the map.
+ *
+ * Deliberately the SAME `recover` callback the 403 handler uses, so this only
+ * pulls the existing re-mint forward: its 30 s cooldown / 10 s settle window
+ * still bound the mint rate, and a 403 that does slip through now lands inside
+ * the settle window, where it is reported suppressed instead of surfacing
+ * error UI.
+ *
+ * `getTokens` is read at event time (not captured), so the listener registers
+ * once and still sees the current token set.
+ *
+ * Fires on the VISIBLE edge only: MapLibre 5 drops a `setTiles` reload while
+ * the source's TileManager is paused (fix(#584)) and a hidden tab has no rAF,
+ * so re-minting while still hidden would silently no-op.
+ */
+export function useVisibleTileTokenRefresh(
+  getTokens: () => Iterable<TileToken | null | undefined>,
+  recover: () => boolean,
+): void {
+  const getTokensRef = useRef(getTokens);
+  getTokensRef.current = getTokens;
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!hasExpiringVectorToken(getTokensRef.current())) return;
+      recover();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [recover]);
 }
