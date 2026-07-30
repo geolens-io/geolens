@@ -247,22 +247,46 @@ const VOLATILE_TILE_PARAMS = new Set([
 ]);
 
 function failureKey(message: string): string {
-  return message
-    // Every purely numeric path segment. That single rule covers each tile
-    // layout MapLibre supports — `{z}/{x}/{y}` with or without a static suffix
-    // (`/12/1205/1539/tile.png`), a leading numeric shard, and `{quadkey}`,
-    // which is all digits too. Anchoring on "is a number" rather than on a
-    // shape means a template this does not anticipate still normalizes.
-    // It also tolerates `redact()` having already eaten a `@2x` suffix as an
-    // email address (see the note above `pushReportEntry`): the surviving z/x
-    // segments still collapse.
-    .replace(/\/\d+(?=[/?.@\s]|$)/g, '/{n}')
-    .replace(/\?(\S*)/g, (_match, query: string) => {
-      const kept = query
-        .split('&')
-        .filter((pair) => pair && !VOLATILE_TILE_PARAMS.has(pair.split('=')[0].toLowerCase()));
-      return kept.length > 0 ? `?${kept.join('&')}` : '';
-    });
+  return stripVolatileParams(normalizeTileAddress(message));
+}
+
+/**
+ * Replace the tile address — and ONLY the tile address. Everything else in the
+ * path identifies the source: `/v/1/` and `/v/2/` are different sources even
+ * though both segments are numbers, so "normalize every numeric segment" is too
+ * broad, and a rule anchored on one exact URL shape is too narrow. This anchors
+ * on the shape that actually addresses a tile: three consecutive numeric
+ * segments (`{z}/{x}/{y}`) at the END of the path, with an extension and/or one
+ * static trailing segment allowed after them.
+ *
+ * The two passes exist because a regex prefers the LEFTmost match: allowing the
+ * trailing static segment up front lets `/v/1/12/1205/1539.png` match at `/1/12/1205`
+ * and swallow the version. Trying the tighter end-anchored form first pins the
+ * match to the right, and the looser form only runs when nothing matched.
+ */
+function normalizeTileAddress(message: string): string {
+  // `/12/1205/1539`, `/12/1205/1539.png`, or `/12/1205/[redacted-email]` (the
+  // `@2x` case, which redact() eats as an email), hard against the end or a query.
+  const withExtension = /\/\d+\/\d+\/(?:\d+(?:\.\w+)?|\[redacted-email\])(?=[?\s]|$)/g;
+  // `/12/1205/1539/tile.png` — coordinates followed by one static segment.
+  const withStaticSuffix = /\/\d+\/\d+\/\d+(?=\/[^/?\s]+(?:[?\s]|$))/g;
+  // A `{quadkey}`: one all-digit segment that IS the whole address.
+  const quadkey = /\/\d+(?:\.\w+)?(?=[?\s]|$)/g;
+
+  const xyz = message.replace(withExtension, '/{z}/{x}/{y}');
+  if (xyz !== message) return xyz;
+  const suffixed = message.replace(withStaticSuffix, '/{z}/{x}/{y}');
+  if (suffixed !== message) return suffixed;
+  return message.replace(quadkey, '/{tile}');
+}
+
+function stripVolatileParams(message: string): string {
+  return message.replace(/\?(\S*)/g, (_match, query: string) => {
+    const kept = query
+      .split('&')
+      .filter((pair) => pair && !VOLATILE_TILE_PARAMS.has(pair.split('=')[0].toLowerCase()));
+    return kept.length > 0 ? `?${kept.join('&')}` : '';
+  });
 }
 
 function stringifyDetail(detail: unknown): string | undefined {

@@ -445,6 +445,35 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
+  // codex round 14 on #908: normalizing every numeric segment merged two
+  // sources that differ only by a numeric version, tenant, or region.
+  it('keeps a numeric version segment while still collapsing the coordinates', () => {
+    for (const version of [1, 2]) {
+      for (const [x, y] of [[1205, 1539], [1206, 1539]]) {
+        pushReportEntry({
+          severity: 'error',
+          source: 'console',
+          message: `AJAXError: Not Found (404): https://tiles.example.com/v/${version}/12/${x}/${y}.png`,
+        });
+      }
+    }
+
+    // Two sources, each with its tiles collapsed — not one, and not four.
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
+  it('collapses a quadkey behind a numeric version segment', () => {
+    for (const quadkey of ['0313102310', '0313102311']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/v/2/${quadkey}.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');
