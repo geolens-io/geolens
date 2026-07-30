@@ -184,8 +184,8 @@ class TestZeroTo360Shift(_FixtureTable):
         correct per-feature and is the trade this fix makes deliberately: the
         old behaviour destroyed everything past lon 180 instead.
 
-        The cost is that a bare ``ST_Extent`` over the result reads -180..180,
-        a near-global bbox for a source spanning 100 deg. That is the
+        The cost is that a bare ``ST_Extent`` over the result reads -170..170,
+        a 340 deg bbox for a source spanning 100 deg. That is the
         antimeridian-naive extent fold tracked by #886, whose two call sites
         live in ``metadata.py`` and are untouched here. When #886 folds the
         extent properly this assertion should start failing, which is the
@@ -310,6 +310,44 @@ class TestZeroTo360GuardNearMisses(_FixtureTable):
         # #888's whole point is that the user is told about it.
         assert counts["dropped_features"] == 1
         assert await _xs(test_db_session) == pytest.approx([0.0])
+
+    async def test_3d_column_keeps_z_through_the_shift(self, test_db_session):
+        """A shifted 3D column must stay 3D, or the UPDATE fails outright.
+
+        ``geometry(PointZ, 4979)`` is the shape a 4979 source with elevation
+        gets. ``ST_Translate(geom, -360, 0)`` has to return PointZ; a 2D result
+        would be rejected with "Column has Z dimension but geometry does not".
+        """
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{TABLE} ("
+                "  gid serial PRIMARY KEY,"
+                "  geom geometry(PointZ, 4979)"
+                ")"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{TABLE} (geom) "
+                f"VALUES (ST_SetSRID(ST_MakePoint(200, 10, 137.5), 4979))"
+            )
+        )
+        await test_db_session.commit()
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert counts["shifted_longitudes"] is True
+        assert counts["dropped_features"] == 0
+        row = (
+            await test_db_session.execute(
+                text(f"SELECT ST_X(geom), ST_Z(geom), ST_NDims(geom) FROM data.{TABLE}")
+            )
+        ).first()
+        assert row is not None
+        assert float(row[0]) == pytest.approx(-160.0)
+        assert float(row[1]) == pytest.approx(137.5)
+        assert int(row[2]) == 3
 
     async def test_empty_table_is_not_shifted(self, test_db_session):
         """No rows means no extent to read; the probe must not raise."""
