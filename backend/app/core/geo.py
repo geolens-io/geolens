@@ -105,6 +105,40 @@ def extent_to_span_bbox(extent: object | None) -> list[float] | None:
         return None
 
 
+# fix(#887): the shared floor for any float comparison that gates a longitude
+# shift, a re-frame, or a domain choice. Adding and subtracting 360, or
+# reconstructing an edge from a serialized pixel offset, is not bit-exact, so
+# values describing the SAME edge routinely disagree by ~1e-14 degrees. A bare
+# `<` then lets that noise decide a branch that moves geometry by a third of a
+# world. This batch hit it three times -- ``_narrower_domain`` in the rollup
+# folds (#886/#928), the VRT frame chooser, and the VRT frame rewrite -- so the
+# constant lives here and every such site imports it instead of inventing a bare
+# comparison. 1e-9 degrees is ~0.1 mm: orders of magnitude above the noise,
+# orders below any real distinction. ``_SEAM_TOL`` and ``_DOMAIN_MARGIN`` above
+# are the same value applied locally.
+LON_EPSILON_DEGREES = 1e-9
+
+
+def extent_lon_span(extent: object | None) -> float | None:
+    """Longitudinal width of an extent in degrees, honest across ±180.
+
+    fix(#887): the companion to :func:`extent_to_span_bbox` for consumers that
+    need the *width* rather than a monotonic pair. ``extent_to_span_bbox``
+    reports -180..180 for a seam-crossing extent, so a caller that derives pixel
+    resolution from ``maxx - minx`` reads a 10°-wide Pacific raster as 360° wide
+    and understates its native resolution by 36x -- which cost the raster
+    tile-source five zoom levels of maxzoom, so it stopped rendering as the user
+    zoomed in. Read the RFC 7946 §5.2 ``west > east`` pair instead and close it
+    the short way round.
+    """
+    bbox = extent_to_bbox(extent)
+    if bbox is None:
+        return None
+    west, _, east, _ = bbox
+    span = east - west
+    return span + 360.0 if span < 0 else span
+
+
 def _ring(x0: float, south: float, x1: float, north: float) -> str:
     return f"({x0} {south},{x1} {south},{x1} {north},{x0} {north},{x0} {south})"
 

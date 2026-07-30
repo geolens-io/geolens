@@ -1083,8 +1083,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#892): +2 — the raster tile-token bounds moved onto
     # extent_to_span_bbox() so a seam-crossing extent cannot feed a negative
     # span into the maxzoom derivation.
-    # Merge of the carve-outs: 2043 base + 3 + 1 + 2. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2049,
+    # fix(#887): +17 — extent_to_span_bbox reports -180..180 for a two-ring seam
+    # extent, which understates a Pacific raster's resolution by 36x and drops
+    # its maxzoom by five levels, so the honest width now travels alongside the
+    # bounds as an explicit `lon_span` keyword.
+    # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2066,
 }
 
 
