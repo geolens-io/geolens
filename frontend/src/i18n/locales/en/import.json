@@ -89,6 +89,7 @@
     "mercatorClip": {
       "title": "Geometry outside the Web Mercator bounds",
       "description": "GeoLens serves Web Mercator tiles, which cover longitude -180° to 180° and latitude -85.06° to 85.06°. Geometry outside that box was clipped away during import. The rows are still in the dataset; only their geometry changed. Check both the coordinate order and the coordinate range of your source.",
+      "skippedDescription": "The source coordinate system has a narrow area of validity, so the Web Mercator bounds could not be expressed in it and the boundary check was skipped. No geometry was removed, but geometry outside longitude -180° to 180° or latitude -85.06° to 85.06° may still be present and will not render on the map.",
       "dropped_one": "{{count}} feature lost its geometry entirely",
       "dropped_other": "{{count}} features lost their geometry entirely",
       "clipped_one": "{{count}} feature was trimmed at the boundary",
