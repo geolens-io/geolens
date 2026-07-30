@@ -2642,6 +2642,266 @@ class TestBufferAtDateline:
         assert row.area == pytest.approx(2 * math.pi * 10_000**2, rel=0.02)
 
 
+class TestBufferMultipartProjection:
+    """fix(#891): ``ST_Buffer(...::geography, d)`` picks ONE planar working SRID
+    for the whole input, so a multipart feature whose components sit far apart in
+    longitude is buffered in a projection local to at most one of them.
+    """
+
+    async def _radius_range(
+        self, session: AsyncSession, table_name: str, source_wkt: str
+    ) -> list[tuple[int, float, float]]:
+        """Geodesic distance from each source component to the vertices of the
+        output part covering it — the metric the bug actually distorts.
+
+        Area alone hides part of it: an equal-area fallback projection keeps the
+        total while deforming each component (measured 9 240 - 10 824 m for a
+        requested 10 000 m at a 150° span).
+        """
+        rows = (
+            await session.execute(
+                text(
+                    "WITH src AS (SELECT (ST_Dump("
+                    "  ST_SetSRID(ST_GeomFromText(:wkt), 4326))).path[1] AS ix,"
+                    " (ST_Dump(ST_SetSRID(ST_GeomFromText(:wkt), 4326))).geom AS p),"
+                    " out AS (SELECT (ST_Dump(geom_4326)).geom AS part"
+                    f"         FROM data.{table_name}),"  # noqa: S608
+                    " paired AS (SELECT src.ix, src.p, out.part FROM src, out"
+                    "            WHERE ST_Intersects(out.part, src.p))"
+                    " SELECT paired.ix AS ix,"
+                    "        min(ST_Distance(paired.p::geography,"
+                    "                        v.geom::geography)) AS min_r,"
+                    "        max(ST_Distance(paired.p::geography,"
+                    "                        v.geom::geography)) AS max_r"
+                    " FROM paired, LATERAL ST_DumpPoints(paired.part) AS v"
+                    " GROUP BY paired.ix ORDER BY paired.ix"
+                ).bindparams(wkt=source_wkt)
+            )
+        ).all()
+        return [(r.ix, r.min_r, r.max_r) for r in rows]
+
+    async def test_components_90_degrees_apart_keep_their_radius(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The headline case. A two-point MULTIPOINT 90° apart at lat 45 spans
+        past the 45° mark where PostGIS falls back to world Mercator, whose
+        scale error is 1/cos(latitude). Measured before this fix: both
+        components came back with a 7 079 - 7 087 m radius for a requested
+        10 000 m, and the feature held 49.9% of the ideal circle area.
+        """
+        wkt = "MULTIPOINT((0 45),(90 45))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="MultiPoint",
+            geometry_type="MULTIPOINT",
+            distance=10_000,
+        )
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_Area(geom_4326::geography) AS area"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 2
+        assert row.valid is True
+        # vs the ideal circle area, not vs the unfixed output: #891 is precisely
+        # the pre-existing error that made fixed-vs-raw the only honest
+        # comparison in fix(#883).
+        assert row.area == pytest.approx(2 * math.pi * 10_000**2, rel=0.01)
+
+        radii = await self._radius_range(test_db_session, out.table_name, wkt)
+        assert len(radii) == 2
+        for _ix, min_r, max_r in radii:
+            assert min_r == pytest.approx(10_000, rel=0.005)
+            assert max_r == pytest.approx(10_000, rel=0.005)
+
+    async def test_component_at_high_latitude_is_not_shrunk(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The worst measured case, and the one area ratios understate.
+
+        World Mercator's error is cos(latitude), so the further a component sits
+        from the equator the more it loses. Measured before the fix on
+        ``MULTIPOINT((0 0),(90 60))``: the equatorial component came back at
+        exactly 10 000 m while the lat-60 component measured 5 009 - 5 016 m —
+        a quarter of its intended area — and the pair together held 62.2% of
+        two ideal circles, which reads as a mild deficit rather than one
+        component being half size.
+        """
+        wkt = "MULTIPOINT((0 0),(90 60))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="MultiPoint",
+            geometry_type="MULTIPOINT",
+            distance=10_000,
+        )
+
+        radii = await self._radius_range(test_db_session, out.table_name, wkt)
+        assert len(radii) == 2
+        for _ix, min_r, max_r in radii:
+            assert min_r == pytest.approx(10_000, rel=0.005)
+            assert max_r == pytest.approx(10_000, rel=0.005)
+
+    async def test_single_part_output_is_byte_identical_to_the_plain_buffer(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """A single component has nothing to dump into, so the per-component
+        pass must not run at all: the saved geometry has to match the bare
+        whole-input buffer byte for byte, not merely be spatially equal.
+
+        This is what keeps the fix(#883) exact assertions — and the polar
+        POLYGON fixture above — meaningful rather than accidentally satisfied.
+        """
+        for lon, lat in ((0.0, 45.0), (0.0, 85.06), (0.0, 89.9)):
+            out = await _materialize_buffer(
+                test_db_session, lon=lon, lat=lat, distance=10_000
+            )
+            same = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT ST_AsEWKB(geom_4326) = ST_AsEWKB(ST_Buffer("
+                        "  ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,"
+                        "  10000)::geometry) AS identical,"
+                        " GeometryType(geom_4326) AS gtype"
+                        f" FROM data.{out.table_name}"  # noqa: S608
+                    ).bindparams(lon=lon, lat=lat)
+                )
+            ).one()
+            assert same.identical is True, (lon, lat)
+            assert same.gtype == "POLYGON", (lon, lat)
+
+    async def test_narrow_multipart_stays_on_the_whole_input_path(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Below ``BUFFER_LOCAL_SRID_SPAN_DEG`` the whole input already fits one
+        UTM zone, so the guard has to decline and leave the cheap path alone —
+        measured ±0.04% radius error there, against a dump plus a dissolve per
+        row for up to ``MAX_SOURCE_FEATURES['buffer']`` rows.
+        """
+        wkt = "MULTIPOINT((0 45),(2 45))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="MultiPoint",
+            geometry_type="MULTIPOINT",
+            distance=10_000,
+        )
+        same = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_AsEWKB(geom_4326) = ST_AsEWKB(ST_Buffer("
+                    "  ST_GeomFromText(:wkt, 4326)::geography, 10000)::geometry)"
+                    "   AS identical"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                ).bindparams(wkt=wkt)
+            )
+        ).one()
+        assert same.identical is True
+
+    async def test_overlapping_components_are_dissolved_not_stacked(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The regression the per-component pass would introduce without the
+        ``ST_UnaryUnion``.
+
+        Buffering the whole input merges components whose buffers overlap;
+        buffering per component and collecting does not. Measured on this
+        fixture with the dissolve removed: 3 parts, ``ST_IsValid`` false, and
+        935 908 947 m² of area against a true 701 993 608 m² because the
+        overlap counted twice. ``ST_MakeValid`` is not a substitute — it cut the
+        overlap out of one part instead of merging, landing on 468 078 270 m².
+        """
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt="MULTIPOINT((0 45),(0.05 45),(90 45))",
+            column_type="MultiPoint",
+            geometry_type="MULTIPOINT",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_Area(geom_4326::geography) AS area"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.gtype == "MULTIPOLYGON"
+        # The two 0.05°-apart buffers merged; the distant one stayed separate.
+        assert row.parts == 2
+        assert row.valid is True
+        assert row.area == pytest.approx(701_993_608, rel=0.01)
+
+    async def test_seam_component_of_a_wide_multipart_is_still_split(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Both passes on one feature, in the order that works.
+
+        A MULTIPOINT holding a seam-crossing component and one 100° away trips
+        the projection guard AND the fix(#883) seam guard. The seam split has to
+        run before the dissolve: unioning a component that still wraps ±180
+        raises ``TopologyException: side location conflict`` and aborts the
+        statement instead of saving anything.
+        """
+        wkt = "MULTIPOINT((179.95 45),(80 45))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="MultiPoint",
+            geometry_type="MULTIPOINT",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_XMin(geom_4326) AS xmin,"
+                    " ST_XMax(geom_4326) AS xmax,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects("
+                    "   geom_4326, ST_MakeEnvelope(2, 44.9, 3, 45.1, 4326)"
+                    " ) AS hits_france"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        # Seam component cut in two, distant component intact: 3 parts.
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 3
+        assert row.valid is True
+        assert row.xmin >= -180.0
+        assert row.xmax <= 180.0
+        assert row.hits_france is False
+        assert row.area == pytest.approx(2 * math.pi * 10_000**2, rel=0.01)
+
+        radii = await self._radius_range(test_db_session, out.table_name, wkt)
+        # The seam component's own part is one half of the split, so only the
+        # distant component has a whole circle to measure. Both must be local.
+        assert radii
+        for _ix, _min_r, max_r in radii:
+            assert max_r == pytest.approx(10_000, rel=0.005)
+
+
 # ---------------------------------------------------------------------------
 # Error-message sanitization (pure, no DB)
 # ---------------------------------------------------------------------------
