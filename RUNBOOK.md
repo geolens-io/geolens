@@ -754,12 +754,14 @@ refuse by design.
 
 Migration 0030 widened `catalog.records.spatial_extent` so a dataset footprint
 that crosses the antimeridian (e.g. Fiji) is stored as a two-ring
-MULTIPOLYGON instead of a globe-spanning `-180..180` box. Its `downgrade()`
-**refuses rather than coerces**: if any record holds a MULTIPOLYGON extent,
-the downgrade raises and leaves the column alone. That refusal is data
-protection, not a broken migration — the only POLYGON that contains a
-two-ring seam extent is `-180..180`, which would silently re-register exactly
-the globe-spanning extent the migration exists to eliminate.
+MULTIPOLYGON instead of a globe-spanning `-180..180` box (the accompanying
+CHECK constraint is `chk_records_spatial_extent_type`, allowing POLYGON or
+MULTIPOLYGON). Its `downgrade()` **refuses rather than coerces**: if any
+record holds a MULTIPOLYGON extent, the downgrade raises and leaves the
+column alone. That refusal is data protection, not a broken migration — the
+only POLYGON that contains a two-ring seam extent is `-180..180`, which would
+silently re-register exactly the globe-spanning extent the migration exists
+to eliminate.
 
 Mid-rollback this surfaces as a `RuntimeError` from a failed
 `alembic downgrade`, quoting the two statements below. Inspect the affected
@@ -776,10 +778,13 @@ downgrade:
 UPDATE catalog.records SET spatial_extent = ST_Envelope(spatial_extent) WHERE GeometryType(spatial_extent) = 'MULTIPOLYGON';
 ```
 
-**What is actually lost:** each affected record's extent widens to its
-envelope, which for a seam-crossing shape is the full `-180..180` longitude
-span — Pacific datasets go back to reporting a global footprint in the
-catalog, OGC/STAC bboxes, and search-by-extent until the schema is upgraded
+**What is actually lost:** the remediation collapses **every** MULTIPOLYGON
+extent, not only seam-crossing ones. Each affected record's extent widens to
+its single-ring envelope: for a seam-crossing shape that envelope is the full
+`-180..180` longitude span, so Pacific datasets go back to reporting a global
+footprint in the catalog, OGC/STAC bboxes, and search-by-extent; a
+non-crossing multipart extent loses its part structure and reports the
+bounding box around all parts. Both persist until the schema is upgraded
 again and the extents recomputed.
 
 Two other migrations refuse on downgrade for the same reason (blocking data
