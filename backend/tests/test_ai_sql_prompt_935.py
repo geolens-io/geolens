@@ -68,6 +68,34 @@ def test_every_buffer_in_the_prompt_is_generated_or_marked_wrong():
         )
 
 
+def test_rendered_buffer_expression_passes_the_sandbox_validator():
+    """fix(#935 codex r1): the prompt mandates copying the expression
+    verbatim, so the sandbox's fail-closed allowlist must admit every
+    function it uses — otherwise the exact SQL the prompt teaches raises
+    invalid_query and no buffer question can execute. Rendering live keeps
+    this in lockstep with analysis_sql; a renderer change that introduces a
+    new function fails here until the validator admits it."""
+    from app.platform.sandbox.validator import validate_sql
+
+    denver = render_geodesic_buffer(
+        "(SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')",
+        50000,
+    )
+    # The prompt's worked example, as the model would emit it.
+    validate_sql(
+        "SELECT p.name AS park_name\n"
+        "FROM data.national_parks p\n"
+        f"WHERE ST_Intersects(p.geom_4326, {denver})\n"
+        "LIMIT 100"
+    )
+    # A direct buffer-geometry request, the chat_geojson-shaped form.
+    buffered = render_geodesic_buffer("s.geom_4326", 10000)
+    validate_sql(
+        f"SELECT s.name, ST_AsGeoJSON({buffered}) AS geometry\n"
+        "FROM data.stations s\nLIMIT 100"
+    )
+
+
 def test_function_reference_line_declares_degrees():
     """sql_generator.py:194's old form taught a unitless buffer; the reference
     line must state the planar/degrees semantics explicitly so it stops

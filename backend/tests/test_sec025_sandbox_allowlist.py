@@ -461,7 +461,10 @@ class TestResourceAmplificationRejected:
         )
 
     def test_rejects_unknown_postgis_function(self):
-        _assert_rejects("SELECT ST_MakeEnvelope(0, 0, 1, 1, 4326)")
+        # fix(#935): ST_MakeEnvelope joined the allowlist (canonical buffer
+        # machinery); ST_GeneratePoints — the attacker-chosen-cardinality
+        # generator the allowlist comment cites — stands in as the unknown.
+        _assert_rejects("SELECT ST_GeneratePoints(geom_4326, 100) FROM data.cities")
 
     def test_rejects_oversized_generate_series(self):
         _assert_rejects("SELECT array_agg(i) FROM generate_series(1, 1000000000) AS i")
@@ -517,7 +520,9 @@ class TestResourceAmplificationRejected:
             "SELECT STRING_AGG(name, ',') FROM data.cities",
             "SELECT JSON_AGG(name) FROM data.cities",
             "SELECT JSONB_AGG(name) FROM data.cities",
-            "SELECT ST_Collect(geom_4326) FROM data.cities",
+            # fix(#935): unary ST_Collect is now admitted (cheap concatenation
+            # required by the canonical geodesic buffer); unary ST_Union — the
+            # superlinear dissolve — stays rejected.
             "SELECT ST_Union(geom_4326) FROM data.cities",
             "SELECT UNNEST(tags) FROM data.cities",
             "SELECT JSONB_OBJECT_KEYS(properties) FROM data.cities",
@@ -525,3 +530,9 @@ class TestResourceAmplificationRejected:
     )
     def test_rejects_unbounded_collection_builders(self, sql):
         _assert_rejects(sql)
+
+    def test_allows_unary_st_collect(self):
+        """fix(#935): the mandated geodesic buffer expression re-collects a
+        per-row dump with an aggregate ST_Collect; its memory is bounded by
+        geometry the query already reads."""
+        validate_sql("SELECT ST_Collect(geom_4326) FROM data.cities")

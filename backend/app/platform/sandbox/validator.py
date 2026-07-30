@@ -171,6 +171,14 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "greatest",
         "least",
         "width_bucket",
+        # fix(#935): GENERATE_SERIES → sqlglot sql_name
+        # "exploding_generate_series". Named here so it clears the fail-closed
+        # allowlist, but _validate_function_cost only admits the EXACT series
+        # call the canonical geodesic buffer expression emits (bounded by a
+        # 4326 longitude span, at most ~61 terms); every other
+        # generate_series — literal, dynamic, or composed — stays rejected.
+        "exploding_generate_series",
+        "generate_series",  # Anonymous-node spelling on some sqlglot paths
         "pi",
         "degrees",
         "radians",
@@ -279,13 +287,99 @@ _ALLOWED_POSTGIS_FUNCTIONS: frozenset[str] = frozenset(
         "st_within",
         "st_x",
         "st_y",
+        # fix(#935): the prompt now mandates render_geodesic_buffer's output
+        # for metric buffers, so the sandbox must admit exactly the machinery
+        # that expression uses — the prompt is this allowlist's source of
+        # truth, and tests/test_ai_sql_prompt_935.py round-trips the rendered
+        # expression through validate_sql so the two cannot drift.
+        "st_collectionextract",
+        "st_collectionhomogenize",
+        "st_dump",
+        "st_intersection",
+        "st_isempty",
+        "st_makeenvelope",
+        "st_makevalid",
+        "st_numgeometries",
+        "st_segmentize",
+        "st_shiftlongitude",
+        "st_unaryunion",
+        "st_wrapx",
+        "st_xmax",
+        "st_xmin",
+        "st_ymax",
+        "st_ymin",
     }
 )
 
 
+_GENERATE_SERIES_NAMES = frozenset({"generate_series", "exploding_generate_series"})
+
+
+def _normalized_func_sql(func: exp.Func) -> str:
+    """Whitespace-collapsed lowercase SQL of a function node, for comparison."""
+    import re as _re
+
+    return _re.sub(r"\s+", " ", func.sql(dialect="postgres")).lower()
+
+
+_canonical_series_cache: frozenset[str] | None = None
+
+
+def _canonical_band_series_shapes() -> frozenset[str]:
+    """The generate_series call(s) the canonical geodesic buffer emits.
+
+    fix(#935): the NL->SQL prompt mandates copying ``render_geodesic_buffer``'s
+    output verbatim, and that expression slices wide inputs into longitude
+    bands with a series bounded by a 4326 longitude span (at most ~61 terms).
+    Rendering it here and extracting the series call keeps the admission in
+    lockstep with ``analysis_sql`` — a renderer change re-admits its own new
+    shape automatically, and everything else keeps failing closed. Both sides
+    of the comparison go through the same sqlglot parse/render, so the match
+    is exact, not textual guesswork.
+    """
+    global _canonical_series_cache
+    if _canonical_series_cache is not None:
+        return _canonical_series_cache
+
+    # Function-level import: keeps sandbox importable without pulling the
+    # analysis renderer at module import in contexts that never validate SQL.
+    from app.platform.analysis_sql import render_geodesic_buffer
+
+    shapes: set[str] = set()
+    try:
+        parsed = sqlglot.parse_one(
+            f"SELECT {render_geodesic_buffer('geom_4326', 1)}", dialect="postgres"
+        )
+    except Exception:  # broad: a renderer/sqlglot drift must fail CLOSED (empty shape set rejects every series), never crash validation  # pragma: no cover
+        parsed = None
+    if parsed is not None:
+        for fn in parsed.find_all(exp.Func):
+            if isinstance(fn, exp.Anonymous):
+                name = fn.name.lower() if hasattr(fn, "name") else ""
+            else:
+                name = fn.sql_name().lower() if hasattr(fn, "sql_name") else ""
+            if name in _GENERATE_SERIES_NAMES:
+                shapes.add(_normalized_func_sql(fn))
+    _canonical_series_cache = frozenset(shapes)
+    return _canonical_series_cache
+
+
 def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
     """Reject function arguments that can amplify a one-row query into a DoS."""
-    if fn_name in {"st_collect", "st_union"} and len(func.expressions) < 2:
+    # fix(#935): generate_series is admitted ONLY in the exact bounded form
+    # the canonical geodesic buffer expression emits; every other use — big
+    # literals, dynamic bounds from table columns, generator composition — is
+    # the amplification class SEC-025 rejects.
+    if fn_name in _GENERATE_SERIES_NAMES:
+        if _normalized_func_sql(func) not in _canonical_band_series_shapes():
+            logger.info("sandbox.non_canonical_generate_series", sql=sql)
+            raise SandboxError("invalid_query", "Query uses a disallowed row generator")
+    # fix(#935): unary ST_Collect is admitted — the mandated geodesic buffer
+    # expression aggregates a per-row dump back together, and ST_Collect is
+    # cheap concatenation whose memory is bounded by the geometry the query
+    # already reads (unlike unary ST_Union, which dissolves — superlinear in
+    # input complexity — and stays rejected).
+    if fn_name == "st_union" and len(func.expressions) < 2:
         logger.info("sandbox.unbounded_spatial_aggregate", sql=sql, function=fn_name)
         raise SandboxError(
             "invalid_query", "Query uses an unbounded collection aggregate"
