@@ -153,23 +153,48 @@ export function reportTileTokenRemint(surface: string, trigger: string): void {
  * things are wrong", and a tile source that fails again is the same thing.
  */
 export function countDistinctFailures(list: ReportEntry[]): number {
-  const seen = new Set<string>();
+  // A `maplibre` row keys on its SOURCE as well as its message: two cluster
+  // layers over one dataset get their own MapLibre source (getSourceIdForLayer)
+  // and can fail with byte-identical URLs, and those are two broken layers.
+  const mapFailures = new Set<string>();
+  // …and the messages those rows already account for, so the `console` row
+  // derived from the same AJAXError is recognized as the other half of one
+  // failure rather than counted again.
+  const mapMessages = new Set<string>();
+  const consoleOnly = new Set<string>();
+  const others = new Set<string>();
+
   for (const entry of list) {
-    if (entry.severity === 'error') seen.add(entryKey(entry));
+    if (entry.severity !== 'error') continue;
+    const message = failureKey(entry.message);
+    if (entry.source === 'maplibre') {
+      mapFailures.add(`${message}\u0000${sourceIdOf(entry)}`);
+      mapMessages.add(message);
+    } else if (entry.source === 'console') {
+      consoleOnly.add(message);
+    } else {
+      // Every other source keys on its own identity too: two PanelErrorBoundary
+      // instances can throw the same common message from different panels, and
+      // those are two failures.
+      others.add(`${entry.source}\u0000${entry.message}\u0000${entry.detail ?? ''}`);
+    }
   }
-  return seen.size;
+
+  let count = mapFailures.size + others.size;
+  for (const message of consoleOnly) {
+    // Only a console row with no map row behind it is a failure of its own —
+    // that is the viewer and the dataset preview, which push no row at all.
+    if (!mapMessages.has(message)) count += 1;
+  }
+  return count;
 }
 
-/** The two sources that describe ONE failure between them — the pair this whole
- * helper exists for. Only these correlate on the message alone. Every other
- * source keys on its own identity too: two PanelErrorBoundary instances can
- * throw the same common message from different panels, and those are two
- * failures, not one. */
-const PAIRED_SOURCES: ReadonlySet<ReportSource> = new Set(['maplibre', 'console']);
-
-function entryKey(entry: ReportEntry): string {
-  if (PAIRED_SOURCES.has(entry.source)) return failureKey(entry.message);
-  return `${entry.source}\u0000${entry.message}\u0000${entry.detail ?? ''}`;
+/** The failing MapLibre source, as the surface handlers record it
+ * (`detail: "source: <id>"`). Empty when the error carries none — style and
+ * glyph errors do not. */
+function sourceIdOf(entry: ReportEntry): string {
+  const match = /(?:^|\s)source:\s*(\S+)/.exec(entry.detail ?? '');
+  return match?.[1] ?? '';
 }
 
 /**
@@ -178,17 +203,20 @@ function entryKey(entry: ReportEntry): string {
  * without this every failing tile of ONE broken source is its own key and the
  * badge still runs to 9+.
  *
- * Only the parts that vary WITHIN one source are dropped: the per-tile
- * `/{z}/{x}/{y}` triple and the rotating credential params. Everything that
+ * Only the parts that vary WITHIN one source are dropped: the tile address in
+ * each of MapLibre's supported forms (`{z}/{x}/{y}`, `{quadkey}`, and the
+ * `{bbox-epsg-3857}` query param, all reachable through an admin-configured
+ * remote style) and the rotating credential params. Everything that
  * distinguishes one source from another stays — the path, the status, and the
- * `cols`/`cluster_radius`/`cluster_max_zoom` params that make two cluster
- * layers over the same dataset genuinely different sources.
+ * `cols`/`cluster_radius`/`cluster_max_zoom` params.
  */
-const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v']);
+const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX']);
 
 function failureKey(message: string): string {
   return message
     .replace(/\/\d+\/\d+\/\d+(\.\w+)?/g, '/{z}/{x}/{y}')
+    // A quadkey is one long base-4 run in the path, e.g. /0313102310.png.
+    .replace(/\/[0-3]{6,}(\.\w+)?/g, '/{quadkey}')
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')

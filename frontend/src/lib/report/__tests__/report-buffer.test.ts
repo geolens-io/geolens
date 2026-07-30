@@ -211,6 +211,62 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(3);
   });
 
+  // codex round 4 on #908: getSourceIdForLayer gives each cluster layer its own
+  // MapLibre source, so two broken layers over one dataset can fail with
+  // byte-identical URLs. Those are two failures.
+  it('keeps two failing map sources apart even with identical urls', () => {
+    const message = 'AJAXError: Internal Server Error (500): /api/tiles/data.trees/12/1/1.pbf';
+    // Interleaved with the console echo each one produces, which is also how
+    // they arrive: back-to-back rows are collapsed by the buffer itself, which
+    // compares the message and ignores detail.
+    for (const sourceId of ['layer-a-src', 'layer-b-src']) {
+      pushReportEntry({ severity: 'error', source: 'maplibre', message, detail: `source: ${sourceId}` });
+      pushReportEntry({ severity: 'error', source: 'console', message });
+    }
+
+    expect(getReportEntries()).toHaveLength(4);
+    // Two broken layers; both console echoes are the other halves.
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
+  it('counts a console-only failure (viewer and dataset preview push no row)', () => {
+    pushReportEntry({
+      severity: 'error',
+      source: 'console',
+      message: 'AJAXError: Internal Server Error (500): /api/tiles/data.parcels/12/1/1.pbf',
+    });
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  // codex round 4 on #908: an admin-configured remote style may address tiles by
+  // quadkey or bbox, where there is no z/x/y triple to normalize.
+  it('collapses a broken quadkey-addressed basemap to one failure', () => {
+    for (const quadkey of ['0313102310', '0313102311', '0313102312']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/${quadkey}.png`,
+        detail: 'source: basemap',
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('collapses a broken bbox-addressed basemap to one failure', () => {
+    for (const bbox of ['-20037508,0,0,20037508', '0,0,20037508,20037508']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Not Found (404): https://wms.example.com/?service=WMS&bbox=${bbox}`,
+        detail: 'source: basemap',
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');
