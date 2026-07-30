@@ -50,9 +50,13 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   territory.
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
-- Wrapping is judged lexically: a ``rasterio.open`` inside a
-  ``with gdal_safe_open_env():`` body passes even if a refactor later moves
-  the open into a helper called from outside the block. Reviewer territory.
+- Wrapping is judged lexically, with two execution-order rules (codex round
+  6): credit stops at def/lambda boundaries (a callable defined inside a
+  wrapped block runs after the context exits), and within one ``with``
+  statement only helper items EARLIER than the open's own item count
+  (context managers enter left to right). Beyond that, a wrapped open
+  passes even if a refactor later moves it into a helper called from
+  outside the block. Reviewer territory.
 - Helper credit requires the name to be bound to the canonical module by an
   import the resolver understands, resolved through LEXICAL SCOPES
   innermost-first (see ``_scope_info`` / ``_resolve_credit``): a scope that
@@ -394,14 +398,35 @@ def _is_canonical_helper_call(expr: ast.expr, helper: str, rel: str) -> bool:
 
 
 def _inside_safe_open_env(node: ast.AST, rel: str) -> bool:
-    current = node
+    """True when ``node`` executes under an ACTIVE gdal_safe_open_env().
+
+    codex round 6 on #974, two lexical rules:
+    - The ancestor walk stops at the first enclosing def/lambda boundary. A
+      callable DEFINED inside a wrapped block runs later, when the context
+      is gone, so it may not inherit the outer wrapper's credit — the
+      nested callable must carry its own (same rule as CLI call-credit).
+    - Within a single ``with`` statement, Python enters items left to
+      right, so only helper items EARLIER than the item containing the
+      open count; ``with rasterio.open(url), gdal_safe_open_env():``
+      opens the URL before the env exists. Opens in the with BODY see all
+      items.
+    """
+    prev: ast.AST = node
+    current = getattr(node, "_rule2_parent", None)
     while current is not None:
+        if isinstance(current, _SCOPE_NODES):
+            return False
         if isinstance(current, (ast.With, ast.AsyncWith)):
-            for item in current.items:
+            if isinstance(prev, ast.withitem):
+                eligible = current.items[: current.items.index(prev)]
+            else:
+                eligible = current.items
+            for item in eligible:
                 if _is_canonical_helper_call(
                     item.context_expr, SAFE_OPEN_ENV_HELPER, rel
                 ):
                     return True
+        prev = current
         current = getattr(current, "_rule2_parent", None)
     return False
 
@@ -936,6 +961,53 @@ def test_guard_nested_call_does_not_credit_outer_argv():
         {},
     )
     assert inner_ok == []
+
+
+def test_guard_deferred_callable_inside_wrapper_gets_no_credit():
+    """codex round 6: a def/lambda DEFINED inside a wrapped block runs after
+    the context exits, so its rasterio.open may not inherit the outer
+    wrapper's credit."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env\n"
+            "def outer(paths):\n"
+            "    with gdal_safe_open_env():\n"
+            "        def deferred(p):\n"
+            "            with rasterio.open(p):\n"
+            "                pass\n"
+            "        later = lambda p: rasterio.open(p)\n"
+            "    return deferred, later\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 2, violations
+    assert any("(deferred)" in v for v in violations)
+    # The lambda's enclosing named function is what the site reports.
+    assert any("rasterio.open" in v for v in violations)
+
+
+def test_guard_with_item_order_decides_credit():
+    """codex round 6: context managers enter left to right, so a helper
+    LATER in the same with-statement must not credit an earlier open; the
+    canonical helper-first shape still passes."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env\n"
+            "def wrong(path):\n"
+            "    with rasterio.open(path), gdal_safe_open_env():\n"
+            "        pass\n"
+            "def right(path):\n"
+            "    with gdal_safe_open_env(), rasterio.open(path):\n"
+            "        pass\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "(wrong)" in violations[0]
 
 
 def test_guard_blank_justification_fails():
