@@ -99,20 +99,32 @@ async def _count_selected_features(
         safe_where = safe_where.replace(":", "\\:")
         clauses.append(f"({safe_where})")
     if bbox is not None and has_geometry:
-        # fix(#905): count with the SAME predicate the export executes
-        # (bbox_where_sql, shared with parquet.py and the ogr2ogr -where
-        # path), including the antimeridian split for a west>east bbox.
-        # The old clause skipped a crossing bbox and counted the dataset
-        # unfiltered, so a narrow Pacific AOI over an oversized dataset
-        # 413'd even though the AOI selected far fewer rows than the cap.
-        # Measured (EXPLAIN ANALYZE, 5M-row point table, gist index): both
-        # halves of the crossing OR run as bitmap index scans on geom_4326
-        # (3.5 ms) vs 509 ms for the unfiltered cap+1 seq scan this
-        # replaces, so the docstring's "strictly less work" contract holds.
+        # fix(#905): a west>east (antimeridian-crossing) bbox used to skip
+        # this clause entirely and count the dataset unfiltered, so a narrow
+        # Pacific AOI over an oversized dataset 413'd. Count each branch with
+        # the predicate its export actually executes:
+        #
+        # - crossing: bbox_where_sql, the exact split predicate the ogr2ogr
+        #   path runs via -where (and parquet.py runs verbatim), so count and
+        #   export select identical rows. Measured (EXPLAIN ANALYZE, 5M-row
+        #   point table, gist index): both halves of the OR run as bitmap
+        #   index scans on geom_4326 (3.5 ms) vs 509 ms for the unfiltered
+        #   cap+1 seq scan — the docstring's "strictly less work" holds.
+        # - ordinary: envelope && only (superset of exact intersects), NOT
+        #   bbox_where_sql — the export runs ogr2ogr -spat, whose GDAL
+        #   contract permits envelope-overlap false positives, so an exact
+        #   ST_Intersects count could pass ≤cap while -spat exports more
+        #   (fix(#905 codex r1)). && errs toward 413, the safe direction.
+        #
         # Non-spatial datasets still skip the clause: ogr2ogr -spat is a
-        # no-op on a layer with no geometry, so the unfiltered count
-        # matches what the export would actually emit.
-        clauses.append(bbox_where_sql(bbox))
+        # no-op on a layer with no geometry, so the unfiltered count matches
+        # what the export would actually emit.
+        if bbox[0] > bbox[2]:
+            clauses.append(bbox_where_sql(bbox))
+        else:
+            clauses.append(
+                "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)"
+            )
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
     sql = (
