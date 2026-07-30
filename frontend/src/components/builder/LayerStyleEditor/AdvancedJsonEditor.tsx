@@ -117,10 +117,20 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
   const contentId = useId();
   const errorId = useId();
 
-  function handleOpen() {
-    setText(JSON.stringify(value, null, 2));
+  // fix(#921 review): collapsing the block must not throw away a draft. Seed
+  // the text only when there is nothing to preserve; Apply and Cancel are the
+  // two explicit exits that reset it.
+  function handleToggle() {
+    if (editing) { setEditing(false); return; }
+    if (text === '') setText(JSON.stringify(value, null, 2));
     setError(null);
     setEditing(true);
+  }
+
+  function handleCancel() {
+    setText('');
+    setError(null);
+    setEditing(false);
   }
 
   function handleApply() {
@@ -147,6 +157,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
         }
       }
       onApply(parsed);
+      setText('');
       setError(null);
       setEditing(false);
     } catch {
@@ -164,34 +175,35 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
           'cursor-pointer text-xs hover:text-foreground',
           editing ? 'font-medium text-muted-foreground' : 'text-muted-foreground underline',
         )}
-        onClick={() => (editing ? setEditing(false) : handleOpen())}
+        onClick={handleToggle}
         aria-expanded={editing}
         aria-controls={contentId}
       >
         {label}
       </button>
-      {!editing ? null : (
-      <div id={contentId} className="space-y-1.5">
-      <Textarea
-        className="text-xs font-mono resize-y min-h-[80px]"
-        value={text}
-        onChange={(e) => { setText(e.target.value); setError(null); }}
-        spellCheck={false}
-        aria-label={t('style.jsonTextareaAriaLabel', { block: label })}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
-      />
-      {error && <div id={errorId} role="alert" className="text-xs text-destructive">{error}</div>}
-      <div className="flex gap-1.5">
-        <Button size="sm" className="h-6 text-xs px-2" onClick={handleApply}>
-          {t('style.jsonApply')}
-        </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => setEditing(false)}>
-          {t('style.jsonCancel')}
-        </Button>
+      {/* fix(#921 review): the aria-controls target stays mounted and `hidden`
+          while collapsed — an id reference that resolves to nothing is exactly
+          what AT hits when it meets the collapsed trigger. */}
+      <div id={contentId} hidden={!editing} className="space-y-1.5">
+        <Textarea
+          className="text-xs font-mono resize-y min-h-[80px]"
+          value={text}
+          onChange={(e) => { setText(e.target.value); setError(null); }}
+          spellCheck={false}
+          aria-label={t('style.jsonTextareaAriaLabel', { block: label })}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+        />
+        {error && <div id={errorId} role="alert" className="text-xs text-destructive">{error}</div>}
+        <div className="flex gap-1.5">
+          <Button size="sm" className="h-6 text-xs px-2" onClick={handleApply}>
+            {t('style.jsonApply')}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={handleCancel}>
+            {t('style.jsonCancel')}
+          </Button>
+        </div>
       </div>
-      </div>
-      )}
     </div>
   );
 }
@@ -229,8 +241,7 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
         <Code className="h-3 w-3" />
         {t('style.advancedJson')}
       </button>
-      {open && (
-        <div id={blocksId} className="mt-2 space-y-3">
+      <div id={blocksId} hidden={!open} className="mt-2 space-y-3">
           <JsonBlock
             label={t('style.paintJson')}
             value={paint}
@@ -245,8 +256,7 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
             layerType={layerType}
             block="layout"
           />
-        </div>
-      )}
+      </div>
     </div>
   );
 }

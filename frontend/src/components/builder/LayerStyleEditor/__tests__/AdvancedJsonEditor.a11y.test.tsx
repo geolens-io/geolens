@@ -43,9 +43,38 @@ describe('AdvancedJsonEditor accessibility', () => {
     expect(document.getElementById(controlled)).not.toBeNull();
   });
 
+  it('keeps a draft when the block is collapsed and reopened', () => {
+    const trigger = open();
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '{"fill-color": "#00ff00"' },
+    });
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole('textbox')).toHaveValue('{"fill-color": "#00ff00"');
+  });
+
+  it('discards the draft on an explicit Cancel', () => {
+    const trigger = open();
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '{"nope"' } });
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(trigger);
+    expect(screen.getByRole('textbox')).toHaveValue(JSON.stringify({ 'fill-color': '#ff0000' }, null, 2));
+  });
+
+  it('keeps every aria-controls target mounted while collapsed', () => {
+    const trigger = open();
+    // Collapsed block: the referenced element must still exist.
+    expect(document.getElementById(trigger.getAttribute('aria-controls')!)).not.toBeNull();
+    const outer = screen.getByRole('button', { name: /advanced json/i });
+    fireEvent.click(outer);
+    expect(document.getElementById(outer.getAttribute('aria-controls')!)).not.toBeNull();
+  });
+
   it('gives the outer Advanced JSON trigger an aria-controls target', () => {
     open();
-    const outer = screen.getByRole('button', { name: /style\.advancedJson|advanced/i });
+    const outer = screen.getByRole('button', { name: /advanced json/i });
     expect(outer).toHaveAttribute('aria-expanded', 'true');
     expect(document.getElementById(outer.getAttribute('aria-controls')!)).not.toBeNull();
   });
