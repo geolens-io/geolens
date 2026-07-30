@@ -190,8 +190,10 @@
     "stroke": "Trazo",
     "line": "Línea",
     "point": "Punto",
-    "opacity": "Opacidad",
-    "layer": "Capa",
+    "fillOpacity": "Opacidad del relleno",
+    "lineOpacity": "Opacidad de la línea",
+    "pointOpacity": "Opacidad del punto",
+    "layerOpacity": "Opacidad de la capa",
     "color": "Color",
     "width": "Ancho",
     "gapWidth": "Ancho de hueco",
@@ -314,7 +316,7 @@
       "colorRamp": "Rampa de color",
       "radius": "Radio",
       "intensity": "Intensidad",
-      "opacity": "Opacidad"
+      "opacity": "Opacidad del mapa de calor"
     },
     "cluster": {
       "radius": "Radio de agrupación",

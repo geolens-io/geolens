@@ -68,7 +68,7 @@ export function FillEditor({
             />
           )}
           <SliderRow
-            label={t('style.opacity')}
+            label={t('style.fillOpacity')}
             value={getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity'])}
             min={0} max={1} step={0.01} format="percent"
             onChange={(val) => onPaintProp('fill-opacity', val)}

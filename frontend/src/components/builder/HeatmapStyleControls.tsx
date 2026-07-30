@@ -135,7 +135,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
       {/* Opacity */}
       <div className="space-y-1">
         <SliderRow
-          label={t('style.heatmap.opacity', { defaultValue: 'Opacity' })}
+          label={t('style.heatmap.opacity', { defaultValue: 'Heatmap opacity' })}
           value={typeof paint['heatmap-opacity'] === 'number' ? (paint['heatmap-opacity'] as number) : 0.8}
           min={0}
           max={1}
