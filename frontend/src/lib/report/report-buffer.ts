@@ -155,9 +155,21 @@ export function reportTileTokenRemint(surface: string, trigger: string): void {
 export function countDistinctFailures(list: ReportEntry[]): number {
   const seen = new Set<string>();
   for (const entry of list) {
-    if (entry.severity === 'error') seen.add(failureKey(entry.message));
+    if (entry.severity === 'error') seen.add(entryKey(entry));
   }
   return seen.size;
+}
+
+/** The two sources that describe ONE failure between them — the pair this whole
+ * helper exists for. Only these correlate on the message alone. Every other
+ * source keys on its own identity too: two PanelErrorBoundary instances can
+ * throw the same common message from different panels, and those are two
+ * failures, not one. */
+const PAIRED_SOURCES: ReadonlySet<ReportSource> = new Set(['maplibre', 'console']);
+
+function entryKey(entry: ReportEntry): string {
+  if (PAIRED_SOURCES.has(entry.source)) return failureKey(entry.message);
+  return `${entry.source}\u0000${entry.message}\u0000${entry.detail ?? ''}`;
 }
 
 /**

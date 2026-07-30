@@ -188,6 +188,29 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
+  // codex round 3 on #908: message-only correlation is for the maplibre/console
+  // pair. Two boundaries throwing the same common message from different panels
+  // are two failures. (Back-to-back identical rows are collapsed by the buffer
+  // itself, so this is the interleaved case — the one the key decides.)
+  it('keeps same-message failures from different panels apart', () => {
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message: 'Cannot read properties of undefined',
+      detail: 'at LayerPanel',
+    });
+    pushReportEntry({ severity: 'error', source: 'runtime', message: 'unrelated' });
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message: 'Cannot read properties of undefined',
+      detail: 'at AnalysisPanel',
+    });
+
+    expect(getReportEntries()).toHaveLength(3);
+    expect(countDistinctFailures(getReportEntries())).toBe(3);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');
