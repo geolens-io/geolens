@@ -16,8 +16,6 @@ export interface BaseStyleEditorProps {
   builderConfig: BuilderStyleConfig;
   styleConfig: StyleConfig | null;
   symbolConfig: SymbolStyleConfig;
-  /** Effective render mode (point layers only). */
-  renderMode: PointRenderMode;
   /** True when layer is a polygon (vs pure POINT geometry). */
   isPolygon: boolean;
   /** Numeric columns available for height extrusion etc. */
@@ -28,11 +26,8 @@ export interface BaseStyleEditorProps {
   strokeEnabled: boolean;
   /** True when fill is currently enabled (polygon only). */
   fillEnabled: boolean;
-  /** True when the cluster render mode is available for this layer. */
-  clusterAvailable: boolean;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   /** Patch a single paint property (handles builder-alias routing internally). */
   onPaintProp: (key: string, value: unknown) => void;
   /**
