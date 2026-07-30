@@ -29,6 +29,7 @@ exact SQL shape). A failure here is a signal about prompt/model drift, not
 ordinary test flake — investigate before rerunning.
 """
 
+import json
 import os
 import re
 import uuid
@@ -383,3 +384,139 @@ async def test_locations_reach_geojson_deterministically(
         f"expected {len(_STATIONS)} features, got {len(fc['features'])}\nSQL: {sql}"
     )
     assert len(bbox) == 4
+
+
+# ---------------------------------------------------------------------------
+# fix(#935): metric buffers must come from the geodesic expression the prompt
+# now embeds from render_geodesic_buffer, not a bare ST_Buffer(::geography)
+# ---------------------------------------------------------------------------
+
+# Two stations on opposite sides of the antimeridian (Fiji area) plus one far
+# to the east: any whole-input ST_Buffer(::geography) over the pair either
+# corrupts the seam-crossing output (planar span ~359) or lands in a non-local
+# projection for the spread.
+_PACIFIC_STATIONS = [
+    ("Taveuni Station", (179.5, -17.0)),
+    ("Vanua Levu East", (-179.5, -17.0)),
+    ("Rarotonga Station", (-159.8, -21.2)),
+]
+
+
+@pytest.fixture
+async def pacific_dataset(test_db_session):
+    """Seed a Pacific station table whose buffers cross the antimeridian."""
+    session = test_db_session
+    table = f"eval_pacific_{uuid.uuid4().hex[:8]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table} ("
+            "gid serial PRIMARY KEY, name text, geom_4326 geometry(Point, 4326))"
+        )
+    )
+    for name, (lon, lat) in _PACIFIC_STATIONS:
+        await session.execute(
+            text(
+                f"INSERT INTO data.{table} (name, geom_4326) VALUES "
+                f"(:name, ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326))"
+            ),
+            {"name": name},
+        )
+    await session.commit()
+
+    result = await session.execute(
+        select(User).where(User.username == settings.geolens_admin_username)
+    )
+    admin = result.scalar_one()
+
+    dataset = await create_dataset(
+        session,
+        created_by=admin.id,
+        name="Eval Pacific Stations",
+        table_name=table,
+        geometry_type="Point",
+        feature_count=len(_PACIFIC_STATIONS),
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    layer = ChatMapLayer(
+        id="eval-pacific-layer",
+        name="Eval Pacific Stations",
+        dataset_id=str(dataset.id),
+        dataset_table_name=table,
+        geometry_type="Point",
+        column_info=dataset.column_info,
+        dataset_title="Eval Pacific Stations",
+        feature_count=len(_PACIFIC_STATIONS),
+    )
+    yield {
+        "admin": admin,
+        "schema_context": build_sql_schema_context([layer]),
+        "table": table,
+    }
+    await session.execute(
+        text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": dataset.id}
+    )
+    await session.execute(
+        text("DELETE FROM catalog.records WHERE id = :id"), {"id": dataset.record_id}
+    )
+    await session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await session.commit()
+
+
+def _geojson_lon_widths(result: SandboxResult) -> list[float]:
+    """Planar longitude width of every GeoJSON geometry cell in the result."""
+
+    def _lons(coords):
+        if isinstance(coords[0], (int, float)):
+            yield coords[0]
+            return
+        for c in coords:
+            yield from _lons(c)
+
+    widths: list[float] = []
+    for cell in _cells(result):
+        if not isinstance(cell, str) or not cell.lstrip().startswith("{"):
+            continue
+        try:
+            gj = json.loads(cell)
+        except ValueError:
+            continue
+        if "coordinates" not in gj:
+            continue
+        lons = list(_lons(gj["coordinates"]))
+        if lons:
+            widths.append(max(lons) - min(lons))
+    return widths
+
+
+async def test_seam_crossing_buffer_uses_the_geodesic_expression(
+    client, test_db_session, pacific_dataset
+):
+    """fix(#935): a metric-buffer question over antimeridian-straddling data
+    must reproduce the prompt's geodesic buffer expression, and the executed
+    output must stay coherent at the seam.
+
+    SQL predicate: the distinctive machinery of render_geodesic_buffer
+    (span-gated CASE + dissolve) is present. Result assertion: no returned
+    buffer spans the world — the corrupt seam output of a bare
+    ``ST_Buffer(::geography)`` has a planar bbox ~359.9 degrees wide, which is
+    exactly what drew a band across the map and fit-bounds'd the chat overlay
+    to the whole world (#935's user-visible symptom).
+    """
+    sql, result = await _ask(
+        test_db_session,
+        pacific_dataset,
+        "Return each station's name and a 10 kilometer buffer around it "
+        "as GeoJSON geometry.",
+    )
+    assert "ST_UnaryUnion" in sql, f"geodesic buffer expression not used:\n{sql}"
+    assert re.search(r"ST_XMax\(\w+\.g\)\s*-\s*ST_XMin\(\w+\.g\)", sql), (
+        f"span-gated buffer CASE missing:\n{sql}"
+    )
+    widths = _geojson_lon_widths(result)
+    assert widths, f"no GeoJSON geometry in result columns {result.columns}\nSQL: {sql}"
+    assert max(widths) < 180, (
+        f"a buffer spans {max(widths):.1f} degrees — seam output is corrupt\nSQL: {sql}"
+    )
