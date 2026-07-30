@@ -13,11 +13,13 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from geoalchemy2 import WKTElement
 from httpx import AsyncClient
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as core_db
+from app.core.geo import extent_to_bbox
 from app.modules.catalog.datasets.api import router_analysis
 from app.platform.analysis_sql import MAX_BUFFER_METERS
 from app.platform.jobs.models import IngestJob
@@ -2502,25 +2504,62 @@ class TestBufferAtDateline:
         # matches a bbox on the far side of the world.
         assert row.hits_france is False
 
-        # The registered extent is still a single POLYGON and stays finite. It
-        # is -180..180 here because the split parts really do touch both edges
-        # and this writer folds them with ST_Extent. fix(#892) widened the
-        # column so a two-ring MULTIPOLYGON — and therefore the RFC 7946 § 5.2
-        # west > east bbox — is now storable, but teaching the analysis extent
-        # rollup to emit one is the separate follow-up; pinned, not fixed, here.
+        # fix(#934): this block used to pin the PRE-fold extent — a single
+        # POLYGON spanning the whole -180..180 band, 360° wide to describe a
+        # footprint 0.25° across — and its comment named the follow-up that
+        # would change it ("teaching the analysis extent rollup to emit one is
+        # the separate follow-up"). #934 is that follow-up: analysis registers
+        # through `register_existing_table`, so it shares the ingest extent
+        # producer, which now emits the honest two-ring seam form #892 widened
+        # the column to hold. Nothing above this point changed — the #697
+        # guarantees about the buffer RESULT geometry are asserted separately
+        # and still hold.
         extent = (
             await test_db_session.execute(
                 text(
                     "SELECT GeometryType(spatial_extent) AS gtype,"
-                    " ST_XMin(spatial_extent) AS xmin,"
-                    " ST_XMax(spatial_extent) AS xmax"
+                    " ST_NumGeometries(spatial_extent) AS parts,"
+                    " ST_IsValid(spatial_extent) AS valid,"
+                    " ST_AsText(spatial_extent) AS wkt"
                     " FROM catalog.records WHERE id = :rid"
                 ).bindparams(rid=out.record_id)
             )
         ).one()
-        assert extent.gtype == "POLYGON"
-        assert extent.xmin >= -180.0
-        assert extent.xmax <= 180.0
+        assert extent.gtype == "MULTIPOLYGON"
+        assert extent.parts == 2
+        assert extent.valid is True
+
+        # One lobe per hemisphere, meeting AT the seam: some ring ends on +180
+        # and some ring starts on -180 (order is the producer's business, so
+        # assert the set). Neither lobe is wide — the old single-ring fold's
+        # failure mode was exactly one enormous ring.
+        rings = (
+            await test_db_session.execute(
+                text(
+                    "SELECT bool_or(ST_XMax(g) = 180) AS touches_east_seam,"
+                    " bool_or(ST_XMin(g) = -180) AS touches_west_seam,"
+                    " max(ST_XMax(g) - ST_XMin(g)) AS widest FROM ("
+                    " SELECT ST_GeometryN(spatial_extent, n) AS g"
+                    " FROM catalog.records,"
+                    " generate_series(1, ST_NumGeometries(spatial_extent)) n"
+                    " WHERE id = :rid) q"
+                ).bindparams(rid=out.record_id)
+            )
+        ).one()
+        assert rings.touches_east_seam is True
+        assert rings.touches_west_seam is True
+        assert rings.widest < 1.0
+
+        # Read back as an RFC 7946 § 5.2 bbox it is the crossing (west > east)
+        # pair, and its span is the real footprint rather than the whole world.
+        # This is the point of the change: the pinned single ring reported 360°.
+        bbox = extent_to_bbox(WKTElement(extent.wkt, srid=4326))
+        assert bbox is not None
+        assert bbox[0] > bbox[2], "a seam-crossing extent must read west > east"
+        assert (bbox[2] - bbox[0]) % 360 == pytest.approx(0.25, abs=0.15)
+        # The latitude band is untouched by any of this.
+        assert bbox[1] == pytest.approx(44.91, abs=0.01)
+        assert bbox[3] == pytest.approx(45.09, abs=0.01)
 
     async def test_buffer_away_from_dateline_is_untouched(
         self,
