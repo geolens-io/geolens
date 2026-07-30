@@ -366,6 +366,20 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
+  // codex round 10 on #908: a validator-accepted template may put a static
+  // suffix after the coordinates, which every shape-anchored rule missed.
+  it('collapses coordinates followed by a static path suffix', () => {
+    for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/12/${x}/${y}/tile.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

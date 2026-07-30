@@ -207,47 +207,35 @@ function sourceIdOf(entry: ReportEntry): string {
  * without this every failing tile of ONE broken source is its own key and the
  * badge still runs to 9+.
  *
- * Only the parts that vary WITHIN one source are dropped: the tile address in
- * each of MapLibre's supported forms — `{z}/{x}/{y}`, `{quadkey}`, the
- * `{bbox-epsg-3857}` query param, and the `{ratio}` suffix a retina display
- * resolves to `@2x`, all reachable through an admin-configured remote style —
- * and the rotating credential params. NOT `{prefix}`; see below.
- * Everything that distinguishes one source from another stays — the rest of the
- * path, the status, and the `cols`/`cluster_radius`/`cluster_max_zoom` params.
+ * Only what is unambiguously per-TILE is dropped: numeric path segments (the
+ * coordinates, in any layout) and the rotating credential params. Everything
+ * that identifies the source survives — the rest of the path, the host, the
+ * status, and the `cols`/`cluster_radius`/`cluster_max_zoom` params.
  *
- * A `maplibre` row keys on its source id instead and never needs this; it
- * matters for the `console` rows the viewer and dataset preview leave behind,
- * which carry no source at all.
+ * Deliberately NOT the `{prefix}` shard, in the host or the path. A resolved
+ * shard is indistinguishable from a meaningful short label in a single URL —
+ * `a.tiles…` looks exactly like `ca.tiles…`, `/a3/` like `/de/` — and
+ * collapsing it merged two genuinely different basemaps into one entry.
+ * Between the two errors, keep the over-count: this is a problem REPORTER, and
+ * hiding a broken source is worse than counting a sharded one more than once.
+ *
+ * A `maplibre` row keys on its source id as well and rarely needs any of this;
+ * it matters for the `console` rows the viewer and dataset preview leave
+ * behind, which carry no source at all.
  */
 const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX']);
 
 function failureKey(message: string): string {
   return message
-    // Tile coordinates, anchored to the end of the path — that is where z/x/y
-    // always sit, and anchoring is what keeps an all-numeric `{prefix}` segment
-    // (`/00/5/1/1.png`) from being mistaken for the zoom.
-    // The `y` segment is an alternation because `redact()` runs FIRST, at
-    // capture time, and a retina tile ending `/1539@2x.png` looks exactly like
-    // an email address to it — so what actually reaches this function is
-    // `/12/1205/[redacted-email]`, with the coordinate already gone.
-    .replace(
-      /\/\d+\/\d+\/(?:\d+(?:@\d+x)?(?:\.\w+)?|\[redacted-email\])(?=[?\s]|$)/g,
-      '/{z}/{x}/{y}',
-    )
-    // A quadkey is the LAST path segment, one base-4 run whose length is the
-    // zoom level — so it is anchored at the end rather than length-gated, or a
-    // zoom-3 tile (`/031.png`) would stay a distinct key while a zoom-12 one
-    // collapsed. Anchoring is what keeps a mid-path `/2/` from matching.
-    .replace(/\/[0-3]+(@\d+x)?(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
-    // Deliberately NOT `{prefix}`, in the host or the path. A resolved shard
-    // (`a3.tiles…`, `/a3/`) is indistinguishable from a meaningful label
-    // (`ca.tiles…`, `/de/`) in a single URL — both are one or two hex-ish
-    // characters — and collapsing it merged two genuinely different basemaps.
-    // Between the two errors the over-count is the safer one to keep: this is a
-    // problem REPORTER, and hiding a broken source is worse than counting a
-    // sharded one more than once. So this function normalizes only what is
-    // unambiguously per-TILE — coordinates and credentials — and never guesses
-    // at what a host or path segment means.
+    // Every purely numeric path segment. That single rule covers each tile
+    // layout MapLibre supports — `{z}/{x}/{y}` with or without a static suffix
+    // (`/12/1205/1539/tile.png`), a leading numeric shard, and `{quadkey}`,
+    // which is all digits too. Anchoring on "is a number" rather than on a
+    // shape means a template this does not anticipate still normalizes.
+    // It also tolerates `redact()` having already eaten a `@2x` suffix as an
+    // email address (see the note above `pushReportEntry`): the surviving z/x
+    // segments still collapse.
+    .replace(/\/\d+(?=[/?.@\s]|$)/g, '/{n}')
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')
