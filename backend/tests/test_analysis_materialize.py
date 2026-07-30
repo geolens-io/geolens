@@ -8,6 +8,7 @@ Requirements:
 """
 
 import asyncio
+import math
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as core_db
 from app.modules.catalog.datasets.api import router_analysis
+from app.platform.analysis_sql import MAX_BUFFER_METERS
 from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import (
     MATERIALIZE_TIMEOUT,
@@ -30,7 +32,12 @@ from app.processing.analysis.tasks import (
 )
 
 from tests.factories import create_dataset, get_user_id
-from tests.test_analysis_preview import _create_mask_dataset, _create_polygon_dataset
+from tests.test_analysis_preview import (
+    _create_mask_dataset,
+    _create_point_dataset_at,
+    _create_polygon_dataset,
+    _create_wkt_dataset,
+)
 from tests.test_export_hardening import (
     _DEFAULT_PERMISSION_MATRIX,
     _put_permission_matrix,
@@ -2327,6 +2334,312 @@ class TestMaterializeWorker:
             )
         ).scalar_one()
         assert geom_type == "MULTIPOLYGON"
+
+
+# ---------------------------------------------------------------------------
+# Antimeridian and high-latitude edge fixtures (fix(#697))
+# ---------------------------------------------------------------------------
+
+
+async def _materialize_buffer(
+    session: AsyncSession,
+    *,
+    distance: float,
+    lon: float | None = None,
+    lat: float | None = None,
+    wkt: str | None = None,
+    column_type: str = "Point",
+    geometry_type: str = "POINT",
+):
+    """Run a real buffer materialize over a one-row source geometry.
+
+    Pass either ``lon``/``lat`` for a single point, or ``wkt`` plus its PostGIS
+    ``column_type`` for a multipart source.
+    """
+    admin_id = await get_user_id(session, "admin")
+    if wkt is not None:
+        src = await _create_wkt_dataset(
+            session,
+            created_by=admin_id,
+            wkt=wkt,
+            column_type=column_type,
+            geometry_type=geometry_type,
+        )
+    else:
+        assert lon is not None and lat is not None
+        src = await _create_point_dataset_at(
+            session, created_by=admin_id, lon=lon, lat=lat
+        )
+    job = await _create_job(session, admin_id)
+    await _materialize(
+        job_id=str(job.id),
+        dataset_id=str(src.id),
+        user_id=str(admin_id),
+        operation="buffer",
+        title=f"Buffer {uuid.uuid4().hex[:8]}",
+        distance_meters=distance,
+    )
+    await session.refresh(job)
+    assert job.status == "complete", job.error_message
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    out = await session.get(Dataset, job.dataset_id)
+    assert out is not None
+    return out
+
+
+class TestBufferAtDateline:
+    """Every other fixture in this suite is low-latitude and low-longitude,
+    which is precisely why #697 went unnoticed. These pin the seam.
+    """
+
+    async def test_buffer_across_dateline_is_split_not_wrapped(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#697): a 10 km buffer of a point at lon 179.95 used to register
+        as ONE self-intersecting polygon with vertices on both sides of ±180.
+        Probed before the fix: ST_IsValid false, planar envelope 359.99° wide
+        for a footprint 0.25° across, and the stored geometry ST_Intersects a
+        bbox over central France — a feature-level false positive ~15 000 km
+        out, reaching OGC /items, tile queries, and bbox-filtered exports.
+        """
+        out = await _materialize_buffer(
+            test_db_session, lon=179.95, lat=45.0, distance=10_000
+        )
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_XMin(geom_4326) AS xmin,"
+                    " ST_XMax(geom_4326) AS xmax,"
+                    " ST_Intersects("
+                    "   geom_4326, ST_MakeEnvelope(2, 44.9, 3, 45.1, 4326)"
+                    " ) AS hits_france"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+
+        # Split at the seam into one part per hemisphere, each planar-valid.
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 2
+        assert row.valid is True
+        # Every vertex stays inside the WGS84 domain — a shift-only fix would
+        # have left coordinates past 180 that no GeoJSON/tile consumer accepts.
+        assert row.xmin >= -180.0
+        assert row.xmax <= 180.0
+        # The defect that actually reached users: the geometry no longer
+        # matches a bbox on the far side of the world.
+        assert row.hits_france is False
+
+        # The registered extent must still satisfy the geometry(Polygon,4326)
+        # column, and stay finite. It is legitimately -180..180 here: the
+        # split parts really do touch both edges, and that column cannot hold
+        # the west > east bbox RFC 7946 § 5.2 uses for crossing extents. That
+        # representation gap is pre-existing and shared with directly ingested
+        # Fiji-area data — pinned, not fixed, by this test.
+        extent = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(spatial_extent) AS gtype,"
+                    " ST_XMin(spatial_extent) AS xmin,"
+                    " ST_XMax(spatial_extent) AS xmax"
+                    " FROM catalog.records WHERE id = :rid"
+                ).bindparams(rid=out.record_id)
+            )
+        ).one()
+        assert extent.gtype == "POLYGON"
+        assert extent.xmin >= -180.0
+        assert extent.xmax <= 180.0
+
+    async def test_buffer_away_from_dateline_is_untouched(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The other half of fix(#697): the split must not fire on ordinary
+        input. ST_ShiftLongitude maps negative longitudes to 180..360, so an
+        unguarded normalization would cut geometry at the PRIME meridian — a
+        10 km buffer at lon 0 measured 2 parts covering 49x the correct area.
+        Straddling Greenwich is the case that catches it.
+        """
+        out = await _materialize_buffer(
+            test_db_session, lon=0.0, lat=45.0, distance=10_000
+        )
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_XMax(geom_4326) - ST_XMin(geom_4326) AS span"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.gtype == "POLYGON"
+        assert row.valid is True
+        # ~0.25° across at lat 45 — a prime-meridian split would report ~360.
+        assert row.span == pytest.approx(0.2534, abs=0.01)
+
+        extent_span = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_XMax(spatial_extent) - ST_XMin(spatial_extent)"
+                    " FROM catalog.records WHERE id = :rid"
+                ).bindparams(rid=out.record_id)
+            )
+        ).scalar_one()
+        assert extent_span == pytest.approx(0.2534, abs=0.01)
+
+    async def test_buffer_at_highest_reachable_latitude_does_not_wrap(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Pinning test for the polar half of #697, which does NOT reproduce.
+
+        Two independent limits keep a pole-encircling buffer out of reach.
+        Vector ingest clips every geometry to the Web Mercator envelope
+        (``clip_to_mercator_bounds``, ±85.06° lat), so a genuinely polar source
+        cannot exist — probed via the API, a point at lat -89.95 ingests as
+        MULTIPOINT EMPTY and its buffer fails with "produced no features to
+        save". And at lat 85.06 the parallel is ~3 480 km around, so encircling
+        the pole needs a ~554 km radius, well past MAX_BUFFER_METERS (100 km).
+
+        So the maximum-radius buffer at the seam-free maximum latitude must come
+        back as a single unsplit polygon. If either limit ever moves — a larger
+        buffer cap, or ingest keeping polar geometry — this fails and the
+        pole-encircling case needs its own decision.
+        """
+        out = await _materialize_buffer(
+            test_db_session, lon=0.0, lat=85.06, distance=MAX_BUFFER_METERS
+        )
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_XMax(geom_4326) - ST_XMin(geom_4326) AS span,"
+                    " ST_YMax(geom_4326) AS ymax"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.gtype == "POLYGON"
+        assert row.valid is True
+        # ~20.8° of longitude at this latitude, nowhere near a wrap.
+        assert row.span == pytest.approx(20.8, abs=1.0)
+        assert row.ymax < 90.0
+
+    async def test_pole_encircling_buffer_is_left_alone(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """The split's second guard condition, exercised directly.
+
+        A geometry that encircles a pole genuinely occupies every longitude, so
+        its planar span is wide for an honest reason and shifting it does not
+        narrow it. A span-only guard would have split such a buffer at the seam
+        and thrown away ~7% of its area. Unreachable through ingest today (see
+        the test above), so this drives the source table straight past ingest —
+        the guard has to hold on its own, not on an upstream clip.
+        """
+        out = await _materialize_buffer(
+            test_db_session, lon=0.0, lat=89.9, distance=MAX_BUFFER_METERS
+        )
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_XMax(geom_4326) - ST_XMin(geom_4326) AS span"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        # Not promoted to MULTIPOLYGON: the guard declined to split, and
+        # ST_CollectionHomogenize collapses the untouched single component back
+        # to POLYGON rather than leaving a one-part MULTIPOLYGON.
+        assert row.gtype == "POLYGON"
+        assert row.valid is True
+        assert row.span > 180.0
+
+    async def test_one_feature_with_components_at_both_seams(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#883 review): the split decision has to be per component.
+
+        A MULTIPOINT holding (179.95, 45) and (0, 45) buffers to one
+        antimeridian-wrapping polygon plus one Greenwich-straddling polygon, and
+        those two want opposite treatment. Deciding once on the envelope of the
+        pair gets it wrong either way, and rounding picks which way: measured
+        over a sweep of the second point's longitude, the envelope test declined
+        at lon ±0.05 (leaving the antimeridian component self-intersecting and
+        still hitting a bbox over France) and split at lon 0.0 (blowing the
+        Greenwich component up to 6 parts covering 11.6x the correct area, newly
+        intersecting lon -100, where neither input sits).
+
+        Both seam positions are asserted here so a future envelope-level
+        shortcut cannot pass by getting only one of them right.
+        """
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt="MULTIPOINT((179.95 45),(0 45))",
+            column_type="MultiPoint",
+            geometry_type="MULTIPOINT",
+            distance=10_000,
+        )
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_IsValid(geom_4326) AS valid,"
+                    " ST_XMin(geom_4326) AS xmin,"
+                    " ST_XMax(geom_4326) AS xmax,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects("
+                    "   geom_4326, ST_MakeEnvelope(2, 44.9, 3, 45.1, 4326)"
+                    " ) AS hits_france,"
+                    " ST_Intersects("
+                    "   geom_4326, ST_MakeEnvelope(-100, 44.9, -99, 45.1, 4326)"
+                    " ) AS hits_dakota,"
+                    # The Greenwich component must survive INTACT — a
+                    # prime-meridian split would leave nothing covering lon 0.
+                    " ST_Contains("
+                    "   geom_4326, ST_SetSRID(ST_MakePoint(0, 45), 4326)"
+                    " ) AS covers_greenwich,"
+                    " ST_Contains("
+                    "   geom_4326, ST_SetSRID(ST_MakePoint(179.95, 45), 4326)"
+                    " ) AS covers_seam"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+
+        # Antimeridian component cut in two, Greenwich component untouched.
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 3
+        assert row.valid is True
+        assert row.xmin >= -180.0
+        assert row.xmax <= 180.0
+        # Neither source point is near lon 2-3 or lon -100.
+        assert row.hits_france is False
+        assert row.hits_dakota is False
+        # Both original centres still covered: nothing was shifted away.
+        assert row.covers_greenwich is True
+        assert row.covers_seam is True
+        # Two 10 km buffers at lat 45. The split adds a seam edge but removes no
+        # area, and a mangled Greenwich component measured 11.6x this.
+        assert row.area == pytest.approx(2 * math.pi * 10_000**2, rel=0.02)
 
 
 # ---------------------------------------------------------------------------
