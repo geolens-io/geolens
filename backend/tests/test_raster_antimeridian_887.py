@@ -12,16 +12,16 @@ Three sites, one seam:
    ``max(right)`` across sources, so a 10°-wide mosaic straddling the seam was
    allocated 360° wide (3600 x 50 px instead of 100 x 50) with every source at
    the wrong ``dst_x_off``. ``gdalbuildvrt`` is the production builder and does
-   the same thing, so the normalization has to be reached from ``_build_vrt``
-   with the subprocess available — see
-   ``TestSeamFramingReachesTheProductionPath``.
+   the same thing, so the correction is applied to *its* output — see
+   ``TestSeamFrameRewrite``.
 3. ``processing/tiles/router.py`` — the user-visible symptom. Source maxzoom is
    derived from extent width when the COG has no recorded resolution, so a
    seam-crossing raster measured 36x too wide, understated its own resolution,
    and stopped rendering as the user zoomed in.
 
 The DB-backed tests need Postgres (``docker compose up -d --wait db``); the rest
-are pure rasterio/XML unit tests.
+are pure rasterio/XML unit tests. Any test here that commits a seam-crossing
+extent MUST take ``clean_tables`` — see ``TestRasterTokenAcrossTheSeam``.
 """
 
 import io
@@ -54,7 +54,8 @@ from app.processing.raster.vrt import (
     _seam_frame_origin,
     _write_python_vrt,
     build_vrt,
-    sources_straddle_seam,
+    shift_vrt_longitude_frame,
+    sources_seam_frame_origin,
 )
 from app.processing.tiles.router import _raster_maxzoom_from_metadata
 
@@ -77,6 +78,9 @@ def _write_tif(
     bounds: tuple[float, float, float, float],
     width: int = 64,
     height: int = 64,
+    nodata: float | None = None,
+    fill: int = 0,
+    mask: bool = False,
 ) -> str:
     """Write a synthetic single-band GeoTIFF at the given native bounds."""
     profile = {
@@ -89,11 +93,17 @@ def _write_tif(
     }
     if epsg is not None:
         profile["crs"] = CRS.from_epsg(epsg)
+    if nodata is not None:
+        profile["nodata"] = nodata
 
     buf = io.BytesIO()
     with MemoryFile() as mem:
         with mem.open(**profile) as ds:
-            ds.write(np.zeros((height, width), dtype="uint8"), 1)
+            ds.write(np.full((height, width), fill, dtype="uint8"), 1)
+            if mask:
+                band_mask = np.full((height, width), 255, dtype="uint8")
+                band_mask[:, : width // 2] = 0
+                ds.write_mask(band_mask)
         buf.write(mem.read())
     path.write_bytes(buf.getvalue())
     return str(path)
@@ -495,8 +505,8 @@ class TestSeamStraddlingVrt:
 # ---------------------------------------------------------------------------
 
 
-class TestSourcesStraddleSeamPredicate:
-    """The branch condition, on the inputs that must not trip it."""
+class TestSourcesSeamFrameOrigin:
+    """The build-time probe, on the inputs that must not trip it."""
 
     def test_geographic_seam_pair_is_detected(self, tmp_path):
         sources = [
@@ -506,7 +516,7 @@ class TestSourcesStraddleSeamPredicate:
             ),
         ]
 
-        assert sources_straddle_seam(sources) is True
+        assert sources_seam_frame_origin(sources) == pytest.approx(175.0)
 
     def test_off_seam_pair_is_not_detected(self, tmp_path):
         sources = [
@@ -514,15 +524,10 @@ class TestSourcesStraddleSeamPredicate:
             _write_tif(tmp_path / "b.tif", epsg=4326, bounds=(15.0, 0.0, 20.0, 5.0)),
         ]
 
-        assert sources_straddle_seam(sources) is False
+        assert sources_seam_frame_origin(sources) is None
 
     def test_one_crs_less_source_disables_detection(self, tmp_path):
-        """Unknown units means unknown wrap: refuse rather than guess.
-
-        The result is the un-normalized mosaic, which is the pre-existing
-        behaviour for a VRT nobody can interpret — `_write_python_vrt` takes its
-        SRS from the first source and never checks the rest agree.
-        """
+        """Unknown units means unknown wrap: refuse rather than guess."""
         sources = [
             _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
             _write_tif(
@@ -530,29 +535,86 @@ class TestSourcesStraddleSeamPredicate:
             ),
         ]
 
-        assert sources_straddle_seam(sources) is False
+        assert sources_seam_frame_origin(sources) is None
+
+    def test_projected_sources_are_not_detected(self, tmp_path):
+        """Metres are not degrees — a 4e7 m hull must not read as a seam crossing."""
+        half = WEB_MERCATOR_HALF_WORLD_M
+        sources = [
+            _write_tif(
+                tmp_path / "w.tif",
+                epsg=3857,
+                bounds=(-half, 0.0, -half + 1_000_000.0, 1_000_000.0),
+            ),
+            _write_tif(
+                tmp_path / "e.tif",
+                epsg=3857,
+                bounds=(half - 1_000_000.0, 0.0, half, 1_000_000.0),
+            ),
+        ]
+
+        assert sources_seam_frame_origin(sources) is None
 
     def test_unopenable_source_is_not_detected(self, tmp_path):
         bogus = tmp_path / "broken.tif"
         bogus.write_bytes(b"not a tiff")
 
-        assert sources_straddle_seam([str(bogus)]) is False
+        assert sources_seam_frame_origin([str(bogus)]) is None
 
 
-class TestSeamFramingReachesTheProductionPath:
+# A gdalbuildvrt mosaic of two nodata-carrying tiles either side of ±180, as
+# emitted verbatim by BOTH GDAL 3.10.3 (worker image) and GDAL 3.13.0 (local):
+# 3600 x 50 px anchored at -180, western tile parked at dst_x_off 3550. Reproduced
+# here so the rewrite is tested deterministically on machines with no GDAL CLI --
+# the skipif-gated tests below drive the real binary where it exists.
+_GDALBUILDVRT_SEAM_XML = """<VRTDataset rasterXSize="3600" rasterYSize="50">
+  <SRS dataAxisToSRSAxisMapping="2,1">GEOGCS["WGS 84"]</SRS>
+  <GeoTransform> -1.8000000000000000e+02,  1.0000000000000001e-01,  0.0000000000000000e+00,  5.0000000000000000e+00,  0.0000000000000000e+00, -1.0000000000000001e-01</GeoTransform>
+  <VRTRasterBand dataType="Byte" band="1">
+    <NoDataValue>0</NoDataValue>
+    <ColorInterp>Gray</ColorInterp>
+    <ComplexSource>
+      <SourceFilename relativeToVRT="1">w.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="50" ySize="50" />
+      <DstRect xOff="3550" yOff="0" xSize="50" ySize="50" />
+      <NODATA>0</NODATA>
+    </ComplexSource>
+    <ComplexSource>
+      <SourceFilename relativeToVRT="1">e.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="50" ySize="50" />
+      <DstRect xOff="0" yOff="0" xSize="50" ySize="50" />
+      <NODATA>0</NODATA>
+    </ComplexSource>
+    <MaskBand>
+      <VRTRasterBand dataType="Byte">
+        <ComplexSource>
+          <SourceFilename relativeToVRT="1">w.tif</SourceFilename>
+          <SourceBand>mask,1</SourceBand>
+          <SrcRect xOff="0" yOff="0" xSize="50" ySize="50" />
+          <DstRect xOff="3550" yOff="0" xSize="50" ySize="50" />
+        </ComplexSource>
+      </VRTRasterBand>
+    </MaskBand>
+  </VRTRasterBand>
+</VRTDataset>
+"""
+
+
+class TestSeamFrameRewrite:
     """``_write_python_vrt`` is the fallback; ``gdalbuildvrt`` is what ships.
 
     The worker image installs ``gdal-bin``, so ``_build_vrt`` gets a working
     subprocess and the ``FileNotFoundError`` fallback never fires in a deployed
     worker. A test that calls ``_write_python_vrt`` directly therefore proves
     nothing about production, which is exactly how the first cut of this fix
-    landed as dead code (codex P1 on #924). Every test here enters through
-    ``_build_vrt`` with the subprocess *available*.
+    landed as dead code (codex P1 on #924).
 
-    ``gdalbuildvrt`` itself is not the fix: verified against GDAL 3.10 (worker
-    image) and 3.13 (local), it emits 3600 x 50 px anchored at -180 with
-    ``dst_x_off`` 3550 for the seam pair below, and ``-te`` on the shifted hull
-    exits 0 while silently dropping every source outside the window.
+    Rebuilding the seam case with the Python writer instead was the second wrong
+    answer (codex P1 round 2): that writer emits bare ``SimpleSource`` elements,
+    so nodata, colour interpretation and masks all vanish. GDAL keeps building
+    the VRT; only the framing is rewritten afterwards.
     """
 
     def _tiles(self, tmp_path, lon_pairs, *, epsg=4326):
@@ -567,75 +629,84 @@ class TestSeamFramingReachesTheProductionPath:
             for i, (west, east) in enumerate(lon_pairs)
         ]
 
-    def test_seam_mosaic_never_reaches_gdalbuildvrt(self, tmp_path, monkeypatch):
-        """With the subprocess available, the seam pair still normalizes.
+    def _fake_gdalbuildvrt(self, xml: str):
+        """A ``run_gdal`` stub that writes GDAL's own output for the seam pair."""
 
-        ``run_gdal`` is stubbed to a *successful* call, so nothing can fall back:
-        if the seam branch were removed, the stub would be invoked and no VRT
-        would be written at all.
-        """
-        calls = []
+        def _run(cmd, **kwargs):
+            # gdalbuildvrt's output path is the argument after "-resolution <mode>".
+            Path(cmd[cmd.index("-resolution") + 2]).write_text(xml)
+            return SimpleNamespace(returncode=0, stderr="")
 
-        def _never(cmd, **kwargs):
-            calls.append(cmd)
-            raise AssertionError(
-                "gdalbuildvrt was spawned for a seam-straddling mosaic"
-            )
+        return _run
 
-        monkeypatch.setattr(vrt_module, "run_gdal", _never)
+    def test_seam_frame_is_rewritten_in_gdalbuildvrt_output(
+        self, tmp_path, monkeypatch
+    ):
+        """The geometry is corrected and every band tag survives untouched."""
+        monkeypatch.setattr(
+            vrt_module,
+            "run_gdal",
+            self._fake_gdalbuildvrt(_GDALBUILDVRT_SEAM_XML),
+        )
         sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
 
         out = vrt_module._build_vrt(sources, str(tmp_path / "seam.vrt"), "finest")
 
-        assert calls == []
         assert _vrt_size(out) == (100, 50)
         assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
-        assert _dst_x_offs(out) == [0, 50]
+        # Band DstRects and the MaskBand's DstRect all move into the same frame.
+        assert _dst_x_offs(out) == [0, 50, 0]
 
-    def test_non_crossing_mosaic_still_uses_gdalbuildvrt(self, tmp_path, monkeypatch):
-        """Negative probe: same two tiles, same latitudes, moved off the seam.
+        xml = Path(out).read_text()
+        for tag in (
+            "NoDataValue",
+            "ColorInterp",
+            "ComplexSource",
+            "NODATA",
+            "MaskBand",
+        ):
+            assert f"<{tag}>" in xml, f"{tag} did not survive the rewrite"
+        assert "SimpleSource" not in xml, "the rewrite must not rebuild the sources"
 
-        Only the longitude position differs, so this pins that the branch is
-        narrow — everything else keeps going to the subprocess builder.
+    def test_non_crossing_output_is_left_byte_identical(self, tmp_path, monkeypatch):
+        """Negative probe: same tiles, same latitudes, moved off the seam.
+
+        Only the longitude position differs, so anything that changes here is the
+        rewrite firing when it must not.
         """
-        calls = []
-
-        def _record(cmd, **kwargs):
-            calls.append(cmd)
-            return SimpleNamespace(returncode=0, stderr="")
-
-        monkeypatch.setattr(vrt_module, "run_gdal", _record)
+        monkeypatch.setattr(
+            vrt_module,
+            "run_gdal",
+            self._fake_gdalbuildvrt(_GDALBUILDVRT_SEAM_XML),
+        )
         sources = self._tiles(tmp_path, [(10.0, 15.0), (15.0, 20.0)])
 
-        vrt_module._build_vrt(sources, str(tmp_path / "plain.vrt"), "finest")
+        out = vrt_module._build_vrt(sources, str(tmp_path / "plain.vrt"), "finest")
 
-        assert len(calls) == 1
-        assert calls[0][0] == "gdalbuildvrt"
+        assert Path(out).read_text() == _GDALBUILDVRT_SEAM_XML
 
-    def test_global_mosaic_still_uses_gdalbuildvrt(self, tmp_path, monkeypatch):
-        """A genuinely global mosaic is not a seam crossing; leave it to GDAL."""
-        calls = []
-
-        def _record(cmd, **kwargs):
-            calls.append(cmd)
-            return SimpleNamespace(returncode=0, stderr="")
-
-        monkeypatch.setattr(vrt_module, "run_gdal", _record)
+    def test_global_mosaic_output_is_left_alone(self, tmp_path, monkeypatch):
+        """A genuinely global mosaic is not a seam crossing."""
+        monkeypatch.setattr(
+            vrt_module,
+            "run_gdal",
+            self._fake_gdalbuildvrt(_GDALBUILDVRT_SEAM_XML),
+        )
         sources = self._tiles(
             tmp_path, [(-180.0 + 10 * i, -170.0 + 10 * i) for i in range(36)]
         )
 
-        vrt_module._build_vrt(sources, str(tmp_path / "global.vrt"), "finest")
+        out = vrt_module._build_vrt(sources, str(tmp_path / "global.vrt"), "finest")
 
-        assert len(calls) == 1
+        assert Path(out).read_text() == _GDALBUILDVRT_SEAM_XML
 
-    def test_band_stack_dispatch_keeps_the_seam_branch(self, tmp_path, monkeypatch):
-        """``build_vrt("band_stack", ...)`` reaches the branch too."""
-
-        def _never(cmd, **kwargs):
-            raise AssertionError("gdalbuildvrt was spawned for a seam band stack")
-
-        monkeypatch.setattr(vrt_module, "run_gdal", _never)
+    def test_band_stack_dispatch_also_rewrites(self, tmp_path, monkeypatch):
+        """``build_vrt("band_stack", ...)`` reaches the rewrite too."""
+        monkeypatch.setattr(
+            vrt_module,
+            "run_gdal",
+            self._fake_gdalbuildvrt(_GDALBUILDVRT_SEAM_XML),
+        )
         sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
 
         out = build_vrt("band_stack", sources, str(tmp_path / "stack.vrt"), "finest")
@@ -643,8 +714,35 @@ class TestSeamFramingReachesTheProductionPath:
         assert _vrt_size(out) == (100, 50)
         assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
 
+    def test_missing_dstrect_fails_loudly(self, tmp_path):
+        """Editing generated XML is version-sensitive, so assert the structure.
+
+        A source with no ``DstRect`` covers the whole raster implicitly; shrinking
+        the raster underneath it would silently restretch it. Raise instead —
+        shipping a misregistered mosaic that looks fine is the one unacceptable
+        outcome.
+        """
+        vrt = tmp_path / "no_dstrect.vrt"
+        vrt.write_text(
+            '<VRTDataset rasterXSize="3600" rasterYSize="50">'
+            "<GeoTransform>-180.0, 0.1, 0.0, 5.0, 0.0, -0.1</GeoTransform>"
+            '<VRTRasterBand dataType="Byte" band="1"><SimpleSource>'
+            "<SourceFilename>w.tif</SourceFilename></SimpleSource>"
+            "</VRTRasterBand></VRTDataset>"
+        )
+
+        with pytest.raises(RuntimeError, match="expected one DstRect per source"):
+            shift_vrt_longitude_frame(str(vrt), 175.0)
+
+    def test_missing_geotransform_fails_loudly(self, tmp_path):
+        vrt = tmp_path / "no_gt.vrt"
+        vrt.write_text('<VRTDataset rasterXSize="10" rasterYSize="10" />')
+
+        with pytest.raises(RuntimeError, match="no GeoTransform"):
+            shift_vrt_longitude_frame(str(vrt), 175.0)
+
     def test_unopenable_source_is_left_to_gdalbuildvrt(self, tmp_path, monkeypatch):
-        """The predicate must never swallow a broken source's real error."""
+        """The probe must never swallow a broken source's real error."""
         calls = []
 
         def _record(cmd, **kwargs):
@@ -660,24 +758,45 @@ class TestSeamFramingReachesTheProductionPath:
 
         assert len(calls) == 1
 
-    def test_bad_resolution_strategy_still_raises_before_any_branch(self, tmp_path):
-        """The KeyError contract holds on both sides of the new branch."""
+    def test_bad_resolution_strategy_still_raises_first(self, tmp_path):
+        """The KeyError contract holds ahead of any seam work."""
         sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
 
         with pytest.raises(KeyError):
             vrt_module._build_vrt(sources, str(tmp_path / "bad.vrt"), "sharpest")
 
-    @pytest.mark.skipif(
-        shutil.which("gdalbuildvrt") is None,
-        reason="needs the real gdalbuildvrt (present in the worker image)",
-    )
-    def test_real_gdalbuildvrt_would_get_this_wrong(self, tmp_path):
-        """Pin the upstream behaviour this branch exists to route around.
 
-        Not a test of our code — a test of the premise. If a future GDAL learns
-        to fold longitudes, this fails and the branch can be reconsidered.
+@pytest.mark.skipif(
+    shutil.which("gdalbuildvrt") is None,
+    reason="needs the real gdalbuildvrt (present in the worker image)",
+)
+class TestSeamFrameRewriteAgainstRealGdal:
+    """End-to-end against whatever GDAL is installed.
+
+    Verified identical on GDAL 3.10.3 (the worker image) and 3.13.0 (local): the
+    upstream defect, the XML shape the rewrite depends on, and the corrected
+    result all match.
+    """
+
+    def _nodata_tile(self, path, *, bounds, value):
+        return _write_tif(
+            path, epsg=4326, bounds=bounds, width=50, height=50, nodata=0, fill=value
+        )
+
+    def test_upstream_still_gets_the_seam_wrong(self, tmp_path):
+        """A test of the premise, not of our code.
+
+        If a future GDAL learns to fold longitudes itself, this fails and the
+        rewrite can be reconsidered.
         """
-        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
+        sources = [
+            self._nodata_tile(
+                tmp_path / "w.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7
+            ),
+            self._nodata_tile(
+                tmp_path / "e.tif", bounds=(-180.0, 0.0, -175.0, 5.0), value=9
+            ),
+        ]
         raw = str(tmp_path / "raw.vrt")
         result = subprocess.run(
             ["gdalbuildvrt", "-resolution", "highest", raw, *sources],
@@ -689,11 +808,107 @@ class TestSeamFramingReachesTheProductionPath:
         assert _vrt_size(raw) == (3600, 50), "gdalbuildvrt folded the seam itself"
         assert _vrt_geotransform(raw)[0] == pytest.approx(-180.0)
         assert 3550 in _dst_x_offs(raw)
+        # And the structure the rewrite depends on is there.
+        assert "<DstRect" in Path(raw).read_text()
 
-        # And the same inputs through _build_vrt, with that binary on PATH.
-        out = vrt_module._build_vrt(sources, str(tmp_path / "fixed.vrt"), "finest")
-        assert _vrt_size(out) == (100, 50)
-        assert _dst_x_offs(out) == [0, 50]
+    def test_nodata_and_pixels_survive_a_seam_build(self, tmp_path):
+        """The assertion that would have caught the round-2 P1."""
+        sources = [
+            self._nodata_tile(
+                tmp_path / "w.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7
+            ),
+            self._nodata_tile(
+                tmp_path / "e.tif", bounds=(-180.0, 0.0, -175.0, 5.0), value=9
+            ),
+        ]
+
+        out = vrt_module._build_vrt(sources, str(tmp_path / "seam.vrt"), "finest")
+
+        with rasterio.open(out) as ds:
+            assert (ds.width, ds.height) == (100, 50)
+            assert ds.bounds.left == pytest.approx(175.0)
+            assert ds.bounds.right == pytest.approx(185.0)
+            assert ds.nodata == 0.0, "nodata must survive the seam build"
+            assert ds.colorinterp[0].name == "gray"
+            assert ds.mask_flag_enums[0][0].name == "nodata"
+            band = ds.read(1)
+
+        # Each tile lands on its own half, in the shifted frame.
+        assert set(band[:, :50].ravel().tolist()) == {7}
+        assert set(band[:, 50:].ravel().tolist()) == {9}
+
+    def test_overlapping_fill_does_not_obscure_valid_pixels(self, tmp_path):
+        """An all-nodata source laid last must not erase an earlier tile.
+
+        Measured on the Python-writer route this replaces: these pixels read 0.
+        """
+        sources = [
+            self._nodata_tile(
+                tmp_path / "w.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7
+            ),
+            self._nodata_tile(
+                tmp_path / "e.tif", bounds=(-180.0, 0.0, -175.0, 5.0), value=9
+            ),
+            # laid last, entirely fill, over the western tile's eastern half
+            self._nodata_tile(
+                tmp_path / "fill.tif", bounds=(177.5, 0.0, 180.0, 5.0), value=0
+            ),
+        ]
+
+        out = vrt_module._build_vrt(sources, str(tmp_path / "ov.vrt"), "finest")
+
+        with rasterio.open(out) as ds:
+            band = ds.read(1)
+            assert ds.nodata == 0.0
+        # 177.5..180 is columns 25-49 of the 100-px hull anchored at 175.
+        assert set(band[:, 25:50].ravel().tolist()) == {7}
+
+    def test_masked_sources_keep_their_mask_band(self, tmp_path):
+        sources = [
+            _write_tif(
+                tmp_path / "mw.tif",
+                epsg=4326,
+                bounds=(175.0, 0.0, 180.0, 5.0),
+                width=50,
+                height=50,
+                mask=True,
+            ),
+            _write_tif(
+                tmp_path / "me.tif",
+                epsg=4326,
+                bounds=(-180.0, 0.0, -175.0, 5.0),
+                width=50,
+                height=50,
+                mask=True,
+            ),
+        ]
+
+        out = vrt_module._build_vrt(sources, str(tmp_path / "mask.vrt"), "finest")
+
+        assert "UseMaskBand" in Path(out).read_text()
+        with rasterio.open(out) as ds:
+            assert (ds.width, ds.height) == (100, 50)
+            assert ds.mask_flag_enums[0][0].name == "per_dataset"
+
+    def test_non_crossing_build_is_byte_identical_to_plain_gdalbuildvrt(self, tmp_path):
+        """Nothing off the seam changes shape because of this PR."""
+        sources = [
+            self._nodata_tile(
+                tmp_path / "a.tif", bounds=(10.0, 0.0, 15.0, 5.0), value=7
+            ),
+            self._nodata_tile(
+                tmp_path / "b.tif", bounds=(15.0, 0.0, 20.0, 5.0), value=9
+            ),
+        ]
+        ours = vrt_module._build_vrt(sources, str(tmp_path / "ours.vrt"), "finest")
+        reference = str(tmp_path / "ref.vrt")
+        subprocess.run(
+            ["gdalbuildvrt", "-resolution", "highest", reference, *sources],
+            capture_output=True,
+            check=True,
+        )
+
+        assert Path(ours).read_bytes() == Path(reference).read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -852,8 +1067,23 @@ async def _seed_raster(
 
 
 class TestRasterTokenAcrossTheSeam:
+    """Every test here MUST take ``clean_tables``.
+
+    fix(#887): ``test_db_session`` does not roll back — the worker's database is
+    shared across the whole session and isolation is by explicit cleanup. A
+    committed two-ring extent that outlives its test breaks
+    ``test_record_translations_migration``, whose alembic round-trip downgrades
+    through ``0030_records_spatial_extent_type``; that downgrade refuses by
+    design when any ``catalog.records`` row holds a MULTIPOLYGON (#901), because
+    the narrowed column cannot store one. It surfaces as an unrelated migration
+    failure on a later test, only under ``-n`` and only when the ordering puts the
+    two on the same worker, so it reads exactly like a flake. ``clean_tables``
+    truncates ``catalog.records`` afterwards; the sibling
+    ``test_antimeridian_rollup.py`` does the same for the same reason.
+    """
+
     async def test_seam_crossing_raster_keeps_a_usable_maxzoom(
-        self, client: AsyncClient, test_db_session
+        self, client: AsyncClient, test_db_session, clean_tables
     ):
         """The reported symptom: the raster stops rendering as you zoom in.
 
@@ -878,7 +1108,7 @@ class TestRasterTokenAcrossTheSeam:
         assert data["bounds"][2] == pytest.approx(180.0)
 
     async def test_off_seam_raster_of_the_same_size_matches(
-        self, client: AsyncClient, test_db_session
+        self, client: AsyncClient, test_db_session, clean_tables
     ):
         """Negative probe: identical footprint and latitudes, moved off the seam."""
         dataset = await _seed_raster(
@@ -892,7 +1122,7 @@ class TestRasterTokenAcrossTheSeam:
         assert resp.json()["maxzoom"] == 13
 
     async def test_global_raster_token_is_unchanged(
-        self, client: AsyncClient, test_db_session
+        self, client: AsyncClient, test_db_session, clean_tables
     ):
         """A raster that really is 360° wide keeps its (honestly coarse) maxzoom."""
         dataset = await _seed_raster(

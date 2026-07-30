@@ -368,28 +368,29 @@ def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> 
     return resolve_open_path(asset_uri, tenant_id=tenant_id)
 
 
-def sources_straddle_seam(source_paths: list[str]) -> bool:
-    """True when the sources form a geographic mosaic that crosses ±180.
+def sources_seam_frame_origin(source_paths: list[str]) -> float | None:
+    """Frame origin for a geographic mosaic that crosses ±180, else ``None``.
 
     fix(#887): ``gdalbuildvrt`` has no antimeridian handling. It takes the plain
     min/max hull of the source extents, so two 5°-wide tiles either side of the
     seam come out as a 3600 x 50 px mosaic anchored at -180 with the eastern tile
     at ``dst_x_off`` 3550 -- byte-for-byte the same defect the Python writer had,
-    verified against the GDAL 3.10 in the worker image and GDAL 3.13 locally.
+    verified against the GDAL 3.10 in the worker image and GDAL 3.13 locally. The
+    ``FileNotFoundError`` fallback below never fires in a deployed worker, because
+    the image installs ``gdal-bin``, so the subprocess output is what has to be
+    corrected.
 
-    Nor can the subprocess be nudged into the right answer. ``-te 175 0 185 5``
-    sizes the mosaic correctly but places each source at its own coordinates, so
-    every source outside that window is dropped: the run exits 0 and half the
-    mosaic comes back empty, which is worse than the bug. Pre-shifting each
-    source through its own intermediate VRT would work geometrically, but those
+    Nor can the subprocess be nudged into the right answer up front.
+    ``-te 175 0 185 5`` sizes the mosaic correctly but places each source at its
+    own coordinates, so every source outside that window is dropped: the run
+    exits 0 and half the mosaic comes back empty. Pre-shifting each source
+    through its own intermediate VRT is geometrically sound, but those
     intermediates are temp files that never get stored, so ``rewrite_vrt_sources``
     (STOR-03) would leave the outer VRT pointing at paths that do not survive
     ingest.
 
-    So the seam case belongs to :func:`_write_python_vrt`, which computes the
-    mosaic geometry in a shifted frame, and this predicate is the deliberate
-    branch into it -- not the ``FileNotFoundError`` fallback, which never fires in
-    a deployed worker because the image installs ``gdal-bin``.
+    Returns ``None`` unless every source is geographic and the mosaic really
+    crosses the seam, so the ordinary build is left completely alone.
     """
     import rasterio
 
@@ -399,11 +400,101 @@ def sources_straddle_seam(source_paths: list[str]) -> bool:
                 stack.enter_context(rasterio.open(path)) for path in source_paths
             ]
             if not all(ds.crs is not None and ds.crs.is_geographic for ds in datasets):
-                return False
+                return None
             spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
-    except Exception:  # broad: a source that cannot be opened is gdalbuildvrt's error to report, with its own message — never this predicate's
-        return False
-    return _seam_frame_origin(spans) is not None
+    except Exception:  # broad: a source that cannot be opened is gdalbuildvrt's error to report, with its own message — never this probe's
+        return None
+    return _seam_frame_origin(spans)
+
+
+def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
+    """Re-anchor a built VRT's longitude frame so the seam falls inside it.
+
+    fix(#887): ``gdalbuildvrt`` gets everything about a seam-crossing mosaic
+    right except the geometry, so correct the geometry and keep the rest.
+    Rebuilding with :func:`_write_python_vrt` instead would throw the rest away
+    -- that writer emits bare ``SimpleSource`` elements with no ``NoDataValue``,
+    ``ColorInterp``, ``UseMaskBand`` or mask band, so the mosaic reads back
+    ``nodata=None`` with undefined colour interpretation and all-valid masks, and
+    ``extract_raster_metadata`` then persists a null nodata. Worse, without the
+    ``<NODATA>`` GDAL puts inside a ``ComplexSource``, an overlapping source's
+    fill pixels overwrite valid pixels from an earlier source (measured: an
+    overlap that should read 7 read 0).
+
+    Rewrites exactly three things -- ``rasterXSize``, the ``GeoTransform``
+    origin, and every ``DstRect`` ``xOff``, including the ones inside a
+    ``<MaskBand>``, which ``iter()`` reaches. Everything else is untouched, and a
+    non-crossing build is left byte-identical to plain ``gdalbuildvrt``.
+
+    Each source's own left edge is recoverable from the ``xOff`` GDAL already
+    wrote (``old_left + xOff * res_x``), so this needs no second pass over the
+    sources and no filename matching.
+
+    Editing generated XML is version-sensitive, so the structure this depends on
+    is asserted rather than assumed: GDAL 3.10.3 (worker image) and 3.13.0 both
+    emit the same root ``rasterXSize``, ``GeoTransform``, and one ``DstRect`` per
+    source. A source without a ``DstRect`` covers the whole raster implicitly, and
+    shrinking the raster underneath it would silently restretch it, so anything
+    unexpected raises here. Failing the build is the only acceptable outcome --
+    the alternative is shipping a misregistered mosaic that looks fine.
+
+    Raises:
+        RuntimeError: If the VRT lacks the geometry this correction needs.
+    """
+    from xml.etree.ElementTree import parse
+
+    tree = parse(vrt_path)
+    root = tree.getroot()
+
+    gt_node = root.find("GeoTransform")
+    if gt_node is None or not gt_node.text:
+        raise RuntimeError(
+            f"cannot correct the antimeridian frame of {vrt_path}: no GeoTransform"
+        )
+    geotransform = [float(v) for v in gt_node.text.split(",")]
+    if len(geotransform) != 6:
+        raise RuntimeError(
+            f"cannot correct the antimeridian frame of {vrt_path}: GeoTransform has "
+            f"{len(geotransform)} terms, expected 6"
+        )
+    old_left, res_x = geotransform[0], geotransform[1]
+    if res_x <= 0.0:
+        raise RuntimeError(
+            f"cannot correct the antimeridian frame of {vrt_path}: "
+            f"non-positive x resolution {res_x}"
+        )
+
+    sources = [
+        el
+        for el in root.iter()
+        if el.tag in ("SimpleSource", "ComplexSource", "AveragedSource")
+    ]
+    rects = [el.find("DstRect") for el in sources]
+    if not sources or any(rect is None for rect in rects):
+        raise RuntimeError(
+            f"cannot correct the antimeridian frame of {vrt_path}: expected one "
+            f"DstRect per source, got {sum(r is not None for r in rects)} for "
+            f"{len(sources)} source(s)"
+        )
+
+    placements = []
+    for rect in rects:
+        x_off = float(rect.get("xOff", "0"))
+        x_size = float(rect.get("xSize", "0"))
+        src_left = old_left + x_off * res_x
+        shift = 360.0 if src_left < seam_origin else 0.0
+        placements.append((rect, src_left + shift, x_size))
+
+    new_left = min(left for _, left, _ in placements)
+    new_right = max(left + size * res_x for _, left, size in placements)
+
+    root.set("rasterXSize", str(max(1, int(round((new_right - new_left) / res_x)))))
+    geotransform[0] = new_left
+    gt_node.text = ", ".join(repr(v) for v in geotransform)
+    for rect, left, _ in placements:
+        rect.set("xOff", str(int(round((left - new_left) / res_x))))
+
+    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
 
 
 def _build_vrt(
@@ -429,17 +520,10 @@ def _build_vrt(
         KeyError: If an unrecognised resolution_strategy is supplied.
     """
     gdal_res = _RES_MAP[resolution_strategy]
-    # fix(#887): the seam-crossing mosaic is the one shape gdalbuildvrt cannot
-    # express -- see sources_straddle_seam for why neither -te nor pre-shifted
-    # intermediates work. Branch before spawning it, or the normalization only
-    # ever runs on hosts that lack the GDAL CLI.
-    if sources_straddle_seam(source_paths):
-        return _write_python_vrt(
-            source_paths,
-            output_path,
-            resolution_strategy,
-            separate=separate,
-        )
+    # fix(#887): measured BEFORE the build, because a source's own bounds are the
+    # input to the frame choice; the correction itself is applied to gdalbuildvrt's
+    # output so its nodata, colour-interpretation and mask semantics survive.
+    seam_origin = sources_seam_frame_origin(source_paths)
     cmd = ["gdalbuildvrt"]
     if separate:
         cmd.append("-separate")
@@ -455,6 +539,8 @@ def _build_vrt(
         )
     if result.returncode != 0:
         raise RuntimeError(f"gdalbuildvrt failed: {result.stderr}")
+    if seam_origin is not None:
+        shift_vrt_longitude_frame(output_path, seam_origin)
     return output_path
 
 
