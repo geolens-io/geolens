@@ -52,10 +52,21 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   ``with gdal_safe_open_env():`` body passes even if a refactor later moves
   the open into a helper called from outside the block. Reviewer territory.
 - Helper credit requires the name to be bound to the canonical module by an
-  import the resolver understands (see ``_canonical_bindings``). A dotted
-  ``import app.processing.raster.vrt`` used without an alias, or a re-export
-  through an intermediate module, is NOT credited — the failure mode is a
-  spurious violation prompting a review, never silent credit for a shadow.
+  import the resolver understands, resolved through LEXICAL SCOPES
+  innermost-first (see ``_scope_info`` / ``_resolve_credit``): a scope that
+  rebinds the name (param, assignment, def, non-canonical import, loop or
+  with target) kills credit for that scope and everything nested in it. A
+  dotted ``import app.processing.raster.vrt`` used without an alias, a
+  re-export through an intermediate module, or a name both imported and
+  reassigned in one scope is NOT credited — the failure mode is a spurious
+  violation prompting a review, never silent credit for a shadow. Class
+  bodies are not modeled as scopes, and ``global``/``nonlocal``
+  rebinding is not tracked.
+- CLI credit stops at the CALL level: the function must actually call the
+  canonical ``gdal_safe_env``, but whether that call's RESULT is the env
+  passed to the subprocess is not verified. Wiring the returned dict to the
+  ``subprocess.run(env=...)`` argument is dataflow analysis — reviewer
+  territory, documented, not promised.
 """
 
 from __future__ import annotations
@@ -218,86 +229,155 @@ def _is_rasterio_call(node: ast.Call, attr: str) -> bool:
     return isinstance(base, ast.Name) and ("rasterio" in base.id or base.id == "rio")
 
 
-def _canonical_bindings(
-    rel: str, tree: ast.Module
-) -> tuple[dict[str, set[str]], set[str]]:
-    """Resolve which local names are bound to the canonical helpers.
+# Sentinel keys for the two credit kinds a name can carry.
+_KIND_OPEN = SAFE_OPEN_ENV_HELPER
+_KIND_ENV = SAFE_SUBPROCESS_ENV_HELPER
+_KIND_MODALIAS = "__vrt_module_alias__"
 
-    Returns (helper_names, module_aliases): ``helper_names`` maps each helper
-    to the set of local names that resolve to its canonical definition;
-    ``module_aliases`` is the set of local names bound to the canonical vrt
-    module itself (for ``vrt.gdal_safe_open_env()``-style access).
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
-    codex round 3 on #974: a tail-name match credited local shadows and
-    unrelated attribute calls. Credit now requires one of:
-    - the module IS the canonical module and defines the helper at top level;
-    - ``from app.processing.raster.vrt import <helper> [as alias]``;
-    - an attribute access on a name bound by
-      ``from app.processing.raster import vrt [as alias]`` or
-      ``import app.processing.raster.vrt as alias``.
-    """
-    helper_names: dict[str, set[str]] = {
-        SAFE_OPEN_ENV_HELPER: set(),
-        SAFE_SUBPROCESS_ENV_HELPER: set(),
-    }
-    module_aliases: set[str] = set()
 
-    if rel == CANONICAL_HELPER_MODULE_REL:
-        for stmt in tree.body:
-            if (
-                isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and stmt.name in helper_names
-            ):
-                helper_names[stmt.name].add(stmt.name)
+class _ScopeInfo:
+    """Immediate-scope bindings for one function (or the module).
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            if node.module.endswith(CANONICAL_HELPER_MODULE_SUFFIX):
-                for alias in node.names:
-                    if alias.name in helper_names:
-                        helper_names[alias.name].add(alias.asname or alias.name)
-            elif node.module.endswith("processing.raster"):
-                for alias in node.names:
-                    if alias.name == "vrt":
-                        module_aliases.add(alias.asname or "vrt")
-        elif isinstance(node, ast.Import):
+    ``canonical`` maps credit kind -> local names bound to the canonical
+    helper/module BY THIS SCOPE'S OWN imports. ``bound`` is every other name
+    this scope binds locally (params, assignments, defs, non-canonical
+    imports, loop/with targets) — a binding here shadows any outer canonical
+    name for the whole scope (codex round 4 on #974: module-wide alias
+    collection let one function's import credit another function that had
+    rebound the same name)."""
+
+    def __init__(self) -> None:
+        self.canonical: dict[str, set[str]] = {
+            _KIND_OPEN: set(),
+            _KIND_ENV: set(),
+            _KIND_MODALIAS: set(),
+        }
+        self.bound: set[str] = set()
+
+
+def _record_import(info: _ScopeInfo, node: ast.AST) -> None:
+    if isinstance(node, ast.ImportFrom) and node.module:
+        if node.module.endswith(CANONICAL_HELPER_MODULE_SUFFIX):
             for alias in node.names:
-                if alias.name.endswith(CANONICAL_HELPER_MODULE_SUFFIX) and alias.asname:
-                    module_aliases.add(alias.asname)
+                if alias.name in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER):
+                    info.canonical[alias.name].add(alias.asname or alias.name)
+                else:
+                    info.bound.add(alias.asname or alias.name)
+        elif node.module.endswith("processing.raster"):
+            for alias in node.names:
+                if alias.name == "vrt":
+                    info.canonical[_KIND_MODALIAS].add(alias.asname or "vrt")
+                else:
+                    info.bound.add(alias.asname or alias.name)
+        else:
+            for alias in node.names:
+                info.bound.add(alias.asname or (alias.name.split(".")[0]))
+    elif isinstance(node, ast.Import):
+        for alias in node.names:
+            if alias.name.endswith(CANONICAL_HELPER_MODULE_SUFFIX) and alias.asname:
+                info.canonical[_KIND_MODALIAS].add(alias.asname)
+            else:
+                info.bound.add(alias.asname or alias.name.split(".")[0])
 
-    return helper_names, module_aliases
+
+def _iter_immediate(node: ast.AST):
+    """Yield descendants of ``node`` without entering nested scopes; nested
+    scope NODES themselves are yielded (their names bind in this scope)."""
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if not isinstance(child, (*_SCOPE_NODES, ast.ClassDef)):
+            yield from _iter_immediate(child)
 
 
-def _is_canonical_helper_call(
-    expr: ast.expr,
-    helper: str,
-    helper_names: dict[str, set[str]],
-    module_aliases: set[str],
-) -> bool:
+def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
+    cached = getattr(scope, "_rule2_scope_info", None)
+    if cached is not None:
+        return cached
+    info = _ScopeInfo()
+
+    if isinstance(scope, _SCOPE_NODES):
+        args = scope.args
+        for a in (
+            *args.posonlyargs,
+            *args.args,
+            *args.kwonlyargs,
+            *([args.vararg] if args.vararg else []),
+            *([args.kwarg] if args.kwarg else []),
+        ):
+            info.bound.add(a.arg)
+
+    if isinstance(scope, ast.Module) and rel == CANONICAL_HELPER_MODULE_REL:
+        for stmt in scope.body:
+            if isinstance(
+                stmt, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ) and stmt.name in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER):
+                info.canonical[stmt.name].add(stmt.name)
+
+    for node in _iter_immediate(scope):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            _record_import(info, node)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if not (
+                isinstance(scope, ast.Module)
+                and rel == CANONICAL_HELPER_MODULE_REL
+                and node.name in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER)
+            ):
+                info.bound.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            info.bound.add(node.id)
+
+    # A name both canonically imported AND Store-rebound in the same scope
+    # is ambiguous without order analysis — demote it (bound kills credit),
+    # keeping the conservative failure direction.
+    for kind_set in info.canonical.values():
+        kind_set -= info.bound
+
+    scope._rule2_scope_info = info  # type: ignore[attr-defined]
+    return info
+
+
+def _resolve_credit(name: str, kind: str, usage: ast.AST, rel: str) -> bool:
+    """True when ``name`` at ``usage`` resolves to a canonical binding.
+
+    Walks lexical scopes innermost-first (codex round 4): a scope whose own
+    import binds the name canonically grants credit; a scope that rebinds it
+    any other way kills credit; otherwise resolution continues outward to
+    the module scope.
+    """
+    current = getattr(usage, "_rule2_parent", None)
+    while current is not None:
+        if isinstance(current, (*_SCOPE_NODES, ast.Module)):
+            info = _scope_info(current, rel)
+            if name in info.canonical[kind]:
+                return True
+            if name in info.bound:
+                return False
+        current = getattr(current, "_rule2_parent", None)
+    return False
+
+
+def _is_canonical_helper_call(expr: ast.expr, helper: str, rel: str) -> bool:
     if not isinstance(expr, ast.Call):
         return False
     func = expr.func
     if isinstance(func, ast.Name):
-        return func.id in helper_names[helper]
+        return _resolve_credit(func.id, helper, func, rel)
     if isinstance(func, ast.Attribute) and func.attr == helper:
-        return isinstance(func.value, ast.Name) and func.value.id in module_aliases
+        return isinstance(func.value, ast.Name) and _resolve_credit(
+            func.value.id, _KIND_MODALIAS, func, rel
+        )
     return False
 
 
-def _inside_safe_open_env(
-    node: ast.AST,
-    helper_names: dict[str, set[str]],
-    module_aliases: set[str],
-) -> bool:
+def _inside_safe_open_env(node: ast.AST, rel: str) -> bool:
     current = node
     while current is not None:
         if isinstance(current, (ast.With, ast.AsyncWith)):
             for item in current.items:
                 if _is_canonical_helper_call(
-                    item.context_expr,
-                    SAFE_OPEN_ENV_HELPER,
-                    helper_names,
-                    module_aliases,
+                    item.context_expr, SAFE_OPEN_ENV_HELPER, rel
                 ):
                     return True
         current = getattr(current, "_rule2_parent", None)
@@ -315,24 +395,17 @@ def _enclosing_function_node(
     return None
 
 
-def _scope_uses_safe_env(
-    root: ast.AST,
-    helper_names: dict[str, set[str]],
-    module_aliases: set[str],
-) -> bool:
-    """True when the scope references a name BOUND to the canonical
-    gdal_safe_env (codex round 3: tail-name matching credited shadows)."""
+def _scope_uses_safe_env(root: ast.AST, rel: str) -> bool:
+    """True when the scope CALLS the canonical gdal_safe_env.
+
+    codex round 4 on #974: a bare Name reference (assignment, log line, dead
+    code) credited the scope while the subprocess ran with a hand-rolled
+    env. Credit now requires an actual Call whose target resolves to the
+    canonical binding. Whether the call's RESULT is the env handed to the
+    subprocess is not verified — Call-level is the documented stop."""
     for node in ast.walk(root):
-        if (
-            isinstance(node, ast.Name)
-            and node.id in helper_names[SAFE_SUBPROCESS_ENV_HELPER]
-        ):
-            return True
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr == SAFE_SUBPROCESS_ENV_HELPER
-            and isinstance(node.value, ast.Name)
-            and node.value.id in module_aliases
+        if isinstance(node, ast.Call) and _is_canonical_helper_call(
+            node, SAFE_SUBPROCESS_ENV_HELPER, rel
         ):
             return True
     return False
@@ -384,14 +457,13 @@ def _collect_rasterio_violations(
 
     for rel, tree in modules:
         _annotate_parents(tree)
-        helper_names, module_aliases = _canonical_bindings(rel, tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             if _is_rasterio_call(node, "open"):
                 total_open_calls += 1
                 site = (rel, _enclosing_function(node))
-                if _inside_safe_open_env(node, helper_names, module_aliases):
+                if _inside_safe_open_env(node, rel):
                     continue
                 unwrapped_counts[site] = unwrapped_counts.get(site, 0) + 1
                 unwrapped_lines.setdefault(site, []).append(node.lineno)
@@ -469,7 +541,6 @@ def _collect_gdal_cli_violations(
 
     for rel, tree in modules:
         _annotate_parents(tree)
-        helper_names, module_aliases = _canonical_bindings(rel, tree)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.List) and node.elts):
                 continue
@@ -480,7 +551,7 @@ def _collect_gdal_cli_violations(
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
             scope: ast.AST = func_node if func_node is not None else tree
-            if _scope_uses_safe_env(scope, helper_names, module_aliases):
+            if _scope_uses_safe_env(scope, rel):
                 continue
             key = (rel, func_name, first.value)
             unsafe_counts[key] = unsafe_counts.get(key, 0) + 1
@@ -686,6 +757,51 @@ def test_guard_shadowed_cli_helper_gets_no_credit():
         {},
     )
     assert len(violations) == 1 and "runs" in violations[0]
+
+
+def test_guard_scope_shadow_kills_credit_only_where_shadowed():
+    """codex round 4: a module-level canonical alias must not credit a
+    function that REBINDS the same name locally, while the clean sibling
+    function keeps its credit."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env as guard\n"
+            "def clean(path):\n"
+            "    with guard():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+            "def shadowed(path, fake):\n"
+            "    guard = fake\n"
+            "    with guard():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "shadowed" in violations[0]
+
+
+def test_guard_cli_reference_without_call_gets_no_credit():
+    """codex round 4: a bare reference to gdal_safe_env (assignment, log
+    line, dead code) must not credit an unclamped argv; an actual call to
+    the canonical binding must."""
+    violations, _ = _collect_gdal_cli_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def mentions_only(url):\n"
+            "    helper = gdal_safe_env\n"
+            "    return ['ogrinfo', '-json', url], helper\n"
+            "def actually_calls(url):\n"
+            "    env = gdal_safe_env()\n"
+            "    return ['ogrinfo', '-json', url], env\n"
+        ),
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "mentions_only" in violations[0]
 
 
 def test_guard_blank_justification_fails():
