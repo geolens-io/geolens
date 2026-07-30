@@ -520,9 +520,7 @@ class TestResourceAmplificationRejected:
             "SELECT STRING_AGG(name, ',') FROM data.cities",
             "SELECT JSON_AGG(name) FROM data.cities",
             "SELECT JSONB_AGG(name) FROM data.cities",
-            # fix(#935): unary ST_Collect is now admitted (cheap concatenation
-            # required by the canonical geodesic buffer); unary ST_Union — the
-            # superlinear dissolve — stays rejected.
+            "SELECT ST_Collect(geom_4326) FROM data.cities",
             "SELECT ST_Union(geom_4326) FROM data.cities",
             "SELECT UNNEST(tags) FROM data.cities",
             "SELECT JSONB_OBJECT_KEYS(properties) FROM data.cities",
@@ -531,8 +529,23 @@ class TestResourceAmplificationRejected:
     def test_rejects_unbounded_collection_builders(self, sql):
         _assert_rejects(sql)
 
-    def test_allows_unary_st_collect(self):
-        """fix(#935): the mandated geodesic buffer expression re-collects a
-        per-row dump with an aggregate ST_Collect; its memory is bounded by
-        geometry the query already reads."""
-        validate_sql("SELECT ST_Collect(geom_4326) FROM data.cities")
+    def test_rejects_table_scanning_unary_st_collect_however_aliased(self):
+        """fix(#935 codex r2): the unary ST_Collect exception is scoped to the
+        canonical buffer's table-free re-collect. Hiding the table scan one
+        derived level down (or borrowing the canonical alias names) must not
+        slip past."""
+        _assert_rejects(
+            "SELECT (SELECT ST_Collect(_pb_p.p) FROM "
+            "(SELECT geom_4326 AS p FROM data.cities) AS _pb_p) AS blob"
+        )
+
+    def test_rejects_tiny_or_dynamic_segmentize_length(self):
+        """fix(#935 codex r2): ST_Segmentize's max-edge argument controls
+        vertex amplification; only large numeric literals pass."""
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, 1e-100) FROM data.cities")
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, population) FROM data.cities")
+
+    def test_allows_canonical_scale_segmentize(self):
+        validate_sql(
+            "SELECT ST_Segmentize(geom_4326::geography, 20000) FROM data.cities LIMIT 5"
+        )

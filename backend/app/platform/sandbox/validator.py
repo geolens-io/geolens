@@ -364,6 +364,24 @@ def _canonical_band_series_shapes() -> frozenset[str]:
     return _canonical_series_cache
 
 
+def _select_subtree_scans_a_table(func: exp.Func) -> bool:
+    """True when the function's nearest enclosing SELECT reads any table.
+
+    fix(#935 codex r2): scopes the unary ``ST_Collect`` exception to the
+    canonical geodesic buffer shape without brittle text matching. In that
+    expression the aggregate re-collects a dump of ONE fenced row geometry —
+    its enclosing SELECT's whole subtree contains derived subqueries only,
+    never a table — so its memory is bounded by geometry the outer query
+    already reads. A collect whose enclosing SELECT (including nested derived
+    tables) scans a real table aggregates unbounded rows and stays rejected,
+    however it is aliased.
+    """
+    sel = func.find_ancestor(exp.Select)
+    if sel is None:
+        return True  # fail closed: no recognizable scope
+    return any(True for _ in sel.find_all(exp.Table))
+
+
 def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
     """Reject function arguments that can amplify a one-row query into a DoS."""
     # fix(#935): generate_series is admitted ONLY in the exact bounded form
@@ -374,16 +392,42 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
         if _normalized_func_sql(func) not in _canonical_band_series_shapes():
             logger.info("sandbox.non_canonical_generate_series", sql=sql)
             raise SandboxError("invalid_query", "Query uses a disallowed row generator")
-    # fix(#935): unary ST_Collect is admitted — the mandated geodesic buffer
-    # expression aggregates a per-row dump back together, and ST_Collect is
-    # cheap concatenation whose memory is bounded by the geometry the query
-    # already reads (unlike unary ST_Union, which dissolves — superlinear in
-    # input complexity — and stays rejected).
+    # fix(#935 codex r2): ST_Segmentize's max-edge argument controls vertex
+    # amplification — a tiny or dynamic length manufactures an enormous
+    # vertex count before any outer LIMIT applies. Require a numeric literal
+    # of at least 1000 (the canonical buffer uses 20 000 metres; 1000 in any
+    # unit the sandbox serves cannot amplify).
+    if fn_name == "st_segmentize":
+        length = func.expressions[1] if len(func.expressions) > 1 else None
+        segmentize_ok = (
+            isinstance(length, exp.Literal)
+            and length.is_number
+            and float(length.this) >= 1000
+        )
+        if not segmentize_ok:
+            logger.info("sandbox.unbounded_segmentize", sql=sql)
+            raise SandboxError(
+                "invalid_query", "Query uses an unbounded geometry complexity option"
+            )
+
+    # Unary spatial aggregates. Unary ST_Union (the superlinear dissolve) is
+    # always rejected. fix(#935 codex r2): unary ST_Collect is admitted only
+    # when its enclosing SELECT scans no table — the canonical geodesic
+    # buffer's re-collect of a single fenced row geometry — so a whole-table
+    # ST_Collect(geom) stays rejected however it is nested or aliased.
     if fn_name == "st_union" and len(func.expressions) < 2:
         logger.info("sandbox.unbounded_spatial_aggregate", sql=sql, function=fn_name)
         raise SandboxError(
             "invalid_query", "Query uses an unbounded collection aggregate"
         )
+    if fn_name == "st_collect" and len(func.expressions) < 2:
+        if _select_subtree_scans_a_table(func):
+            logger.info(
+                "sandbox.unbounded_spatial_aggregate", sql=sql, function=fn_name
+            )
+            raise SandboxError(
+                "invalid_query", "Query uses an unbounded collection aggregate"
+            )
 
     if fn_name == "st_buffer" and len(func.expressions) > 2:
         logger.info("sandbox.custom_buffer_segments", sql=sql)
