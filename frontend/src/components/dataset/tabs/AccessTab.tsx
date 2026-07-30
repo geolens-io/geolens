@@ -2,11 +2,21 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Copy, Check } from 'lucide-react';
+import { toast } from 'sonner';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
-import type { DatasetResponse } from '@/types/api';
+import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
+import type { DatasetResponse, DatasetVisibility } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { formatMutationError } from '@/lib/error-map';
 import { visibilityColors } from '@/lib/status-colors';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { getVisibilityLabel } from '@/i18n/labels';
@@ -27,7 +37,18 @@ type SnippetTab = 'curl' | 'python' | 'qgis';
 
 interface AccessTabProps {
   dataset: DatasetResponse;
+  /** Owner-or-admin editor: mirrors the backend `check_dataset_write_access`.
+   * Everyone else keeps the read-only visibility badge. */
+  canEdit?: boolean;
 }
+
+/** fix(#927): the visibility values this control can move a dataset TO.
+ * `restricted` is not one: a non-admin owner who picked it lost access to
+ * their own dataset, and grants have no write path (#929). `internal` arrives
+ * with #930, once its backend branches exist. A dataset already stored as
+ * either still displays its own value (see below) — a one-way exit, never a
+ * silent coercion to something the user did not pick. */
+const SELECTABLE_VISIBILITIES = ['private', 'public'] as const;
 
 /** Copy text to clipboard with textarea fallback for non-HTTPS contexts. */
 async function copyText(value: string): Promise<void> {
@@ -211,9 +232,30 @@ function ApiSnippet({
   );
 }
 
-export function AccessTab({ dataset }: AccessTabProps) {
+export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
   const { t } = useTranslation('dataset');
   const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
+  const updateDataset = useUpdateDataset();
+  const isLegacyVisibility = !SELECTABLE_VISIBILITIES.includes(
+    dataset.visibility as (typeof SELECTABLE_VISIBILITIES)[number],
+  );
+
+  function handleVisibilityChange(value: string) {
+    if (value === dataset.visibility) return;
+    updateDataset.mutate(
+      { datasetId: dataset.id, data: { visibility: value as DatasetVisibility } },
+      {
+        onSuccess: () => toast.success(t('metadataEdit.visibilityUpdated')),
+        // fix(#927): moving a dataset away from public while a public map uses
+        // it is a 422 from `_apply_visibility_change`. This control is the
+        // first UI that can trigger it, so the message has to reach the user
+        // rather than leaving the select silently snapping back (#931 owns
+        // turning that prose into its own localized message).
+        onError: (err) =>
+          toast.error(formatMutationError('dataset:metadataEdit.visibilityFailed', err)),
+      },
+    );
+  }
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
 
@@ -274,15 +316,45 @@ export function AccessTab({ dataset }: AccessTabProps) {
             <span className="text-sm font-medium text-muted-foreground">
               {t('metadata.visibility')}:
             </span>
-            <Badge
-              className={
-                visibilityColors[dataset.visibility] ??
-                'bg-muted text-muted-foreground border-border'
-              }
-            >
-              <VisibilityIcon visibility={dataset.visibility} withLabel={false} />
-              <span className="ms-1">{getVisibilityLabel(t, dataset.visibility)}</span>
-            </Badge>
+            {canEdit ? (
+              <Select
+                value={dataset.visibility}
+                onValueChange={handleVisibilityChange}
+                disabled={updateDataset.isPending}
+              >
+                <SelectTrigger
+                  className="w-auto min-w-[160px]"
+                  aria-label={t('metadataEdit.visibility')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* fix(#927): a stored `restricted` (or, until #930, `internal`)
+                      dataset keeps showing what it actually is — offered as the
+                      current value only, never as a move. */}
+                  {isLegacyVisibility && (
+                    <SelectItem value={dataset.visibility} disabled>
+                      {getVisibilityLabel(t, dataset.visibility)}
+                    </SelectItem>
+                  )}
+                  {SELECTABLE_VISIBILITIES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {getVisibilityLabel(t, value)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Badge
+                className={
+                  visibilityColors[dataset.visibility] ??
+                  'bg-muted text-muted-foreground border-border'
+                }
+              >
+                <VisibilityIcon visibility={dataset.visibility} withLabel={false} />
+                <span className="ms-1">{getVisibilityLabel(t, dataset.visibility)}</span>
+              </Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-2">
             {t('metadataEdit.visibilityHelp')}
