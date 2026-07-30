@@ -1099,7 +1099,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
     # fix(#929 review): -22 — _resolve_raster_access's inline RBAC mirror
     # replaced with delegation to the permission extension via the port.
-    "backend/app/processing/tiles/router.py": 2046,
+    # fix(#939): +23 — the degrees-vs-metres decision in
+    # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
+    # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
+    # documented at the site. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2069,
 }
 
 
