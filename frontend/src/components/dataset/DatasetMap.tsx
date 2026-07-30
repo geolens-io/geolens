@@ -703,6 +703,12 @@ export const DatasetMap = memo(function DatasetMap({
             fireReadyOnce(false);
             return;
           }
+          // fix(#907): a 401/403 lost to the tab-return refresh race is not a
+          // broken source — the post-rotation reload retries it moments later,
+          // and this listener is independent of the auth handler above, so
+          // without this it still latched the permanent error overlay that the
+          // reload cannot clear.
+          if ((status === 401 || status === 403) && isSessionRenewalPending()) return;
           if (e.error?.message?.includes('raster-tile-source') ||
               e.error?.message?.includes('Error: HTTP') ||
               status === 404 ||
