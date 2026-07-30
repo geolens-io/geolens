@@ -512,18 +512,27 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     """
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
+    # fix(#939 codex r8): every structural search below runs on a
+    # LENGTH-PRESERVING copy whose quoted names are blanked to spaces, so an
+    # axis or CRS name containing "CS[" (or SOURCECRS/TARGETCRS) cannot fake
+    # a marker. The UNIT factor pattern still matches on the blanked text —
+    # the name becomes spaces between real quotes and the factor sits outside
+    # the quotes untouched.
+    blanked = re.sub(
+        r'"[^"]*"', lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', crs_wkt
+    )
     # fix(#939 codex r5/r6): a BOUNDCRS binds a SOURCECRS to a TARGETCRS,
     # and the stored resolutions are expressed in the SOURCE. Everything the
     # target declares — its PRIMEM's degree unit sits BEFORE its own CS, so
     # a next-CS boundary alone is not enough — must be outside the scan.
     # Restrict the scope to the SOURCECRS..TARGETCRS window first, then to
     # the first coordinate-system section within it.
-    scope = crs_wkt
-    upper = crs_wkt.upper()
+    scope = blanked
+    upper = blanked.upper()
     src_at = upper.find("SOURCECRS[")
     if src_at != -1:
         tgt_at = upper.find("TARGETCRS[", src_at)
-        scope = crs_wkt[src_at : tgt_at if tgt_at != -1 else len(crs_wkt)]
+        scope = blanked[src_at : tgt_at if tgt_at != -1 else len(blanked)]
     target = scope
     cs_match = _WKT2_CS_RE.search(scope)
     if cs_match is not None:

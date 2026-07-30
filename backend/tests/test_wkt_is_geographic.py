@@ -91,6 +91,19 @@ def test_wkt2_grads_axes_with_degree_prime_meridian_are_not_degrees():
     assert wkt_has_degree_unit(wkt) is False
 
 
+def test_quoted_cs_marker_in_an_axis_name_does_not_move_the_window():
+    # fix(#939 codex r8): a quoted axis name containing "CS[" must not be
+    # read as a WKT2 coordinate-system marker — WKT1 puts UNIT before AXIS,
+    # so a fake marker would slice the real degree factor out of the window.
+    wkt = (
+        'GEOGCS["WGS 84",DATUM["WGS_1984",'
+        'SPHEROID["WGS 84",6378137,298.257223563]],'
+        'UNIT["degree",0.0174532925199433],'
+        'AXIS["Latitude CS[ legacy",NORTH],AXIS["Longitude",EAST]]'
+    )
+    assert wkt_has_degree_unit(wkt) is True
+
+
 def test_custom_degree_name_is_matched_by_conversion_factor():
     # fix(#939 codex r7): WKT unit semantics live in the radians-per-unit
     # factor, not the name; rasterio preserves valid custom names.
