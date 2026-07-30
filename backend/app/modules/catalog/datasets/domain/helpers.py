@@ -20,7 +20,7 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.core.geo import extent_to_bbox, wkt_is_geographic
+from app.core.geo import extent_to_span_bbox, wkt_is_geographic
 
 
 async def _load_actor_identities(
@@ -174,7 +174,14 @@ def dataset_to_response(
         n_dims=dataset.n_dims,
         z_min=dataset.z_min,
         z_max=dataset.z_max,
-        extent_bbox=extent_to_bbox(record.spatial_extent),
+        # fix(#892 codex P2): the SPAN, not the RFC 7946 spec bbox. This field is
+        # documented as "[minx, miny, maxx, maxy]" and its consumers are map
+        # viewers, not a standards serializer: DatasetMap draws an unguarded
+        # planar ring from it and calls fitBounds, so a west > east pair would
+        # paint the complementary 340° and hand MapLibre an inverted camera.
+        # The spec form is served where the spec demands it (STAC/OGC record
+        # bbox via extract_bbox, OGC collection extents), not here.
+        extent_bbox=extent_to_span_bbox(record.spatial_extent),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,

@@ -2437,12 +2437,12 @@ class TestBufferAtDateline:
         # matches a bbox on the far side of the world.
         assert row.hits_france is False
 
-        # The registered extent must still satisfy the geometry(Polygon,4326)
-        # column, and stay finite. It is legitimately -180..180 here: the
-        # split parts really do touch both edges, and that column cannot hold
-        # the west > east bbox RFC 7946 § 5.2 uses for crossing extents. That
-        # representation gap is pre-existing and shared with directly ingested
-        # Fiji-area data — pinned, not fixed, by this test.
+        # The registered extent is still a single POLYGON and stays finite. It
+        # is -180..180 here because the split parts really do touch both edges
+        # and this writer folds them with ST_Extent. fix(#892) widened the
+        # column so a two-ring MULTIPOLYGON — and therefore the RFC 7946 § 5.2
+        # west > east bbox — is now storable, but teaching the analysis extent
+        # rollup to emit one is the separate follow-up; pinned, not fixed, here.
         extent = (
             await test_db_session.execute(
                 text(

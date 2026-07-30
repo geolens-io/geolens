@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_WRITE
 
+from app.core.geo import bbox_to_extent_wkt
 from app.core.url_redaction import has_url_credentials, redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
@@ -544,8 +545,14 @@ async def stac_import(
                 spatial_extent = None
                 if item.bbox and len(item.bbox) >= 4:
                     w, s, e, n = item.bbox[:4]
-                    wkt = f"POLYGON(({w} {s},{e} {s},{e} {n},{w} {n},{w} {s}))"
-                    spatial_extent = func.ST_GeomFromText(wkt, 4326)
+                    # fix(#884): RFC 7946 §5.2 mandates west > east for a bbox
+                    # that crosses the antimeridian, so a remote [170,-20,-170,-15]
+                    # used to build a ring spanning longitude -170..170 -- the
+                    # complementary 340°, which does not even contain the data.
+                    # bbox_to_extent_wkt splits those at ±180.
+                    spatial_extent = func.ST_GeomFromText(
+                        bbox_to_extent_wkt(w, s, e, n), 4326
+                    )
 
                 record = Record(
                     title=item.title,

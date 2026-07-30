@@ -279,15 +279,20 @@ def _spatial_to_dcat_us3(record: Record) -> dict | None:
     if record.spatial_extent is None:
         return None
 
-    try:
-        from geoalchemy2.shape import to_shape
+    from app.core.geo import extent_to_span_bbox
 
-        min_x, min_y, max_x, max_y = to_shape(record.spatial_extent).bounds
-    except Exception:  # broad: DCAT-US bbox serialize degrades to absent spatial
+    # fix(#892): the bbox below is a planar WKT ring, which cannot express
+    # RFC 7946's west > east crossing bbox -- a ring built from one silently
+    # becomes the complementary 340°. Take the monotonic span, so a seam-crossing
+    # extent serializes over-broad (-180..180) but honest. extent_to_span_bbox
+    # swallows geoalchemy/shapely parse failures and returns None (no spatial).
+    bounds = extent_to_span_bbox(record.spatial_extent)
+    if bounds is None:
         logger.debug(
             "DCAT-US spatial extent serialization failed", record_id=str(record.id)
         )
         return None
+    min_x, min_y, max_x, max_y = bounds
 
     return {
         "@type": "Location",
