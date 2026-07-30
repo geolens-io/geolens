@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { TileToken } from '@/api/tiles';
 import { useAuthStore } from '@/stores/auth-store';
+import { tryRefresh } from '@/api/client';
 
 // fix(#621): one re-mint per cooldown window bounds the retry loop — MapLibre
 // can fire dozens of tile errors per pan, and a mint that just failed will not
@@ -125,22 +126,31 @@ export function hasExpiringSession(
 export function useVisibleTileTokenRefresh(
   getTokens: () => Iterable<TileToken | null | undefined>,
   recover: (trigger?: string) => boolean,
+  onCredentialRenewed?: () => void,
 ): void {
   const getTokensRef = useRef(getTokens);
   getTokensRef.current = getTokens;
+  const onCredentialRenewedRef = useRef(onCredentialRenewed);
+  onCredentialRenewedRef.current = onCredentialRenewed;
 
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
-      // fix(#907): the session JWT counts too. The re-mint routes through
-      // apiFetch, whose proactive refresh writes a fresh token into the store
-      // the raster Bearer header reads — so invalidating a raster-only map's
-      // token query is exactly what renews its tile credential.
-      if (
-        !hasExpiringVectorToken(getTokensRef.current()) &&
-        !hasExpiringSession(useAuthStore.getState().expiresAt)
-      ) {
-        return;
+      // fix(#907): the session JWT counts too. Raster/DEM tiles authenticate
+      // with it through `buildTileTransformRequest`'s Authorization header,
+      // not a signed sig, so `hasExpiringVectorToken` can never see their
+      // credential expire and a raster-only map had nothing to trigger on.
+      const sessionExpiring = hasExpiringSession(useAuthStore.getState().expiresAt);
+      if (!hasExpiringVectorToken(getTokensRef.current()) && !sessionExpiring) return;
+      if (sessionExpiring) {
+        // fix(#907) (codex P1): renewing the credential is not enough on its
+        // own — MapLibre resumes its fetches as soon as the tab is visible and
+        // races the refresh, and a raster descriptor does not change across
+        // one, so nothing in the token→setTiles plumbing retries the tiles that
+        // 401'd. Wait for the renewal, then reload them explicitly. `recover`'s
+        // own mint collapses into this same refresh (the module-level in-flight
+        // singleton in api/client.ts), so this costs no extra request.
+        void tryRefresh().then(() => onCredentialRenewedRef.current?.());
       }
       recover('tab-return');
     };

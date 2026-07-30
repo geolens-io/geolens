@@ -204,3 +204,46 @@ export function buildClusterTileUrl(
     ...(cols ? { cols } : {}),
   });
 }
+
+/**
+ * fix(#907): reload every raster/DEM source's tiles after the session JWT has
+ * been renewed.
+ *
+ * Renewing the credential is not enough on its own. MapLibre resumes its own
+ * tile fetches the moment the tab is visible, which races the refresh round
+ * trip, so some raster requests still go out with the old Bearer and 401. A
+ * raster descriptor does not change across a refresh (its `tile_url` is stable
+ * and auth rides the Authorization header), so nothing in the token→setTiles
+ * plumbing fires and those errored tiles are never retried — the map keeps the
+ * holes until the user pans.
+ *
+ * `refreshTiles` is MapLibre's own reload-in-place API (the same one #584 uses
+ * to survive a paused TileManager) and needs no URL change, so this is
+ * idempotent and safe to call when nothing failed.
+ */
+export function refreshRasterTileSources(map: MaplibreMapLike | null | undefined): number {
+  if (!map) return 0;
+  let sources: Record<string, { type?: string }> | undefined;
+  try {
+    sources = map.getStyle?.()?.sources as Record<string, { type?: string }> | undefined;
+  } catch {
+    return 0; // style torn down mid-refresh
+  }
+  let refreshed = 0;
+  for (const [sourceId, source] of Object.entries(sources ?? {})) {
+    if (source?.type !== 'raster' && source?.type !== 'raster-dem') continue;
+    try {
+      map.refreshTiles?.(sourceId);
+      refreshed += 1;
+    } catch {
+      /* source removed between the read and the refresh */
+    }
+  }
+  return refreshed;
+}
+
+/** The structural subset of the MapLibre map that `refreshRasterTileSources` uses. */
+export interface MaplibreMapLike {
+  getStyle?: () => { sources?: Record<string, unknown> } | undefined;
+  refreshTiles?: (sourceId: string) => void;
+}

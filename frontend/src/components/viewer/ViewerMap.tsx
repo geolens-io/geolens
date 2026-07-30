@@ -11,7 +11,7 @@ import {
   resolveBasemapId,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
@@ -198,7 +198,9 @@ export const ViewerMap = memo(function ViewerMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => tokenMap.values(), recoverTileAuth);
+  useVisibleTileTokenRefresh(() => tokenMap.values(), recoverTileAuth, () =>
+    refreshRasterTileSources(mapRef.current),
+  );
 
   // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
   // visibility is handled inside the hook (HT-12); this covers the client-side

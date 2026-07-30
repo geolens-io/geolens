@@ -36,7 +36,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
-import { buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
 
@@ -179,7 +179,9 @@ export const DatasetMap = memo(function DatasetMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth);
+  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth, () =>
+    refreshRasterTileSources(mapRef.current),
+  );
   // fix(#890): `url` is read to tell a raster/DEM auth failure (unrecoverable)
   // from a vector one (re-mintable).
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number; url?: string } }) => void) | null>(null);

@@ -7,6 +7,9 @@ import {
 } from '@/hooks/use-tile-auth-recovery';
 import type { TileToken } from '@/api/tiles';
 import { useAuthStore } from '@/stores/auth-store';
+import { tryRefresh } from '@/api/client';
+
+vi.mock('@/api/client', () => ({ tryRefresh: vi.fn(async () => true) }));
 
 // fix(#621): one re-mint per cooldown window — MapLibre can fire dozens of
 // tile errors per pan, and hammering the mint endpoint cannot help. Errors in
@@ -223,6 +226,8 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
   afterEach(() => {
     setVisibility('visible');
     useAuthStore.setState({ expiresAt: null });
+    vi.mocked(tryRefresh).mockReset();
+    vi.mocked(tryRefresh).mockResolvedValue(true);
     vi.restoreAllMocks();
   });
 
@@ -357,6 +362,50 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     document.dispatchEvent(new Event('visibilitychange'));
 
     expect(recover).not.toHaveBeenCalled();
+  });
+
+  // fix(#907) (codex P1): renewing the credential does not retry the raster
+  // tiles that already 401'd — MapLibre resumes its fetches the moment the tab
+  // is visible and races the refresh, and a raster descriptor is unchanged
+  // across one, so nothing in the token→setTiles plumbing reloads them.
+  it('reloads raster sources AFTER the credential renewal resolves', async () => {
+    const recover = vi.fn(() => true);
+    const onCredentialRenewed = vi.fn();
+    let resolveRefresh: (value: boolean) => void = () => {};
+    vi.mocked(tryRefresh).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+    useAuthStore.setState({ expiresAt: Date.now() + 10_000 });
+    renderHook(() =>
+      useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
+    );
+
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // Not before: reloading against the stale Bearer would just 401 again.
+    expect(onCredentialRenewed).not.toHaveBeenCalled();
+    resolveRefresh(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not touch raster sources when only a vector sig is expiring', async () => {
+    const recover = vi.fn(() => true);
+    const onCredentialRenewed = vi.fn();
+    useAuthStore.setState({ expiresAt: Date.now() + 3_600_000 });
+    renderHook(() =>
+      useVisibleTileTokenRefresh(() => [vectorToken(expIn(-60))], recover, onCredentialRenewed),
+    );
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+
+    expect(recover).toHaveBeenCalledWith('tab-return');
+    expect(tryRefresh).not.toHaveBeenCalled();
+    expect(onCredentialRenewed).not.toHaveBeenCalled();
   });
 
   it('still does nothing on the hidden edge when only the session is expiring', () => {

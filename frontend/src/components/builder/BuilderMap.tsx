@@ -11,7 +11,7 @@ import {
   toMaplibreStyle,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
@@ -575,7 +575,9 @@ export const BuilderMap = memo(function BuilderMap({
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the handler above
   // can heal them. Kick the same throttled re-mint on the visible edge.
-  useVisibleTileTokenRefresh(() => syncInputsRef.current.tokenMap.values(), recoverTileAuth);
+  useVisibleTileTokenRefresh(() => syncInputsRef.current.tokenMap.values(), recoverTileAuth, () =>
+    refreshRasterTileSources(mapRef.current),
+  );
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
