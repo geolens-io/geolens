@@ -2,8 +2,11 @@
 
 Reads the version from every place the project records one and exits non-zero
 if any disagree, printing the offending site(s). This is the READ/verify side of
-the version contract; scripts/bump_version.py is the WRITE side — they enumerate
-the same set of sites.
+the version contract; scripts/bump_version.py is the WRITE side. One site the
+bump writes is verified elsewhere rather than here: docs-contract.json's
+`.version` is asserted against backend/pyproject.toml by
+scripts/check_docs_contract.py, so the two enumerations differ by that entry —
+no coverage gap, but do not read this list as the bump's mirror image.
 
 Also asserts CHANGELOG.md carries a `## [<version>]` section for the canonical
 version. .github/workflows/release.yml extracts the release body by matching
