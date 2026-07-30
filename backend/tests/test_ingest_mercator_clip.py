@@ -601,6 +601,24 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
         # The in-bounds feature survives; the out-of-bounds one is emptied.
         assert await _nonempty_count(test_db_session) == 1
 
+    async def test_compound_geographic_crs_polar_clip_is_unchanged(
+        self, test_db_session
+    ):
+        """fix(#906 codex r2): EPSG:5498 (NAD83 + NAVD88 height) is a
+        COMPD_CS whose horizontal axes are degrees. The floor's geographic
+        test must see through the compound prefix, or its valid
+        360x170-degree envelope trips the 1000-unit floor and every ingest in
+        that CRS skips the polar clip."""
+        await _seed_points(test_db_session, [(10.0, -89.95), (20.0, 45.0)], srid=5498)
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": False,
+            "dropped_features": 1,
+            "clipped_features": 0,
+        }
+
     async def test_geographic_3d_crs_polar_clip_is_unchanged(self, test_db_session):
         """EPSG:4979 stays on the clip path: geographic transforms cannot
         collapse, and genuinely polar geometry must keep being clipped with

@@ -1042,7 +1042,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # accounting): 4415 of 8500 stock SRIDs collapse the safe envelope under
     # ST_Transform and the clip then emptied the whole table silently.
     # Ratchet stays exact.
-    "backend/app/processing/ingest/metadata.py": 1939,
+    "backend/app/processing/ingest/metadata.py": 1950,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

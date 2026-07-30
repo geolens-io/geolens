@@ -1317,10 +1317,11 @@ async def _mercator_envelope_degenerates(
       to trim (fix(#906 codex r1)). 1000 is orders of magnitude under any
       sane world envelope in any projected linear unit (metres, feet, even
       kilometres give ~40 075) and orders over every measured collapse.
-      Guarded to projected CRSs via the ``_GEOGRAPHIC_SRTEXT_RE`` probe
-      (see the four-mechanism table on #939) because geographic units are
-      degrees (the world is 360 wide) and a geographic transform cannot
-      collapse;
+      Guarded to projected CRSs (see the four-mechanism table on #939)
+      because geographic units are degrees (the world is 360 wide) and a
+      geographic transform cannot collapse. The geographic test sees
+      through COMPD_CS (fix(#906 codex r2)): a compound geographic CRS like
+      stock 5498 (NAD83 + NAVD88) is degrees despite its prefix;
     - the transform raising — the clip's own UPDATE would raise identically,
       turning a bounds check into a failed ingest. Probed inside a SAVEPOINT
       so the surrounding phase-2 transaction stays usable.
@@ -1333,11 +1334,21 @@ async def _mercator_envelope_degenerates(
         f"  OR ST_Area(e) < 1e-6 * ((ST_XMax(e) - ST_XMin(e)) "
         f"                        * (ST_YMax(e) - ST_YMin(e))) "
         f"  OR ( "
-        f"    NOT COALESCE((SELECT srtext ~* :geographic FROM spatial_ref_sys "
+        # fix(#906 codex r2): the floor's geographic test must see through
+        # COMPD_CS — a compound geographic CRS (e.g. stock 5498, NAD83 +
+        # NAVD88) starts with COMPD_CS but its horizontal axes are degrees,
+        # and its valid 360x170-degree envelope would trip the 1000-unit
+        # floor. Geographic-horizontal here means: a GEOG keyword present and
+        # no PROJ keyword anywhere (every projected WKT1 nests a GEOGCS, so
+        # the PROJ test must win) — the same keyword logic as
+        # core.geo.wkt_is_geographic, in srtext form.
+        f"    NOT COALESCE((SELECT srtext ~* 'GEOG(CS|CRS)' "
+        f"                     AND srtext !~* 'PROJ(CS|CRS)' "
+        f"                  FROM spatial_ref_sys "
         f"                  WHERE srid = :srid), false) "
         f"    AND LEAST(ST_XMax(e) - ST_XMin(e), ST_YMax(e) - ST_YMin(e)) < 1000) "
         f"FROM env"
-    ).bindparams(srid=src_srid, geographic=_GEOGRAPHIC_SRTEXT_RE)
+    ).bindparams(srid=src_srid)
     try:
         async with session.begin_nested():
             result = await session.execute(probe)
