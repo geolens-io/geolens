@@ -294,7 +294,12 @@ _ALLOWED_POSTGIS_FUNCTIONS: frozenset[str] = frozenset(
         # expression through validate_sql so the two cannot drift.
         "st_collectionextract",
         "st_collectionhomogenize",
+        # st_dump/st_dumpsegments clear the name allowlist but are admitted
+        # only in table-free subtrees (see _validate_function_cost) — as a
+        # set-returning source over a table they are the UNNEST amplification
+        # class (fix(#935 codex r3)).
         "st_dump",
+        "st_dumpsegments",
         "st_intersection",
         "st_isempty",
         "st_makeenvelope",
@@ -428,6 +433,15 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
             raise SandboxError(
                 "invalid_query", "Query uses an unbounded collection aggregate"
             )
+
+    # fix(#935 codex r3): ST_Dump/ST_DumpSegments over a table are the UNNEST
+    # row-amplification class — every component of every geometry expands
+    # before the outer LIMIT applies. The canonical buffer only ever dumps a
+    # single fenced row geometry, whose enclosing SELECT scans no table.
+    if fn_name in {"st_dump", "st_dumpsegments"}:
+        if _select_subtree_scans_a_table(func):
+            logger.info("sandbox.table_scanning_dump", sql=sql, function=fn_name)
+            raise SandboxError("invalid_query", "Query uses an unbounded row generator")
 
     if fn_name == "st_buffer" and len(func.expressions) > 2:
         logger.info("sandbox.custom_buffer_segments", sql=sql)

@@ -549,3 +549,16 @@ class TestResourceAmplificationRejected:
         validate_sql(
             "SELECT ST_Segmentize(geom_4326::geography, 20000) FROM data.cities LIMIT 5"
         )
+
+    def test_rejects_table_scanning_st_dump(self):
+        """fix(#935 codex r3): ST_Dump over a table is the UNNEST
+        row-amplification class; only the canonical buffer's table-free dump
+        of a single fenced geometry is admitted."""
+        _assert_rejects(
+            "SELECT COUNT(*) FROM data.cities c "
+            "CROSS JOIN LATERAL ST_Dump(c.geom_4326) d"
+        )
+        _assert_rejects("SELECT (ST_Dump(geom_4326)).geom FROM data.cities")
+        _assert_rejects(
+            "SELECT COUNT(*) FROM data.roads r, LATERAL ST_DumpSegments(r.geom_4326) s"
+        )
