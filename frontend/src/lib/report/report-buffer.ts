@@ -139,6 +139,27 @@ export function reportTileTokenRemint(surface: string, trigger: string): void {
   });
 }
 
+/**
+ * fix(#908): how many distinct failures the buffer holds, not how many rows.
+ * Every unrecovered map error writes TWO error rows — a `maplibre` row from the
+ * surface handler (which carries the sourceId, so it cannot be dropped) and a
+ * `console` row derived from `logUnhandledMapError`'s console.error (which is
+ * the only trace the viewer and dataset preview leave at all). Both carry the
+ * same AJAXError message, so the message is the correlation key the rows
+ * already share, and counting distinct ones stops the badge reading "2 errors"
+ * for one broken tile source.
+ *
+ * Recurrences of the same message count once: the badge answers "how many
+ * things are wrong", and a tile source that fails again is the same thing.
+ */
+export function countDistinctFailures(list: ReportEntry[]): number {
+  const seen = new Set<string>();
+  for (const entry of list) {
+    if (entry.severity === 'error') seen.add(entry.message);
+  }
+  return seen.size;
+}
+
 function stringifyDetail(detail: unknown): string | undefined {
   if (detail == null) return undefined;
   if (typeof detail === 'string') return detail;

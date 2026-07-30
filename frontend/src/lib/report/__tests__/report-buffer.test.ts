@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   clearReportEntries,
+  countDistinctFailures,
   getReportEntries,
   pushReportEntry,
   reportNetworkError,
@@ -92,5 +93,45 @@ describe('reportTileTokenRemint', () => {
     const entries = getReportEntries();
     expect(entries).toHaveLength(1);
     expect(entries[0].count).toBe(2);
+  });
+});
+
+// fix(#908): one unrecovered map failure writes two error rows — a `maplibre`
+// row carrying the sourceId and a `console` row derived from
+// logUnhandledMapError. Both are worth keeping; counting them both is not.
+describe('countDistinctFailures (fix #908)', () => {
+  it('counts one failure for the maplibre + console pair a 5xx tile writes', () => {
+    pushReportEntry({
+      severity: 'error',
+      source: 'maplibre',
+      message: 'AJAXError: Internal Server Error (500)',
+      detail: 'source: dataset-abc',
+    });
+    pushReportEntry({
+      severity: 'error',
+      source: 'console',
+      message: 'AJAXError: Internal Server Error (500)',
+    });
+
+    expect(getReportEntries()).toHaveLength(2);
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('still counts genuinely different failures separately', () => {
+    pushReportEntry({ severity: 'error', source: 'maplibre', message: 'tile 500' });
+    pushReportEntry({ severity: 'error', source: 'runtime', message: 'Cannot read x of undefined' });
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
+  it('ignores warnings and info rows', () => {
+    pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
+    reportTileTokenRemint('builder', 'tab-return');
+
+    expect(countDistinctFailures(getReportEntries())).toBe(0);
+  });
+
+  it('is zero on an empty buffer', () => {
+    expect(countDistinctFailures(getReportEntries())).toBe(0);
   });
 });
