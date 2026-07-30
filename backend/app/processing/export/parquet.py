@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
+from app.processing.export.ogr import bbox_where_sql
 from app.processing.export.service import validate_where_clause
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info
@@ -182,18 +183,10 @@ async def export_parquet(
         # the antimeridian split when minx > maxx (parse_bbox allows it). Using
         # only && would silently drop antimeridian boxes and return an
         # envelope-overlap superset instead of the rows actually in the bbox.
-        if bbox[0] > bbox[2]:
-            clauses.append(
-                "((geom_4326 && ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)))"
-                " OR (geom_4326 && ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326))))"
-            )
-        else:
-            clauses.append(
-                "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
-            )
+        # fix(#885): the fragment now comes from the shared builder in
+        # export/ogr.py, so the ogr2ogr path splits identically instead of
+        # handing a degenerate rectangle to -spat.
+        clauses.append(bbox_where_sql(bbox))
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
     if safe_where is not None:
         # SQLAlchemy text() reads ":name" as a bind parameter; a colon inside a
