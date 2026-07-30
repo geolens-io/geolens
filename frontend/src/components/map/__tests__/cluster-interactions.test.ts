@@ -1,4 +1,5 @@
 import {
+  CLUSTER_ZOOM_CEILING,
   activateClusterFeature,
   clusterAggregateFeatureInfo,
   clusterFeatureCoordinates,
@@ -99,5 +100,94 @@ describe('cluster interactions', () => {
       center: [-72, 41],
       zoom: 12,
     }));
+  });
+
+  it('fix(#893): recentres without zooming when expansion zoom is already the current zoom', async () => {
+    // z22 with cluster_max_zoom=22 clamps expansion_zoom to the zoom the
+    // cluster is drawn at, and the map is at MapLibre's own ceiling, so no
+    // zoom can split it. Centring is the whole available response.
+    const map = {
+      getSource: vi.fn(),
+      getZoom: vi.fn(() => CLUSTER_ZOOM_CEILING),
+      easeTo: vi.fn(),
+    };
+    const feature = {
+      properties: { point_count: 7, expansion_zoom: CLUSTER_ZOOM_CEILING },
+      geometry: { type: 'Point', coordinates: [178.4, -18.1] },
+    };
+
+    await expect(activateClusterFeature(map as never, feature, 'source-stops')).resolves.toBe(true);
+
+    expect(map.easeTo).toHaveBeenCalledWith({
+      center: [178.4, -18.1],
+      zoom: CLUSTER_ZOOM_CEILING,
+      duration: 500,
+    });
+  });
+
+  it('fix(#893): never eases backwards when a stale parent tile reports a shallower expansion zoom', async () => {
+    // An overzoomed parent cluster tile still drawn while its replacement loads
+    // carries the expansion zoom of the level it was cut at. Honouring it would
+    // throw the user out of the view they were zooming into.
+    const map = {
+      getSource: vi.fn(),
+      getZoom: vi.fn(() => 20),
+      easeTo: vi.fn(),
+    };
+    const feature = {
+      properties: { point_count: 90, expansion_zoom: 15 },
+      geometry: { type: 'Point', coordinates: [-73.9, 40.7] },
+    };
+
+    await activateClusterFeature(map as never, feature, 'source-stops');
+
+    expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 20 }));
+  });
+
+  it('fix(#893): the no-expansion-hint fallback still steps forward and stops at the ceiling', async () => {
+    const deep = {
+      getSource: vi.fn(() => undefined),
+      getZoom: vi.fn(() => CLUSTER_ZOOM_CEILING),
+      easeTo: vi.fn(),
+    };
+    const shallow = {
+      getSource: vi.fn(() => undefined),
+      getZoom: vi.fn(() => 6),
+      easeTo: vi.fn(),
+    };
+    const feature = {
+      properties: { point_count: 12 },
+      geometry: { type: 'Point', coordinates: [1, 2] },
+    };
+
+    await activateClusterFeature(shallow as never, feature, 'source-stops');
+    expect(shallow.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 8 }));
+
+    await activateClusterFeature(deep as never, feature, 'source-stops');
+    expect(deep.easeTo).toHaveBeenCalledWith(
+      expect.objectContaining({ zoom: CLUSTER_ZOOM_CEILING }),
+    );
+  });
+
+  it('fix(#893): a failed GeoJSON expansion lookup falls back without losing ground', async () => {
+    const getClusterExpansionZoom = vi.fn((
+      _clusterId: number,
+      callback: (error: Error | null, zoom: number) => void,
+    ) => {
+      callback(new Error('no such cluster'), Number.NaN);
+    });
+    const map = {
+      getSource: vi.fn(() => ({ getClusterExpansionZoom })),
+      getZoom: vi.fn(() => 9),
+      easeTo: vi.fn(),
+    };
+    const feature = {
+      properties: { point_count: 32, cluster_id: 4 },
+      geometry: { type: 'Point', coordinates: [-72, 41] },
+    };
+
+    await activateClusterFeature(map as never, feature, 'source-stops');
+
+    expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 11 }));
   });
 });
