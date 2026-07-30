@@ -352,6 +352,42 @@ class TestCogExtentFold:
         assert geom.bounds[2] == pytest.approx(-170.0)
         assert geom.area == pytest.approx(200.0, rel=1e-6)
 
+    @pytest.mark.parametrize(
+        "label,lonlat",
+        [
+            # GDAL accepts georeferencing well outside the adjacent domains.
+            ("two turns east", (720.0, -10.0, 730.0, 10.0)),
+            ("two turns west", (-730.0, -10.0, -720.0, 10.0)),
+            ("one and a half turns", (540.0, -10.0, 550.0, 10.0)),
+            ("three turns east", (1080.0, -10.0, 1090.0, 10.0)),
+        ],
+    )
+    def test_arbitrary_wrap_counts_keep_their_true_footprint(
+        self, tmp_path, label, lonlat
+    ):
+        """A source wrapped more than once must not inflate.
+
+        ``wrap_longitude`` subtracts a single turn by design (#886), so a
+        720..730 source folded to 360..10 — read back as a crossing pair, with
+        the impossible 360..180 half dropped, recording -180..10. That is a
+        10° footprint stored as 190°, and the westward case was worse: -730..-720
+        recorded 37x its true area. Asserting AREA is the point; every wrong
+        answer here is a perfectly valid rectangle.
+        """
+        tif = _write_tif(
+            tmp_path / f"w{abs(hash(label))}.tif", epsg=4326, bounds=lonlat
+        )
+        meta = extract_raster_metadata(tif)
+
+        geom = shapely_wkt.loads(meta["bbox_wkt"])
+        expected_area = (lonlat[2] - lonlat[0]) * (lonlat[3] - lonlat[1])
+        assert geom.area == pytest.approx(expected_area, rel=1e-6), (
+            f"{label}: {lonlat[2] - lonlat[0]}° footprint recorded as "
+            f"{geom.area / (lonlat[3] - lonlat[1]):.1f}° wide"
+        )
+        assert geom.is_valid
+        assert -180.0 <= geom.bounds[0] and geom.bounds[2] <= 180.0
+
     def test_crs_less_raster_bounds_are_not_folded(self, tmp_path):
         """Without a CRS the bounds are not longitudes; leave them alone.
 

@@ -518,7 +518,7 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     (fix(#887), codex round 9): the previous version probed every source with
     ``rasterio.open`` before the build, and ``build_vrt`` runs inside
     ``asyncio.to_thread`` (``tasks_vrt.py``). Python threads are not killable, so
-    a stalled ``/vsis3/`` read pinned a pool thread forever with none of
+    a stalled object-storage read pinned a pool thread forever with none of
     ``run_gdal``'s wall-clock timeout and kill-on-hang applying to it -- enough
     stalled VRT jobs would starve every other ``to_thread`` in the worker. The
     module comment on ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` names that hazard

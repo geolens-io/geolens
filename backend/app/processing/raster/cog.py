@@ -1,6 +1,7 @@
 """COG compliance check, conversion, and raster metadata extraction."""
 
 import hashlib
+import math
 import tempfile
 from pathlib import Path
 
@@ -78,12 +79,17 @@ def _fold_geographic_bbox(
         # otherwise fall through and be re-expressed as a west > east pair, i.e.
         # a domain flip decided by last-bit noise.
         return (-180.0, south, 180.0, north)
-    # One fold is enough at both sites: `west` is a raster's own left edge, which
-    # sits within a single wrap of range for any real geographic grid, and `span`
-    # is under 360 by the branch above. wrap_longitude leaves +180 as +180, which
-    # bbox_to_extent_wkt already handles -- it drops the zero-width 180..180 half
-    # and emits the -180..east ring alone.
-    west = wrap_longitude(west)
+    # fix(#887): reduce ARBITRARY wrap counts before folding. GDAL accepts a
+    # raster georeferenced well outside the adjacent domains, and wrap_longitude
+    # subtracts a single turn by design (#886), so a 720..730 source folded to
+    # 360..10 -- which bbox_to_extent_wkt reads as a crossing pair, drops the
+    # impossible 360..180 half from, and records as -180..10: a 10-degree
+    # footprint inflated to 190. The negative direction was worse: -730..-720
+    # recorded 37x its true area. fmod first, then the shared single-step fold,
+    # which keeps +180 as +180 -- bbox_to_extent_wkt relies on that to drop the
+    # zero-width 180..180 half and emit the -180..east ring alone.
+    west = wrap_longitude(math.fmod(west, 360.0))
+    # `span` is under 360 by the branch above, so one step settles east.
     east = wrap_longitude(west + span)
     return (west, south, east, north)
 
