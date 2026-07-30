@@ -124,6 +124,44 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
+  // codex on #908: MapLibre puts the failing tile URL in the AJAXError message,
+  // so without normalization one broken source counts once per visible tile and
+  // the badge still runs to 9+.
+  it('counts one failure for every failing tile of the same source', () => {
+    for (const [z, x, y] of [[12, 1205, 1539], [12, 1206, 1539], [12, 1205, 1540]]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Internal Server Error (500): /api/tiles/data.parcels/${z}/${x}/${y}.pbf?sig=abc`,
+      });
+    }
+
+    expect(getReportEntries()).toHaveLength(3);
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('keeps two different failing sources apart', () => {
+    pushReportEntry({
+      severity: 'error',
+      source: 'maplibre',
+      message: 'AJAXError: Internal Server Error (500): /api/tiles/data.parcels/12/1/1.pbf',
+    });
+    pushReportEntry({
+      severity: 'error',
+      source: 'maplibre',
+      message: 'AJAXError: Internal Server Error (500): /api/tiles/data.roads/12/1/1.pbf',
+    });
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
+  it('leaves a message with no tile coordinates alone', () => {
+    pushReportEntry({ severity: 'error', source: 'runtime', message: 'Cannot read x of undefined' });
+    pushReportEntry({ severity: 'error', source: 'runtime', message: 'Cannot read y of undefined' });
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

@@ -155,9 +155,23 @@ export function reportTileTokenRemint(surface: string, trigger: string): void {
 export function countDistinctFailures(list: ReportEntry[]): number {
   const seen = new Set<string>();
   for (const entry of list) {
-    if (entry.severity === 'error') seen.add(entry.message);
+    if (entry.severity === 'error') seen.add(failureKey(entry.message));
   }
   return seen.size;
+}
+
+/**
+ * fix(#908): collapse a message down to the failure it describes. MapLibre
+ * builds an AJAXError message as `AJAXError: <status> (<code>): <url>`, so
+ * without this every failing tile of ONE broken source is its own key and the
+ * badge still runs to 9+. Drop the per-tile `/{z}/{x}/{y}` triple and any query
+ * string (the signed `sig=` rotates on its own); the source path, the status,
+ * and every non-tile message survive untouched.
+ */
+function failureKey(message: string): string {
+  return message
+    .replace(/\/\d+\/\d+\/\d+(\.\w+)?/g, '/{z}/{x}/{y}')
+    .replace(/\?\S*/g, '');
 }
 
 function stringifyDetail(detail: unknown): string | undefined {
