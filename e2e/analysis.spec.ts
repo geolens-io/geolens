@@ -3,6 +3,7 @@ import { getAuthToken, seedDataset, deleteDataset, type SeededDataset } from './
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const OUTPUT_TITLE = `E2E Analysis Buffer ${Date.now()}`;
+const DISSOLVE_TITLE = `E2E Analysis Dissolve ${Date.now()}`;
 
 /**
  * Builder analysis tools (M4): buffer preview + materialize to a new dataset.
@@ -14,6 +15,7 @@ test.describe('builder analysis tools', () => {
   let mapId: string;
   let headers: Record<string, string>;
   let createdDatasetId: string | null = null;
+  let dissolveDatasetId: string | null = null;
 
   test.beforeAll(async () => {
     headers = {
@@ -49,6 +51,9 @@ test.describe('builder analysis tools', () => {
     }
     if (createdDatasetId) {
       await deleteDataset(createdDatasetId, OUTPUT_TITLE);
+    }
+    if (dissolveDatasetId) {
+      await deleteDataset(dissolveDatasetId, DISSOLVE_TITLE);
     }
     if (seed) {
       await deleteDataset(seed.id, seed.title);
@@ -159,5 +164,123 @@ test.describe('builder analysis tools', () => {
     await expect(
       completionToast.getByRole('button', { name: 'View dataset' }),
     ).toBeVisible();
+  });
+  /** Poll Node-side for the job's terminal status and return the new dataset id. */
+  async function awaitJobDataset(jobId: string): Promise<string> {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const res = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers });
+      if (res.ok) {
+        const body = (await res.json()) as { status: string; dataset_id: string | null };
+        if (body.status === 'complete' && body.dataset_id) return body.dataset_id;
+        if (body.status === 'failed') throw new Error('analysis job failed');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error(`job ${jobId} did not complete in time`);
+  }
+
+  /**
+   * fix(#945): materializing is the ONLY way a user validates dissolve — it has
+   * no preview by design (#779) — and the pipeline behind it is never wired
+   * together anywhere else: the `col:` sentinel, the collision guard, and
+   * `enable_hashagg=off` are each unit-tested in isolation and never end to end.
+   */
+  test('dissolve materializes without a preview', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole('button', { name: 'Analysis', exact: true }).click();
+    await expect(page.getByTestId('analysis-panel')).toBeVisible();
+
+    await page.getByLabel('Operation').click();
+    await page.getByRole('option', { name: 'Dissolve' }).click();
+
+    // The hint that names the only way to run it, and the absence of the
+    // preview affordance every other operation has.
+    await expect(page.getByText('Run it with Create dataset')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeHidden();
+
+    // Group by the fixture's own column, which exercises the `col:` sentinel
+    // rather than the no-grouping path.
+    await page.getByLabel('Group by field (optional)').click();
+    await page.getByRole('option', { name: 'name', exact: true }).click();
+
+    await page.getByLabel('New dataset name').fill(DISSOLVE_TITLE);
+    const materializeResponse = page.waitForResponse(
+      (r) => r.url().includes('/analysis/materialize/') && r.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Create dataset' }).click();
+
+    const request = (await materializeResponse).request();
+    expect(JSON.parse(request.postData() ?? '{}')).toMatchObject({
+      operation: 'dissolve',
+      by_field: 'name',
+    });
+    const { job_id: jobId } = (await (await materializeResponse).json()) as { job_id: string };
+    expect(jobId).toBeTruthy();
+
+    // Resolve for cleanup before any assertion that can fail, so a failed run
+    // cannot leak the output dataset.
+    dissolveDatasetId = await awaitJobDataset(jobId);
+    expect(dissolveDatasetId).toBeTruthy();
+
+    await expect(
+      page.locator('[data-sonner-toast]').filter({ hasText: DISSOLVE_TITLE }),
+    ).toBeVisible({ timeout: 60_000 });
+  });
+
+  /**
+   * fix(#945): the pointer path that regressed twice, in #726 and again in
+   * #729. The draw-guard unit test covers the flag; nothing covered a real
+   * drawn geometry reaching the clip operation. Preview rather than
+   * materialize: the mask travels in the request either way, and preview
+   * leaves no dataset to clean up.
+   */
+  test('a drawn clip mask reaches the clip operation', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    const canvas = page.locator('canvas.maplibregl-canvas');
+    await expect(canvas).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole('button', { name: 'Analysis', exact: true }).click();
+    await expect(page.getByTestId('analysis-panel')).toBeVisible();
+
+    await page.getByLabel('Operation').click();
+    await page.getByRole('option', { name: 'Clip', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Draw clip area' }).click();
+    await expect(page.getByText('Draw on the map — double-click to finish')).toBeVisible();
+
+    // Draw a box around the map center, where the single seeded feature sits
+    // (the builder fits to the layer's extent on load).
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('map canvas has no bounding box');
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const r = Math.min(box.width, box.height) / 4;
+    for (const [dx, dy] of [[-r, -r], [r, -r], [r, r]] as const) {
+      await page.mouse.click(cx + dx, cy + dy);
+    }
+    await page.mouse.dblclick(cx - r, cy + r);
+
+    await expect(page.getByText('Clip area set')).toBeVisible();
+
+    const previewResponse = page.waitForResponse(
+      (r) => r.url().includes('/analysis/preview/') && r.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+
+    // The drawn geometry, not just the operation, has to reach the server —
+    // that is the half the unit-level draw guard cannot see.
+    const body = JSON.parse((await previewResponse).request().postData() ?? '{}') as {
+      operation?: string;
+      mask?: { type?: string; coordinates?: unknown[] };
+    };
+    expect(body.operation).toBe('clip');
+    expect(body.mask?.type).toBe('Polygon');
+    expect(Array.isArray(body.mask?.coordinates)).toBe(true);
+
+    await expect(page.getByRole('button', { name: 'Clear preview' })).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });
