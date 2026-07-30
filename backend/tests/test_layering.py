@@ -1088,7 +1088,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its maxzoom by five levels, so the honest width now travels alongside the
     # bounds as an explicit `lon_span` keyword.
     # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2066,
+    # fix(#939): +23 — the degrees-vs-metres decision in
+    # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
+    # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
+    # documented at the site. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2089,
 }
 
 

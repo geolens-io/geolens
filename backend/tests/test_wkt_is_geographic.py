@@ -77,3 +77,13 @@ def test_grads_geogcs_is_geographic_but_not_degrees():
 def test_degree_unit_missing_wkt_is_unknown():
     assert wkt_has_degree_unit(None) is None
     assert wkt_has_degree_unit("") is None
+
+
+def test_keywords_inside_quoted_names_are_ignored():
+    # fix(#939 codex r1): a CRS name or remark mentioning PROJCS must not
+    # flip a geographic WKT to projected (and vice versa).
+    geographic_with_projcs_in_name = 'GEOGCRS["adjusted from PROJCS NAD27",DATUM["North American Datum 1927",ELLIPSOID["Clarke 1866",6378206.4,294.978698213898]],ANGLEUNIT["degree",0.0174532925199433]]'
+    assert wkt_is_geographic(geographic_with_projcs_in_name) is True
+
+    projected_with_geogcrs_in_remark = 'PROJCS["UTM 18N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137]]],PROJECTION["Transverse_Mercator"],REMARK["see GEOGCRS 4326"]]'
+    assert wkt_is_geographic(projected_with_geogcrs_in_remark) is False

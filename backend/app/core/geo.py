@@ -430,10 +430,17 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     also returns True. When "geographic" needs to mean "resolutions are in
     degrees", pair this with :func:`wkt_has_degree_unit`. The codebase's
     other unit tests are catalogued in #939 — don't invent a fifth.
+
+    fix(#939 codex r1): quoted strings are blanked before the keyword scan,
+    so a CRS *name* or remark that merely mentions PROJCS/GEOGCS (e.g.
+    ``GEOGCRS["adjusted from PROJCS ..."]``) cannot misclassify the WKT.
     """
     if not crs_wkt:
         return None
-    head = crs_wkt[:2000].upper()
+    # Blank quoted content: WKT strings cannot contain the quote character
+    # itself (WKT2 escapes it by doubling, which still terminates each pair),
+    # so this never eats a structural keyword.
+    head = re.sub(r'"[^"]*"', '""', crs_wkt[:2000]).upper()
     if "PROJCRS" in head or "PROJCS" in head:
         return False
     if "GEOGCRS" in head or "GEOGCS" in head:
