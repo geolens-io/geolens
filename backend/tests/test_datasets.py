@@ -440,6 +440,132 @@ class TestAnonymousAccess:
         )
         assert as_admin.status_code == 200
 
+    async def test_owner_of_restricted_dataset_keeps_access(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """The creator of a restricted dataset is exempt from the grant check.
+
+        fix(#929): restricted means "owner, admins, and grant holders". Before
+        the creator exemption, a non-admin owner who set their own dataset to
+        restricted lost read access to it — grants have no write path, so the
+        lockout was unrecoverable without manual SQL. Pins both the detail
+        path (can_access_dataset) and the list path (filter_visible), because
+        the two deny independently.
+        """
+        from tests.conftest import _create_test_user
+
+        _owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        owner_headers = _owner_headers
+        restricted = await _create_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            visibility="restricted",
+            name="Owner Restricted DS",
+        )
+
+        # Detail path: the owner reads their own restricted dataset...
+        detail = await client.get(f"/datasets/{restricted.id}", headers=owner_headers)
+        assert detail.status_code == 200
+
+        # ...while another authenticated non-grantee still cannot.
+        as_other = await client.get(
+            f"/datasets/{restricted.id}", headers=viewer_auth_header
+        )
+        assert as_other.status_code == 404
+
+        # List path (GET /datasets/): visible to the owner, not to others.
+        owner_list = await client.get("/datasets/", headers=owner_headers)
+        assert owner_list.status_code == 200
+        owner_ids = [d["id"] for d in owner_list.json()["datasets"]]
+        assert str(restricted.id) in owner_ids
+
+        other_list = await client.get("/datasets/", headers=viewer_auth_header)
+        assert other_list.status_code == 200
+        other_ids = [d["id"] for d in other_list.json()["datasets"]]
+        assert str(restricted.id) not in other_ids
+
+        # List path (search): same rule on the search surface.
+        owner_search = await client.get("/search/datasets/", headers=owner_headers)
+        assert owner_search.status_code == 200
+        search_ids = [f["id"] for f in owner_search.json()["features"]]
+        assert str(restricted.id) in search_ids
+
+        other_search = await client.get("/search/datasets/", headers=viewer_auth_header)
+        assert other_search.status_code == 200
+        other_search_ids = [f["id"] for f in other_search.json()["features"]]
+        assert str(restricted.id) not in other_search_ids
+
+        # Mirrored gate (codex review on the #929 PR): the maps bulk access
+        # check replicates can_access_dataset's policy and must apply the
+        # same creator exemption, or the owner cannot add their restricted
+        # dataset to a map.
+        from sqlalchemy import select
+
+        from app.modules.auth.models import User
+        from app.modules.catalog.maps.service import bulk_check_dataset_access
+
+        owner_user = (
+            await test_db_session.execute(
+                select(User).where(User.id == uuid.UUID(owner_id))
+            )
+        ).scalar_one()
+        accessible = await bulk_check_dataset_access(
+            test_db_session, [restricted.id], owner_user, {"editor"}
+        )
+        assert restricted.id in accessible
+
+    async def test_overlay_denying_creator_wins_on_bulk_check(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#929 review): bulk_check_dataset_access routes through the
+        permission extension instead of an inline policy mirror, so an
+        overlay that deliberately denies the creator is enforced on the
+        map-attach paths — the case a hard-coded owner short-circuit got
+        wrong."""
+        from sqlalchemy import false, select
+
+        import app.platform.extensions as extensions
+        from app.modules.auth.models import User
+        from app.modules.catalog.maps.service import bulk_check_dataset_access
+        from tests.conftest import _create_test_user
+
+        _owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        restricted = await _create_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            visibility="restricted",
+            name="Overlay Denied Restricted DS",
+        )
+        owner_user = (
+            await test_db_session.execute(
+                select(User).where(User.id == uuid.UUID(owner_id))
+            )
+        ).scalar_one()
+
+        class _DenyEveryone:
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt.where(false())
+
+        monkeypatch.setitem(extensions._extensions, "permission", _DenyEveryone())
+        accessible = await bulk_check_dataset_access(
+            test_db_session, [restricted.id], owner_user, {"editor"}
+        )
+        assert accessible == set()
+
     async def test_anon_get_attributes_public(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

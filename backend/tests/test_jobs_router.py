@@ -224,6 +224,48 @@ class TestGetJobStatus:
         assert resp.json()["status"] == "failed"
         assert "heartbeat expired" in resp.json()["error_message"]
 
+    async def test_get_job_auto_fails_analysis_job_at_materialize_lease(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#691): an analysis job's lease is the short materialize window.
+
+        The route the frontend polls flips a hard-killed worker's analysis
+        job to failed within ANALYSIS_MATERIALIZE_LEASE_SECONDS (not the
+        60-minute backstop), so the Analysis panel's Create button re-enables
+        at the same moment the server-side cap would admit a new materialize.
+        A NON-analysis job with the same staleness stays running — remote
+        service imports legitimately outlive the short lease.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ten_min_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        analysis = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            started_at=ten_min_ago,
+            heartbeat_at=ten_min_ago,
+            user_metadata={"analysis": {"operation": "buffer"}},
+        )
+        ingest = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            started_at=ten_min_ago,
+            heartbeat_at=ten_min_ago,
+        )
+
+        resp = await client.get(f"/jobs/{analysis.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+        assert "heartbeat expired" in resp.json()["error_message"]
+
+        resp = await client.get(f"/jobs/{ingest.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+        ingest.status = "failed"
+        await test_db_session.commit()
+
     async def test_get_job_keeps_old_job_running_with_fresh_heartbeat(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
