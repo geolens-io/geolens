@@ -1533,3 +1533,44 @@ describe('LayerStyleEditor — POLISH-01 single render-as control', () => {
     expect(screen.queryAllByText(/render as/i)).toHaveLength(0);
   });
 });
+
+// fix(#916 review): symbol mode keeps circle paint on the layer and the switch
+// back to Point restores style_config.savedCirclePaint — so an Advanced JSON
+// paint edit must update that saved copy too, or it is silently discarded.
+describe('LayerStyleEditor - symbol-mode advanced paint edits', () => {
+  const symbolLayer = () => ({
+    ...makeLayer({ dataset_geometry_type: 'Point' }),
+    paint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
+    style_config: {
+      render_mode: 'symbol',
+      savedCirclePaint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
+      symbol: { iconImage: 'marker' },
+    },
+  }) as unknown as MapLayerResponse;
+
+  it('writes the applied paint to savedCirclePaint as well as paint', () => {
+    const onStyleConfigChange = vi.fn();
+    const onPaintChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={symbolLayer()}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /advanced json/i }));
+    fireEvent.click(screen.getByRole('button', { name: /paint/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /paint/i }), {
+      target: { value: JSON.stringify({ 'circle-color': '#00ff00', 'circle-radius': 9 }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /apply/i }));
+
+    expect(onPaintChange).not.toHaveBeenCalled();
+    const [, config, paint] = onStyleConfigChange.mock.calls.at(-1)!;
+    expect(paint).toEqual({ 'circle-color': '#00ff00', 'circle-radius': 9 });
+    expect(config.savedCirclePaint).toEqual({ 'circle-color': '#00ff00', 'circle-radius': 9 });
+  });
+});

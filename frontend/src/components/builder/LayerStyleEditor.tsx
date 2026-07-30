@@ -423,6 +423,24 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     setRevertNonce((n) => n + 1);
   }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle]);
 
+  // fix(#916 review): symbol mode keeps circle paint on the layer, and the
+  // switch back to Point restores style_config.savedCirclePaint, not
+  // layer.paint (renderAs.ts:426-433). Now that the Paint block accepts circle
+  // keys in symbol mode, an edit that only touched layer.paint would be
+  // silently discarded on switch-back — so keep the saved copy in step.
+  const handleAdvancedPaintChange = useCallback((next: Record<string, unknown>) => {
+    const merged = { ...builderPrivateKeys(paint), ...next };
+    if (renderMode === 'symbol') {
+      onStyleConfigChange(
+        layer.id,
+        { ...(layer.style_config ?? {}), savedCirclePaint: { ...merged } } as StyleConfig,
+        merged,
+      );
+      return;
+    }
+    onPaintChange(layer.id, merged);
+  }, [layer.id, layer.style_config, paint, renderMode, onPaintChange, onStyleConfigChange]);
+
   const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
 
   // SP-05 (Phase 1045): Gate the "Pending style preview" banner on real dirty
@@ -595,7 +613,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           // fix(#770): re-merge the stripped `_`-prefixed private keys on Apply —
           // the editor never showed them, so a wholesale replace would drop them
           // (layout _minzoom/_maxzoom reset the layer's zoom range to 0–22).
-          onPaintChange={(p) => onPaintChange(layer.id, { ...builderPrivateKeys(paint), ...p })}
+          onPaintChange={handleAdvancedPaintChange}
           onLayoutChange={(l) => onLayoutChange(layer.id, { ...builderPrivateKeys(layoutObj), ...l })}
           layerType={advancedJsonLayerType}
         />
