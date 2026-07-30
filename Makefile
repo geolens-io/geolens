@@ -297,8 +297,10 @@ catalog-domain-discipline: ## Verify no external imports of catalog/datasets/dom
 # ----- Version management (REL-05) -----
 # `make bump VERSION=X.Y.Z` rewrites EVERY version site atomically (backend +
 # cli + sdks×2 + root/frontend package.json + openapi.json info.version + the
-# metadata fallback constant in main.py). The write side of the version
-# contract; `make version-check` is the read/verify side.
+# metadata fallback constant in main.py + the 5 lockfiles that embed the
+# package's own version — backend/mcp uv.lock and root/frontend/sdks-ts
+# package-lock.json, fix(#877)). The write side of the version contract;
+# `make version-check` is the read/verify side.
 bump: ## Rewrite all version sites to VERSION=X.Y.Z (single source of truth)
 ifndef VERSION
 	$(error VERSION is required: make bump VERSION=X.Y.Z)
@@ -307,8 +309,8 @@ endif
 
 # `make version-check` — version-coherence gate (REL-04). Reads every version
 # site (backend/cli/sdks×2/root+frontend package.json/openapi.json info.version/
-# main.py fallback constant) and exits non-zero if any disagree. Run in CI to
-# block a release where one site silently drifted from the rest.
+# main.py fallback constant/the 5 lockfiles) and exits non-zero if any disagree.
+# Run in CI to block a release where one site silently drifted from the rest.
 version-check: ## Assert all version sites agree (CI gate)
 	uv run --no-project python scripts/check_version_coherence.py
 

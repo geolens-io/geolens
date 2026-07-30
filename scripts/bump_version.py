@@ -21,6 +21,25 @@
                                            contract; check_docs_contract.py
                                            asserts it equals backend/pyproject)
 
+Every lockfile that embeds the package's own version is stamped too (fix(#877) —
+each of these had to be hand-stamped on past releases, and each was missed at
+least once):
+
+  - backend/uv.lock                        (the `geolens-backend` entry)
+  - mcp/uv.lock                            (`geolens-mcp` + the `geolens`
+                                           editable path entry for sdks/python)
+  - package-lock.json                      (root)
+  - frontend/package-lock.json
+  - sdks/typescript/package-lock.json      (each package-lock records its own
+                                           version TWICE: top-level and
+                                           packages."")
+
+The lockfiles are rewritten in place rather than by re-running `uv lock` /
+`npm install --package-lock-only`: a version bump changes no requirement, so the
+resolution is unchanged, and an in-place stamp needs neither uv/npm on PATH nor a
+network round-trip that could drag unrelated dependency churn into a release
+commit.
+
 The version MUST be a plain X.Y.Z semver (no suffixes) — the drift gate
 (`make version-check`) is a static equality check, and the SDK sync script
 forbids build/hash/timestamp suffixes.
@@ -54,6 +73,28 @@ PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
 DOCS_CONTRACT = REPO_ROOT / "docs-contract.json"
+
+# --- Lockfiles (fix(#877)) ---------------------------------------------------
+# A uv.lock records the version of every LOCAL package it resolves: the project
+# itself, plus any editable path dependency inside this repo. mcp/ depends on
+# sdks/python, so its lock carries that package's version as well and both move
+# on a bump. Names are the `[project].name` of the owning pyproject — a rename
+# makes the bump fail loudly with "found 0" rather than skip a site.
+UV_LOCKS: tuple[tuple[Path, tuple[str, ...]], ...] = (
+    (REPO_ROOT / "backend" / "uv.lock", ("geolens-backend",)),
+    (REPO_ROOT / "mcp" / "uv.lock", ("geolens-mcp", "geolens")),
+)
+PACKAGE_LOCKS: tuple[Path, ...] = (
+    REPO_ROOT / "package-lock.json",
+    REPO_ROOT / "frontend" / "package-lock.json",
+    REPO_ROOT / "sdks" / "typescript" / "package-lock.json",
+)
+
+# `  "version": "..."` plus whatever follows the closing quote (a comma, maybe a
+# CR) so the line rebuilds byte-for-byte.
+_JSON_VERSION_LINE = re.compile(r'^(\s*"version": )"[^"]*"(.*)$')
+# The root entry of a lockfileVersion-3 `packages` map.
+_PACKAGE_LOCK_ROOT_ENTRY = re.compile(r'^\s*"": \{\s*$')
 
 
 def _rel(p: Path) -> str:
@@ -131,6 +172,63 @@ def _bump_top_level_json_version(path: Path, version: str) -> None:
     print(f"  {_rel(path)} (.version) -> {version}")
 
 
+def _bump_uv_lock(path: Path, package_names: tuple[str, ...], version: str) -> None:
+    # uv writes every entry as `[[package]]` / `name` / `version` / `source`, so
+    # anchoring on the header + name pins the one version line that belongs to
+    # this package — a same-named dependency string elsewhere can't match. The
+    # source is part of the match on purpose: only a LOCAL entry (this project or
+    # an in-repo path dep) tracks the repo version, so a package that ever became
+    # a registry dependency fails here loudly instead of being stamped wrong.
+    text = path.read_text()
+    for name in package_names:
+        pattern = re.compile(
+            rf'^(\[\[package\]\]\nname = "{re.escape(name)}"\nversion = )"[^"]*"'
+            rf"(\nsource = \{{ (?:editable|virtual|directory) )",
+            re.MULTILINE,
+        )
+        text, count = pattern.subn(rf'\g<1>"{version}"\g<2>', text, count=1)
+        if count != 1:
+            sys.exit(
+                f"ERROR: expected 1 local '{name}' [[package]] entry in {_rel(path)}, found {count}."
+            )
+    path.write_text(text)
+    for name in package_names:
+        print(f"  {_rel(path)} (package '{name}'.version) -> {version}")
+
+
+def _bump_package_lock(path: Path, version: str) -> None:
+    # npm records the package's own version twice — top-level and in the
+    # `packages` root entry — and keeps them in sync; stamping only one leaves
+    # the lock incoherent. Rewritten line-wise instead of via a json round-trip
+    # so the diff stays two lines and npm's exact formatting survives.
+    lines = path.read_text().split("\n")
+    top_idx: int | None = None
+    root_idx: int | None = None
+    in_root_entry = False
+    for i, line in enumerate(lines):
+        if _PACKAGE_LOCK_ROOT_ENTRY.match(line):
+            in_root_entry = True
+            continue
+        if not _JSON_VERSION_LINE.match(line):
+            continue
+        if in_root_entry:
+            root_idx = i
+            break
+        if top_idx is None:
+            top_idx = i
+    if top_idx is None or root_idx is None:
+        sys.exit(
+            f'ERROR: {_rel(path)} lacks a top-level "version" and/or a packages.""'
+            f' "version" line (expected the lockfileVersion 3 shape).'
+        )
+    for i in (top_idx, root_idx):
+        m = _JSON_VERSION_LINE.match(lines[i])
+        assert m is not None  # matched above
+        lines[i] = f'{m.group(1)}"{version}"{m.group(2)}'
+    path.write_text("\n".join(lines))
+    print(f'  {_rel(path)} (.version + packages."".version) -> {version}')
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         sys.exit("Usage: bump_version.py X.Y.Z")
@@ -150,6 +248,10 @@ def main(argv: list[str]) -> int:
     _bump_yaml_override(PY_SDK_GEN_CONFIG, version)
     _bump_package_json(TS_SDK_PACKAGE, version)
     _bump_top_level_json_version(DOCS_CONTRACT, version)
+    for lock, package_names in UV_LOCKS:
+        _bump_uv_lock(lock, package_names, version)
+    for lock in PACKAGE_LOCKS:
+        _bump_package_lock(lock, version)
     print(f"Done. Run `make version-check` to confirm coherence.")
     return 0
 
