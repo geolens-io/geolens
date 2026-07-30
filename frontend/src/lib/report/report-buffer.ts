@@ -168,7 +168,13 @@ export function countDistinctFailures(list: ReportEntry[]): number {
     if (entry.severity !== 'error') continue;
     const message = failureKey(entry.message);
     if (entry.source === 'maplibre') {
-      mapFailures.add(`${message}\u0000${sourceIdOf(entry)}`);
+      // Prefer the MapLibre source id outright: it is the ground truth for
+      // "which thing is broken", and it sidesteps every way one source's tile
+      // URLs can differ from each other (coordinates, shard prefixes, rotating
+      // sigs). Fall back to the message for style and glyph errors, which
+      // carry no source.
+      const sourceId = sourceIdOf(entry);
+      mapFailures.add(sourceId ? `src\u0000${sourceId}` : `msg\u0000${message}`);
       mapMessages.add(message);
     } else if (entry.source === 'console') {
       consoleOnly.add(message);
@@ -204,16 +210,24 @@ function sourceIdOf(entry: ReportEntry): string {
  * badge still runs to 9+.
  *
  * Only the parts that vary WITHIN one source are dropped: the tile address in
- * each of MapLibre's supported forms (`{z}/{x}/{y}`, `{quadkey}`, and the
- * `{bbox-epsg-3857}` query param, all reachable through an admin-configured
- * remote style) and the rotating credential params. Everything that
- * distinguishes one source from another stays — the path, the status, and the
- * `cols`/`cluster_radius`/`cluster_max_zoom` params.
+ * each of MapLibre's supported forms (`{z}/{x}/{y}`, `{quadkey}`, the
+ * `{bbox-epsg-3857}` query param, and the `{prefix}` shard label, all reachable
+ * through an admin-configured remote style) and the rotating credential params.
+ * Everything that distinguishes one source from another stays — the rest of the
+ * path, the status, and the `cols`/`cluster_radius`/`cluster_max_zoom` params.
+ *
+ * A `maplibre` row keys on its source id instead and never needs this; it
+ * matters for the `console` rows the viewer and dataset preview leave behind,
+ * which carry no source at all.
  */
 const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX']);
 
 function failureKey(message: string): string {
   return message
+    // MapLibre's `{prefix}` resolves to one or two characters derived from the
+    // tile's x/y, as the FIRST host label — so one sharded source otherwise
+    // yields a different host per tile.
+    .replace(/(https?:\/\/)[a-z0-9]{1,2}\./gi, '$1{prefix}.')
     .replace(/\/\d+\/\d+\/\d+(\.\w+)?/g, '/{z}/{x}/{y}')
     // A quadkey is the LAST path segment, one base-4 run whose length is the
     // zoom level — so it is anchored at the end rather than length-gated, or a

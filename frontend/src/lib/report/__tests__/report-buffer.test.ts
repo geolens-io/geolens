@@ -298,6 +298,41 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 5 on #908: MapLibre's {prefix} resolves to a per-tile shard
+  // label in the hostname, so one broken sharded basemap otherwise counts once
+  // per tile.
+  it('collapses a sharded basemap by source id and by hostname', () => {
+    for (const [shard, z, x, y] of [['a', 5, 1, 1], ['b7', 5, 2, 1], ['c', 5, 3, 1]] as const) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Not Found (404): https://${shard}.tiles.example.com/${z}/${x}/${y}.png`,
+        detail: 'source: basemap',
+      });
+      // The console echo carries no source id, so it leans on the hostname
+      // normalization instead.
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://${shard}.tiles.example.com/${z}/${x}/${y}.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('counts a console-only sharded failure once (viewer and preview)', () => {
+    for (const shard of ['a', 'b', 'c9']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://${shard}.tiles.example.com/5/1/1.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');
