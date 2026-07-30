@@ -333,18 +333,20 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 6 on #908: MapLibre substitutes {prefix} wherever it appears,
-  // so it can be a path segment rather than a host label.
-  it('collapses a console-only source sharded by a path-segment prefix', () => {
-    for (const [prefix, x] of [['00', 1], ['a3', 2], ['ff', 3]] as const) {
+  // codex round 6/7 on #908: a resolved path-segment {prefix} cannot be told
+  // apart from a meaningful static segment in a single URL, so it is left
+  // alone — keeping two real sources distinct matters more to a problem
+  // reporter than collapsing a sharded one.
+  it('keeps two sources apart when they differ only by a short path segment', () => {
+    for (const region of ['ca', 'de']) {
       pushReportEntry({
         severity: 'error',
         source: 'console',
-        message: `AJAXError: Not Found (404): https://tiles.example.com/${prefix}/5/${x}/1.png`,
+        message: `AJAXError: Not Found (404): https://tiles.example.com/${region}/5/1/1.png`,
       });
     }
 
-    expect(countDistinctFailures(getReportEntries())).toBe(1);
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
   // codex round 7 on #908: {ratio} resolves to an @2x suffix on a retina

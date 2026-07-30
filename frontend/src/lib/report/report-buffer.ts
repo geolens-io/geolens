@@ -246,8 +246,16 @@ function failureKey(message: string): string {
     // zoom-3 tile (`/031.png`) would stay a distinct key while a zoom-12 one
     // collapsed. Anchoring is what keeps a mid-path `/2/` from matching.
     .replace(/\/[0-3]+(@\d+x)?(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
-    // …and only then the path-segment form of `{prefix}`, on what is left.
-    .replace(/\/[0-9a-f]{2}(?=\/)/gi, '/{prefix}')
+    // NOT the path-segment form of `{prefix}`. A resolved shard (`/a3/`) is
+    // indistinguishable from a meaningful static segment (`/ca/`, `/de/`) in a
+    // single URL — both are two hex-ish characters — so normalizing it merged
+    // two genuinely different sources into one. Between the two errors, the
+    // over-count is the safer one to keep: this is a problem REPORTER, and
+    // hiding a broken source is worse than counting a sharded one twice.
+    // A `{prefix}` in the HOST is still normalized above, where a one-or-two
+    // character first label is overwhelmingly a shard rather than a distinct
+    // host. Only console-only rows (viewer, dataset preview) are exposed at
+    // all; anything with a source id keys on that instead.
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')
