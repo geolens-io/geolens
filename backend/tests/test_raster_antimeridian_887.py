@@ -801,21 +801,66 @@ class TestSeamFrameRewrite:
 
         shift_vrt_longitude_frame(str(vrt), 175.0)
 
-        offsets = [d.get("xOff") for d in parse_vrt(str(vrt)).getroot().iter("DstRect")]
+        root = parse_vrt(str(vrt)).getroot()
+        offsets = [d.get("xOff") for d in root.iter("DstRect")]
         # 17751.5 px at 0.02 deg puts the western source at 175.03; re-anchored
         # there it sits at 0, and the eastern source lands 248.5 px further on.
         assert offsets == ["0", "248.5"]
         assert float(offsets[1]) == pytest.approx(248.5)
+        # ... and the raster has to be wide enough to hold it: 248.5 + 50 = 298.5
+        # needs 299 px. 298 would leave the last half pixel outside the dataset.
+        assert int(root.get("rasterXSize")) == 299
+
+    def test_raster_width_contains_every_source(self, tmp_path):
+        """The containment invariant, stated directly.
+
+        A pixel-count assertion cannot catch an under-sized raster — a 50-pixel
+        source still reads back as 50 pixels while its final half pixel is
+        clipped — so assert the geometry instead. GDAL sizes its own mosaics the
+        same way: measured ``max(xOff + xSize) = 298.5`` against
+        ``rasterXSize = 299``.
+        """
+        vrt = tmp_path / "contain.vrt"
+        vrt.write_text(
+            '<VRTDataset rasterXSize="18000" rasterYSize="50">'
+            "<GeoTransform> -1.8e+02, 2.0e-02, 0.0, 5.0, 0.0, -2.0e-02</GeoTransform>"
+            '<VRTRasterBand dataType="Byte" band="1">'
+            "<ComplexSource>"
+            '<DstRect xOff="17751.5" yOff="0" xSize="248.5" ySize="50" />'
+            "</ComplexSource>"
+            "<ComplexSource>"
+            '<DstRect xOff="0" yOff="0" xSize="50" ySize="50" />'
+            "</ComplexSource>"
+            "</VRTRasterBand></VRTDataset>"
+        )
+
+        shift_vrt_longitude_frame(str(vrt), 175.0)
+
+        root = parse_vrt(str(vrt)).getroot()
+        width = int(root.get("rasterXSize"))
+        far_edge = max(
+            float(d.get("xOff")) + float(d.get("xSize")) for d in root.iter("DstRect")
+        )
+        assert width >= far_edge, (
+            f"raster {width} px clips a source ending at {far_edge}"
+        )
+        # And not over-allocated either — exactly the containing integer.
+        assert width == 299
 
     def test_whole_pixel_offsets_stay_integral(self, tmp_path):
-        """The common case still reads like GDAL's own output, not ``50.0``."""
+        """The common case still reads like GDAL's own output, not ``50.0``.
+
+        Rounding the width up must not inflate an exactly-aligned mosaic: 50 + 50
+        is 100 pixels, not 101.
+        """
         vrt = tmp_path / "whole.vrt"
         vrt.write_text(_GDALBUILDVRT_SEAM_XML)
 
         shift_vrt_longitude_frame(str(vrt), 175.0)
 
-        offsets = [d.get("xOff") for d in parse_vrt(str(vrt)).getroot().iter("DstRect")]
-        assert offsets == ["0", "50", "0"]
+        root = parse_vrt(str(vrt)).getroot()
+        assert [d.get("xOff") for d in root.iter("DstRect")] == ["0", "50", "0"]
+        assert int(root.get("rasterXSize")) == 100
 
     def test_unopenable_source_is_left_to_gdalbuildvrt(self, tmp_path, monkeypatch):
         """The probe must never swallow a broken source's real error."""
@@ -1039,6 +1084,53 @@ class TestSeamFrameRewriteAgainstRealGdal:
             assert (ds.width, ds.height) == (100, 50)
             assert ds.bounds.left == pytest.approx(175.0)
             assert ds.nodata == 0.0
+
+    def test_off_grid_seam_mosaic_is_not_clipped(self, tmp_path):
+        """Off-grid sources produce fractional offsets; the raster must hold them.
+
+        The western tile's left edge (175.03) is deliberately off the finest
+        output grid, which is what makes `gdalbuildvrt` emit a fractional
+        `DstRect`. The rewrite must keep that fraction *and* round the containing
+        width up, or the last source hangs half a pixel outside the dataset.
+        """
+        sources = [
+            _write_tif(
+                tmp_path / "w.tif",
+                epsg=4326,
+                bounds=(175.03, 0.0, 180.0, 2.0),
+                width=50,
+                height=20,
+                nodata=0,
+                fill=7,
+            ),
+            _write_tif(
+                tmp_path / "e.tif",
+                epsg=4326,
+                bounds=(-180.0, 0.0, -179.0, 2.0),
+                width=50,
+                height=20,
+                nodata=0,
+                fill=9,
+            ),
+        ]
+
+        out = vrt_module._build_vrt(sources, str(tmp_path / "offgrid.vrt"), "finest")
+
+        root = parse_vrt(out).getroot()
+        offsets = [d.get("xOff") for d in root.iter("DstRect")]
+        assert any("." in o for o in offsets), "expected a fractional offset here"
+        width = int(root.get("rasterXSize"))
+        far_edge = max(
+            float(d.get("xOff")) + float(d.get("xSize")) for d in root.iter("DstRect")
+        )
+        assert width >= far_edge, (
+            f"raster {width} px clips a source ending at {far_edge}"
+        )
+
+        with rasterio.open(out) as ds:
+            assert ds.bounds.left == pytest.approx(175.03)
+            row = ds.read(1)[0]
+        assert set(row.tolist()) == {7, 9}
 
     def test_non_crossing_build_is_byte_identical_to_plain_gdalbuildvrt(self, tmp_path):
         """Nothing off the seam changes shape because of this PR."""

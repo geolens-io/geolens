@@ -521,14 +521,20 @@ def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
         placements.append((rect, src_left + shift, x_size))
 
     new_left = min(left for _, left, _ in placements)
-    new_right = max(left + size * res_x for _, left, size in placements)
+    offsets = [((left - new_left) / res_x, size) for _, left, size in placements]
 
-    # rasterXSize is a pixel count and must stay integral; the offsets must not.
-    root.set("rasterXSize", str(max(1, int(round((new_right - new_left) / res_x)))))
+    # The raster must CONTAIN every source, so round the width UP. A source
+    # ending at pixel 298.5 needs 299 pixels; 298 leaves its final half pixel
+    # outside the dataset and GDAL clips it -- which no pixel-count assertion
+    # catches, since a 50-pixel source still reads back as 50 pixels. GDAL sizes
+    # its own mosaics the same way (measured: max xOff+xSize 298.5 -> 299).
+    # Round before ceil so float noise on an exact boundary cannot add a pixel.
+    span_px = max(offset + size for offset, size in offsets)
+    root.set("rasterXSize", str(max(1, math.ceil(round(span_px, 6)))))
     geotransform[0] = new_left
     gt_node.text = ", ".join(repr(v) for v in geotransform)
-    for rect, left, _ in placements:
-        rect.set("xOff", _offset_text((left - new_left) / res_x))
+    for (rect, _, _), (offset, _) in zip(placements, offsets, strict=True):
+        rect.set("xOff", _offset_text(offset))
 
     tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
 
