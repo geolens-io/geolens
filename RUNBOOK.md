@@ -379,6 +379,37 @@ targets just need network reach to `api:8000` and `worker:8001`.
 > the `geolens_db_pool_*` gauges are not emitted and `GeoLensDbPoolSaturated`
 > never fires — pool health is the provider's responsibility there.
 
+### Database temp-file ceiling (`temp_file_limit`)
+
+The bundled Postgres config sets `temp_file_limit = 4GB` (`db/postgresql.conf`).
+Temporary spill files (`pgsql_tmp`) live on the same volume as the database
+itself, so an unbounded spill from a single runaway query — typically a large
+analysis dissolve or buffer — could fill the data volume and stop the whole
+cluster. The ceiling is a deliberate guard that converts that outage into one
+failed query.
+
+If you see this in the database logs or as a query error:
+
+```
+ERROR:  temporary file size exceeds "temp_file_limit" (4194304kB)
+```
+
+(SQLSTATE `53400`) — the guard worked as designed. The cluster keeps serving;
+only the offending session failed. Two responses:
+
+- **Filter the dataset**: the query genuinely needed more than 4GB of temp
+  spill, which usually means the analysis input should be narrowed (smaller
+  area of interest, fewer features) before rerunning.
+- **Raise the ceiling**: if the disk has the headroom and the workload is
+  legitimate, increase `temp_file_limit` in `db/postgresql.conf` and reload
+  (`docker compose exec db psql -U geolens -c "SELECT pg_reload_conf();"`).
+  The limit is per session, so size it against a single worst-case query, not
+  the sum of connections.
+
+`log_temp_files = 64MB` logs every spill above 64MB, so temp-file pressure is
+visible in the database logs before it reaches the ceiling — a rising number of
+`temporary file:` log lines is the early-warning signal.
+
 ### Backup service healthcheck
 
 The `backup` service exposes a Docker **freshness** healthcheck:
