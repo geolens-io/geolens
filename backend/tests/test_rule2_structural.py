@@ -51,6 +51,11 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 - Wrapping is judged lexically: a ``rasterio.open`` inside a
   ``with gdal_safe_open_env():`` body passes even if a refactor later moves
   the open into a helper called from outside the block. Reviewer territory.
+- Helper credit requires the name to be bound to the canonical module by an
+  import the resolver understands (see ``_canonical_bindings``). A dotted
+  ``import app.processing.raster.vrt`` used without an alias, or a re-export
+  through an intermediate module, is NOT credited — the failure mode is a
+  spurious violation prompting a review, never silent credit for a shadow.
 """
 
 from __future__ import annotations
@@ -72,6 +77,14 @@ GDAL_CLI_TOOLS = {
 
 SAFE_SUBPROCESS_ENV_HELPER = "gdal_safe_env"
 SAFE_OPEN_ENV_HELPER = "gdal_safe_open_env"
+
+# The one module whose definitions of the helpers are canonical. Credit for
+# using a helper requires the name to be BOUND to this module (imported from
+# it, or used inside it) — a bare tail-name match would hand credit to a
+# local shadow or an unrelated `something.gdal_safe_open_env()` (codex round
+# 3 on #974).
+CANONICAL_HELPER_MODULE_REL = "processing/raster/vrt.py"
+CANONICAL_HELPER_MODULE_SUFFIX = "processing.raster.vrt"
 
 # (module path relative to backend/app, enclosing function name) ->
 # (expected UNWRAPPED rasterio.open count, justification). Adding a new
@@ -205,15 +218,86 @@ def _is_rasterio_call(node: ast.Call, attr: str) -> bool:
     return isinstance(base, ast.Name) and ("rasterio" in base.id or base.id == "rio")
 
 
-def _inside_safe_open_env(node: ast.AST) -> bool:
+def _canonical_bindings(
+    rel: str, tree: ast.Module
+) -> tuple[dict[str, set[str]], set[str]]:
+    """Resolve which local names are bound to the canonical helpers.
+
+    Returns (helper_names, module_aliases): ``helper_names`` maps each helper
+    to the set of local names that resolve to its canonical definition;
+    ``module_aliases`` is the set of local names bound to the canonical vrt
+    module itself (for ``vrt.gdal_safe_open_env()``-style access).
+
+    codex round 3 on #974: a tail-name match credited local shadows and
+    unrelated attribute calls. Credit now requires one of:
+    - the module IS the canonical module and defines the helper at top level;
+    - ``from app.processing.raster.vrt import <helper> [as alias]``;
+    - an attribute access on a name bound by
+      ``from app.processing.raster import vrt [as alias]`` or
+      ``import app.processing.raster.vrt as alias``.
+    """
+    helper_names: dict[str, set[str]] = {
+        SAFE_OPEN_ENV_HELPER: set(),
+        SAFE_SUBPROCESS_ENV_HELPER: set(),
+    }
+    module_aliases: set[str] = set()
+
+    if rel == CANONICAL_HELPER_MODULE_REL:
+        for stmt in tree.body:
+            if (
+                isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and stmt.name in helper_names
+            ):
+                helper_names[stmt.name].add(stmt.name)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.endswith(CANONICAL_HELPER_MODULE_SUFFIX):
+                for alias in node.names:
+                    if alias.name in helper_names:
+                        helper_names[alias.name].add(alias.asname or alias.name)
+            elif node.module.endswith("processing.raster"):
+                for alias in node.names:
+                    if alias.name == "vrt":
+                        module_aliases.add(alias.asname or "vrt")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith(CANONICAL_HELPER_MODULE_SUFFIX) and alias.asname:
+                    module_aliases.add(alias.asname)
+
+    return helper_names, module_aliases
+
+
+def _is_canonical_helper_call(
+    expr: ast.expr,
+    helper: str,
+    helper_names: dict[str, set[str]],
+    module_aliases: set[str],
+) -> bool:
+    if not isinstance(expr, ast.Call):
+        return False
+    func = expr.func
+    if isinstance(func, ast.Name):
+        return func.id in helper_names[helper]
+    if isinstance(func, ast.Attribute) and func.attr == helper:
+        return isinstance(func.value, ast.Name) and func.value.id in module_aliases
+    return False
+
+
+def _inside_safe_open_env(
+    node: ast.AST,
+    helper_names: dict[str, set[str]],
+    module_aliases: set[str],
+) -> bool:
     current = node
     while current is not None:
         if isinstance(current, (ast.With, ast.AsyncWith)):
             for item in current.items:
-                expr = item.context_expr
-                if (
-                    isinstance(expr, ast.Call)
-                    and _call_name(expr.func) == SAFE_OPEN_ENV_HELPER
+                if _is_canonical_helper_call(
+                    item.context_expr,
+                    SAFE_OPEN_ENV_HELPER,
+                    helper_names,
+                    module_aliases,
                 ):
                     return True
         current = getattr(current, "_rule2_parent", None)
@@ -231,13 +315,40 @@ def _enclosing_function_node(
     return None
 
 
-def _subtree_references(root: ast.AST, name: str) -> bool:
+def _scope_uses_safe_env(
+    root: ast.AST,
+    helper_names: dict[str, set[str]],
+    module_aliases: set[str],
+) -> bool:
+    """True when the scope references a name BOUND to the canonical
+    gdal_safe_env (codex round 3: tail-name matching credited shadows)."""
     for node in ast.walk(root):
-        if isinstance(node, ast.Name) and node.id == name:
+        if (
+            isinstance(node, ast.Name)
+            and node.id in helper_names[SAFE_SUBPROCESS_ENV_HELPER]
+        ):
             return True
-        if isinstance(node, ast.Attribute) and node.attr == name:
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == SAFE_SUBPROCESS_ENV_HELPER
+            and isinstance(node.value, ast.Name)
+            and node.value.id in module_aliases
+        ):
             return True
     return False
+
+
+def _blank_justification_violations(allowlist_name: str, allowlist: dict) -> list[str]:
+    """codex round 3 on #974: an entry with a blank justification defeats the
+    reviewed-justification contract while still counting as covered."""
+    violations = []
+    for key, (_count, justification) in sorted(allowlist.items()):
+        if not justification.strip():
+            violations.append(
+                f"{allowlist_name} entry {key} has a blank justification — "
+                "every entry must record WHY the site is acceptable"
+            )
+    return violations
 
 
 def _collect_rasterio_violations(
@@ -264,15 +375,23 @@ def _collect_rasterio_violations(
     violations: list[str] = []
     total_open_calls = 0
 
+    violations += _blank_justification_violations(
+        "RASTERIO_OPEN_ALLOWLIST", open_allowlist
+    )
+    violations += _blank_justification_violations(
+        "RASTERIO_ENV_ALLOWLIST", env_allowlist
+    )
+
     for rel, tree in modules:
         _annotate_parents(tree)
+        helper_names, module_aliases = _canonical_bindings(rel, tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             if _is_rasterio_call(node, "open"):
                 total_open_calls += 1
                 site = (rel, _enclosing_function(node))
-                if _inside_safe_open_env(node):
+                if _inside_safe_open_env(node, helper_names, module_aliases):
                     continue
                 unwrapped_counts[site] = unwrapped_counts.get(site, 0) + 1
                 unwrapped_lines.setdefault(site, []).append(node.lineno)
@@ -346,8 +465,11 @@ def _collect_gdal_cli_violations(
     unsafe_counts: dict[tuple[str, str, str], int] = {}
     unsafe_lines: dict[tuple[str, str, str], list[int]] = {}
 
+    violations += _blank_justification_violations("GDAL_CLI_CALL_ALLOWLIST", allowlist)
+
     for rel, tree in modules:
         _annotate_parents(tree)
+        helper_names, module_aliases = _canonical_bindings(rel, tree)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.List) and node.elts):
                 continue
@@ -358,7 +480,7 @@ def _collect_gdal_cli_violations(
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
             scope: ast.AST = func_node if func_node is not None else tree
-            if _subtree_references(scope, SAFE_SUBPROCESS_ENV_HELPER):
+            if _scope_uses_safe_env(scope, helper_names, module_aliases):
                 continue
             key = (rel, func_name, first.value)
             unsafe_counts[key] = unsafe_counts.get(key, 0) + 1
@@ -493,3 +615,90 @@ def test_guard_new_cli_argv_in_covered_module_fails():
         {},
     )
     assert len(violations) == 1 and "sneaky" in violations[0]
+
+
+def test_guard_shadowed_open_env_helper_gets_no_credit():
+    """codex round 3: a local shadow of gdal_safe_open_env, or an unrelated
+    `something.gdal_safe_open_env()`, must not earn wrapping credit — only a
+    name bound to the canonical vrt module counts."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def gdal_safe_open_env():\n"
+            "    class _N:\n"
+            "        def __enter__(self):\n"
+            "            return None\n"
+            "        def __exit__(self, *a):\n"
+            "            return False\n"
+            "    return _N()\n"
+            "def shadowed(path):\n"
+            "    with gdal_safe_open_env():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+            "def decoy(obj, path):\n"
+            "    with obj.gdal_safe_open_env():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+        ),
+        {},
+        {},
+    )
+    assert len(violations) == 2, violations
+    assert any("shadowed" in v for v in violations)
+    assert any("decoy" in v for v in violations)
+
+
+def test_guard_canonically_imported_helper_gets_credit():
+    """The binding resolver must still credit the legitimate forms: a
+    canonical from-import (aliased or not) and vrt-module attribute access."""
+    violations, _ = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "from app.processing.raster.vrt import gdal_safe_open_env as goe\n"
+            "from app.processing.raster import vrt\n"
+            "def a(path):\n"
+            "    with goe():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+            "def b(path):\n"
+            "    with vrt.gdal_safe_open_env():\n"
+            "        with rasterio.open(path):\n"
+            "            pass\n"
+        ),
+        {},
+        {},
+    )
+    assert violations == []
+
+
+def test_guard_shadowed_cli_helper_gets_no_credit():
+    """codex round 3, CLI side: a local def of gdal_safe_env must not credit
+    the argvs in its module."""
+    violations, _ = _collect_gdal_cli_violations(
+        _mod(
+            "import os\n"
+            "def gdal_safe_env():\n"
+            "    return dict(os.environ)\n"
+            "def runs(url):\n"
+            "    env = gdal_safe_env()\n"
+            "    return ['ogrinfo', '-json', url], env\n"
+        ),
+        {},
+    )
+    assert len(violations) == 1 and "runs" in violations[0]
+
+
+def test_guard_blank_justification_fails():
+    """codex round 3: a (count, '') entry defeats the reviewed-justification
+    contract; blank justifications fail in every allowlist."""
+    modules = _mod(
+        "import rasterio\ndef fn(path):\n    with rasterio.open(path):\n        pass\n"
+    )
+    violations, _ = _collect_rasterio_violations(
+        modules, {("seed/mod.py", "fn"): (1, "   ")}, {}
+    )
+    assert len(violations) == 1 and "blank justification" in violations[0]
+    cli_violations, _ = _collect_gdal_cli_violations(
+        _mod("x = 1\n"), {("seed/mod.py", "fn", "ogrinfo"): (1, "")}
+    )
+    assert any("blank justification" in v for v in cli_violations)
