@@ -302,7 +302,20 @@
       "offsetX": "Versatz X",
       "offsetY": "Versatz Y",
       "categoryMapping": "Symbole nach Wert",
-      "categoryIcon": "Symbol für {{value}}"
+      "categoryIcon": "Symbol für {{value}}",
+      "anchorOption": {
+        "center": "Mitte",
+        "top": "Oben",
+        "bottom": "Unten",
+        "left": "Links",
+        "right": "Rechts",
+        "top-left": "Oben links",
+        "top-right": "Oben rechts",
+        "bottom-left": "Unten links",
+        "bottom-right": "Unten rechts"
+      },
+      "sampledValues": "Eine Stichprobe der Werte dieser Spalte, nicht alle Werte des Datensatzes.",
+      "unknownIcon": "Kein Symbol namens „{{icon}}“ — für diesen Wert wird nichts gezeichnet."
     },
     "arrow": {
       "title": "Pfeilrichtung",

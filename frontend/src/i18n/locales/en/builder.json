@@ -302,7 +302,20 @@
       "offsetX": "Offset X",
       "offsetY": "Offset Y",
       "categoryMapping": "Icons by value",
-      "categoryIcon": "Icon for {{value}}"
+      "categoryIcon": "Icon for {{value}}",
+      "anchorOption": {
+        "center": "Center",
+        "top": "Top",
+        "bottom": "Bottom",
+        "left": "Left",
+        "right": "Right",
+        "top-left": "Top left",
+        "top-right": "Top right",
+        "bottom-left": "Bottom left",
+        "bottom-right": "Bottom right"
+      },
+      "sampledValues": "A sample of this column’s values — not every value in the dataset.",
+      "unknownIcon": "No icon named “{{icon}}” — this value will draw nothing."
     },
     "arrow": {
       "title": "Arrow direction",
