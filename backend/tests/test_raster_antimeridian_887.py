@@ -27,7 +27,9 @@ extent MUST take ``clean_tables`` — see ``TestRasterTokenAcrossTheSeam``.
 import io
 import shutil
 import subprocess
+import threading
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from xml.etree.ElementTree import parse as parse_vrt
@@ -54,6 +56,7 @@ from app.processing.raster.vrt import (
     _seam_frame_origin,
     _write_python_vrt,
     build_vrt,
+    is_attacker_controllable_source,
     shift_vrt_longitude_frame,
     sources_seam_frame_origin,
 )
@@ -561,6 +564,87 @@ class TestSourcesSeamFrameOrigin:
         bogus.write_bytes(b"not a tiff")
 
         assert sources_seam_frame_origin([str(bogus)]) is None
+
+    def test_remote_source_is_never_fetched_by_the_probe(self, tmp_path):
+        """AGENTS.md Rule 2: the probe must not fetch a caller-supplied URL.
+
+        This runs *ahead* of ``gdalbuildvrt``, so for a remotely imported STAC
+        asset — whose URL ``resolve_open_path`` passes through unchanged — it
+        would be the first thing to fetch it, and a URL that was safe at import
+        time but now redirects to a private address would be followed.
+
+        Asserting "the redirect was not followed" would be too weak, because no
+        GDAL setting can deliver that: measured on GDAL 3.12.1,
+        ``GDAL_HTTP_FOLLOWLOCATION`` is not a real config option
+        (``Warning 1: Unknown configuration option``) and the 302 is followed
+        with or without it, in-process and in the subprocess alike. So assert
+        the strong property instead: **the host is never contacted at all.**
+        A local server records every hit; the list must stay empty.
+        """
+        requested: list[str] = []
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 (BaseHTTPRequestHandler API)
+                requested.append(self.path)
+                if self.path.startswith("/redirect"):
+                    self.send_response(302)
+                    self.send_header("Location", "/private.tif")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/tiff")
+                self.end_headers()
+                self.wfile.write(b"\x00" * 64)
+
+            def do_HEAD(self):  # noqa: N802 (GDAL probes with HEAD first)
+                self.do_GET()
+
+            def log_message(self, *args):  # silence the default stderr spam
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/redirect.tif"
+            assert sources_seam_frame_origin([url]) is None
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        assert requested == [], f"the probe fetched a caller-supplied URL: {requested}"
+
+    @pytest.mark.parametrize(
+        "path,controllable",
+        [
+            ("https://example.invalid/a.tif", True),
+            ("http://example.invalid/a.tif", True),
+            ("/vsicurl/https://example.invalid/a.tif", True),
+            ("/vsicurl_streaming/https://example.invalid/a.tif", True),
+            # Managed storage: bucket from settings, key already validated.
+            ("/vsis3/bucket/rasters/a.tif", False),
+            ("/vsiaz/container/rasters/a.tif", False),
+            ("/srv/staging/rasters/a.tif", False),
+        ],
+    )
+    def test_attacker_controllable_source_classification(self, path, controllable):
+        assert is_attacker_controllable_source(path) is controllable
+
+    def test_managed_storage_paths_are_still_probed(self, tmp_path):
+        """The refusal is scoped to caller-supplied hosts, not to all I/O.
+
+        Same seam pair as the positive case, just proving the local/managed path
+        did not get caught by the URL guard.
+        """
+        sources = [
+            _write_tif(tmp_path / "m1.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
+            _write_tif(
+                tmp_path / "m2.tif", epsg=4326, bounds=(-180.0, 0.0, -175.0, 5.0)
+            ),
+        ]
+
+        assert sources_seam_frame_origin(sources) == pytest.approx(175.0)
 
     def test_grads_based_geographic_crs_is_not_detected(self, tmp_path):
         """``is_geographic`` is not the same as "wraps at ±180".

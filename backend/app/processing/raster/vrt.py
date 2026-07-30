@@ -67,6 +67,46 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
+# fix(#887): source paths whose host an attacker can influence.
+# ``resolve_open_path`` passes a remotely imported STAC asset's URL through
+# UNCHANGED, so these arrive here verbatim. ``/vsis3/``, ``/vsiaz/`` and local
+# paths are managed storage -- bucket from settings, key already validated by
+# ``resolve_storage_key`` -- and are not in this set.
+_ATTACKER_CONTROLLABLE_PREFIXES: tuple[str, ...] = (
+    "http://",
+    "https://",
+    "/vsicurl/",
+    "/vsicurl_streaming/",
+)
+
+
+def is_attacker_controllable_source(path: str) -> bool:
+    """True when a source path points at a host the caller chose."""
+    return path.startswith(_ATTACKER_CONTROLLABLE_PREFIXES)
+
+
+def gdal_safe_open_env():
+    """In-process twin of :func:`gdal_safe_env`, for ``rasterio.open`` calls.
+
+    ``gdal_safe_env`` clamps SUBPROCESS environments only; an in-process
+    ``rasterio.open`` gets none of it. Built from the same ``_VRT_SAFE_ENV``
+    constant so the two cannot drift when a clamp is added.
+
+    fix(#887): note what this does NOT buy. Measured on GDAL 3.12.1,
+    ``GDAL_HTTP_FOLLOWLOCATION`` is not a GDAL configuration option at all --
+    ``gdalinfo --config GDAL_HTTP_FOLLOWLOCATION NO --debug ON`` answers
+    ``Warning 1: Unknown configuration option 'GDAL_HTTP_FOLLOWLOCATION'`` and
+    follows the 302 anyway, in-process and in the subprocess alike. So this env
+    carries the two clamps that ARE real (the ``/vsicurl`` extension allow-list
+    and ``VRT_VIRTUAL_OVERVIEWS``) and provides no redirect protection to
+    anybody. Redirect safety for user-supplied URLs has to come from not handing
+    them to GDAL -- see :func:`is_attacker_controllable_source`.
+    """
+    import rasterio
+
+    return rasterio.Env(**_VRT_SAFE_ENV)
+
+
 # fix(#430 BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
 # Python threads aren't killable — a hung child (malformed TIFF, stalled /vsi
 # read) would pin a ThreadPoolExecutor thread forever and eventually starve every
@@ -230,7 +270,10 @@ def _write_python_vrt(
     if not source_paths:
         raise ValueError("At least one source raster is required to build a VRT")
 
-    with ExitStack() as stack:
+    # fix(#887): same clamp as the seam probe — this builder opens every source
+    # in-process, and on a CLI-less host it is the ONLY thing that touches them,
+    # so there is no clamped subprocess behind it (AGENTS.md Rule 2).
+    with gdal_safe_open_env(), ExitStack() as stack:
         datasets = [stack.enter_context(rasterio.open(path)) for path in source_paths]
         first = datasets[0]
         first_crs = first.crs.to_wkt() if first.crs is not None else None
@@ -411,11 +454,28 @@ def sources_seam_frame_origin(source_paths: list[str]) -> float | None:
 
     Returns ``None`` unless every source is geographic and the mosaic really
     crosses the seam, so the ordinary build is left completely alone.
+
+    **Never probes a caller-supplied URL** (AGENTS.md Rule 2). This runs *ahead*
+    of ``gdalbuildvrt``, so for a remotely imported STAC asset -- whose ``https://``
+    URL ``resolve_open_path`` passes through unchanged -- it would be the first
+    thing to fetch it. A URL that was validated at import time but now
+    3xx-redirects to a private address would be followed, and there is no GDAL
+    setting that prevents that: ``GDAL_HTTP_FOLLOWLOCATION`` is not a real
+    configuration option (see :func:`gdal_safe_open_env`), so clamping the open
+    would only look like a fix. Refusing to open it is the actual fix.
+
+    The cost, stated plainly: a genuinely seam-crossing mosaic built from remote
+    sources keeps the old over-broad -180..180 hull. That is the pre-existing
+    behaviour, it is rare, and it is a much better trade than adding a fetch of
+    an attacker-chosen host to a code path that had none.
     """
     import rasterio
 
+    if any(is_attacker_controllable_source(path) for path in source_paths):
+        return None
+
     try:
-        with ExitStack() as stack:
+        with gdal_safe_open_env(), ExitStack() as stack:
             datasets = [
                 stack.enter_context(rasterio.open(path)) for path in source_paths
             ]
