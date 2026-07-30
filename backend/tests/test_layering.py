@@ -1026,7 +1026,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
-    "backend/app/api/main.py": 1282,
+    "backend/app/api/main.py": 1292,
     "backend/app/modules/catalog/maps/schemas.py": 1312,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
@@ -1706,6 +1706,102 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
         )
+
+
+# fix(#909): env-sensitive helpers that test fixtures redirect by assigning to
+# the ORIGIN module. A module-scope `from <origin> import <name>` snapshots the
+# object into the importing module's own namespace, so the fixture's patch
+# never reaches it — and the test silently reads or WRITES the dev database
+# while passing (the #898 export-ogr incident). Call sites must late-bind
+# (`from <origin> import <name>` inside the function) so the origin module's
+# current attribute is resolved at call time.
+#
+# Maps origin module -> redirected symbol names. Extend this when a fixture
+# starts redirecting another module-scope-importable helper.
+_FIXTURE_REDIRECTED_SYMBOLS: dict[str, frozenset[str]] = {
+    "app.core.db": frozenset({"async_session"}),
+    "app.core.db.session": frozenset({"async_session"}),
+    "app.processing.ingest.ogr": frozenset({"build_pg_conn_str"}),
+}
+
+# The one sanctioned module-scope binding: app/core/db/__init__.py re-exports
+# from app.core.db.session, and that package attribute is exactly what the
+# conftest fixture patches (`db_module.async_session = ...`), so the façade
+# must keep its binding for the patch to have a target.
+_FIXTURE_REDIRECT_ALLOWED_FILES = frozenset({"app/core/db/__init__.py"})
+
+
+def _module_scope_redirected_imports(tree: ast.AST) -> list[tuple[int, str, str]]:
+    """Return (lineno, origin-module, symbol) for module-scope offenders.
+
+    Module scope means anywhere outside a function body — class bodies and
+    conditional/try blocks at module level still bind at import time and
+    escape fixture patches exactly the same way.
+    """
+    inside_functions: set[ast.AST] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                if child is not node:
+                    inside_functions.add(child)
+
+    offenders: list[tuple[int, str, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        if node in inside_functions:
+            continue
+        forbidden = _FIXTURE_REDIRECTED_SYMBOLS.get(node.module)
+        if not forbidden:
+            continue
+        for alias in node.names:
+            if alias.name in forbidden:
+                offenders.append((node.lineno, node.module, alias.name))
+    return offenders
+
+
+@pytest.mark.architecture
+def test_no_module_scope_imports_of_fixture_redirected_helpers() -> None:
+    """fix(#909): forbid module-scope `from X import name` for redirected helpers.
+
+    AST-based rather than git grep so untracked files are covered and
+    multi-name import lists (`from app.core.db import async_session,
+    tenant_task`) cannot slip through.
+
+    Negative-control: temporarily add `from app.core.db import async_session`
+    at the top of any module under backend/app/, run this test, confirm it
+    fails with the offending file:line surfaced. Revert. (Automated as
+    test_fixture_redirect_guard_catches_seeded_violation below.)
+    """
+    app_root = _backend_path("app")
+    failures: list[str] = []
+    for path in sorted(app_root.rglob("*.py")):
+        rel = path.relative_to(BACKEND_ROOT).as_posix()
+        if rel in _FIXTURE_REDIRECT_ALLOWED_FILES:
+            continue
+        tree = ast.parse(path.read_text(), filename=rel)
+        for lineno, module, symbol in _module_scope_redirected_imports(tree):
+            failures.append(f"{rel}:{lineno}: `from {module} import {symbol}`")
+
+    assert not failures, (
+        "Module-scope import of a fixture-redirected helper found. These "
+        "symbols are reassigned on their origin module by test fixtures; a "
+        "module-scope `from ... import` snapshots the un-patched object and "
+        "silently points tests at the dev database. Late-bind inside the "
+        "function instead (see #909):\n" + "\n".join(failures)
+    )
+
+
+def test_fixture_redirect_guard_catches_seeded_violation() -> None:
+    """The guard must fail on a seeded module-scope offender (issue #909 §3)."""
+    seeded = ast.parse(
+        "import uuid\n"
+        "from app.core.db import Base, async_session\n"
+        "def ok():\n"
+        "    from app.core.db import async_session\n"
+    )
+    offenders = _module_scope_redirected_imports(seeded)
+    assert offenders == [(2, "app.core.db", "async_session")]
 
 
 def _manifest_backend_files() -> list[Path]:

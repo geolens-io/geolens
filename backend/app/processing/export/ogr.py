@@ -3,12 +3,16 @@
 import asyncio
 import os
 
+# fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
+# The test fixture redirects app.processing.ingest.ogr.build_pg_conn_str at
+# the origin; a module-scope `from ... import` here snapshots the dev-DB
+# helper past that patch, which once sent a test's ogr2ogr export at the dev
+# database (#898). Late-bind at call scope (test_layering.py enforces this).
 from app.processing.ingest.ogr import (
     OGR2OGR_FILE_TIMEOUT_SECONDS,
     IngestionError,
     _communicate_with_timeout,
     _tenant_reader_subprocess_env,
-    build_pg_conn_str,
 )
 
 
@@ -105,6 +109,7 @@ async def run_ogr2ogr_export(
         ExportError: If ogr2ogr exits with non-zero code.
     """
     from app.processing.ingest.metadata import _validate_table_name
+    from app.processing.ingest.ogr import build_pg_conn_str
 
     _validate_table_name(table_name)
     _validate_table_name(schema)

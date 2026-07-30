@@ -1876,16 +1876,17 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
     (or a class-level ``pytestmark``) trigger the monkeypatch. All
     other tests are unaffected.
 
-    fix(#885): the export wrapper does ``from app.processing.ingest.ogr import
-    build_pg_conn_str`` at module scope, so it holds its OWN binding — patching
-    only the ingest module left ``run_ogr2ogr_export`` reading the dev/prod
-    database. Both bindings are redirected.
+    fix(#885): the export wrapper used to do ``from app.processing.ingest.ogr
+    import build_pg_conn_str`` at module scope, holding its OWN binding —
+    patching only the ingest module left ``run_ogr2ogr_export`` reading the
+    dev/prod database. fix(#909): the export wrapper now late-binds at call
+    scope (enforced by test_layering.py), so the origin-module patch below is
+    the single binding again.
     """
     if "requires_ogr2ogr" not in request.keywords:
         return
 
     from app.core.config import settings as _settings
-    from app.processing.export import ogr as _export_ogr
     from app.processing.ingest import ogr as _ogr
 
     def _test_pg_conn_str() -> str:
@@ -1898,7 +1899,6 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
         )
 
     monkeypatch.setattr(_ogr, "build_pg_conn_str", _test_pg_conn_str)
-    monkeypatch.setattr(_export_ogr, "build_pg_conn_str", _test_pg_conn_str)
 
 
 @pytest.fixture

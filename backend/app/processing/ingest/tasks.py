@@ -26,7 +26,11 @@ from app.processing.ingest.tasks_common import (  # noqa: F401
 )
 
 # -- Re-export infrastructure helpers used by sub-modules (for test mocking) --
-from app.core.db import async_session  # noqa: F401
+# fix(#909): async_session is deliberately NOT re-exported here. A module-scope
+# `from app.core.db import async_session` snapshots the dev-DB factory past the
+# test fixture's rebinding of app.core.db, and a re-export invites consumers to
+# inherit that snapshot. Late-bind at call scope instead (test_layering.py
+# enforces this).
 from app.platform.cache.tiles import invalidate_catalog_cache  # noqa: F401
 from app.platform.storage import get_storage  # noqa: F401
 from app.processing.embeddings.helpers import defer_embedding  # noqa: F401
