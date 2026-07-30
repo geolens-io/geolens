@@ -365,6 +365,21 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 8 on #908: toMaplibreStyle gives every custom basemap the fixed
+  // source id `basemap`, so the id alone merged two different failing basemaps.
+  it('keeps two custom basemaps apart despite their shared source id', () => {
+    for (const host of ['a-tiles.example.com', 'b-tiles.example.com']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Not Found (404): https://${host}/5/1/1.png`,
+        detail: 'source: basemap',
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

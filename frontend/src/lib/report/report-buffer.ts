@@ -168,13 +168,11 @@ export function countDistinctFailures(list: ReportEntry[]): number {
     if (entry.severity !== 'error') continue;
     const message = failureKey(entry.message);
     if (entry.source === 'maplibre') {
-      // Prefer the MapLibre source id outright: it is the ground truth for
-      // "which thing is broken", and it sidesteps every way one source's tile
-      // URLs can differ from each other (coordinates, shard prefixes, rotating
-      // sigs). Fall back to the message for style and glyph errors, which
-      // carry no source.
-      const sourceId = sourceIdOf(entry);
-      mapFailures.add(sourceId ? `src\u0000${sourceId}` : `msg\u0000${message}`);
+      // Source id AND normalized message, not either alone. The id separates
+      // two cluster layers over one dataset, which fail with byte-identical
+      // URLs; the message separates two custom basemaps, which `toMaplibreStyle`
+      // both hands the fixed source id `basemap`. Neither is unique on its own.
+      mapFailures.add(`${message}\u0000${sourceIdOf(entry)}`);
       mapMessages.add(message);
     } else if (entry.source === 'console') {
       consoleOnly.add(message);
