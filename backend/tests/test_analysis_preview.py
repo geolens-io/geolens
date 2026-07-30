@@ -104,6 +104,43 @@ async def _create_point_dataset(
     )
 
 
+async def _create_point_dataset_at(
+    session: AsyncSession, *, created_by: uuid.UUID, lon: float, lat: float
+):
+    """Create a one-row point dataset at an explicit longitude/latitude.
+
+    fix(#697): every other fixture in this suite sits at low latitude and low
+    longitude, which is why antimeridian output went unnoticed. Callers pass the
+    seam and high-latitude coordinates the analysis operations have to survive.
+    """
+    table_name = f"ds_{uuid.uuid4().hex[:12]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            f"  gid SERIAL PRIMARY KEY,"
+            f"  name TEXT,"
+            f"  geom geometry(Point, 4326),"
+            f"  geom_4326 geometry(Point, 4326)"
+            f")"
+        )
+    )
+    await session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (name, geom, geom_4326) VALUES "  # noqa: S608
+            f"('p', ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),"
+            f"      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326))"
+        ).bindparams(lon=lon, lat=lat)
+    )
+    await session.commit()
+    return await create_dataset(
+        session,
+        created_by=created_by,
+        table_name=table_name,
+        geometry_type="POINT",
+        feature_count=1,
+    )
+
+
 async def _create_mask_dataset(
     session: AsyncSession,
     *,
@@ -873,6 +910,37 @@ class TestBuildPreviewSql:
         assert "ST_Buffer(ST_MakeValid(geom_4326)::geography, 500.0)::geometry" in sql
         assert 'FROM "data"."t1"' in sql
         assert "ORDER BY gid" in sql
+
+    def test_buffer_sql_is_dateline_safe(self):
+        """fix(#697): buffer output must go through the ±180 split, and only
+        buffer — clip and dissolve cannot introduce a wrap the source lacked,
+        and adding the guard there would be dead cost on every row."""
+        from app.platform.analysis_sql import render_geometry_expr
+
+        buffer_expr, _ = render_geometry_expr("buffer", distance_meters=500)
+        # The guard needs BOTH conditions: a wide planar span alone also
+        # describes a pole-encircling geometry, which must be left alone.
+        assert "ST_XMax(_dl.g) - ST_XMin(_dl.g) > 180" in buffer_expr
+        assert (
+            "ST_XMax(_dl.s) - ST_XMin(_dl.s) < ST_XMax(_dl.g) - ST_XMin(_dl.g)"
+            in buffer_expr
+        )
+        assert "ST_WrapX(ST_MakeValid(_dl.s), 180, -360)" in buffer_expr
+        # ST_ShiftLongitude must run BEFORE ST_MakeValid: validating the
+        # wrapped ring first nodes the seam into slivers.
+        assert "ST_MakeValid(ST_ShiftLongitude" not in buffer_expr
+        # Both the buffer and the shifted copy stay behind an OFFSET 0 fence,
+        # so neither is re-evaluated per CASE reference (fix(#700 review)).
+        assert buffer_expr.count("ST_Buffer(") == 1
+        assert buffer_expr.count("ST_ShiftLongitude(") == 1
+        assert buffer_expr.count("OFFSET 0") == 2
+
+        for op, kwargs in (
+            ("centroid", {}),
+            ("clip", {"mask": CLIP_MASK}),
+        ):
+            other_expr, _ = render_geometry_expr(op, **kwargs)
+            assert "ST_ShiftLongitude" not in other_expr
 
     def test_centroid_sql(self):
         req = AnalysisPreviewRequest(operation="centroid")

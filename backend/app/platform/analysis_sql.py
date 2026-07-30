@@ -78,6 +78,92 @@ NOT_EMPTY_PREDICATE = (
 MASK_SUBDIVIDE_MAX_VERTICES = 256
 
 
+# A planar longitude span wider than this means the geometry does not really
+# stretch that far — it wraps the antimeridian, since no 4326 geometry can
+# legitimately span more than 180° without also enclosing a pole. See
+# ``render_dateline_safe`` for why the guard has to be conditional.
+DATELINE_WRAP_SPAN_DEG = 180
+
+
+def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
+    """Split antimeridian-wrapping output of ``geom_expr`` at ±180.
+
+    fix(#697): ``ST_Buffer(...::geography, d)::geometry`` normalizes longitude
+    into [-180, 180], so a buffer that reaches across the antimeridian comes
+    back as ONE planar polygon carrying vertices on both sides of the seam.
+    Probed on PostGIS 3.6, a 10 km buffer of a point at lon 179.95 / lat 45
+    returns a self-intersecting POLYGON whose planar envelope is 359.99° wide.
+    Registration stores that envelope verbatim into ``records.spatial_extent``
+    (``ingest/metadata.py`` computes a bare ``ST_Extent``), so the saved dataset
+    published a near-global bbox on the datasets API and the OGC Features
+    collection extent, and the stored geometry itself matched a bbox query over
+    central France — a feature-level false positive, ~15 000 km off.
+
+    The split shifts into the 0..360 domain so the ring is coherent again, cuts
+    at x=180, translates the far side back by -360, and keeps the polygonal
+    components. The result is a valid multipart geometry inside [-180, 180].
+
+    ``ST_ShiftLongitude`` runs BEFORE ``ST_MakeValid``, and the order is
+    load-bearing. A wrapping ring is self-intersecting *in the planar domain*,
+    so validating first repairs an artefact of the wrap: it nodes the seam and
+    emits spurious slivers. Measured on a 10 km buffer at lon 179.95 — validate
+    first: 4 parts holding 97.9% of the expected area; shift first: 2 parts
+    holding 99.3%, the same ratio a non-crossing buffer of equal radius reaches
+    (the 0.7% deficit is ``ST_Buffer``'s own polygonal approximation of a
+    geodesic circle). ``ST_WrapX`` splits by intersection and does need valid
+    input, so the validation stays, just after the shift.
+
+    Two conditions gate the split, and both carry their own weight.
+
+    The planar span must exceed ``DATELINE_WRAP_SPAN_DEG``. A compact geometry
+    with vertices just inside +180 and just inside -180 has a planar span near
+    360°, so this is what "wraps" looks like from the outside; anything narrower
+    cannot be straddling the seam. Skipping the test entirely is not an option —
+    ``ST_ShiftLongitude`` maps negative longitudes to 180..360, so shifting
+    unconditionally splits ordinary geometry at the PRIME meridian instead: an
+    unguarded run over a 10 km buffer at lon 0 returned 2 parts covering 49x the
+    correct area. It also keeps the comparison below away from a float tie —
+    for a geometry lying wholly west of Greenwich the shift adds 360° to every
+    vertex, and the two spans then differ only by rounding.
+
+    Shifting must also NARROW the span. A geometry that encircles a pole
+    genuinely occupies every longitude, so its planar span is wide and stays
+    wide once shifted, and splitting it at the seam would only cut away area:
+    a 100 km buffer at lat 89.9 measured 347.3° planar / 349.9° shifted and is
+    correctly left alone, where a span-only test would have split it down to 93%
+    of its area. A seam-wrapping buffer collapses instead — 359.99° planar to
+    0.25° shifted — which is exactly the signal being tested for.
+
+    ``geom_expr`` is evaluated inside an ``OFFSET 0``-fenced subquery — the
+    same pull-up fence ``_wrap_not_empty`` and ``build_preview_sql`` use
+    (fix(#700 review)) — because the CASE references the geometry several
+    times, and the shifted copy is fenced the same way one level out so
+    ``ST_ShiftLongitude`` also runs once. Measured over 2 000 rows: naive
+    inlining 212 ms, this shape 136 ms, unsplit baseline 121 ms; on an
+    all-non-crossing workload the fenced form is within ~2% of the baseline.
+
+    NOT fixed here, and deliberately: a dataset that genuinely straddles the
+    seam still registers a -180..180 ``spatial_extent``, because the
+    ``geometry(Polygon, 4326)`` column cannot express the west > east bbox that
+    RFC 7946 § 5.2 and the STAC spec use for antimeridian-crossing extents.
+    That representation gap predates the analysis tools and equally affects
+    directly ingested Fiji-area data; it needs a schema change, not a wider
+    expression.
+    """
+    return (
+        "(SELECT CASE"
+        f" WHEN ST_XMax({alias}.g) - ST_XMin({alias}.g) > {DATELINE_WRAP_SPAN_DEG}"
+        f" AND ST_XMax({alias}.s) - ST_XMin({alias}.s)"
+        f" < ST_XMax({alias}.g) - ST_XMin({alias}.g)"
+        " THEN ST_CollectionExtract("
+        f"ST_WrapX(ST_MakeValid({alias}.s), 180, -360), 3)"
+        f" ELSE {alias}.g END"
+        f" FROM (SELECT {alias}_g.g, ST_ShiftLongitude({alias}_g.g) AS s"
+        f" FROM (SELECT {geom_expr} AS g OFFSET 0) AS {alias}_g"
+        f" OFFSET 0) AS {alias})"
+    )
+
+
 def render_clip_layer_join(mask_table_ref: str, *, src: str) -> tuple[str, str, str]:
     """Clip against a mask LAYER (fix(#693)); used by preview AND materialize.
 
@@ -226,8 +312,17 @@ def render_geometry_expr(
             raise ValueError(
                 f"buffer distance must be between 0 and {MAX_BUFFER_METERS:g} meters"
             )
+        # Buffer is the only operation here that round-trips through
+        # ::geography, and therefore the only one that can emit an
+        # antimeridian-wrapping geometry the source never had — hence the only
+        # one wrapped in render_dateline_safe (fix(#697)). Intersection (clip)
+        # and union (dissolve) can only shrink or merge longitudes that were
+        # already in range, and a planar centroid stays inside its input's
+        # envelope.
         return (
-            f"ST_Buffer(ST_MakeValid(geom_4326)::geography, {distance})::geometry",
+            render_dateline_safe(
+                f"ST_Buffer(ST_MakeValid(geom_4326)::geography, {distance})::geometry"
+            ),
             "",
         )
     if operation == "centroid":
