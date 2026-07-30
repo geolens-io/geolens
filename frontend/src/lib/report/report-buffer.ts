@@ -215,8 +215,11 @@ const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX
 function failureKey(message: string): string {
   return message
     .replace(/\/\d+\/\d+\/\d+(\.\w+)?/g, '/{z}/{x}/{y}')
-    // A quadkey is one long base-4 run in the path, e.g. /0313102310.png.
-    .replace(/\/[0-3]{6,}(\.\w+)?/g, '/{quadkey}')
+    // A quadkey is the LAST path segment, one base-4 run whose length is the
+    // zoom level — so it is anchored at the end rather than length-gated, or a
+    // zoom-3 tile (`/031.png`) would stay a distinct key while a zoom-12 one
+    // collapsed. Anchoring is what keeps a mid-path `/2/` from matching.
+    .replace(/\/[0-3]+(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')

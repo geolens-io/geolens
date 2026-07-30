@@ -254,6 +254,37 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  it('collapses a broken quadkey basemap at low zoom too', () => {
+    // A quadkey's length IS the zoom level, so zoom 1-5 keys are 1-5 digits.
+    for (const quadkey of ['0', '03', '031', '0313', '03131']) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'maplibre',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/${quadkey}.png`,
+        detail: 'source: basemap',
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('does not collapse two sources that merely share a short path segment', () => {
+    pushReportEntry({
+      severity: 'error',
+      source: 'maplibre',
+      message: 'AJAXError: Not Found (404): https://a.example.com/2/style/tiles.json',
+      detail: 'source: a',
+    });
+    pushReportEntry({
+      severity: 'error',
+      source: 'maplibre',
+      message: 'AJAXError: Not Found (404): https://a.example.com/2/other/tiles.json',
+      detail: 'source: b',
+    });
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('collapses a broken bbox-addressed basemap to one failure', () => {
     for (const bbox of ['-20037508,0,0,20037508', '0,0,20037508,20037508']) {
       pushReportEntry({
