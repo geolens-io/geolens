@@ -14,7 +14,11 @@ import { CheckCircle2, XCircle, Database, Search } from 'lucide-react';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 
-type DatasetVisibilityChoice = 'private' | 'restricted' | 'public';
+// fix(#927/#929): `restricted` is not offered at import time — a non-admin
+// owner who picked it lost access to their own dataset, and grants have no
+// write path. The type goes with the option, so nothing keeps typechecking
+// against a value the picker cannot produce.
+type DatasetVisibilityChoice = 'private' | 'public';
 
 function toDisplayName(tableName: string): string {
   return tableName
@@ -298,7 +302,6 @@ function TableDetail({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="private">{t('register.visibilityPrivate')}</SelectItem>
-            <SelectItem value="restricted">{t('register.visibilityRestricted')}</SelectItem>
             <SelectItem value="public">{t('register.visibilityPublic')}</SelectItem>
           </SelectContent>
         </Select>

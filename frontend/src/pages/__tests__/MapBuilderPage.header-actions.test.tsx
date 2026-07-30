@@ -2,6 +2,7 @@ import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
 import { render, screen } from '@/test/test-utils';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
+import { analysisAddToMap } from '@/stores/analysis-job-store';
 
 const dialogsState = {
   showChat: false,
@@ -115,6 +116,9 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 
 let mockExpandedLayerId: string | null = null;
 const mockHandleToggleExpand = vi.fn();
+// fix(#943): stable identity so the analysis registration below can assert
+// WHICH callback got registered, not just that something did.
+const mockChatAddDataset = vi.fn();
 
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
@@ -170,7 +174,7 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
       onStyleConfigChange: vi.fn(),
       onLabelChange: vi.fn(),
       onToggleVisibility: vi.fn(),
-      onAddDataset: vi.fn(),
+      onAddDataset: mockChatAddDataset,
       onRemove: vi.fn(),
       onOpacityChange: vi.fn(),
     },
@@ -282,5 +286,43 @@ describe('MapBuilderPage header actions', () => {
     await user.click(cogBtn);
 
     expect(mockHandleToggleExpand).toHaveBeenCalledWith('settings');
+  });
+});
+
+// fix(#943): the watcher suite hand-seeds `analysisAddToMap`, so the real
+// registration — the thing that decides whether an analysis result can be added
+// to THIS builder — was covered at neither end. AnalysisJobWatcher gates on
+// both fields: a live `current` AND a `mapId` matching the finished job's.
+describe('MapBuilderPage analysis Add-to-map registration', () => {
+  beforeEach(() => {
+    mockUseParams.mockReturnValue({ id: 'map-1' });
+    analysisAddToMap.current = null;
+    analysisAddToMap.mapId = null;
+    mockChatAddDataset.mockReset();
+  });
+
+  it('registers the builder add-dataset callback and the open map id', () => {
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    expect(analysisAddToMap.current).toBe(mockChatAddDataset);
+    expect(analysisAddToMap.mapId).toBe('map-1');
+  });
+
+  it('clears the registration on unmount so the watcher falls back to View dataset', () => {
+    const { unmount } = render(<MapBuilderPage />, { route: '/maps/map-1' });
+    expect(analysisAddToMap.current).toBe(mockChatAddDataset);
+
+    unmount();
+
+    expect(analysisAddToMap.current).toBeNull();
+    expect(analysisAddToMap.mapId).toBeNull();
+  });
+
+  it('registers a null map id for an unsaved builder', () => {
+    mockUseParams.mockReturnValue({});
+
+    render(<MapBuilderPage />, { route: '/maps/new' });
+
+    expect(analysisAddToMap.mapId).toBeNull();
   });
 });

@@ -217,6 +217,78 @@ class TestRasterAuthCheck:
         assert open_path.endswith(asset.asset_uri)
         assert resp.headers.get("x-geolens-cache-status") == "private"
 
+    async def test_auth_check_owner_of_restricted_raster_keeps_access(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#929): the raster auth gate mirrors can_access_dataset, so the
+        creator exemption applies here too — a non-admin owner of a restricted
+        raster gets 200, while another authenticated non-grantee stays 404."""
+        from tests.conftest import _create_test_user
+
+        owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        record, dataset, asset = await _create_raster_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            visibility="restricted",
+        )
+
+        as_owner = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+            headers=owner_headers,
+        )
+        assert as_owner.status_code == 200
+        assert as_owner.headers.get("x-geolens-asset-openpath") is not None
+
+        as_other = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+            headers=viewer_auth_header,
+        )
+        assert as_other.status_code == 404
+
+    async def test_auth_check_overlay_denying_creator_wins(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#929 review): the raster gate consults the permission
+        extension rather than hard-coding an owner short-circuit, so an
+        overlay policy that deliberately denies a dataset's creator
+        (revoked clearance, ABAC) is enforced here too."""
+        from tests.conftest import _create_test_user
+
+        import app.platform.extensions as extensions
+
+        owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        record, dataset, asset = await _create_raster_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            visibility="restricted",
+        )
+
+        class _DenyEveryone:
+            async def can_access_dataset(self, *args, **kwargs):
+                return False
+
+        monkeypatch.setitem(extensions._extensions, "permission", _DenyEveryone())
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+            headers=owner_headers,
+        )
+        assert resp.status_code == 404
+
     async def test_auth_check_401_for_unauthenticated_private(
         self, client: AsyncClient, test_db_session
     ):
