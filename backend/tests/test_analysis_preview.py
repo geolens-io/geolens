@@ -973,9 +973,12 @@ class TestBuildPreviewSql:
         # single-part) put the per-component SubPlan at loops=285 and the
         # whole-input SubPlan at loops=1715.
         assert buffer_expr.count("ST_Buffer(") == 2
-        assert buffer_expr.count("ST_ShiftLongitude(") == 2
-        # fix(#902): the sliced branch adds one fence for the segmentized copy.
-        assert buffer_expr.count("OFFSET 0") == 6
+        # fix(#902 codex r1): a third ST_ShiftLongitude belongs to the
+        # pre-slice unwrap of seam-crossing inputs.
+        assert buffer_expr.count("ST_ShiftLongitude(") == 3
+        # fix(#902): the sliced branch adds fences for the segmentized copy
+        # and its shifted twin.
+        assert buffer_expr.count("OFFSET 0") == 7
 
         for op, kwargs in (
             ("centroid", {}),

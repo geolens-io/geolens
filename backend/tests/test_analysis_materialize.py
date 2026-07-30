@@ -3115,6 +3115,48 @@ class TestWideSingleComponentBuffer:
             await self._radius_stats(test_db_session, out.table_name, wkt)
         )
 
+    async def test_seam_crossing_single_linestring_has_no_false_chord(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r1): a single geometry that itself crosses the
+        antimeridian segmentizes to a vertex jump from ~+180 to ~-180, and a
+        planar band cut read that jump as a near-global chord — the buffer
+        touched every longitude band. The slice pass unwraps into the shifted
+        domain first, so the output is two seam parts and nothing anywhere
+        else."""
+        wkt = "LINESTRING(170 0, -170 0)"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="LineString",
+            geometry_type="LINESTRING",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " GeometryType(geom_4326) AS gtype,"
+                    " ST_NumGeometries(geom_4326) AS parts,"
+                    " ST_XMin(geom_4326) AS xmin, ST_XMax(geom_4326) AS xmax,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Intersects(geom_4326,"
+                    "   ST_MakeEnvelope(-100, -30, 100, 30, 4326)) AS false_chord"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                )
+            )
+        ).one()
+        assert row.valid is True
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 2
+        assert row.xmin >= -180.0
+        assert row.xmax <= 180.0
+        # A 20-degree equatorial line: ~2 226 km x 20 km plus the end caps.
+        assert row.area == pytest.approx(44_822_856_266, rel=0.01)
+        # The old planar cut buffered a chord across the middle of the world.
+        assert row.false_chord is False
+
     async def test_narrow_single_part_is_still_byte_identical(
         self,
         test_db_session: AsyncSession,

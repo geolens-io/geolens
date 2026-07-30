@@ -351,14 +351,42 @@ def render_geodesic_buffer(
         f"ST_XMin({alias}_g.sg) + {alias}_i.i * {width}, -90,"
         f" ST_XMin({alias}_g.sg) + ({alias}_i.i + 1) * {width}, 90, 4326)"
     )
+    # fix(#902 codex r1): a single geometry that itself crosses the
+    # antimeridian (LINESTRING(170 0, -170 0)) segmentizes to a vertex jump
+    # from ~+180 to ~-180, and a PLANAR band intersection then reads that jump
+    # as a near-global chord touching every band. Unwrap into the +360-shifted
+    # domain first when — and only when — shifting narrows the planar span
+    # (the same two-condition test render_dateline_safe applies per
+    # component): per-vertex ST_ShiftLongitude is safe here because the
+    # segmentized edges are ~20 km, except edges crossing the PRIME meridian,
+    # which shifting tears into ~360-degree chords — and exactly then the
+    # shifted span is not narrower, so the guard declines. Bands then run over
+    # the shifted domain (up to lon ~540); geography normalizes those
+    # longitudes on the ::geography cast, and render_dateline_safe splits any
+    # re-wrapped output component afterwards. Residual: a geometry crossing
+    # BOTH meridians stays wide in both domains and keeps planar slicing.
+    unwrapped = (
+        f"(SELECT CASE"
+        f" WHEN ST_XMax({alias}_w.sg) - ST_XMin({alias}_w.sg) > 180"
+        f" AND ST_XMax({alias}_w.ssg) - ST_XMin({alias}_w.ssg)"
+        f" < ST_XMax({alias}_w.sg) - ST_XMin({alias}_w.sg)"
+        f" THEN {alias}_w.ssg ELSE {alias}_w.sg END"
+        f" FROM (SELECT {alias}_w0.sg0 AS sg, ST_ShiftLongitude({alias}_w0.sg0) AS ssg"
+        f" FROM (SELECT ST_Segmentize({alias}.g::geography,"
+        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry AS sg0) AS {alias}_w0"
+        f" OFFSET 0) AS {alias}_w)"
+    )
     sliced = (
         f"(SELECT ST_CollectionHomogenize(ST_Collect({alias}_p.p))"
         f" FROM (SELECT (ST_Dump("
         f"ST_Buffer({alias}_c.c::geography, {distance})::geometry)).geom AS p"
         f" FROM (SELECT (ST_Dump({alias}_s.piece)).geom AS c"
-        f" FROM (SELECT ST_Segmentize({alias}.g::geography,"
-        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry AS sg OFFSET 0) AS {alias}_g,"
-        f" LATERAL (SELECT ST_Intersection({alias}_g.sg, {band}) AS piece"
+        f" FROM (SELECT {unwrapped} AS sg OFFSET 0) AS {alias}_g,"
+        # ST_WrapX folds a shifted-domain piece (lon up to ~540) back into
+        # [-180, 180] before the ::geography cast, which rejects out-of-range
+        # longitudes. A no-op for pieces already in range.
+        f" LATERAL (SELECT ST_WrapX(ST_Intersection({alias}_g.sg, {band}),"
+        f" 180, -360) AS piece"
         f" FROM generate_series(0, GREATEST(ceil("
         f"(ST_XMax({alias}_g.sg) - ST_XMin({alias}_g.sg)) / {width})::int, 1) - 1)"
         f" AS {alias}_i(i)) AS {alias}_s) AS {alias}_c"
