@@ -1709,14 +1709,14 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
 
 
 # fix(#909): env-sensitive helpers that test fixtures redirect by assigning to
-# the ORIGIN module. A module-scope `from <origin> import <name>` snapshots the
-# object into the importing module's own namespace, so the fixture's patch
-# never reaches it — and the test silently reads or WRITES the dev database
-# while passing (the #898 export-ogr incident). Call sites must late-bind
-# (`from <origin> import <name>` inside the function) so the origin module's
-# current attribute is resolved at call time.
+# the module the fixture actually patches. A module-scope `from <module> import
+# <name>` snapshots the object into the importing module's own namespace, so
+# the fixture's patch never reaches it — and the test silently reads or WRITES
+# the dev database while passing (the #898 export-ogr incident). Call sites
+# must late-bind (`from <module> import <name>` inside the function) so the
+# patched module's current attribute is resolved at call time.
 #
-# Maps origin module -> redirected symbol names. Extend this when a fixture
+# Maps patched module -> redirected symbol names. Extend this when a fixture
 # starts redirecting another module-scope-importable helper.
 _FIXTURE_REDIRECTED_SYMBOLS: dict[str, frozenset[str]] = {
     # fix(#909 codex review): engine included — the client fixture reassigns
@@ -1724,23 +1724,41 @@ _FIXTURE_REDIRECTED_SYMBOLS: dict[str, frozenset[str]] = {
     # escapes the redirect exactly like async_session (the health-service
     # probe was the live instance).
     "app.core.db": frozenset({"async_session", "engine"}),
-    "app.core.db.session": frozenset({"async_session", "engine"}),
     "app.processing.ingest.ogr": frozenset({"build_pg_conn_str"}),
 }
 
-# The one sanctioned module-scope binding: app/core/db/__init__.py re-exports
-# from app.core.db.session, and that package attribute is exactly what the
-# conftest fixture patches (`db_module.async_session = ...`), so the façade
-# must keep its binding for the patch to have a target.
+# fix(#909 codex review): the conftest fixture patches the FAÇADE attributes
+# (`app.core.db.engine` / `.async_session`), never the origin module's, so
+# importing these from `app.core.db.session` escapes the redirect at ANY
+# scope — late-binding does not save it, because the attribute it late-binds
+# against was never patched. `app/core/db/rls.py` used to do exactly that and
+# would open a dev-database connection from inside a test. These imports are
+# therefore banned outright and must go through the façade.
+_UNPATCHED_ORIGIN_SYMBOLS: dict[str, frozenset[str]] = {
+    "app.core.db.session": frozenset({"async_session", "engine"}),
+}
+
+# The one sanctioned binding: app/core/db/__init__.py re-exports from
+# app.core.db.session, and that package attribute is exactly what the conftest
+# fixture patches (`db_module.async_session = ...`), so the façade must keep
+# its binding for the patch to have a target.
 _FIXTURE_REDIRECT_ALLOWED_FILES = frozenset({"app/core/db/__init__.py"})
 
 
-def _module_scope_redirected_imports(tree: ast.AST) -> list[tuple[int, str, str]]:
-    """Return (lineno, origin-module, symbol) for module-scope offenders.
+def _redirect_escaping_imports(tree: ast.AST) -> list[tuple[int, str, str, str]]:
+    """Return (lineno, origin-module, symbol, reason) for offending imports.
 
-    Module scope means anywhere outside a function body — class bodies and
-    conditional/try blocks at module level still bind at import time and
-    escape fixture patches exactly the same way.
+    Two distinct failure modes:
+
+    - ``module-scope``: the symbol IS patched on this module, but a
+      module-scope ``from <origin> import <name>`` snapshots it at import
+      time. Module scope means anywhere outside a function body — class
+      bodies and conditional/try blocks at module level bind at import time
+      and escape the patch the same way. Late-binding inside the function
+      fixes these.
+    - ``unpatched-origin``: the fixture never patches this module's
+      attribute, so the import escapes at every scope. Only switching to the
+      patched façade fixes these.
     """
     inside_functions: set[ast.AST] = set()
     for node in ast.walk(tree):
@@ -1749,24 +1767,32 @@ def _module_scope_redirected_imports(tree: ast.AST) -> list[tuple[int, str, str]
                 if child is not node:
                     inside_functions.add(child)
 
-    offenders: list[tuple[int, str, str]] = []
+    offenders: list[tuple[int, str, str, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom) or node.module is None:
             continue
-        if node in inside_functions:
-            continue
-        forbidden = _FIXTURE_REDIRECTED_SYMBOLS.get(node.module)
-        if not forbidden:
-            continue
-        for alias in node.names:
-            if alias.name in forbidden:
-                offenders.append((node.lineno, node.module, alias.name))
-    return offenders
+        at_module_scope = node not in inside_functions
+        for forbidden, reason in (
+            (_UNPATCHED_ORIGIN_SYMBOLS.get(node.module), "unpatched-origin"),
+            (
+                _FIXTURE_REDIRECTED_SYMBOLS.get(node.module)
+                if at_module_scope
+                else None,
+                "module-scope",
+            ),
+        ):
+            if not forbidden:
+                continue
+            for alias in node.names:
+                if alias.name in forbidden:
+                    offenders.append((node.lineno, node.module, alias.name, reason))
+    # ast.walk is breadth-first, so sort for a stable, source-ordered report.
+    return sorted(offenders)
 
 
 @pytest.mark.architecture
-def test_no_module_scope_imports_of_fixture_redirected_helpers() -> None:
-    """fix(#909): forbid module-scope `from X import name` for redirected helpers.
+def test_no_imports_that_escape_the_fixture_db_redirect() -> None:
+    """fix(#909): no import path may resolve the un-patched dev-database engine.
 
     AST-based rather than git grep so untracked files are covered and
     multi-name import lists (`from app.core.db import async_session,
@@ -1784,15 +1810,17 @@ def test_no_module_scope_imports_of_fixture_redirected_helpers() -> None:
         if rel in _FIXTURE_REDIRECT_ALLOWED_FILES:
             continue
         tree = ast.parse(path.read_text(), filename=rel)
-        for lineno, module, symbol in _module_scope_redirected_imports(tree):
-            failures.append(f"{rel}:{lineno}: `from {module} import {symbol}`")
+        for lineno, module, symbol, reason in _redirect_escaping_imports(tree):
+            failures.append(
+                f"{rel}:{lineno}: `from {module} import {symbol}` ({reason})"
+            )
 
     assert not failures, (
-        "Module-scope import of a fixture-redirected helper found. These "
-        "symbols are reassigned on their origin module by test fixtures; a "
-        "module-scope `from ... import` snapshots the un-patched object and "
-        "silently points tests at the dev database. Late-bind inside the "
-        "function instead (see #909):\n" + "\n".join(failures)
+        "Import(s) that escape the test fixture's database redirect, so the "
+        "test silently reads or writes the DEV database while passing (see "
+        "#909). `module-scope`: late-bind the import inside the function. "
+        "`unpatched-origin`: import from the `app.core.db` façade, which is "
+        "what the fixture patches:\n" + "\n".join(failures)
     )
 
 
@@ -1804,8 +1832,28 @@ def test_fixture_redirect_guard_catches_seeded_violation() -> None:
         "def ok():\n"
         "    from app.core.db import async_session\n"
     )
-    offenders = _module_scope_redirected_imports(seeded)
-    assert offenders == [(2, "app.core.db", "async_session")]
+    assert _redirect_escaping_imports(seeded) == [
+        (2, "app.core.db", "async_session", "module-scope")
+    ]
+
+
+def test_fixture_redirect_guard_catches_unpatched_origin_at_any_scope() -> None:
+    """fix(#909 codex review): late-binding does NOT rescue an import from
+    ``app.core.db.session``. conftest reassigns ``app.core.db.engine``, not
+    ``app.core.db.session.engine``, so the deferred lookup still resolves the
+    dev-database engine — the shape ``rls.apply_tenancy_rls_from_engine`` had.
+    Both scopes must be reported, and the façade equivalent must not be."""
+    seeded = ast.parse(
+        "from app.core.db.session import engine\n"
+        "def late():\n"
+        "    from app.core.db.session import engine\n"
+        "def facade():\n"
+        "    from app.core.db import engine\n"
+    )
+    assert _redirect_escaping_imports(seeded) == [
+        (1, "app.core.db.session", "engine", "unpatched-origin"),
+        (3, "app.core.db.session", "engine", "unpatched-origin"),
+    ]
 
 
 def _manifest_backend_files() -> list[Path]:
