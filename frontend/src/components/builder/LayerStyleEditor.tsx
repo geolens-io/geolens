@@ -20,7 +20,6 @@ import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
 import { getLayerColors } from '@/components/map/layer-icons';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { getRenderAsOptions } from './renderAs';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
@@ -214,11 +213,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer.dataset_column_info],
   );
   const currentHeightCol = builderConfig.heightColumn ?? (layer.paint?.['_height_column'] as string) ?? '';
-  const clusterAvailable = useMemo(
-    () => renderMode === 'cluster' || getRenderAsOptions(layer).some((option) => option.id === 'cluster'),
-    [layer, renderMode],
-  );
-
   // Phase 20260526-builder-audit #338 BLD-20260526-11: 100ms debounce for master opacity slider.
   // Local state holds the slider's displayed value so drags feel instant,
   // while the debounced effect coalesces rapid changes into a single
@@ -472,16 +466,13 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     builderConfig,
     styleConfig: layer.style_config ?? null,
     symbolConfig,
-    renderMode,
     isPolygon,
     numericColumns,
     currentHeightCol,
     strokeEnabled,
     fillEnabled,
-    clusterAvailable,
     onPaintChange,
     onLayoutChange,
-    onStyleConfigChange,
     onPaintProp: handlePaintProp,
     onToggleFill: handleToggleFill,
     onToggleStroke: handleToggleStroke,
@@ -491,9 +482,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onFillPatternChange: handleFillPatternChange,
     t,
   }), [
-    layer, controlPaint, isDataDriven, builderConfig, symbolConfig, renderMode,
+    layer, controlPaint, isDataDriven, builderConfig, symbolConfig,
     isPolygon, numericColumns, currentHeightCol, strokeEnabled, fillEnabled,
-    clusterAvailable, onPaintChange, onLayoutChange, onStyleConfigChange,
+    onPaintChange, onLayoutChange,
     handlePaintProp, handleToggleFill, handleToggleStroke,
     handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig,
     handleFillPatternChange, t,

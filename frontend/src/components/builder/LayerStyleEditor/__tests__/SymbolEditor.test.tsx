@@ -55,22 +55,20 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
     builderConfig: {},
     styleConfig: null,
     symbolConfig: { iconImage: 'marker', iconSize: 1, iconRotation: 0, iconAnchor: 'center', categoryColumn: 'kind' },
-    renderMode: 'symbol',
     isPolygon: false,
     numericColumns: [],
     currentHeightCol: '',
     strokeEnabled: true,
     fillEnabled: true,
-    clusterAvailable: false,
     onPaintChange: vi.fn(),
     onLayoutChange: vi.fn(),
-    onStyleConfigChange: vi.fn(),
     onPaintProp: vi.fn(),
     onToggleFill: vi.fn(),
     onToggleStroke: vi.fn(),
     onHeatmapPaintChange: vi.fn(),
     onSymbolConfigChange: vi.fn(),
     onBuilderChange: vi.fn(),
+    onFillPatternChange: vi.fn(),
     t: ((key: string, opts?: Record<string, unknown>) => {
       if (key === 'style.symbol.categoryIcon') return `Icon for ${opts?.value}`;
       if (key === 'style.symbol.unknownIcon') return `No icon named ${opts?.icon}`;
