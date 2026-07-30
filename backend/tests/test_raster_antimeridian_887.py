@@ -304,6 +304,28 @@ class TestCogExtentFold:
             expected_area = (lonlat[2] - lonlat[0]) * (lonlat[3] - lonlat[1])
             assert geom.area == pytest.approx(expected_area, rel=1e-6)
 
+    def test_source_starting_exactly_at_180_needs_only_one_ring(self, tmp_path):
+        """A 180..190 raster is entirely west of the seam once folded.
+
+        The fold reports ``west > east`` (``wrap_longitude`` keeps +180 as +180,
+        per #886), but the ``180..180`` half has zero width, so
+        ``bbox_to_extent_wkt`` drops it and emits the ``-180..-170`` ring alone.
+        Asserting the area is what distinguishes that from silently losing half
+        the footprint.
+        """
+        tif = _write_tif(
+            tmp_path / "at180.tif", epsg=4326, bounds=(180.0, -10.0, 190.0, 10.0)
+        )
+        meta = extract_raster_metadata(tif)
+
+        assert meta["bounds_wgs84"] == (180.0, -10.0, -170.0, 10.0)
+        geom = shapely_wkt.loads(meta["bbox_wkt"])
+        assert geom.geom_type == "Polygon"
+        assert geom.is_valid
+        assert geom.bounds[0] == pytest.approx(-180.0)
+        assert geom.bounds[2] == pytest.approx(-170.0)
+        assert geom.area == pytest.approx(200.0, rel=1e-6)
+
     def test_crs_less_raster_bounds_are_not_folded(self, tmp_path):
         """Without a CRS the bounds are not longitudes; leave them alone.
 

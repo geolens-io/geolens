@@ -4,7 +4,7 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-from app.core.geo import bbox_to_extent_wkt
+from app.core.geo import bbox_to_extent_wkt, wrap_longitude
 from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 
@@ -58,11 +58,6 @@ def validate_raster_crs(file_path: str) -> None:
             )
 
 
-def _wrap180(lon: float) -> float:
-    """Fold a longitude into [-180, 180)."""
-    return ((lon + 180.0) % 360.0) - 180.0
-
-
 def _fold_geographic_bbox(
     west: float, south: float, east: float, north: float
 ) -> tuple[float, float, float, float]:
@@ -80,10 +75,13 @@ def _fold_geographic_bbox(
         # The footprint wraps the whole world. -180..180 is the honest answer
         # and the only one a single ring can express.
         return (-180.0, south, 180.0, north)
-    west = _wrap180(west)
-    east = west + span
-    if east > 180.0:
-        east -= 360.0
+    # One fold is enough at both sites: `west` is a raster's own left edge, which
+    # sits within a single wrap of range for any real geographic grid, and `span`
+    # is under 360 by the branch above. wrap_longitude leaves +180 as +180, which
+    # bbox_to_extent_wkt already handles -- it drops the zero-width 180..180 half
+    # and emits the -180..east ring alone.
+    west = wrap_longitude(west)
+    east = wrap_longitude(west + span)
     return (west, south, east, north)
 
 
@@ -134,7 +132,7 @@ def _wgs84_bbox(src) -> tuple[float, float, float, float]:
             [(bounds[0] + bounds[2]) / 2],
             [(bounds[1] + bounds[3]) / 2],
         )
-        if abs(_wrap180(center_lon - west)) > _WRAP_PROBE_MIN_DEGREES:
+        if abs(wrap_longitude(center_lon - west)) > _WRAP_PROBE_MIN_DEGREES:
             return (-180.0, south, 180.0, north)
 
     return _fold_geographic_bbox(west, south, east, north)
