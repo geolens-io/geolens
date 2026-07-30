@@ -1,7 +1,13 @@
-"""fix(#569): CRS-class sniffing for honest raster resolution display.
+"""fix(#569): CRS classification for honest raster resolution display.
 
-The frontend must not format degree resolutions as meters; this helper
-classifies the stored WKT with zero proj dependencies.
+The frontend must not format degree resolutions as meters, so raster metadata
+has to know the stored CRS's class and its angular unit.
+
+fix(#939): PROJ answers both questions whenever it can parse the stored WKT;
+the keyword sniff survives only as the fallback for WKT it rejects. Most
+fixtures below are deliberately abbreviated so they exercise that fallback —
+``test_real_epsg_wkt_round_trips_through_both_helpers`` covers the valid WKT
+the producers actually write.
 """
 
 from app.core.geo import wkt_has_degree_unit, wkt_is_geographic
@@ -91,10 +97,10 @@ def test_wkt2_grads_axes_with_degree_prime_meridian_are_not_degrees():
     assert wkt_has_degree_unit(wkt) is False
 
 
-def test_quoted_cs_marker_in_an_axis_name_does_not_move_the_window():
-    # fix(#939 codex r8): a quoted axis name containing "CS[" must not be
-    # read as a WKT2 coordinate-system marker — WKT1 puts UNIT before AXIS,
-    # so a fake marker would slice the real degree factor out of the window.
+def test_cs_marker_inside_a_quoted_axis_name_is_not_structure():
+    # fix(#939 codex r8): a quoted axis name containing "CS[" must not be read
+    # as a WKT2 coordinate-system marker. PROJ tokenizes quoted names, so this
+    # is structurally impossible now; kept as a regression fixture.
     wkt = (
         'GEOGCS["WGS 84",DATUM["WGS_1984",'
         'SPHEROID["WGS 84",6378137,298.257223563]],'
@@ -106,7 +112,8 @@ def test_quoted_cs_marker_in_an_axis_name_does_not_move_the_window():
 
 def test_custom_degree_name_is_matched_by_conversion_factor():
     # fix(#939 codex r7): WKT unit semantics live in the radians-per-unit
-    # factor, not the name; rasterio preserves valid custom names.
+    # factor, not the name, and rasterio preserves valid custom names — so
+    # the check compares factors (as `_is_degree_based` does) either way.
     wkt = (
         'GEOGCS["WGS 84",DATUM["WGS_1984",'
         'SPHEROID["WGS 84",6378137,298.257223563]],'
@@ -159,28 +166,31 @@ def test_wkt2_2015_compound_geodcrs_is_geographic():
     assert wkt_is_geographic(wkt) is True
 
 
-def test_boundcrs_target_degree_unit_does_not_leak_into_the_source():
-    # fix(#939 codex r5): a BOUNDCRS binds a grads SOURCECRS to a degree
-    # TARGETCRS; the unit scan must stop at the source's CS section instead
-    # of finding the target's degree unit further down the string.
+def test_boundcrs_reports_the_source_crs_units_not_the_targets():
+    # fix(#939 codex r5/r6): a BOUNDCRS binds a grads SOURCECRS to a degree
+    # TARGETCRS, and the stored resolutions are expressed in the SOURCE. The
+    # target declares "degree" twice (its PRIMEM and its axes), so any flat
+    # scan of the string finds a degree unit; PROJ resolves the tree and
+    # reports the source's grads.
     wkt = (
         'BOUNDCRS[SOURCECRS[GEOGCRS["ATF (Paris)",'
         'DATUM["Ancienne Triangulation Francaise (Paris)",'
-        'ELLIPSOID["Plessis 1817",6376523,308.64]],'
+        'ELLIPSOID["Plessis 1817",6376523,308.64,LENGTHUNIT["metre",1]]],'
+        'PRIMEM["Paris RGS",2.33720833333333,'
+        'ANGLEUNIT["degree",0.0174532925199433]],'
         "CS[ellipsoidal,2],"
-        'AXIS["latitude",north,ANGLEUNIT["grad",0.015707963267949]],'
-        'AXIS["longitude",east,ANGLEUNIT["grad",0.015707963267949]]]],'
+        'AXIS["latitude",north,ORDER[1],ANGLEUNIT["grad",0.015707963267949]],'
+        'AXIS["longitude",east,ORDER[2],ANGLEUNIT["grad",0.015707963267949]]]],'
         'TARGETCRS[GEOGCRS["WGS 84",'
         'DATUM["World Geodetic System 1984",'
-        'ELLIPSOID["WGS 84",6378137,298.257223563]],'
-        # fix(#939 codex r6): the target's PRIMEM declares its degree unit
-        # BEFORE the target's own CS, so a next-CS window boundary alone
-        # still leaked it into the scan.
+        'ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],'
         'PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],'
         "CS[ellipsoidal,2],"
-        'ANGLEUNIT["degree",0.0174532925199433]]],'
+        'AXIS["latitude",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],'
+        'AXIS["longitude",east,ORDER[2],'
+        'ANGLEUNIT["degree",0.0174532925199433]]]],'
         'ABRIDGEDTRANSFORMATION["ATF to WGS 84",'
-        'METHOD["Geocentric translations"],'
+        'METHOD["Geocentric translations",ID["EPSG",9603]],'
         'PARAMETER["X-axis translation",-168],'
         'PARAMETER["Y-axis translation",-60],'
         'PARAMETER["Z-axis translation",320]]]'
@@ -192,6 +202,56 @@ def test_boundcrs_target_degree_unit_does_not_leak_into_the_source():
         'ANGLEUNIT["degree",0.0174532925199433]',
     )
     assert wkt_has_degree_unit(degree_source) is True
+
+
+def test_axis_meridian_unit_does_not_masquerade_as_the_axis_unit():
+    # fix(#939 codex r9): a geographic 3D CRS whose axes are radians but whose
+    # AXIS carries MERIDIAN[...,ANGLEUNIT["degree",...]]. The meridian's unit
+    # sits INSIDE the coordinate-system section, so every window-narrowing
+    # rule still saw it and reported degrees. PROJ reads the axis unit.
+    wkt = (
+        'GEOGCRS["synthetic radian 3D",DATUM["World Geodetic System 1984",'
+        'ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],'
+        "CS[ellipsoidal,3],"
+        'AXIS["latitude",north,MERIDIAN[0,ANGLEUNIT["degree",0.0174532925199433]],'
+        'ANGLEUNIT["radian",1]],'
+        'AXIS["longitude",east,MERIDIAN[90,ANGLEUNIT["degree",0.0174532925199433]],'
+        'ANGLEUNIT["radian",1]],'
+        'AXIS["ellipsoidal height",up,LENGTHUNIT["metre",1]]]'
+    )
+    assert wkt_is_geographic(wkt) is True
+    assert wkt_has_degree_unit(wkt) is False
+
+
+def test_real_epsg_wkt_round_trips_through_both_helpers():
+    """Whatever rasterio actually writes at ingest must classify correctly.
+
+    The hand-written fixtures above are abbreviated on purpose (they exercise
+    the sniff fallback); this is the shape the producers really store.
+    """
+    from rasterio.crs import CRS
+
+    for epsg, geographic, degrees in (
+        (4326, True, True),
+        (4269, True, True),  # NAD83
+        (4258, True, True),  # ETRS89
+        (4979, True, True),  # WGS 84 3D — WKT2-only, the r9 shape
+        (9518, True, True),  # WGS 84 + EGM2008 height (compound)
+        (4807, True, False),  # NTF (Paris) — geographic, grads
+        (3857, False, False),
+        (32633, False, False),  # UTM 33N
+    ):
+        wkt = CRS.from_epsg(epsg).to_wkt()
+        assert wkt_is_geographic(wkt) is geographic, epsg
+        assert wkt_has_degree_unit(wkt) is degrees, epsg
+
+
+def test_unparseable_wkt_falls_back_to_the_keyword_sniff():
+    """PROJ rejects a truncated CRS; the class sniff still answers, and the
+    unit test honestly reports "unknown" rather than guessing."""
+    truncated = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84"'
+    assert wkt_is_geographic(truncated) is True
+    assert wkt_has_degree_unit(truncated) is None
 
 
 def test_non_string_inputs_are_unknown_not_a_crash():

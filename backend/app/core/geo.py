@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable, Sequence
+from functools import lru_cache
 
 from geoalchemy2.shape import to_shape
 from sqlalchemy import and_, case, func, or_
@@ -415,47 +416,92 @@ def make_bbox_filter(
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
 
 
+# fix(#939): the same radians-per-degree constant `_is_degree_based`
+# (processing/raster/vrt.py) compares against. Unit semantics live in the
+# conversion factor, never the unit's name.
+_RADIANS_PER_DEGREE = math.pi / 180.0
+
+
+@lru_cache(maxsize=256)
+def _parse_crs(crs_wkt: str) -> object | None:
+    """Parse stored CRS WKT with PROJ, or None when PROJ will not accept it.
+
+    fix(#939): rounds 1-9 of review on this file were all the same defect in
+    different clothes -- a regex reading WKT structure. Every fix narrowed the
+    scan window (quoted names, GEODCRS, the WKT2 ``CS[`` section, the BOUNDCRS
+    ``SOURCECRS`` window, the target's PRIMEM) and every one was followed by
+    another WKT element that legitimately carries an angular unit outside the
+    window: PRIMEM, then MERIDIAN, with BEARING and the conversion PARAMETERs
+    still unclaimed. That sequence does not terminate, because WKT is a nested
+    grammar and a flat scan cannot decide which subtree a unit belongs to.
+    So stop scanning and ask the parser: PROJ answers "is this geographic" and
+    "what are its axis units" from the actual tree, and gets the whole class
+    right at once (a BoundCRS reports its SOURCE's units; a 3D geographic CRS
+    reports its axis unit, not its MERIDIAN's).
+
+    The import is function-scope because rasterio pulls in GDAL and ``core`` is
+    the lowest layer -- every other rasterio use in the codebase is
+    function-scope for the same reason. Results are cached because the callers
+    (raster list projections in ``processing/raster/queries.py`` and
+    ``catalog/datasets/domain/helpers.py``) run this per row, over a small set
+    of distinct CRSs.
+    """
+    try:
+        from rasterio.crs import CRS
+
+        return CRS.from_wkt(crs_wkt)
+    except Exception:  # broad: crs_wkt is whatever GDAL wrote at ingest; any parse failure means "PROJ cannot answer", which is a fallback, not an error
+        return None
+
+
 def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     """Classify a CRS WKT as geographic (lon/lat axes) or projected.
 
     fix(#569): the frontend rendered geographic-CRS pixel resolutions as
-    meters ("60 arc-second" ETOPO showed "2 cm"). The API has no proj
-    library, but the stored WKT's root/inner keyword is enough: a projected
-    CRS contains PROJCRS (WKT2) / PROJCS (WKT1) — checked FIRST because
-    WKT1 nests a GEOGCS inside every PROJCS — otherwise a GEOGCRS/GEOGCS
-    keyword (including inside a COMPOUNDCRS like EPSG:9518) means
-    geographic. Engineering/local/unknown CRSs return None.
+    meters ("60 arc-second" ETOPO showed "2 cm"), so raster metadata has to
+    say which class the stored CRS is. Engineering/local/unknown CRSs, and
+    anything unclassifiable, return None.
 
-    fix(#939): this is a keyword test only — it does NOT check the angular
-    unit, so a grads-based GEOGCS (the Paris-meridian family, e.g. EPSG:4807)
-    also returns True. When "geographic" needs to mean "resolutions are in
-    degrees", pair this with :func:`wkt_has_degree_unit`. The codebase's
-    other unit tests are catalogued in #939 — don't invent a fifth.
+    fix(#939): PROJ decides whenever it can parse the WKT. The keyword sniff
+    below is the fallback for WKT that PROJ rejects -- abbreviated, truncated
+    or legacy strings that this helper has always accepted, since it
+    classifies whatever GDAL happened to write at ingest rather than a
+    guaranteed-valid CRS. The sniff checks PROJCRS/PROJCS FIRST because WKT1
+    nests a GEOGCS inside every PROJCS, blanks quoted content so a CRS *name*
+    or remark mentioning PROJCS cannot misclassify, and reads WKT2:2015's
+    GEODCRS as geographic when ellipsoidal / geocentric when Cartesian.
 
-    fix(#939 codex r1): quoted strings are blanked before the keyword scan,
-    so a CRS *name* or remark that merely mentions PROJCS/GEOGCS (e.g.
-    ``GEOGCRS["adjusted from PROJCS ..."]``) cannot misclassify the WKT.
+    This is a CLASS test and says nothing about units: a grads GEOGCS (the
+    Paris-meridian family, e.g. EPSG:4807) is geographic without its
+    resolutions being degrees. Pair it with :func:`wkt_has_degree_unit` when
+    "geographic" needs to mean "resolutions are in degrees".
     """
     # isinstance, not truthiness: callers hand this whatever sits on
     # RasterAsset.crs_wkt, including mocks in tests; a non-string is an
     # unknown CRS, not a crash.
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
+    crs = _parse_crs(crs_wkt)
+    if crs is not None:
+        try:
+            if crs.is_geographic:
+                return True
+            if crs.is_projected:
+                return False
+        except Exception:  # broad: exotic CRSs raise from PROJ rather than answering; fall through to the sniff
+            pass
+        # Parsed but neither geographic nor projected -- a geocentric or
+        # engineering CRS. The sniff separates those two below.
     # Blank quoted content BEFORE truncating: WKT strings cannot contain the
     # quote character itself (WKT2 escapes it by doubling, which still
-    # terminates each pair), so this never eats a structural keyword — and
+    # terminates each pair), so this never eats a structural keyword -- and
     # blanking first means a pathologically long quoted name cannot push the
-    # real keywords past the truncation point (fix(#939 codex r2)).
+    # real keywords past the truncation point.
     head = re.sub(r'"[^"]*"', '""', crs_wkt)[:2000].upper()
     if "PROJCRS" in head or "PROJCS" in head:
         return False
     if "GEOGCRS" in head or "GEOGCS" in head:
         return True
-    # fix(#939 codex r3): WKT2:2015 spells geographic CRSs GEODCRS (2019
-    # renamed them GEOGCRS), and rasterio still emits the 2015 form. A
-    # GEODCRS is geographic when its coordinate system is ellipsoidal and
-    # geocentric (XYZ metres) when Cartesian — distinguish on the CS keyword
-    # rather than treating every GEODCRS either way.
     if "GEODCRS" in head or "GEODETICCRS" in head:
         if "ELLIPSOIDAL" in head:
             return True
@@ -465,84 +511,34 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     return None
 
 
-# fix(#939 codex r7): units are matched by their CONVERSION FACTOR, not their
-# name — WKT semantics live in the radians-per-unit number, and a valid custom
-# name like `UNIT["arc-degree",0.01745...]` must still read as degrees. The
-# pattern captures the factor of any WKT1 `UNIT[...]` or WKT2 `ANGLEUNIT[...]`
-# declaration; LENGTHUNIT matches too, but a metre factor of 1 is nowhere near
-# the degree factor, so it cannot false-positive. This is the same
-# units_factor test `_is_degree_based` (processing/raster/vrt.py) applies to a
-# pyproj CRS object, in string form — grads (0.0157...) sit 10% away and stay
-# excluded.
-_WKT_UNIT_FACTOR_RE = re.compile(r'UNIT\["[^"]*"\s*,\s*([0-9eE.+-]+)')
-_DEGREE_RAD = math.pi / 180.0
-
-
-def _factor_is_degree(raw: str) -> bool:
-    try:
-        value = float(raw)
-    except ValueError:
-        return False
-    return value > 0 and abs(value / _DEGREE_RAD - 1.0) <= 1e-6
-
-
-# fix(#939 codex r4): a standalone WKT2 `CS[` keyword (ellipsoidal/Cartesian/
-# vertical...). The negative lookbehind keeps `GEOGCS[`/`VERTCS[`/... from
-# matching — those end in CS but are CRS keywords, not coordinate systems.
-_WKT2_CS_RE = re.compile(r"(?<![A-Z0-9_])CS\[", re.IGNORECASE)
-
-
 def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
-    """Whether a CRS WKT declares a degree angular unit anywhere.
+    """Whether a CRS WKT's coordinate axes are measured in degrees.
 
-    fix(#939): companion to :func:`wkt_is_geographic`, which is keyword-only
+    fix(#939): companion to :func:`wkt_is_geographic`, which is a class test
     and admits grads CRSs. Only meaningful for a WKT already classified as
-    geographic — every projected WKT1 nests a GEOGCS whose UNIT is degrees,
-    so call :func:`wkt_is_geographic` first. Returns None when no WKT is
-    stored.
+    geographic, so call that first.
 
-    fix(#939 codex r4): in WKT2, other elements carry angular units of their
-    own — EPSG:4901's PRIME meridian is expressed in degrees while both
-    ellipsoidal axes are in grads — so an unrestricted scan would call a
-    grads CRS degree-based. When the WKT has a standalone ``CS[`` keyword
-    (WKT2), only the text from the first ``CS[`` on is searched: that is
-    where the coordinate-system and axis units live, and the PRIMEM sits
-    before it. WKT1 has no ``CS[`` and states the CRS unit once, so the whole
-    string is searched as before.
+    The answer comes from PROJ's ``units_factor`` on the parsed CRS -- the
+    same radians-per-unit comparison ``_is_degree_based``
+    (processing/raster/vrt.py) makes, against the same constant, so the two
+    unit tests in this codebase cannot drift apart. Reading the factor rather
+    than the unit's name means a valid custom spelling
+    (``UNIT["arc-degree",0.01745...]``) still reads as degrees, while grads
+    sit 10% away and stay excluded.
+
+    Returns None when there is no WKT, or when PROJ cannot parse what is
+    stored. Callers must treat None as "unknown", not as "not degrees":
+    ``processing/tiles/router.py`` tests ``is not False`` precisely so an
+    unparseable CRS keeps the historical degrees assumption instead of
+    silently dropping the resolution.
     """
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
-    # fix(#939 codex r8): every structural search below runs on a
-    # LENGTH-PRESERVING copy whose quoted names are blanked to spaces, so an
-    # axis or CRS name containing "CS[" (or SOURCECRS/TARGETCRS) cannot fake
-    # a marker. The UNIT factor pattern still matches on the blanked text —
-    # the name becomes spaces between real quotes and the factor sits outside
-    # the quotes untouched.
-    blanked = re.sub(
-        r'"[^"]*"', lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', crs_wkt
-    )
-    # fix(#939 codex r5/r6): a BOUNDCRS binds a SOURCECRS to a TARGETCRS,
-    # and the stored resolutions are expressed in the SOURCE. Everything the
-    # target declares — its PRIMEM's degree unit sits BEFORE its own CS, so
-    # a next-CS boundary alone is not enough — must be outside the scan.
-    # Restrict the scope to the SOURCECRS..TARGETCRS window first, then to
-    # the first coordinate-system section within it.
-    scope = blanked
-    upper = blanked.upper()
-    src_at = upper.find("SOURCECRS[")
-    if src_at != -1:
-        tgt_at = upper.find("TARGETCRS[", src_at)
-        scope = blanked[src_at : tgt_at if tgt_at != -1 else len(blanked)]
-    target = scope
-    cs_match = _WKT2_CS_RE.search(scope)
-    if cs_match is not None:
-        # fix(#939 codex r4/r5): only the coordinate-system section carries
-        # the axis units (EPSG:4901's PRIMEM is in degrees while its axes are
-        # grads), and a compound's vertical CS must not extend the window.
-        next_cs = _WKT2_CS_RE.search(scope, cs_match.end())
-        end = next_cs.start() if next_cs is not None else len(scope)
-        target = scope[cs_match.start() : end]
-    # fix(#939 codex r7): match by conversion factor, not unit name.
-    return any(
-        _factor_is_degree(m.group(1)) for m in _WKT_UNIT_FACTOR_RE.finditer(target)
-    )
+    crs = _parse_crs(crs_wkt)
+    if crs is None:
+        return None
+    try:
+        _, radians_per_unit = crs.units_factor
+    except Exception:  # broad: units_factor raises CRSError on exotic/!undefined CRSs, which are exactly the ones we cannot answer for
+        return None
+    return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)

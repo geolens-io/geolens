@@ -412,9 +412,9 @@ def _native_resolution_meters(
         # those as metres collapsed native resolution by ~5 orders of
         # magnitude and pinned maxzoom to the cap (ETOPO at epsg=9518 got
         # z22 instead of z7). Classify from the WKT already on the asset row
-        # (no per-request PROJ lookup); the degree-unit check is separate
-        # because a grads GEOGCS (Paris-meridian family) is geographic
-        # without its resolutions being degrees.
+        # (cached parse, no network or EPSG database round-trip); the
+        # degree-unit check is separate because a grads GEOGCS (Paris-meridian
+        # family) is geographic without its resolutions being degrees.
         geographic = wkt_is_geographic(asset.crs_wkt)
         if geographic is None:
             # No usable WKT stored: fall back to the historical EPSG test.
