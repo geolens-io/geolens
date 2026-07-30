@@ -22,11 +22,11 @@ from fastapi import (
     Response,
     status,
 )
-from geoalchemy2.shape import to_shape
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.geo import extent_to_span_bbox
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import get_optional_user
@@ -1193,15 +1193,17 @@ def _build_tile_token_for_dataset(
     if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
         bounds = None
         if dataset.record.spatial_extent is not None:
-            try:
-                shape = to_shape(dataset.record.spatial_extent)
-                bounds = list(shape.bounds)  # [xmin, ymin, xmax, ymax]
-            except Exception:  # broad: extent parse is non-fatal; geoalchemy/shapely errors fall back to no-bounds
+            # fix(#892): the SPAN, not the RFC 7946 spec bbox. These bounds feed
+            # _raster_maxzoom_from_metadata's `maxx - minx` span arithmetic and
+            # the tile source's own bounds; a west > east pair makes the span
+            # negative, which collapses the derived maxzoom and bounds the
+            # source to nothing. -180..180 is over-broad but never inverted.
+            bounds = extent_to_span_bbox(dataset.record.spatial_extent)
+            if bounds is None:
                 logger.warning(
                     "Failed to parse spatial extent bounds",
                     dataset_id=str(dataset.id),
                 )
-                bounds = None
 
         return RasterTileToken(
             kind="raster",

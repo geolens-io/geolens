@@ -10,7 +10,6 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from geoalchemy2.shape import to_shape
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +20,7 @@ from app.processing.ai.metadata_schemas import (
     SummaryDraftResponse,
 )
 from app.core.config import settings
+from app.core.geo import extent_to_bbox
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
@@ -105,14 +105,19 @@ async def _build_dataset_context(
         parts.append(f"Source organization: {record.source_organization}")
 
     if record.spatial_extent is not None:
-        try:
-            bounds = to_shape(record.spatial_extent).bounds
+        # fix(#892): the label below is literally "W, S, E, N", so the RFC 7946
+        # §5.2 spec bbox is the honest value -- a seam-crossing extent reads
+        # W > E rather than claiming a global -180..180 footprint. Spell the
+        # crossing out, because W > E alone reads as a typo to a summarizer.
+        bounds = extent_to_bbox(record.spatial_extent)
+        if bounds is None:
+            logger.debug("Failed to parse spatial bounds for AI context")
+        else:
+            crossing = " (crosses the antimeridian)" if bounds[0] > bounds[2] else ""
             parts.append(
                 f"Bounding box (W, S, E, N): {bounds[0]:.4f}, {bounds[1]:.4f}, "
-                f"{bounds[2]:.4f}, {bounds[3]:.4f}"
+                f"{bounds[2]:.4f}, {bounds[3]:.4f}{crossing}"
             )
-        except Exception:  # broad: bounds string is informational; any geometry parse failure should be skipped
-            logger.debug("Failed to parse spatial bounds for AI context", exc_info=True)
 
     if record.access_constraints:
         parts.append(f"Access constraints: {record.access_constraints}")

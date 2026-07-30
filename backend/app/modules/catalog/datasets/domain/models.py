@@ -58,6 +58,21 @@ class Record(Base):
             "temporal_start IS NULL OR temporal_end IS NULL OR temporal_start <= temporal_end",
             name="chk_temporal_ordering",
         ),
+        # fix(#892): the column typmod was widened from POLYGON to generic
+        # Geometry so a seam-crossing extent can be a two-ring MULTIPOLYGON;
+        # this constraint keeps the type guard the typmod used to provide. It
+        # once caught a real bug where an extent-write path tried to store a
+        # POINT and 500'd, so the allow-list stays deliberately narrow.
+        CheckConstraint(
+            "spatial_extent IS NULL OR "
+            "GeometryType(spatial_extent) IN ('POLYGON', 'MULTIPOLYGON')",
+            name="chk_records_spatial_extent_type",
+        ),
+        # fix(#892): known ceiling -- a two-part seam-crossing MULTIPOLYGON has
+        # a -180..180 GiST bounding box, so this index degrades to a
+        # full-candidate scan for those rows only. make_bbox_filter()'s
+        # ST_Intersects recheck still filters them correctly, so results stay
+        # right; they are just less indexed.
         Index(
             "idx_records_spatial_extent",
             "spatial_extent",
@@ -159,7 +174,15 @@ class Record(Base):
         # __table_args__ as idx_records_spatial_extent. Without this, GeoAlchemy2
         # would ALSO auto-create a same-named index, duplicating it in the model
         # metadata (harmless for migration-built DBs but breaks create_all()).
-        Geometry("POLYGON", srid=4326, spatial_index=False),
+        #
+        # fix(#892): plain Geometry (typmod geometry(Geometry,4326)) rather than
+        # POLYGON, so an antimeridian-crossing extent can be stored as the
+        # two-ring MULTIPOLYGON that RFC 7946 §5.2's west > east bbox
+        # corresponds to. Plain Geometry rather than MULTIPOLYGON keeps every
+        # non-crossing extent byte-identical as a POLYGON -- no blanket ST_Multi
+        # promotion. chk_records_spatial_extent_type below keeps the DB-level
+        # guard that a POINT/LINESTRING extent is still rejected.
+        Geometry(srid=4326, spatial_index=False),
         nullable=True,
     )
     temporal_start: Mapped[date | None] = mapped_column(Date, nullable=True)
