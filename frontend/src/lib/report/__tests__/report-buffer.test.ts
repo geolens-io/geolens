@@ -406,6 +406,33 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
+  // codex round 12 on #908: a template can name the coordinate params anything.
+  // The standard names are covered; a value-based rule is not, because
+  // `?layer=3` is numeric and source-defining.
+  it('collapses coordinates carried under WMTS parameter names', () => {
+    for (const [row, col] of [[1539, 1205], [1539, 1206], [1540, 1205]]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://wmts.example.com/?TileMatrix=12&TileRow=${row}&TileCol=${col}`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
+  it('keeps a numeric source-defining param, which is not a coordinate', () => {
+    for (const layer of [3, 4]) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/tile?layer=${layer}&z=5&x=1&y=1`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

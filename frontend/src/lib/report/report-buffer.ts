@@ -223,15 +223,24 @@ function sourceIdOf(entry: ReportEntry): string {
  * it matters for the `console` rows the viewer and dataset preview leave
  * behind, which carry no source at all.
  */
-// Per-tile or rotating query params: the credential set, and every form
-// MapLibre can substitute a coordinate into. A template may put the whole tile
-// address in the query (`?z={z}&x={x}&y={y}`), which the custom-basemap
-// validator accepts, so those names are as per-tile as a path segment is.
-// Matched case-insensitively — the same params appear upper-cased in WMS-style
-// templates.
+// Per-tile or rotating query params: the credential set, plus the coordinate
+// names a tile template can use. A template may put the whole tile address in
+// the query (`?z={z}&x={x}&y={y}`), which the custom-basemap validator accepts,
+// so those are as per-tile as a path segment is. The `tile*`/`TileMatrix` names
+// are WMTS's. Matched case-insensitively, since the same params appear
+// upper-cased in WMS/WMTS-style templates.
+//
+// Names, not values. A parameter's VALUE being numeric does not make it a
+// coordinate — `?layer=3` is source-defining — and collapsing on that would
+// merge two different sources. A template using a name not on this list
+// (`?column={x}`) therefore over-counts rather than under-counts, which is the
+// same trade-off the host/path note below describes.
 const VOLATILE_TILE_PARAMS = new Set([
   'sig', 'exp', 'scope', '_v',
-  'z', 'x', 'y', 'bbox', 'quadkey',
+  'z', 'x', 'y', 'zoom', 'level',
+  'col', 'column', 'row',
+  'tilecol', 'tilerow', 'tilematrix', 'tilematrixset',
+  'bbox', 'quadkey',
 ]);
 
 function failureKey(message: string): string {
