@@ -217,22 +217,44 @@ END
 $$;
 ```
 
-**Step 2 — re-own the restored tenant objects via the 0019 migration.**
+**Step 2 — re-own the restored tenant objects. Last resort; read this first.**
 
 Replaying globals restores role definitions only; the restored tables, views,
 and sequences are all owned by whoever ran `pg_restore`. Migration 0019's
-upgrade is what fixes that, and it is reached by downgrading below it and
-coming back up. Step 2 is required even when step 1's globals replay succeeded.
+upgrade is what fixes that, and the only way to reach it is to downgrade below
+0019 and come back up.
 
-Work through 2a to 2d **in that order**. The snapshot in 2b and the restore in
-2d bracket the downgrade for a reason: `alembic downgrade 0016` passes through
-0022, whose `downgrade()` drops `tenant_id` from `catalog.audit_logs` and
-`catalog.ingest_jobs`, and the re-upgrade rebuilds those columns by reading
-each row's live parent. A row whose parent is gone has nothing to derive from
-— an audit row whose actor was deleted (`user_id` is NULL after
-`ON DELETE SET NULL`), or an ingest job with neither `created_by` nor
-`dataset_id` — so it comes back with a NULL tenant permanently unless the
-columns were snapshotted first.
+> **That downgrade is not a supported recovery path.** It walks back through
+> every migration between head and 0019, and several of them either refuse on
+> data the current schema fully supports or discard state the re-upgrade
+> cannot rebuild. As of 0030 the known list is:
+>
+> | Migration | What its `downgrade()` does |
+> |---|---|
+> | 0030 | **Refuses** while any `catalog.records` row holds a MULTIPOLYGON `spatial_extent` — i.e. any antimeridian-crossing footprint, which the current schema exists to store |
+> | 0029 | **Discards** `api_keys.expires_at` and both `key_epoch` columns. The re-upgrade recreates them as NULL and 1, turning time-limited keys into permanent ones and un-revoking keys that a `key_epoch` bump had invalidated |
+> | 0027 | **Refuses** while any dataset uses a `parquet`, `json`, `xlsx`, or `xls` source format — all currently supported |
+> | 0022 | **Discards** `tenant_id` on `catalog.audit_logs` and `catalog.ingest_jobs`. The re-upgrade re-derives it from each row's live parent, so rows whose parent is gone lose tenant attribution permanently |
+> | 0021, 0020 | **Refuse** when two tenants share a collection name, OAuth subject, or `datasets.table_name` — all legal under the current per-tenant scoping |
+>
+> The refusals are correct: forcing them would corrupt the restored data.
+> Taken together they mean this path is unusable or lossy for most real
+> multi-tenant databases, and there is currently no supported way to re-run
+> 0019's adoption without it (0019 installs its functions with plain
+> `CREATE FUNCTION`, so `alembic stamp 0018 && alembic upgrade 0019` collides
+> with the functions the restored dump already carries).
+>
+> **So: do not treat this as routine.** Open a support issue (`SUPPORT.md`)
+> before running it on data you care about. The two things that keep you out
+> of here entirely are keeping a `pg_dumpall --globals-only` artifact with
+> your backups, and restoring into the *same* cluster where roles, ownership,
+> and grants all survive — which is what `scripts/restore.sh` does and what
+> the rest of this section covers.
+
+If you have read the above and are proceeding anyway, work through 2a to 2d
+**in that order**. The snapshot in 2b and the restore in 2d bracket the
+downgrade because of 0022, and cover only that one row of the table — the
+other losses above have no equivalent remediation here.
 
 Everything below runs through the Compose containers, because the bundled
 database listens on `127.0.0.1:${DB_PORT}` rather than a host socket and the
@@ -293,23 +315,18 @@ DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
 SQL
 ```
 
-> **Known limitation.** The downgrade in 2c passes through migrations whose
-> `downgrade()` rebuilds **global** uniqueness that the current schema scopes
-> per tenant (0020: `datasets.table_name`; 0021: collection names and OAuth
-> subjects). A valid multi-tenant dump in which two tenants reuse such a name
-> makes `alembic downgrade 0016` refuse on data the current schema permits.
-> That refusal is correct — forcing it would corrupt the restored data. There
-> is currently no supported way to re-run 0019's adoption without the
-> downgrade (0019 installs its functions with plain `CREATE FUNCTION`, so
-> `alembic stamp 0018 && alembic upgrade 0019` collides with the functions the
-> dump already carries), and a globals dump does not sidestep it either,
-> because globals never carried object ownership. If you hit this refusal,
-> stop rather than forcing it and route through `SUPPORT.md`; the
-> reconstruction logic itself is `_adopt_and_backfill_existing_tenants` in
-> `backend/alembic/versions/0019_tenant_provisioning_boundary.py`.
+If 2c refuses, stop rather than forcing it: the refusing migrations are
+protecting data the current schema legitimately holds, and the remediations
+their error messages offer (widening seam extents to `-180..180`, remapping
+source formats) are themselves lossy. The reconstruction logic 2c is trying to
+reach is `_adopt_and_backfill_existing_tenants` in
+`backend/alembic/versions/0019_tenant_provisioning_boundary.py`; making it
+runnable without the downgrade is a product gap, not something to work around
+by hand here.
 
-The 0019 re-upgrade is the whole per-tenant role-reconstruction step: it
-recreates the fixed provisioner/control/writer/sandbox/tile roles, walks
+When 2c does complete, its 0019 re-upgrade is the whole per-tenant
+role-reconstruction step: it recreates the fixed
+provisioner/control/writer/sandbox/tile roles, walks
 `catalog.tenants` to recreate each tenant reader/writer role via
 `provision_tenant_data_schema`, and transfers restored tenant tables and
 sequences to the matching writer. No separate script exists or is needed
