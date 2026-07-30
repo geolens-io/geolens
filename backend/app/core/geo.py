@@ -496,16 +496,25 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     """
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
-    target = crs_wkt
-    cs_match = _WKT2_CS_RE.search(crs_wkt)
+    # fix(#939 codex r5/r6): a BOUNDCRS binds a SOURCECRS to a TARGETCRS,
+    # and the stored resolutions are expressed in the SOURCE. Everything the
+    # target declares — its PRIMEM's degree unit sits BEFORE its own CS, so
+    # a next-CS boundary alone is not enough — must be outside the scan.
+    # Restrict the scope to the SOURCECRS..TARGETCRS window first, then to
+    # the first coordinate-system section within it.
+    scope = crs_wkt
+    upper = crs_wkt.upper()
+    src_at = upper.find("SOURCECRS[")
+    if src_at != -1:
+        tgt_at = upper.find("TARGETCRS[", src_at)
+        scope = crs_wkt[src_at : tgt_at if tgt_at != -1 else len(crs_wkt)]
+    target = scope
+    cs_match = _WKT2_CS_RE.search(scope)
     if cs_match is not None:
-        # fix(#939 codex r5): stop at the NEXT coordinate system too. A
-        # BOUNDCRS carries a SOURCECRS and a TARGETCRS each with its own
-        # CS[...]; scanning to the end of the string would find the degree
-        # unit of a WGS 84 TARGETCRS behind a grads/radian SOURCECRS. The
-        # first CS section is the horizontal source's — the one the stored
-        # resolutions are expressed in.
-        next_cs = _WKT2_CS_RE.search(crs_wkt, cs_match.end())
-        end = next_cs.start() if next_cs is not None else len(crs_wkt)
-        target = crs_wkt[cs_match.start() : end]
+        # fix(#939 codex r4/r5): only the coordinate-system section carries
+        # the axis units (EPSG:4901's PRIMEM is in degrees while its axes are
+        # grads), and a compound's vertical CS must not extend the window.
+        next_cs = _WKT2_CS_RE.search(scope, cs_match.end())
+        end = next_cs.start() if next_cs is not None else len(scope)
+        target = scope[cs_match.start() : end]
     return _WKT_DEGREE_UNIT_RE.search(target) is not None

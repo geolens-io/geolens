@@ -146,6 +146,10 @@ def test_boundcrs_target_degree_unit_does_not_leak_into_the_source():
         'TARGETCRS[GEOGCRS["WGS 84",'
         'DATUM["World Geodetic System 1984",'
         'ELLIPSOID["WGS 84",6378137,298.257223563]],'
+        # fix(#939 codex r6): the target's PRIMEM declares its degree unit
+        # BEFORE the target's own CS, so a next-CS window boundary alone
+        # still leaked it into the scan.
+        'PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],'
         "CS[ellipsoidal,2],"
         'ANGLEUNIT["degree",0.0174532925199433]]],'
         'ABRIDGEDTRANSFORMATION["ATF to WGS 84",'
