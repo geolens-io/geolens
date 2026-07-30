@@ -333,6 +333,20 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
+  // codex round 6 on #908: MapLibre substitutes {prefix} wherever it appears,
+  // so it can be a path segment rather than a host label.
+  it('collapses a console-only source sharded by a path-segment prefix', () => {
+    for (const [prefix, x] of [['00', 1], ['a3', 2], ['ff', 3]] as const) {
+      pushReportEntry({
+        severity: 'error',
+        source: 'console',
+        message: `AJAXError: Not Found (404): https://tiles.example.com/${prefix}/5/${x}/1.png`,
+      });
+    }
+
+    expect(countDistinctFailures(getReportEntries())).toBe(1);
+  });
+
   it('ignores warnings and info rows', () => {
     pushReportEntry({ severity: 'warning', source: 'maplibre', message: 'no-data tile (404)' });
     reportTileTokenRemint('builder', 'tab-return');

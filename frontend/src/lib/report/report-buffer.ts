@@ -224,16 +224,22 @@ const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX
 
 function failureKey(message: string): string {
   return message
-    // MapLibre's `{prefix}` resolves to one or two characters derived from the
-    // tile's x/y, as the FIRST host label — so one sharded source otherwise
-    // yields a different host per tile.
-    .replace(/(https?:\/\/)[a-z0-9]{1,2}\./gi, '$1{prefix}.')
-    .replace(/\/\d+\/\d+\/\d+(\.\w+)?/g, '/{z}/{x}/{y}')
+    // MapLibre's `{prefix}` resolves to two hex characters derived from the
+    // tile's x/y, and it may sit ANYWHERE in the template — a host label
+    // (`//a3.tiles…`) or a path segment (`/tiles/{prefix}/{z}/…`). Either way
+    // one sharded source otherwise yields a different URL per tile.
+    .replace(/(https?:\/\/)[0-9a-f]{1,2}\./gi, '$1{prefix}.')
+    // Tile coordinates, anchored to the end of the path — that is where z/x/y
+    // always sit, and anchoring is what keeps an all-numeric `{prefix}` segment
+    // (`/00/5/1/1.png`) from being mistaken for the zoom.
+    .replace(/\/\d+\/\d+\/\d+(\.\w+)?(?=[?\s]|$)/g, '/{z}/{x}/{y}')
     // A quadkey is the LAST path segment, one base-4 run whose length is the
     // zoom level — so it is anchored at the end rather than length-gated, or a
     // zoom-3 tile (`/031.png`) would stay a distinct key while a zoom-12 one
     // collapsed. Anchoring is what keeps a mid-path `/2/` from matching.
     .replace(/\/[0-3]+(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
+    // …and only then the path-segment form of `{prefix}`, on what is left.
+    .replace(/\/[0-9a-f]{2}(?=\/)/gi, '/{prefix}')
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')
