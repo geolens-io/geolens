@@ -697,7 +697,8 @@ jobs:
 
   # ---------- version coherence ----------
   # REL-04: assert every version site agrees (backend/cli/sdks×2/root+frontend
-  # package.json/openapi.json info.version/main.py fallback constant). Blocks a
+  # package.json/openapi.json info.version/main.py fallback constant/the 5
+  # lockfiles that embed the package's own version, fix(#877)). Blocks a
   # release where one site silently drifted from the rest. Pure stdlib (tomllib
   # + json + re); no DB, no Docker, runs on every push/PR.
   version-coherence:

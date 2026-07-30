@@ -23,6 +23,18 @@ Sites checked:
   - sdks/python/pyproject.toml              [project].version
   - sdks/python/.openapi-python-client.yaml package_version_override
   - sdks/typescript/package.json            .version
+  - backend/uv.lock                         package 'geolens-backend'.version
+  - mcp/uv.lock                             package 'geolens-mcp'.version and
+                                            package 'geolens'.version (the
+                                            editable sdks/python path dep)
+  - package-lock.json (root)                .version + packages."".version
+  - frontend/package-lock.json              .version + packages."".version
+  - sdks/typescript/package-lock.json       .version + packages."".version
+
+The lockfiles are checked because every one of them lagged a release at least
+once while `make bump` rewrote only the manifests (fix(#877)). Each site is read
+structurally — the package's OWN entry, not "the version string appears in the
+file" — since any dependency could coincidentally sit at the same version.
 
 The canonical version is backend/pyproject.toml — the distribution version the
 running app derives at runtime via importlib.metadata (REL-03). Every other
@@ -54,6 +66,20 @@ PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+# Lockfiles that embed the package's own version (fix(#877)). A uv.lock records
+# it for every LOCAL package it resolves — the project itself plus any editable
+# path dependency in this repo (mcp/ depends on sdks/python) — so both of mcp's
+# entries move on a bump. bump_version.py stamps this same set.
+UV_LOCKS: tuple[tuple[Path, tuple[str, ...]], ...] = (
+    (REPO_ROOT / "backend" / "uv.lock", ("geolens-backend",)),
+    (REPO_ROOT / "mcp" / "uv.lock", ("geolens-mcp", "geolens")),
+)
+PACKAGE_LOCKS: tuple[Path, ...] = (
+    REPO_ROOT / "package-lock.json",
+    REPO_ROOT / "frontend" / "package-lock.json",
+    REPO_ROOT / "sdks" / "typescript" / "package-lock.json",
+)
 
 
 def _rel(p: Path) -> str:
@@ -87,6 +113,35 @@ def _yaml_override_version(path: Path) -> str:
     if not m:
         sys.exit(f"ERROR: no package_version_override line in {_rel(path)}.")
     return m.group(1).strip()
+
+
+def _uv_lock_package_version(path: Path, name: str) -> str:
+    """The version uv.lock records for one LOCAL `[[package]]` entry."""
+    for pkg in tomllib.loads(path.read_text()).get("package", []):
+        if pkg.get("name") != name:
+            continue
+        source = pkg.get("source", {})
+        # Only a local entry (this project, or an in-repo path dep) carries the
+        # repo's version; a registry entry would be an unrelated published one.
+        if not any(k in source for k in ("editable", "virtual", "directory")):
+            sys.exit(
+                f"ERROR: '{name}' in {_rel(path)} is not a local package (source={source}); "
+                f"it no longer tracks this repo's version — update the UV_LOCKS list."
+            )
+        return pkg["version"]
+    sys.exit(f"ERROR: no '{name}' [[package]] entry in {_rel(path)}.")
+
+
+def _package_lock_versions(path: Path) -> tuple[str, str]:
+    """(top-level .version, packages[""].version) — npm records both."""
+    data = json.loads(path.read_text())
+    root = data.get("packages", {}).get("")
+    if "version" not in data or not isinstance(root, dict) or "version" not in root:
+        sys.exit(
+            f'ERROR: {_rel(path)} lacks a top-level "version" and/or a packages.""'
+            f' "version" (expected the lockfileVersion 3 shape).'
+        )
+    return data["version"], root["version"]
 
 
 def _changelog_section(version: str) -> str | None:
@@ -136,6 +191,15 @@ def main() -> int:
         _yaml_override_version(PY_SDK_GEN_CONFIG)
     )
     sites[f"{_rel(TS_SDK_PACKAGE)} (.version)"] = _package_json_version(TS_SDK_PACKAGE)
+    for lock, package_names in UV_LOCKS:
+        for name in package_names:
+            sites[f"{_rel(lock)} (package '{name}'.version)"] = (
+                _uv_lock_package_version(lock, name)
+            )
+    for lock in PACKAGE_LOCKS:
+        top, root = _package_lock_versions(lock)
+        sites[f"{_rel(lock)} (.version)"] = top
+        sites[f'{_rel(lock)} (packages."".version)'] = root
 
     # Canonical = backend distribution version (what the app derives at runtime).
     canonical = sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"]
