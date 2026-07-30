@@ -209,9 +209,9 @@ function sourceIdOf(entry: ReportEntry): string {
  *
  * Only the parts that vary WITHIN one source are dropped: the tile address in
  * each of MapLibre's supported forms — `{z}/{x}/{y}`, `{quadkey}`, the
- * `{bbox-epsg-3857}` query param, the `{prefix}` shard label, and the `{ratio}`
- * suffix a retina display resolves to `@2x`, all reachable through an
- * admin-configured remote style — and the rotating credential params.
+ * `{bbox-epsg-3857}` query param, and the `{ratio}` suffix a retina display
+ * resolves to `@2x`, all reachable through an admin-configured remote style —
+ * and the rotating credential params. NOT `{prefix}`; see below.
  * Everything that distinguishes one source from another stays — the rest of the
  * path, the status, and the `cols`/`cluster_radius`/`cluster_max_zoom` params.
  *
@@ -223,11 +223,6 @@ const VOLATILE_TILE_PARAMS = new Set(['sig', 'exp', 'scope', '_v', 'bbox', 'BBOX
 
 function failureKey(message: string): string {
   return message
-    // MapLibre's `{prefix}` resolves to two hex characters derived from the
-    // tile's x/y, and it may sit ANYWHERE in the template — a host label
-    // (`//a3.tiles…`) or a path segment (`/tiles/{prefix}/{z}/…`). Either way
-    // one sharded source otherwise yields a different URL per tile.
-    .replace(/(https?:\/\/)[0-9a-f]{1,2}\./gi, '$1{prefix}.')
     // Tile coordinates, anchored to the end of the path — that is where z/x/y
     // always sit, and anchoring is what keeps an all-numeric `{prefix}` segment
     // (`/00/5/1/1.png`) from being mistaken for the zoom.
@@ -244,16 +239,15 @@ function failureKey(message: string): string {
     // zoom-3 tile (`/031.png`) would stay a distinct key while a zoom-12 one
     // collapsed. Anchoring is what keeps a mid-path `/2/` from matching.
     .replace(/\/[0-3]+(@\d+x)?(\.\w+)?(?=[?\s]|$)/g, '/{quadkey}')
-    // NOT the path-segment form of `{prefix}`. A resolved shard (`/a3/`) is
-    // indistinguishable from a meaningful static segment (`/ca/`, `/de/`) in a
-    // single URL — both are two hex-ish characters — so normalizing it merged
-    // two genuinely different sources into one. Between the two errors, the
-    // over-count is the safer one to keep: this is a problem REPORTER, and
-    // hiding a broken source is worse than counting a sharded one twice.
-    // A `{prefix}` in the HOST is still normalized above, where a one-or-two
-    // character first label is overwhelmingly a shard rather than a distinct
-    // host. Only console-only rows (viewer, dataset preview) are exposed at
-    // all; anything with a source id keys on that instead.
+    // Deliberately NOT `{prefix}`, in the host or the path. A resolved shard
+    // (`a3.tiles…`, `/a3/`) is indistinguishable from a meaningful label
+    // (`ca.tiles…`, `/de/`) in a single URL — both are one or two hex-ish
+    // characters — and collapsing it merged two genuinely different basemaps.
+    // Between the two errors the over-count is the safer one to keep: this is a
+    // problem REPORTER, and hiding a broken source is worse than counting a
+    // sharded one more than once. So this function normalizes only what is
+    // unambiguously per-TILE — coordinates and credentials — and never guesses
+    // at what a host or path segment means.
     .replace(/\?(\S*)/g, (_match, query: string) => {
       const kept = query
         .split('&')

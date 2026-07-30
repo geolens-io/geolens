@@ -301,36 +301,22 @@ describe('countDistinctFailures (fix #908)', () => {
   // codex round 5 on #908: MapLibre's {prefix} resolves to a per-tile shard
   // label in the hostname, so one broken sharded basemap otherwise counts once
   // per tile.
-  it('collapses a sharded basemap by source id and by hostname', () => {
-    for (const [shard, z, x, y] of [['a', 5, 1, 1], ['b7', 5, 2, 1], ['c', 5, 3, 1]] as const) {
+  // codex rounds 6-9 on #908: a resolved `{prefix}` shard cannot be told apart
+  // from a meaningful short label in a single URL — `a.tiles…` looks exactly
+  // like `ca.tiles…`, and both basemaps carry the fixed source id `basemap`.
+  // Guessing merged two genuinely different basemaps, so this keeps them
+  // distinct and accepts that one sharded source may be counted more than once.
+  it('keeps two basemaps apart when they differ only by a short host label', () => {
+    for (const region of ['ca', 'de']) {
       pushReportEntry({
         severity: 'error',
         source: 'maplibre',
-        message: `AJAXError: Not Found (404): https://${shard}.tiles.example.com/${z}/${x}/${y}.png`,
+        message: `AJAXError: Not Found (404): https://${region}.tiles.example.com/5/1/1.png`,
         detail: 'source: basemap',
       });
-      // The console echo carries no source id, so it leans on the hostname
-      // normalization instead.
-      pushReportEntry({
-        severity: 'error',
-        source: 'console',
-        message: `AJAXError: Not Found (404): https://${shard}.tiles.example.com/${z}/${x}/${y}.png`,
-      });
     }
 
-    expect(countDistinctFailures(getReportEntries())).toBe(1);
-  });
-
-  it('counts a console-only sharded failure once (viewer and preview)', () => {
-    for (const shard of ['a', 'b', 'c9']) {
-      pushReportEntry({
-        severity: 'error',
-        source: 'console',
-        message: `AJAXError: Not Found (404): https://${shard}.tiles.example.com/5/1/1.png`,
-      });
-    }
-
-    expect(countDistinctFailures(getReportEntries())).toBe(1);
+    expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
   // codex round 6/7 on #908: a resolved path-segment {prefix} cannot be told
