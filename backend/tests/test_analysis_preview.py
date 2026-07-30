@@ -1015,14 +1015,23 @@ class TestBuildPreviewSql:
         # deliberately gone — a single 90°-wide component fell to world
         # Mercator exactly like a spread multipart did.
         assert "ST_NumGeometries" not in buffer_expr
-        # Edges are densified along great circles BEFORE the planar band cut,
-        # because geography buffers geodesic edges: cutting the bare planar
-        # chord buffered a different line (141.7e9 m² vs the 134.1e9 truth on
-        # the 90° fixture).
+        # Edges are densified BEFORE the planar band cut: lineal components
+        # along great circles (geography buffers geodesic edges — cutting the
+        # bare planar chord buffered a different line, 141.7e9 m² vs the
+        # 134.1e9 truth on the 90° fixture), polygonal components PLANAR-ly
+        # (fix(#902 codex r4): geography-segmentizing a ring moved the region
+        # itself).
+        from app.platform.analysis_sql import BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG
+
         assert (
-            f"ST_Segmentize(_pb.g::geography, {BUFFER_SLICE_SEGMENTIZE_M})::geometry"
+            f"ST_Segmentize(_pb_d0.c0::geography, {BUFFER_SLICE_SEGMENTIZE_M})"
+            "::geometry" in buffer_expr
+        )
+        assert (
+            f"ST_Segmentize(_pb_d0.c0, {BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG})"
             in buffer_expr
         )
+        assert "ST_Dimension(_pb_d0.c0) >= 2" in buffer_expr
         # Bands are anchored at the input's own XMin and cut a hair under the
         # zone width: at exactly 6.0° _ST_BestSRID leaves the local UTM zone.
         assert f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)" in buffer_expr

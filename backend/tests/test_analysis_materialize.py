@@ -3237,6 +3237,43 @@ class TestWideSingleComponentBuffer:
         assert row.through_west is True
         assert row.chord_east is False
 
+    async def test_wide_polygon_keeps_its_interior_and_planar_shape(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#902 codex r4): polygonal components are densified PLANAR-ly —
+        geography-segmentizing a ring reinterprets long planar edges as great
+        arcs and moved the region itself (this fixture's lat-45 center fell
+        outside its own area). The buffer of a wide polygon must cover the
+        polygon, planar edges included."""
+        wkt = "POLYGON((0 40, 90 40, 90 50, 0 50, 0 40))"
+        out = await _materialize_buffer(
+            test_db_session,
+            wkt=wkt,
+            column_type="Polygon",
+            geometry_type="POLYGON",
+            distance=10_000,
+        )
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_IsValid(geom_4326) AS valid,"
+                    " ST_Area(geom_4326::geography) AS area,"
+                    " ST_Covers(geom_4326,"
+                    "   ST_SetSRID(ST_MakePoint(45, 45), 4326)) AS covers_center,"
+                    " ST_Covers(geom_4326,"
+                    "   ST_GeomFromText(:src, 4326)) AS covers_source"
+                    f" FROM data.{out.table_name}"  # noqa: S608
+                ).bindparams(src=wkt)
+            )
+        ).one()
+        assert row.valid is True
+        assert row.covers_center is True
+        # A buffer must contain what it buffers.
+        assert row.covers_source is True
+        # Planar polygon area (~7.9e12 m²) plus the 10 km rim.
+        assert row.area == pytest.approx(8_039_566_379_240, rel=0.01)
+
     async def test_narrow_single_part_is_still_byte_identical(
         self,
         test_db_session: AsyncSession,

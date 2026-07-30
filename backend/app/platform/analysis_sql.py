@@ -104,6 +104,14 @@ BUFFER_LOCAL_SRID_SPAN_DEG = 6
 # the same step the issue's piecewise ground truth was built with.
 BUFFER_SLICE_SEGMENTIZE_M = 20_000
 
+# fix(#902 codex r4): POLYGONAL components are densified PLANAR-ly instead —
+# geography-segmentizing a ring reinterprets its long planar edges as great
+# arcs and moves the region itself (a 0..90 rectangle's lat-45 interior point
+# fell outside its own "segmentized" area). Rings keep their stored planar
+# shape, densified at 0.1° so the geography buffer of each slice treats every
+# sub-edge as a ≤0.1° geodesic — about 1 m of deviation from the planar edge.
+BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG = 0.1
+
 
 def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     """Split antimeridian-wrapping output of ``geom_expr`` at ±180.
@@ -376,9 +384,16 @@ def render_geodesic_buffer(
     # continuous chordless polyline. The jump is detectable exactly: after
     # geography segmentization every genuine edge is ~20 km (~0.2°), so any
     # planar segment wider than 180° IS the seam jump.
+    # fix(#902 codex r4): the per-segment fallback is for LINEAL/PUNTAL
+    # components only — dumping a POLYGON to boundary segments and buffering
+    # those would keep the boundary corridor and discard the interior.
+    # Polygonal components always take the band slice, which honors their
+    # stored PLANAR semantics (the same reading every other consumer of the
+    # column uses).
     has_jump = (
-        f"EXISTS (SELECT 1 FROM ST_DumpSegments({alias}_g.uc) AS {alias}_e"
-        f" WHERE ST_XMax({alias}_e.geom) - ST_XMin({alias}_e.geom) > 180)"
+        f"(ST_Dimension({alias}_g.uc) <= 1 AND"
+        f" EXISTS (SELECT 1 FROM ST_DumpSegments({alias}_g.uc) AS {alias}_e"
+        f" WHERE ST_XMax({alias}_e.geom) - ST_XMin({alias}_e.geom) > 180))"
     )
     # Per-component unwrap (codex r2): shift into the +360 domain when — and
     # only when — shifting narrows THAT component's planar span, the same
@@ -393,8 +408,12 @@ def render_geodesic_buffer(
         f" < ST_XMax({alias}_u.c) - ST_XMin({alias}_u.c)"
         f" THEN {alias}_u.s ELSE {alias}_u.c END AS uc"
         f" FROM (SELECT {alias}_d.c, ST_ShiftLongitude({alias}_d.c) AS s"
-        f" FROM (SELECT (ST_Dump(ST_Segmentize({alias}.g::geography,"
-        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry)).geom AS c) AS {alias}_d"
+        f" FROM (SELECT CASE"
+        f" WHEN ST_Dimension({alias}_d0.c0) >= 2"
+        f" THEN ST_Segmentize({alias}_d0.c0, {BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG})"
+        f" ELSE ST_Segmentize({alias}_d0.c0::geography,"
+        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry END AS c"
+        f" FROM (SELECT (ST_Dump({alias}.g)).geom AS c0) AS {alias}_d0) AS {alias}_d"
         f" OFFSET 0) AS {alias}_u"
     )
     # Each component either slices into longitude bands (the local-projection
