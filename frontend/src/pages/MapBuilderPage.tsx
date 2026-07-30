@@ -248,7 +248,6 @@ export function MapBuilderPage() {
     saveBaselineSyncRef,
   );
   const {
-    setHasUnsavedChanges,
     handleBulkVisibility: applyBulkVisibility,
     handleBulkOpacity: applyBulkOpacity,
     handleBulkGroup: applyBulkGroup,
@@ -483,12 +482,15 @@ export function MapBuilderPage() {
       layerId,
       persistence: 'server',
     }),
-  }), [dispatchLayerAction, handleRenderModeChange, handleTabChange]);
+    // fix(#913): the revert routes through the mutation handlers above, so the
+    // map is re-marked dirty on the way back to its saved state. Ask the
+    // baseline owner to re-derive; it clears only when the WHOLE map is clean.
+    onRevertToSaved: layers.requestCleanRecheck,
+  }), [dispatchLayerAction, handleRenderModeChange, handleTabChange, layers.requestCleanRecheck]);
 
-  const handleMarkDirty = useCallback(
-    () => { setHasUnsavedChanges(true); },
-    [setHasUnsavedChanges],
-  );
+  // fix(#913): route page-owned dirt through markDirty so the clean-state
+  // recheck knows it cannot re-derive this from server state.
+  const handleMarkDirty = layers.markDirty;
 
   // Plugin toggles live in a store outside the layer state that drives
   // hasUnsavedChanges, so wrap the toggle to mark the map dirty — otherwise the
@@ -497,9 +499,9 @@ export function MapBuilderPage() {
   const handleTogglePlugin = useCallback(
     (pluginId: string) => {
       togglePlugin(pluginId);
-      setHasUnsavedChanges(true);
+      layers.markDirty();
     },
-    [togglePlugin, setHasUnsavedChanges],
+    [togglePlugin, layers],
   );
 
   // Projection persists on basemap_config.projection. Route through the basemap
