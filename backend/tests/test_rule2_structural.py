@@ -35,10 +35,12 @@ going stale.
 
 Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 
-- Detection matches ``rasterio.open`` / ``rasterio.Env`` attribute calls and
-  common aliases of the module import. ``from rasterio import open as ropen``
-  or fully dynamic access (``getattr(rasterio, "open")``) is invisible; no
-  such shape exists in the codebase.
+- rasterio detection resolves ACTUAL import bindings per scope (codex round
+  5): ``import rasterio [as X]`` and ``from rasterio import open/Env [as Y]``
+  are tracked, so aliased forms like ``rs.open(...)`` are seen. Fully
+  dynamic access (``getattr(rasterio, "open")``, ``importlib``) and
+  re-exports of rasterio callables through intermediate modules remain
+  invisible; no such shape exists in the codebase.
 - The CLI check is function-scoped with exact counts, not full dataflow: an
   argv is credited when its ENCLOSING FUNCTION references ``gdal_safe_env``,
   and unclamped argvs are counted per (module, function, tool) against the
@@ -218,21 +220,13 @@ def _call_name(func: ast.expr) -> str | None:
     return None
 
 
-def _is_rasterio_call(node: ast.Call, attr: str) -> bool:
-    """Match ``rasterio.open`` / ``rasterio.Env`` including ``rio.open``-style
-    aliases: any Attribute call named ``attr`` on a bare Name whose id
-    contains ``rasterio`` or is ``rio``."""
-    func = node.func
-    if not (isinstance(func, ast.Attribute) and func.attr == attr):
-        return False
-    base = func.value
-    return isinstance(base, ast.Name) and ("rasterio" in base.id or base.id == "rio")
-
-
-# Sentinel keys for the two credit kinds a name can carry.
+# Sentinel keys for the credit/detection kinds a name can carry.
 _KIND_OPEN = SAFE_OPEN_ENV_HELPER
 _KIND_ENV = SAFE_SUBPROCESS_ENV_HELPER
 _KIND_MODALIAS = "__vrt_module_alias__"
+_KIND_RASTERIO_MOD = "__rasterio_module__"
+_KIND_RASTERIO_OPEN = "__rasterio_open__"
+_KIND_RASTERIO_ENV = "__rasterio_env__"
 
 _SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
@@ -253,33 +247,61 @@ class _ScopeInfo:
             _KIND_OPEN: set(),
             _KIND_ENV: set(),
             _KIND_MODALIAS: set(),
+            _KIND_RASTERIO_MOD: set(),
+            _KIND_RASTERIO_OPEN: set(),
+            _KIND_RASTERIO_ENV: set(),
         }
         self.bound: set[str] = set()
 
 
+# from-import module -> {imported name -> credit kind}. Names imported from
+# these modules under any other name fall through to `bound`.
+_FROM_IMPORT_KINDS: dict[str, dict[str, str]] = {
+    "rasterio": {"open": _KIND_RASTERIO_OPEN, "Env": _KIND_RASTERIO_ENV},
+}
+
+
+def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
+    module = node.module or ""
+    if module.endswith(CANONICAL_HELPER_MODULE_SUFFIX):
+        kinds = {
+            SAFE_OPEN_ENV_HELPER: SAFE_OPEN_ENV_HELPER,
+            SAFE_SUBPROCESS_ENV_HELPER: SAFE_SUBPROCESS_ENV_HELPER,
+        }
+    elif module.endswith("processing.raster"):
+        kinds = {"vrt": _KIND_MODALIAS}
+    else:
+        # codex round 5 on #974: `from rasterio import open as ropen` was
+        # invisible to the alias-guessing predicate — an unsafe miss.
+        kinds = _FROM_IMPORT_KINDS.get(module, {})
+    for alias in node.names:
+        kind = kinds.get(alias.name)
+        if kind is not None:
+            info.canonical[kind].add(alias.asname or alias.name)
+        else:
+            info.bound.add(alias.asname or alias.name.split(".")[0])
+
+
+def _record_plain_import(info: _ScopeInfo, node: ast.Import) -> None:
+    for alias in node.names:
+        if alias.name.endswith(CANONICAL_HELPER_MODULE_SUFFIX) and alias.asname:
+            info.canonical[_KIND_MODALIAS].add(alias.asname)
+        elif alias.name == "rasterio":
+            # codex round 5: `import rasterio as rs` must be tracked as a
+            # rasterio-module binding, not guessed from the alias spelling.
+            info.canonical[_KIND_RASTERIO_MOD].add(alias.asname or "rasterio")
+        elif alias.name.startswith("rasterio.") and not alias.asname:
+            # `import rasterio.foo` binds the root `rasterio` name too.
+            info.canonical[_KIND_RASTERIO_MOD].add("rasterio")
+        else:
+            info.bound.add(alias.asname or alias.name.split(".")[0])
+
+
 def _record_import(info: _ScopeInfo, node: ast.AST) -> None:
     if isinstance(node, ast.ImportFrom) and node.module:
-        if node.module.endswith(CANONICAL_HELPER_MODULE_SUFFIX):
-            for alias in node.names:
-                if alias.name in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER):
-                    info.canonical[alias.name].add(alias.asname or alias.name)
-                else:
-                    info.bound.add(alias.asname or alias.name)
-        elif node.module.endswith("processing.raster"):
-            for alias in node.names:
-                if alias.name == "vrt":
-                    info.canonical[_KIND_MODALIAS].add(alias.asname or "vrt")
-                else:
-                    info.bound.add(alias.asname or alias.name)
-        else:
-            for alias in node.names:
-                info.bound.add(alias.asname or (alias.name.split(".")[0]))
+        _record_import_from(info, node)
     elif isinstance(node, ast.Import):
-        for alias in node.names:
-            if alias.name.endswith(CANONICAL_HELPER_MODULE_SUFFIX) and alias.asname:
-                info.canonical[_KIND_MODALIAS].add(alias.asname)
-            else:
-                info.bound.add(alias.asname or alias.name.split(".")[0])
+        _record_plain_import(info, node)
 
 
 def _iter_immediate(node: ast.AST):
@@ -396,19 +418,51 @@ def _enclosing_function_node(
 
 
 def _scope_uses_safe_env(root: ast.AST, rel: str) -> bool:
-    """True when the scope CALLS the canonical gdal_safe_env.
+    """True when the scope ITSELF calls the canonical gdal_safe_env.
 
     codex round 4 on #974: a bare Name reference (assignment, log line, dead
     code) credited the scope while the subprocess ran with a hand-rolled
-    env. Credit now requires an actual Call whose target resolves to the
+    env. Credit requires an actual Call whose target resolves to the
     canonical binding. Whether the call's RESULT is the env handed to the
-    subprocess is not verified — Call-level is the documented stop."""
-    for node in ast.walk(root):
+    subprocess is not verified — Call-level is the documented stop.
+
+    codex round 5 on #974: the call must be in the scope's IMMEDIATE body —
+    a call inside a nested def or lambda runs on that nested scope's
+    schedule (or never), so it may not credit the outer function's argv.
+    """
+    for node in _iter_immediate(root):
         if isinstance(node, ast.Call) and _is_canonical_helper_call(
             node, SAFE_SUBPROCESS_ENV_HELPER, rel
         ):
             return True
     return False
+
+
+def _rasterio_call_kind(node: ast.Call, rel: str) -> str | None:
+    """Return "open"/"Env" when the call resolves to rasterio.open /
+    rasterio.Env through actual import bindings, else None.
+
+    codex round 5 on #974: the previous predicate GUESSED alias spellings
+    ("rasterio" in the name, or "rio"), so `import rasterio as rs` made
+    `rs.open(...)` invisible — an unsafe miss, unlike the conservative
+    edges. Detection now uses the same per-scope binding resolution as
+    helper credit: `import rasterio [as X]` binds X as the module,
+    `from rasterio import open/Env [as Y]` binds Y as the function.
+    """
+    func = node.func
+    if isinstance(func, ast.Attribute) and func.attr in ("open", "Env"):
+        base = func.value
+        if isinstance(base, ast.Name) and _resolve_credit(
+            base.id, _KIND_RASTERIO_MOD, func, rel
+        ):
+            return func.attr
+        return None
+    if isinstance(func, ast.Name):
+        if _resolve_credit(func.id, _KIND_RASTERIO_OPEN, func, rel):
+            return "open"
+        if _resolve_credit(func.id, _KIND_RASTERIO_ENV, func, rel):
+            return "Env"
+    return None
 
 
 def _blank_justification_violations(allowlist_name: str, allowlist: dict) -> list[str]:
@@ -460,14 +514,15 @@ def _collect_rasterio_violations(
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if _is_rasterio_call(node, "open"):
+            kind = _rasterio_call_kind(node, rel)
+            if kind == "open":
                 total_open_calls += 1
                 site = (rel, _enclosing_function(node))
                 if _inside_safe_open_env(node, rel):
                     continue
                 unwrapped_counts[site] = unwrapped_counts.get(site, 0) + 1
                 unwrapped_lines.setdefault(site, []).append(node.lineno)
-            elif _is_rasterio_call(node, "Env"):
+            elif kind == "Env":
                 site = (rel, _enclosing_function(node))
                 env_counts[site] = env_counts.get(site, 0) + 1
                 env_lines.setdefault(site, []).append(node.lineno)
@@ -802,6 +857,85 @@ def test_guard_cli_reference_without_call_gets_no_credit():
     )
     assert len(violations) == 1, violations
     assert "mentions_only" in violations[0]
+
+
+def test_guard_rasterio_alias_and_from_import_are_detected():
+    """codex round 5: `import rasterio as rs` / `from rasterio import open`
+    previously slipped past the alias-guessing predicate — an unsafe miss.
+    Both forms must be flagged when unwrapped."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio as rs\n"
+            "from rasterio import open as ropen, Env as REnv\n"
+            "def a(path):\n"
+            "    with rs.open(path):\n"
+            "        pass\n"
+            "def b(path):\n"
+            "    with ropen(path):\n"
+            "        pass\n"
+            "def c():\n"
+            "    return REnv(X='1')\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert len(violations) == 3, violations
+    assert any("(a)" in v for v in violations)
+    assert any("(b)" in v for v in violations)
+    assert any("rasterio.Env" in v and "(c)" in v for v in violations)
+
+
+def test_guard_unrelated_rs_name_is_not_rasterio():
+    """The flip side of binding-based detection: a name that merely looks
+    rasterio-ish but is bound elsewhere must not be flagged."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import riostyle as rio\n"
+            "def fn(path):\n"
+            "    with rio.open(path):\n"
+            "        pass\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 0
+    assert violations == []
+
+
+def test_guard_nested_call_does_not_credit_outer_argv():
+    """codex round 5: a canonical gdal_safe_env call inside a NESTED def or
+    lambda must not credit the outer function's argv; a same-scope call
+    still does."""
+    violations, _ = _collect_gdal_cli_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def outer_nested(url):\n"
+            "    def inner():\n"
+            "        return gdal_safe_env()\n"
+            "    return ['ogrinfo', '-json', url], inner\n"
+            "def outer_direct(url):\n"
+            "    env = gdal_safe_env()\n"
+            "    return ['ogrinfo', '-json', url], env\n"
+        ),
+        {},
+    )
+    assert len(violations) == 1, violations
+    assert "outer_nested" in violations[0]
+    # The nested def's own argv (if any) is judged in ITS scope, where the
+    # call does live — pin that the inner scope still earns its own credit.
+    inner_ok, _ = _collect_gdal_cli_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def outer(url):\n"
+            "    def inner():\n"
+            "        env = gdal_safe_env()\n"
+            "        return ['ogrinfo', '-json', url], env\n"
+            "    return inner\n"
+        ),
+        {},
+    )
+    assert inner_ok == []
 
 
 def test_guard_blank_justification_fails():
