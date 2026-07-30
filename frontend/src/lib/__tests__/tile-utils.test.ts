@@ -5,6 +5,7 @@ import {
   getMvtSourceLayerName,
   isMvtSourceLayerConfigReady,
   isThirdPartyTileUrl,
+  refreshRasterTileSources,
 } from '@/lib/tile-utils';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -332,5 +333,56 @@ describe('buildTileTransformRequest', () => {
     expect(transform('https://cdn.example.com/api/tiles/x.mvt').headers).toEqual({
       'X-Embed-Token': 'embed-tok',
     });
+  });
+});
+
+// fix(#907) (codex P1): a raster descriptor does not change when the session
+// JWT rotates, so nothing in the token→setTiles plumbing retries the tiles that
+// 401'd while MapLibre raced the refresh. This is the explicit reload.
+describe('refreshRasterTileSources (fix #907)', () => {
+  function fakeMap(sources: Record<string, { type: string }>) {
+    return {
+      getStyle: () => ({ sources }),
+      refreshTiles: vi.fn(),
+    };
+  }
+
+  it('reloads raster and raster-dem sources, and nothing else', () => {
+    const map = fakeMap({
+      'raster-a': { type: 'raster' },
+      'dem-b': { type: 'raster-dem' },
+      'vector-c': { type: 'vector' },
+      'geojson-d': { type: 'geojson' },
+    });
+
+    expect(refreshRasterTileSources(map)).toBe(2);
+    expect(map.refreshTiles.mock.calls.map(([id]) => id)).toEqual(['raster-a', 'dem-b']);
+  });
+
+  it('is a no-op without a map, and survives a torn-down style', () => {
+    expect(refreshRasterTileSources(null)).toBe(0);
+    expect(
+      refreshRasterTileSources({
+        getStyle: () => {
+          throw new Error('style is not done loading');
+        },
+        refreshTiles: vi.fn(),
+      }),
+    ).toBe(0);
+  });
+
+  it('keeps going when one source is torn down mid-refresh', () => {
+    const refreshTiles = vi.fn((id: string) => {
+      if (id === 'raster-a') throw new Error('source removed');
+    });
+    const map = {
+      getStyle: () => ({
+        sources: { 'raster-a': { type: 'raster' }, 'raster-b': { type: 'raster' } },
+      }),
+      refreshTiles,
+    };
+
+    expect(refreshRasterTileSources(map)).toBe(1);
+    expect(refreshTiles).toHaveBeenCalledTimes(2);
   });
 });

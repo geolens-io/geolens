@@ -66,7 +66,7 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
       const labels: Record<string, string> = {
         'style.line': 'Line',
         'style.color': 'Color',
-        'style.opacity': 'Opacity',
+        'style.lineOpacity': 'Line opacity',
         'style.width': 'Width',
         'style.gapWidth': 'Gap',
         'style.blur': 'Blur',
@@ -95,7 +95,7 @@ describe('LineEditor', () => {
 
     // Line color is accessible via the Solid/Gradient toggle (LineGradientControls)
     expect(screen.getByRole('button', { name: 'Solid color' })).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Line opacity' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Width' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Gap' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Blur' })).toBeInTheDocument();
@@ -158,7 +158,7 @@ describe('LineEditor', () => {
           t: (key: string, opts?: Record<string, unknown>) => {
             if (key === 'style.widthByColumn') return `Width by: ${opts?.column}`;
             const labels: Record<string, string> = {
-              'style.line': 'Line', 'style.opacity': 'Opacity', 'style.gapWidth': 'Gap',
+              'style.line': 'Line', 'style.lineOpacity': 'Line opacity', 'style.gapWidth': 'Gap',
               'style.blur': 'Blur', 'style.offset': 'Offset', 'style.pattern': 'Pattern',
               'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
               'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
@@ -211,7 +211,7 @@ describe('LineEditor', () => {
     render(<LineEditor {...makeProps(makeLineLayer(), {
       t: (key: string) => {
         const labels: Record<string, string> = {
-          'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+          'style.line': 'Line', 'style.color': 'Color', 'style.lineOpacity': 'Line opacity',
           'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
           'style.offset': 'Offset', 'style.pattern': 'Pattern',
           'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
@@ -232,7 +232,7 @@ describe('LineEditor', () => {
     render(<LineEditor {...makeProps(makeLineLayer(), {
       t: (key: string) => {
         const labels: Record<string, string> = {
-          'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+          'style.line': 'Line', 'style.color': 'Color', 'style.lineOpacity': 'Line opacity',
           'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
           'style.offset': 'Offset', 'style.pattern': 'Pattern',
           'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
@@ -258,7 +258,7 @@ describe('LineEditor', () => {
     render(<LineEditor {...makeProps(makeLineLayer(), {
       t: (key: string) => {
         const labels: Record<string, string> = {
-          'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+          'style.line': 'Line', 'style.color': 'Color', 'style.lineOpacity': 'Line opacity',
           'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
           'style.offset': 'Offset', 'style.pattern': 'Pattern',
           'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
@@ -284,7 +284,7 @@ describe('LineEditor', () => {
     const onLayoutChange = vi.fn();
     const t = (key: string) => {
       const labels: Record<string, string> = {
-        'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.line': 'Line', 'style.color': 'Color', 'style.lineOpacity': 'Line opacity',
         'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
         'style.offset': 'Offset', 'style.pattern': 'Pattern',
         'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
@@ -307,7 +307,7 @@ describe('LineEditor', () => {
     const onLayoutChange = vi.fn();
     const t = (key: string) => {
       const labels: Record<string, string> = {
-        'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.line': 'Line', 'style.color': 'Color', 'style.lineOpacity': 'Line opacity',
         'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
         'style.offset': 'Offset', 'style.pattern': 'Pattern',
         'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
@@ -329,7 +329,7 @@ describe('LineEditor', () => {
   it('reads line-cap and line-join defaults from layer.layout and displays them', () => {
     const t = (key: string) => {
       const labels: Record<string, string> = {
-        'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.line': 'Line', 'style.color': 'Color', 'style.lineOpacity': 'Line opacity',
         'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
         'style.offset': 'Offset', 'style.pattern': 'Pattern',
         'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
