@@ -152,6 +152,25 @@ describe('useBuilderLayers — clean-state recheck', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  it('ignores the UI-only basemap row expansion', () => {
+    // handleToggleGroupExpand writes a groupMeta entry for the basemap row but
+    // deliberately does NOT dirty the map — it has no persisted carrier — so a
+    // whole-object compare would pin the flag on forever.
+    const layer = makeBuilderLayer();
+    const { result } = render(makeBuilderMap([layer]));
+
+    act(() => {
+      result.current.handleToggleGroupExpand('basemap-group');
+      result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' });
+    });
+    act(() => {
+      result.current.handlePaintChange(layer.id, layer.paint as Record<string, unknown>);
+      result.current.requestCleanRecheck();
+    });
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
   it('keeps the flag for page-owned dirt it cannot re-derive (markOpaqueDirty)', () => {
     const layer = makeBuilderLayer();
     const { result } = render(makeBuilderMap([layer]));

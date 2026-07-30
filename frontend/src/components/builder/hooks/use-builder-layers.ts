@@ -900,7 +900,14 @@ export function useBuilderLayers(
     // fix(#913 review): folder expansion is persisted (prepareLayersForPersistence
     // reads groupMeta), and handleToggleGroupExpand marks the map dirty — without
     // this an expand-then-revert reported clean and the expansion was lost.
-    if (!deepEqual(groupMeta, savedGroupMeta(mapData))) return false;
+    // Compare ONLY persisted folder rows: the basemap row also writes a groupMeta
+    // entry, deliberately without dirtying (it has no persisted carrier), so a
+    // whole-object compare could never match and would pin the flag on.
+    const savedMeta = savedGroupMeta(mapData);
+    for (const layer of current) {
+      if (!isFolderGroupLayer(layer)) continue;
+      if ((groupMeta[layer.id]?.expanded ?? false) !== (savedMeta[layer.id]?.expanded ?? false)) return false;
+    }
 
     return true;
   }, [
