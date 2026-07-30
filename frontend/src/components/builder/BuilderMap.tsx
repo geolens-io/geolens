@@ -91,7 +91,10 @@ interface BuilderMapProps {
 
 type VisibleLayerBounds = [[number, number], [number, number]];
 
-function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
+// Exported for the seam tests in BuilderMap.unit.test.ts — same reason
+// `resignVectorSourceForRetry` is: the merge is the interesting logic and
+// rendering the whole builder to reach it proves less.
+export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -112,18 +115,25 @@ function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds |
     // fix(#903): a `west > east` pair used to be dropped here, which made both
     // fit paths and Zoom to Layer silent no-ops for a seam-crossing layer.
     // Unwrap it past 180 instead — MapLibre normalizes the result, so a single
-    // crossing layer now fits the few degrees it occupies. Merging several
-    // layers still min/maxes in unwrapped space, which is no worse than the
-    // planar merge it replaces; a genuine union across the seam is the rollup
-    // problem #886/#934 solve on the backend, not something to invent here.
-    const [west, south, north] = [bbox[0], bbox[1], bbox[3]];
-    const east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
+    // crossing layer now fits the few degrees it occupies.
+    let west = bbox[0];
+    let east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
+
+    // Then shift each interval into the same turn as the first one before
+    // min/maxing. Without this a crossing layer next to a non-crossing one on
+    // the far side of the seam ([178, -178] and [-179, -177]) merged to
+    // [-179, 182] — a 361° span for a union that occupies about 5°, which the
+    // auto-fit turns into a world-scale zoom.
+    if (hasBounds) {
+      while (west - minX > 180) { west -= 360; east -= 360; }
+      while (minX - west > 180) { west += 360; east += 360; }
+    }
 
     hasBounds = true;
     if (west < minX) minX = west;
-    if (south < minY) minY = south;
+    if (bbox[1] < minY) minY = bbox[1];
     if (east > maxX) maxX = east;
-    if (north > maxY) maxY = north;
+    if (bbox[3] > maxY) maxY = bbox[3];
   }
 
   return hasBounds ? [[minX, minY], [maxX, maxY]] : null;
