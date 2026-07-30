@@ -211,18 +211,21 @@ test.describe('builder analysis tools', () => {
     );
     await page.getByRole('button', { name: 'Create dataset' }).click();
 
-    const request = (await materializeResponse).request();
-    expect(JSON.parse(request.postData() ?? '{}')).toMatchObject({
+    const response = await materializeResponse;
+    const { job_id: jobId } = (await response.json()) as { job_id: string };
+    expect(jobId).toBeTruthy();
+
+    // Resolve for cleanup before ANY assertion that can fail — including the
+    // request-body one below. A dropped by_field still runs as an ungrouped
+    // dissolve and still creates a dataset, so asserting first would leak one
+    // output per Playwright retry into the shared catalog.
+    dissolveDatasetId = await awaitJobDataset(jobId);
+    expect(dissolveDatasetId).toBeTruthy();
+
+    expect(JSON.parse(response.request().postData() ?? '{}')).toMatchObject({
       operation: 'dissolve',
       by_field: 'name',
     });
-    const { job_id: jobId } = (await (await materializeResponse).json()) as { job_id: string };
-    expect(jobId).toBeTruthy();
-
-    // Resolve for cleanup before any assertion that can fail, so a failed run
-    // cannot leak the output dataset.
-    dissolveDatasetId = await awaitJobDataset(jobId);
-    expect(dissolveDatasetId).toBeTruthy();
 
     await expect(
       page.locator('[data-sonner-toast]').filter({ hasText: DISSOLVE_TITLE }),
