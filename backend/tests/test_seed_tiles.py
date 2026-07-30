@@ -146,6 +146,17 @@ class TestSpecBboxToTiles:
         tiles = list(spec_bbox_to_tiles(170, -10, -170, 10, z=3))
         assert len(tiles) == len(set(tiles))
 
+    def test_crossing_bbox_at_z0_yields_the_single_world_tile_once(self):
+        # fix(#934 codex r1): both lobes resolve to (0, 0, 0) at z0; the
+        # shared tile must be seeded (and counted) exactly once.
+        assert list(spec_bbox_to_tiles(170, -10, -170, 10, z=0)) == [(0, 0, 0)]
+
+    def test_crossing_bbox_low_zoom_shared_column_not_duplicated(self):
+        # At z1 both lobes land in adjacent columns 0 and 1 with overlap risk;
+        # every tile must still appear exactly once.
+        tiles = list(spec_bbox_to_tiles(170, -10, -170, 10, z=1))
+        assert len(tiles) == len(set(tiles))
+
     def test_crossing_bbox_is_much_smaller_than_the_world(self):
         crossing = list(spec_bbox_to_tiles(170, -10, -170, 10, z=6))
         world = list(bbox_to_tiles(-180, -10, 180, 10, z=6))

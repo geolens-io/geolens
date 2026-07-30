@@ -183,3 +183,37 @@ class TestRefreshCountAndExtent:
             assert wkt.startswith("POLYGON")
         finally:
             await _drop_table(test_db_session, table)
+
+
+class TestCreateDatasetSink:
+    """fix(#934 codex r1): the dataset-creation sink accepted only POLYGON
+    extents, so a first-ingest two-ring MULTIPOLYGON silently became a NULL
+    ``Record.spatial_extent``."""
+
+    async def test_two_ring_extent_survives_dataset_creation(self, test_db_session):
+        from geoalchemy2.shape import to_shape as _to_shape  # noqa: F401
+
+        from app.modules.catalog.datasets.domain.service import create_dataset
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        two_ring = (
+            "MULTIPOLYGON(((150 -10,180 -10,180 10,150 10,150 -10)),"
+            "((-180 -10,-110 -10,-110 10,-180 10,-180 -10)))"
+        )
+        dataset = await create_dataset(
+            test_db_session,
+            table_name=f"ext_sink_934_{uuid.uuid4().hex[:10]}",
+            title="Crossing extent sink test",
+            created_by=admin_id,
+            srid=4326,
+            geometry_type="Point",
+            feature_count=4,
+            extent_wkt=two_ring,
+            source_format="geojson",
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(dataset.record)
+        assert dataset.record.spatial_extent is not None
+        bbox = extent_to_bbox(dataset.record.spatial_extent)
+        assert bbox == pytest.approx([150.0, -10.0, -110.0, 10.0])

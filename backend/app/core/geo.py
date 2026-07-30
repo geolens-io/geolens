@@ -4,7 +4,8 @@ from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, column, func, or_, select, text
+from sqlalchemy import and_, case, column, func, or_, select
+from sqlalchemy import table as sql_table
 from sqlalchemy.sql.elements import ColumnElement
 
 if TYPE_CHECKING:
@@ -352,7 +353,11 @@ def rollup_span_bbox(values: Sequence[object]) -> list[float] | None:
 
 
 async def seam_extent_wkt_for_table(
-    session: AsyncSession, table_sql: str, *, geom_column: str = "geom_4326"
+    session: AsyncSession,
+    table_name: str,
+    *,
+    schema: str | None = None,
+    geom_column: str = "geom_4326",
 ) -> str | None:
     """Two-ring extent WKT for a data table that honestly crosses ±180, else None.
 
@@ -368,12 +373,13 @@ async def seam_extent_wkt_for_table(
     existing single-polygon path byte-identical — including the degenerate
     POINT/LINESTRING padding, which can never apply to a crossing extent.
 
-    ``table_sql`` must be an already-quoted, trusted table reference (the
-    callers' ``_qtable`` / ``quote_table``); it is interpolated, not bound.
+    ``table_name`` / ``schema`` are rendered through SQLAlchemy's identifier
+    quoting (``sqlalchemy.table``), never string-interpolated into SQL
+    (fix(#934 codeql)); callers still pass names they have validated
+    (``_validate_table_name`` / catalog-owned ``Dataset.table_name``).
     """
-    stmt = select(*rollup_bbox_columns(column(geom_column))).select_from(
-        text(table_sql)
-    )
+    tbl = sql_table(table_name, column(geom_column), schema=schema)
+    stmt = select(*rollup_bbox_columns(tbl.columns[geom_column])).select_from(tbl)
     row = (await session.execute(stmt)).first()
     bbox = rollup_bbox(row) if row is not None else None
     if bbox is not None and bbox[0] > bbox[2]:

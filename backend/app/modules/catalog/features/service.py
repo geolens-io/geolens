@@ -650,7 +650,14 @@ async def _refresh_count_and_extent(
     # ordinary case skip the second aggregate and stay byte-identical —
     # including the degenerate POINT/LINESTRING padding above.
     if xmin is not None and xmax is not None and float(xmax) - float(xmin) > 180.0:
-        crossing = await seam_extent_wkt_for_table(session, quoted)
+        # Same tenant data schema the quoted reference above resolves to; the
+        # helper quotes identifiers itself (fix(#934 codeql)).
+        from app.core.db.tenant_schema import tenant_data_schema
+        from app.core.db.tenant_session import current_tenant_var
+
+        crossing = await seam_extent_wkt_for_table(
+            session, table_name, schema=tenant_data_schema(current_tenant_var.get())
+        )
         if crossing is not None:
             extent_wkt = crossing
     return count, extent_wkt

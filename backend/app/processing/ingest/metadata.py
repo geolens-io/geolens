@@ -359,7 +359,7 @@ async def _seam_crossing_extent_wkt(
         return None
     if float(xmax) - float(xmin) <= 180.0:
         return None
-    return await seam_extent_wkt_for_table(session, _qtable(table_name, schema=schema))
+    return await seam_extent_wkt_for_table(session, table_name, schema=schema)
 
 
 async def get_extent(

@@ -118,8 +118,17 @@ def spec_bbox_to_tiles(
     crossing extent) and seed each lobe as its own longitude range.
     """
     if west > east:
-        yield from bbox_to_tiles(west, south, 180.0, north, z=z)
-        yield from bbox_to_tiles(-180.0, south, east, north, z=z)
+        # fix(#934 codex r1): at low zooms both lobes can resolve to the same
+        # tile column (z0 is a single tile for either lobe), so deduplicate —
+        # otherwise the same cache key is seeded twice concurrently and the
+        # dry-run/summary counts over-report.
+        seen: set[tuple[int, int, int]] = set()
+        for tile in bbox_to_tiles(west, south, 180.0, north, z=z):
+            seen.add(tile)
+            yield tile
+        for tile in bbox_to_tiles(-180.0, south, east, north, z=z):
+            if tile not in seen:
+                yield tile
     else:
         yield from bbox_to_tiles(west, south, east, north, z=z)
 
