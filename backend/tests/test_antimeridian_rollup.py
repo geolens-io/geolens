@@ -54,6 +54,16 @@ FIJI_SEAM_MULTIPOLYGON = bbox_to_extent_wkt(170.0, -20.0, -170.0, -15.0)
 # translate the whole footprint instead.
 EUROPE_LIKE = "POLYGON((-10 -20,30 -20,30 -15,-10 -15,-10 -20))"
 
+# The same shape with mantissas that survive neither +360 nor -360 intact. Found
+# by brute force; it is the case where the two domains measure the same footprint
+# differently and the shifted one wins on noise alone.
+_UGLY_W, _UGLY_E = -4.761789777127049, 33.035082006073026
+_UGLY_S, _UGLY_N = -74.15992890150827, -69.77548044709921
+UGLY_MERIDIAN_CROSSER = (
+    f"POLYGON(({_UGLY_W} {_UGLY_S},{_UGLY_E} {_UGLY_S},{_UGLY_E} {_UGLY_N},"
+    f"{_UGLY_W} {_UGLY_N},{_UGLY_W} {_UGLY_S}))"
+)
+
 
 # ---------------------------------------------------------------------------
 # merge_bboxes / rollup_bbox arithmetic (no DB)
@@ -171,6 +181,38 @@ class TestRollupRowHelpers:
         assert rollup_span_bbox([1.0, 2.0, 3.0, 4.0, 5.0, None]) is None
         assert rollup_bbox([1.0, 2.0, 3.0]) is None
         assert rollup_bbox(None) is None
+
+    def test_float_noise_cannot_flip_a_prime_meridian_extent(self):
+        """A Europe-shaped extent measures the *same* span in both domains, but
+        not to the last bit: `(-4.761789777127049 + 360) - 360` comes back as
+        `-4.761789777127035`, and the shifted span computed 37.79687178320006
+        against a normal 37.796871783200075. Without _DOMAIN_MARGIN that noise
+        wins the comparison and rewrites an ordinary, non-crossing bbox with
+        drifted edges. Found by brute-forcing the covering property over random
+        footprint sets."""
+        west, east = -4.761789777127049, 33.035082006073026
+        assert (east + 360.0) - (west + 360.0) < east - west  # the noise itself
+
+        bbox = rollup_bbox([west, -74.1, east, -69.7, west + 360.0, east + 360.0])
+        # Byte-identical to the input, not the round-tripped approximation.
+        assert bbox == [west, -74.1, east, -69.7]
+        assert bbox[0] != wrap_longitude(west + 360.0)
+
+    def test_a_real_narrowing_still_beats_the_margin(self):
+        """The margin must not swallow a genuine improvement. A tenth of a degree
+        is eight orders of magnitude above it.
+
+        This one also pins the documented residual: `359.95 - 360` is
+        `-0.05000000000001137`, so a winning shifted edge can sit ~1e-14 degrees
+        (a few nanometres) inside the true union. Correcting that soundly means
+        widening every crossing edge unconditionally, which would put the same
+        noise into the exact cases for no operational gain.
+        """
+        values = [-180.0, 0.0, 180.0, 1.0, 0.05, 359.95]
+        bbox = rollup_bbox(values)
+        assert bbox == pytest.approx([0.05, 0.0, -0.05, 1.0])
+        assert bbox[0] > bbox[2]
+        assert abs(bbox[2] - -0.05) < 6e-14
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +333,36 @@ class TestSqlRollup:
             )
         ).scalar_one()
         assert covered is True
+
+    async def test_postgis_shows_the_same_last_bit_asymmetry(
+        self, test_db_session, clean_tables
+    ):
+        """The margin is needed on the SQL side too, not just the Python fold.
+
+        ``ST_Translate(g, 360, 0)`` rounds exactly like Python's ``x + 360``, so
+        PostGIS hands back a shifted span of 37.79687178320006 against an
+        unshifted 37.796871783200075 for the same footprint --- a bare ``<``
+        picks the shifted domain for an extent that never crosses the seam. Both
+        paths funnel through one ``_narrower_domain``, so one margin covers
+        both; this pins that the *inputs* really do disagree, which is the part
+        a Python-only unit test cannot show.
+        """
+        del clean_tables
+        ids = await _insert_records(test_db_session, [UGLY_MERIDIAN_CROSSER])
+        row = (
+            await test_db_session.execute(
+                select(*rollup_bbox_columns(Record.spatial_extent)).where(
+                    Record.id.in_(ids)
+                )
+            )
+        ).one()
+        xmin, xmax, sxmin, sxmax = (float(row[i]) for i in (0, 2, 4, 5))
+
+        # PostGIS itself disagrees with itself, in the direction that matters.
+        assert sxmax - sxmin < xmax - xmin
+        # ...but not by enough to clear the margin, so the extent is untouched.
+        assert rollup_bbox(row[:6]) == [xmin, float(row[1]), xmax, float(row[3])]
+        assert rollup_bbox(row[:6])[0] != wrap_longitude(sxmin)
 
     async def test_a_non_crossing_catalog_is_unchanged(
         self, test_db_session, clean_tables

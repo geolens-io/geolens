@@ -151,6 +151,17 @@ def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> 
 # tear apart (see _shifted_longitude_geom).
 _PRIME_MERIDIAN_WKT = "LINESTRING(0 -90,0 90)"
 
+# fix(#886): how much narrower the shifted domain must be before it is preferred.
+# Adding and subtracting 360 is not bit-exact, so the two domains disagree by up
+# to ~3e-14 degrees on the SAME footprint: `(-4.761789777127049 + 360) - 360`
+# comes back as `-4.761789777127035`, and the shifted span of an ordinary
+# prime-meridian-crossing extent (Europe, Africa, the UK) measured
+# 37.79687178320006 against a normal 37.796871783200075. Without a margin that
+# noise wins the comparison and rewrites a non-crossing bbox with drifted edges.
+# 1e-9 degrees is ~0.1 mm -- far above the noise, far below any real gain, and
+# the same floor _SEAM_TOL already uses.
+_DOMAIN_MARGIN = 1e-9
+
 
 def wrap_longitude(lng: float) -> float:
     """Fold a longitude from the shifted domain back into ``[-180, 180]``.
@@ -234,17 +245,29 @@ def _narrower_domain(
 ) -> list[float]:
     """Keep whichever longitude domain spans less, as an RFC 7946 §5.2 bbox.
 
-    A tie goes to the unshifted domain, so nothing that does not actually cross
-    the seam is ever re-expressed as ``west > east``.
+    A tie --- or anything inside ``_DOMAIN_MARGIN`` of one --- goes to the
+    unshifted domain, so nothing that does not actually cross the seam is ever
+    re-expressed, and an ordinary catalog's bbox stays byte-identical.
 
     Documented ceiling: this is not the true minimal covering range, which
     needs the largest gap anywhere on the circle rather than at one of two cut
-    points. Footprints at ``-170``, ``-15``, ``25`` and ``165`` have their
-    largest gap at ``-160..-20`` and could be covered in 220 degrees; both cut
-    points fall inside data, so this returns 330. Always a valid covering
-    range, sometimes broader than optimal --- never inverted, never partial.
+    points (-180 and 0). Footprints spanning ``-170..-160``, ``-20..-15``,
+    ``20..25`` and ``160..165`` have their largest gap at ``-160..-20`` and
+    could be covered in 220 degrees; both cut points fall inside data, so this
+    returns 325 (see ``test_documented_ceiling_is_covering_but_not_minimal``).
+    Always a valid covering range, sometimes broader than optimal --- never
+    inverted, never partial.
+
+    Second, smaller caveat: a winning shifted edge has been through a ``+360``
+    then ``-360`` round-trip, which is not bit-exact for an arbitrary mantissa,
+    so that edge can land up to ulp(512)/2 --- about 6e-14 degrees, 6
+    nanometres --- inside the true union. Not worth epsilon machinery: the
+    stored geometries are float64 too, so their own edges are fuzzy at the same
+    scale, and no consumer does an exact containment test against a rollup.
+    Widening the edge unconditionally would be the only sound correction and it
+    would put that noise into every crossing bbox, including the exact ones.
     """
-    if sxmax - sxmin < xmax - xmin:
+    if sxmax - sxmin < (xmax - xmin) - _DOMAIN_MARGIN:
         return [wrap_longitude(sxmin), ymin, wrap_longitude(sxmax), ymax]
     return [xmin, ymin, xmax, ymax]
 
