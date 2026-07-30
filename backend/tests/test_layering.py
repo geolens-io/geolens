@@ -1092,9 +1092,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its maxzoom by five levels, so the honest width now travels alongside the
     # bounds as an explicit `lon_span` keyword.
     # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
-    # fix(#929): +2 — the creator exemption comment on the restricted branch
-    # of _resolve_raster_access.
-    "backend/app/processing/tiles/router.py": 2068,
+    # fix(#929 review): -22 — _resolve_raster_access's inline RBAC mirror
+    # replaced with delegation to the permission extension via the port.
+    "backend/app/processing/tiles/router.py": 2046,
 }
 
 

@@ -520,6 +520,52 @@ class TestAnonymousAccess:
         )
         assert restricted.id in accessible
 
+    async def test_overlay_denying_creator_wins_on_bulk_check(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#929 review): bulk_check_dataset_access routes through the
+        permission extension instead of an inline policy mirror, so an
+        overlay that deliberately denies the creator is enforced on the
+        map-attach paths — the case a hard-coded owner short-circuit got
+        wrong."""
+        from sqlalchemy import false, select
+
+        import app.platform.extensions as extensions
+        from app.modules.auth.models import User
+        from app.modules.catalog.maps.service import bulk_check_dataset_access
+        from tests.conftest import _create_test_user
+
+        _owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        restricted = await _create_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            visibility="restricted",
+            name="Overlay Denied Restricted DS",
+        )
+        owner_user = (
+            await test_db_session.execute(
+                select(User).where(User.id == uuid.UUID(owner_id))
+            )
+        ).scalar_one()
+
+        class _DenyEveryone:
+            def filter_visible(
+                self, stmt, user, user_roles, record_cls, grant_cls=None
+            ):
+                return stmt.where(false())
+
+        monkeypatch.setitem(extensions._extensions, "permission", _DenyEveryone())
+        accessible = await bulk_check_dataset_access(
+            test_db_session, [restricted.id], owner_user, {"editor"}
+        )
+        assert accessible == set()
+
     async def test_anon_get_attributes_public(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

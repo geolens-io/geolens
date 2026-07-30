@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.auth.models import UserRole
+from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.schemas import MapLayerInput, split_legacy_builder_paint
@@ -24,53 +24,29 @@ async def bulk_check_dataset_access(
     user: Identity,
     user_roles: set[str],
 ) -> set[uuid.UUID]:
-    """Return the subset of dataset_ids the user can access. Single round-trip."""
+    """Return the subset of dataset_ids the user can access. Single round-trip.
+
+    fix(#929 review): visibility policy lives in the permission extension —
+    this used to be an inline mirror of DefaultPermissionExtension, which
+    meant an overlay policy (e.g. one that deliberately denies a dataset's
+    creator) was bypassed on the map-attach paths. Routing the batch through
+    apply_visibility_filter keeps it one round-trip while letting whatever
+    extension is registered decide, creator exemption included.
+
+    Unlike the old inline mirror, admins now also get an existence check: an
+    id that matches no dataset is never reported accessible.
+    """
     if not dataset_ids:
         return set()
 
-    if "admin" in user_roles:
-        return set(dataset_ids)
-
-    # Fetch visibility info for all datasets at once. Keep this in sync with
-    # DefaultPermissionExtension.can_access_dataset(): non-owners must not get
-    # draft/ready/internal records just because the visibility is public.
-    result = await session.execute(
-        select(Dataset.id, Record.visibility, Record.created_by, Record.record_status)
+    stmt = (
+        select(Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .where(Dataset.id.in_(dataset_ids))
     )
-    rows = result.all()
-
-    accessible = set()
-    restricted_ids = []
-    for ds_id, visibility, created_by, record_status in rows:
-        if record_status != "published" and created_by != user.id:
-            continue
-        if visibility == "public":
-            accessible.add(ds_id)
-        elif visibility == "private" and created_by == user.id:
-            accessible.add(ds_id)
-        elif visibility == "restricted":
-            # fix(#929): creator exemption mirrors can_access_dataset —
-            # restricted means "owner, admins, and grant holders".
-            if created_by == user.id:
-                accessible.add(ds_id)
-            else:
-                restricted_ids.append(ds_id)
-
-    # Batch-check grants for restricted datasets
-    if restricted_ids:
-        grant_result = await session.execute(
-            select(DatasetGrant.dataset_id)
-            .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
-            .where(
-                DatasetGrant.dataset_id.in_(restricted_ids),
-                UserRole.user_id == user.id,
-            )
-        )
-        accessible.update(row[0] for row in grant_result.all())
-
-    return accessible
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    result = await session.execute(stmt)
+    return {row[0] for row in result}
 
 
 async def add_layer(

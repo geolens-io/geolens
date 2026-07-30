@@ -769,40 +769,18 @@ async def _resolve_raster_access(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Inline RBAC checks (mirrors check_dataset_access logic)
+        # fix(#929 review): route through the permission extension rather
+        # than an inline policy mirror. The default extension grants the
+        # creator exemption on restricted datasets; an overlay policy that
+        # deliberately denies the creator (revoked clearance, ABAC) must
+        # still win here, exactly as it does on the token path below.
         port = get_processing_port()
-        user_roles = await port.get_user_roles(db, user)
-        if "admin" not in user_roles:
-            # Block non-published datasets for non-owners
-            if record_status != "published" and created_by != user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-                )
-
-            if visibility == "private" and created_by != user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-                )
-
-            # fix(#929): creator exemption mirrors can_access_dataset —
-            # restricted means "owner, admins, and grant holders".
-            if visibility == "restricted" and created_by != user.id:
-                from app.modules.auth.models import UserRole
-                from app.modules.catalog.datasets.domain.models import DatasetGrant
-
-                grant_result = await db.execute(
-                    select(DatasetGrant.dataset_id)
-                    .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
-                    .where(
-                        DatasetGrant.dataset_id == dataset_id,
-                        UserRole.user_id == user.id,
-                    )
-                )
-                if grant_result.scalar_one_or_none() is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Dataset not found",
-                    )
+        dataset = await port.get_dataset(db, dataset_id)
+        if dataset is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+        await port.check_dataset_access(db, dataset, dataset_id, user)
     else:
         # Public dataset: still block non-published for unauthenticated users
         if record_status != "published":
