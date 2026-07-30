@@ -234,36 +234,55 @@ each row's live parent. A row whose parent is gone has nothing to derive from
 `dataset_id` — so it comes back with a NULL tenant permanently unless the
 columns were snapshotted first.
 
-**2a. Restore the dump.** Use the privileged migrator
-`DATABASE_URL_OVERRIDE` for every command in this step.
+Everything below runs through the Compose containers, because the bundled
+database listens on `127.0.0.1:${DB_PORT}` rather than a host socket and the
+Alembic config lives in `backend/`, not the repo root. Do **not** use
+`scripts/restore.sh` here — it restarts `api` and `worker` on exit, and the
+whole point of this section is that nothing may serve traffic until step 2d.
+Managed/external Postgres: drop the `docker compose exec -T db` prefix and
+pass the provider's `-h`, `-p`, and `-U` instead.
+
+Keep `.env` loaded in this shell (`set -a; . ./.env; set +a`, as in step 1) —
+`$POSTGRES_USER` and `$POSTGRES_DB` expand on the host, not in the container.
+The dump path is a host path; copy the dump out of the `backup_data` volume
+first, exactly as in "Step-by-step: full restore" below.
+
+**2a. Restore the dump.**
 
 ```bash
-pg_restore --clean --if-exists --no-owner --no-acl \
-  -d "$POSTGRES_DB" geolens_<timestamp>.dump
+docker compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  --clean --if-exists --no-owner --no-acl < ./restore/geolens_<timestamp>.dump
 ```
 
 **2b. Snapshot tenant attribution, BEFORE the downgrade.** Skipping this is
 the one irreversible mistake in the recipe: once 2c has run, the rows you
 would have saved no longer carry a `tenant_id` to save.
 
-```sql
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 CREATE TABLE public.recover_audit_tenant AS
   SELECT id, tenant_id FROM catalog.audit_logs WHERE tenant_id IS NOT NULL;
 CREATE TABLE public.recover_job_tenant AS
   SELECT id, tenant_id FROM catalog.ingest_jobs WHERE tenant_id IS NOT NULL;
+SQL
 ```
 
-**2c. Rebuild the topology.**
+**2c. Rebuild the topology.** One-shot `run --rm` containers, not `exec`, so
+this works with `api` stopped — and with the privileged migrator credential,
+since the runtime login is deliberately not allowed to do any of this.
 
 ```bash
-uv run alembic downgrade 0016
-uv run alembic upgrade head
+docker compose run --rm -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  api uv run alembic downgrade 0016
+docker compose run --rm -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  api uv run alembic upgrade head
 ```
 
 **2d. Put the attribution back.** Scoped to the rows the re-upgrade could not
 derive, which is also what keeps the parent-consistency triggers satisfied.
 
-```sql
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 UPDATE catalog.audit_logs AS a SET tenant_id = r.tenant_id
   FROM public.recover_audit_tenant AS r
  WHERE r.id = a.id AND a.tenant_id IS NULL;
@@ -271,6 +290,7 @@ UPDATE catalog.ingest_jobs AS j SET tenant_id = r.tenant_id
   FROM public.recover_job_tenant AS r
  WHERE r.id = j.id AND j.tenant_id IS NULL;
 DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
+SQL
 ```
 
 > **Known limitation.** The downgrade in 2c passes through migrations whose
