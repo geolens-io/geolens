@@ -42,8 +42,8 @@ from app.standards.ogc.utils import (
     parse_accept_languages,
 )
 from app.standards.ogc.errors import BAD_REQUEST_RESPONSE, ERROR_RESPONSES_PUBLIC
+from app.core.geo import extent_to_bbox
 from app.core.public_urls import get_public_api_url, get_public_app_url
-from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
     FacetCountResponse,
     OGCCollectionMetadataResponse,
@@ -790,15 +790,19 @@ async def list_collections(
     for ds in datasets:
         extent = {}
         if ds.record.spatial_extent is not None:
-            try:
-                shape = to_shape(ds.record.spatial_extent)
-                bbox = list(shape.bounds)
+            # fix(#892): OGC API - Features collection extents use the GeoJSON
+            # bbox convention, so a seam-crossing extent must serve west > east
+            # rather than the globe-spanning -180..180 a bare .bounds read gave.
+            # extent_to_bbox returns None on a parse failure (was a warning log
+            # from the removed try/except), which degrades to no spatial extent.
+            bbox = extent_to_bbox(ds.record.spatial_extent)
+            if bbox is None:
+                logger.warning("Failed to serialize OGC bbox extent")
+            else:
                 extent["spatial"] = {
                     "bbox": [bbox],
                     "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
                 }
-            except Exception:  # broad: extent parse — geoalchemy/shapely errors degrade to no-spatial extent
-                logger.warning("Failed to serialize OGC bbox extent", exc_info=True)
         if ds.record.temporal_start is not None or ds.record.temporal_end is not None:
             extent["temporal"] = {
                 "interval": [

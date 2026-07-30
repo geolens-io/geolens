@@ -1054,8 +1054,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
-    # Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1428,
+    # fix(#892): +4 — the per-dataset OGC collection extent moved off a bare
+    # to_shape().bounds read onto extent_to_bbox() so a seam-crossing extent
+    # serves the RFC 7946 west > east bbox. Ratchet stays exact.
+    "backend/app/modules/catalog/search/router.py": 1432,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -1070,8 +1072,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pasted family literals. Same +1 on the stac and search routers.
     # fix(#868): +3 lines for the cluster cache-key SQL-semantics version
     # ("v2") so deploys that change cluster tile geometry invalidate Valkey.
-    # Merge of the two carve-outs: 2043 base + 3 + 1. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2047,
+    # fix(#892): +2 — the raster tile-token bounds moved onto
+    # extent_to_span_bbox() so a seam-crossing extent cannot feed a negative
+    # span into the maxzoom derivation.
+    # Merge of the carve-outs: 2043 base + 3 + 1 + 2. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2049,
 }
 
 
