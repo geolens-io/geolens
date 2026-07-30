@@ -381,9 +381,10 @@ class TestTileEndpoint:
         assert resp.status_code == 200
         # fix(#403): the cluster endpoint now supports the cols= opt-in, so
         # its cache lookups carry a cols_key segment (empty without cols=).
-        # fix(#868): the key carries the cluster SQL semantic version (v2).
+        # fix(#868): the key carries the cluster SQL semantic version, bumped to
+        # v3 by fix(#874) (per-cluster expansion_zoom) so deploys drop stale tiles.
         mock_cache.get.assert_awaited_once_with(
-            f"{table_name}:cluster:v2:r64:z12", 0, 0, 0, cols_key=""
+            f"{table_name}:cluster:v3:r64:z12", 0, 0, 0, cols_key=""
         )
 
     async def test_empty_tile_returns_204(
@@ -756,7 +757,7 @@ class TestClusterBucketSemantics:
         # the prepared statement still binds all six parameters.
         return head + (
             "SELECT $4::text AS layer_name, cluster, point_count,\n"
-            "    point_count_abbreviated, source_gid, name,\n"
+            "    point_count_abbreviated, expansion_zoom, source_gid, name,\n"
             "    ST_X(geom) AS mvt_x, ST_Y(geom) AS mvt_y\n"
             "FROM features\nWHERE geom IS NOT NULL"
         )
@@ -1057,6 +1058,72 @@ class TestClusterBucketSemantics:
         assert 0 <= owner_rows[0]["mvt_y"] <= 4096
         # The neighbor (which contains the raw centroid) emits nothing.
         assert len(neighbor_rows) == 0
+
+    async def test_expansion_zoom_is_the_cluster_split_zoom(self, test_db_session):
+        """fix(#874): expansion_zoom is the zoom at which THIS cluster stops
+        sharing one bucket cell, not the constant cluster_max_zoom + 1 the
+        query used to emit for every cluster (click-to-zoom on a z2
+        continent-sized cluster jumped straight to z15).
+
+        Three pairs, each alone in its own cell of one z2 tile, so one query
+        returns three clusters with three different honest values.
+        """
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_expand_{uuid.uuid4().hex[:8]}"
+        # z2 grid: bucket = tile width * 48 CSS px * 8 extent units/px / 4096.
+        bucket = (_WEB_MERCATOR_WORLD_WIDTH / 4) * 48 * (4096 / 512) / 4096
+
+        # Cells 12/15/18 have their origins inside tile (2, 1, 1); y is shared
+        # within each pair, so only the x spread can split a cell. Inside cell
+        # k the zoom-(2+n) cell boundaries sit at offsets j/2^n, and
+        # floor((k + offset) * 2^n) == k * 2^n + floor(offset * 2^n), so the
+        # split zoom depends on the offsets alone, not on k.
+        def at(cell: int, offset: float) -> float:
+            return _WORLD_MIN + (cell + offset) * bucket
+
+        y = 5_000_000.0
+        points = (
+            # gid 1-2: offsets 0.4 / 0.6 straddle the cell's z3 midline.
+            ("wide_a", at(12, 0.4), y),
+            ("wide_b", at(12, 0.6), y),
+            # gid 3-4: offsets 0.1 / 0.105. floor(o * 2^n) first differs at
+            # n = 7 (12.8 vs 13.44), so this pair holds together until z9.
+            ("tight_a", at(15, 0.1), y),
+            ("tight_b", at(15, 0.105), y),
+            # gid 5-6: half a metre apart, with no cell boundary between them
+            # at any zoom <= 14 (the z14 bucket is ~229 m) — the pair never
+            # splits while clustering is active, so the clamp still applies.
+            ("never_a", at(18, 0.1), y),
+            ("never_b", at(18, 0.1) + 0.5, y),
+        )
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            rows = await pool.fetch(
+                self._rows_sql(table_name),
+                2,  # z
+                1,  # x
+                1,  # y
+                f"data.{table_name}",
+                14,  # cluster_max_zoom
+                48,  # cluster_radius, CSS px
+            )
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        assert len(rows) == 3
+        assert all(r["cluster"] is True and r["point_count"] == 2 for r in rows)
+        # Clusters carry no attributes, so key them by source_gid = min(gid).
+        # Pre-#874 every value here was 15.
+        assert {r["source_gid"]: r["expansion_zoom"] for r in rows} == {
+            1: 3,  # wide pair: splits at the very next zoom
+            3: 9,  # tight pair: 7 halvings of the bucket
+            5: 15,  # never splits by cluster_max_zoom -> cluster_max_zoom + 1
+        }
 
     async def test_feature_cap_applies_after_ownership(self, test_db_session):
         """fix(#868, codex round 4): the feature cap applies AFTER the

@@ -240,6 +240,21 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
     assert "LEAST(GREATEST(ST_X(grouped.geom_3857)" in query
 
 
+def test_cluster_query_derives_expansion_zoom_from_member_spread():
+    """fix(#874): expansion_zoom is the cluster's own split zoom, derived from
+    the member spread against the halving bucket grid — not the constant
+    cluster_max_zoom + 1 that made click-to-zoom jump from z2 to z15."""
+    query = _build_cluster_tile_query("places")
+    assert "THEN LEAST($5::integer + 1, 22)" not in query
+    # The cell's spread in exact double precision (not a float4 ST_Extent box).
+    assert "min(ST_X(geom_3857)) AS min_x" in query
+    # Smallest zoom above the current one where the extremes stop sharing a
+    # cell, with the bucket halved per zoom; falls back to $5 + 1, capped at 22.
+    assert "FROM generate_series($1::integer + 1, $5::integer) AS zz" in query
+    assert "grid.bucket_w / power(2::float8, zz - $1::integer)" in query
+    assert "), $5::integer + 1), 22)" in query
+
+
 # ---------------------------------------------------------------------------
 # fix(#394) B-019/VT-01: reupload purges the MVT tile cache post-commit
 # ---------------------------------------------------------------------------
