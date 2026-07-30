@@ -11,7 +11,7 @@ import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
-import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
+import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -170,6 +170,10 @@ export const DatasetMap = memo(function DatasetMap({
   // token re-mint; the refreshed token re-renders the declarative <Source>
   // with a freshly signed URL.
   const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens);
+  // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
+  // stale tokens, so MapLibre's resumed fetches 403 before the error handler
+  // can heal them. Kick the same throttled re-mint on the visible edge.
+  useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth);
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number } }) => void) | null>(null);
   // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
