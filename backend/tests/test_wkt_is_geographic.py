@@ -91,6 +91,20 @@ def test_wkt2_grads_axes_with_degree_prime_meridian_are_not_degrees():
     assert wkt_has_degree_unit(wkt) is False
 
 
+def test_custom_degree_name_is_matched_by_conversion_factor():
+    # fix(#939 codex r7): WKT unit semantics live in the radians-per-unit
+    # factor, not the name; rasterio preserves valid custom names.
+    wkt = (
+        'GEOGCS["WGS 84",DATUM["WGS_1984",'
+        'SPHEROID["WGS 84",6378137,298.257223563]],'
+        'UNIT["arc-degree",0.0174532925199433]]'
+    )
+    assert wkt_has_degree_unit(wkt) is True
+
+    radians = wkt.replace('"arc-degree",0.0174532925199433', '"radian",1')
+    assert wkt_has_degree_unit(radians) is False
+
+
 def test_degree_unit_missing_wkt_is_unknown():
     assert wkt_has_degree_unit(None) is None
     assert wkt_has_degree_unit("") is None

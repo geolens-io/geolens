@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable, Sequence
 
@@ -464,11 +465,26 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     return None
 
 
-# fix(#939): covers WKT1 (`UNIT["degree"`) and WKT2 (`ANGLEUNIT["degree"`) in
-# one pattern, since the WKT2 spelling contains the WKT1 substring. Mirrors
-# _DEGREE_UNIT_SRTEXT_RE in processing/ingest/metadata.py, which does the same
-# test in SQL against spatial_ref_sys.srtext.
-_WKT_DEGREE_UNIT_RE = re.compile(r'UNIT\["degree', re.IGNORECASE)
+# fix(#939 codex r7): units are matched by their CONVERSION FACTOR, not their
+# name — WKT semantics live in the radians-per-unit number, and a valid custom
+# name like `UNIT["arc-degree",0.01745...]` must still read as degrees. The
+# pattern captures the factor of any WKT1 `UNIT[...]` or WKT2 `ANGLEUNIT[...]`
+# declaration; LENGTHUNIT matches too, but a metre factor of 1 is nowhere near
+# the degree factor, so it cannot false-positive. This is the same
+# units_factor test `_is_degree_based` (processing/raster/vrt.py) applies to a
+# pyproj CRS object, in string form — grads (0.0157...) sit 10% away and stay
+# excluded.
+_WKT_UNIT_FACTOR_RE = re.compile(r'UNIT\["[^"]*"\s*,\s*([0-9eE.+-]+)')
+_DEGREE_RAD = math.pi / 180.0
+
+
+def _factor_is_degree(raw: str) -> bool:
+    try:
+        value = float(raw)
+    except ValueError:
+        return False
+    return value > 0 and abs(value / _DEGREE_RAD - 1.0) <= 1e-6
+
 
 # fix(#939 codex r4): a standalone WKT2 `CS[` keyword (ellipsoidal/Cartesian/
 # vertical...). The negative lookbehind keeps `GEOGCS[`/`VERTCS[`/... from
@@ -517,4 +533,7 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
         next_cs = _WKT2_CS_RE.search(scope, cs_match.end())
         end = next_cs.start() if next_cs is not None else len(scope)
         target = scope[cs_match.start() : end]
-    return _WKT_DEGREE_UNIT_RE.search(target) is not None
+    # fix(#939 codex r7): match by conversion factor, not unit name.
+    return any(
+        _factor_is_degree(m.group(1)) for m in _WKT_UNIT_FACTOR_RE.finditer(target)
+    )
