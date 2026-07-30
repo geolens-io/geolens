@@ -79,11 +79,20 @@ if [ "$1" = "compose" ]; then
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
     exec)
-      # Three distinct in-container calls share `compose exec -T db`:
+      # Four distinct in-container calls share `compose exec -T db`:
       #   psql       -> the PG-major probe (Step 2.5); answer server_version_num.
       #   pg_dump    -> the backup path; emit non-empty dump bytes to stdout.
       #   pg_restore -> the end-to-end read-back of that dump (fix(#714)).
+      #   cat        -> the LIVE postgresql.conf the container is serving
+      #                 (fix(#959)); DOCKER_DB_RUNNING_CONF models a container
+      #                 still holding the pre-upgrade inode. Empty output
+      #                 models an external/managed DB with no `db` service.
       for a in "$@"; do
+        if [ "$a" = "cat" ]; then
+          [ -n "${DOCKER_DB_RUNNING_CONF:-}" ] \
+            && printf '%s\n' "$DOCKER_DB_RUNNING_CONF"
+          exit 0
+        fi
         if [ "$a" = "psql" ]; then
           echo "probe_pg" >> "$LOG"
           # "none" models a probe that answers nothing (external/managed
@@ -253,6 +262,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_STARTED_api="${STARTED_API:-}" \
       DOCKER_STARTED_frontend="${STARTED_FRONTEND:-}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
+      DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -427,6 +437,32 @@ if grep -q '4GB' "$FAKE/db/postgresql.conf" && [ -n "$(pos_of db_recreate)" ]; t
 else
   bad "unmodified config was not synced/applied (conf=$(cat "$FAKE/db/postgresql.conf"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
 fi
+
+# ============================================================================
+# CASE 2c — fix(#959): a retry after an interrupted upgrade still bounces the
+# db. The earlier attempt already wrote the release's config to disk, so git
+# sees nothing to do; only the RUNNING container knows it is still serving the
+# pre-upgrade inode (codex review on #959's PR).
+# ============================================================================
+seed_prod_env 'temp_file_limit = 4GB'          # synced by the failed attempt
+DB_RUNNING_CONF='temp_file_limit = 0'          # container still on the old file
+run_upgrade ok 1.2.4
+if [ -n "$(pos_of db_recreate)" ]; then
+  ok "retry after an interrupted upgrade still recreates db (config on disk, not live)"
+else
+  bad "retry skipped the db recreate: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+
+# ...and once it IS live, the upgrade does not bounce the database for nothing.
+seed_prod_env 'temp_file_limit = 4GB'
+DB_RUNNING_CONF='temp_file_limit = 4GB'
+run_upgrade ok 1.2.4
+if [ -z "$(pos_of db_recreate)" ]; then
+  ok "no db bounce when the running container already serves the release config"
+else
+  bad "db was recreated despite already serving the release config"
+fi
+unset DB_RUNNING_CONF
 
 # ============================================================================
 # CASE 3 — source-build install: instructions + exit 0, NO compose/backup calls.

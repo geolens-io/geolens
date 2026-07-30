@@ -274,6 +274,7 @@ say ""
 say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
 DB_CONF="db/postgresql.conf"
 DB_CONF_CHANGED=0
+DB_CONF_AT_TARGET=0
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
@@ -316,11 +317,11 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
       _db_conf_installed="$(mktemp)"
       if git show "${TARGET_TAG}:${DB_CONF}" > "$_db_conf_target" 2>/dev/null; then
         if cmp -s "$_db_conf_target" "$DB_CONF"; then
-          :   # already at the target release's version; nothing to apply
+          DB_CONF_AT_TARGET=1   # already the release's file on disk
         elif git show "v${CURRENT_VERSION:-}:${DB_CONF}" > "$_db_conf_installed" 2>/dev/null \
              && cmp -s "$_db_conf_installed" "$DB_CONF"; then
           if git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null; then
-            DB_CONF_CHANGED=1
+            DB_CONF_AT_TARGET=1
             say "  ${DB_CONF} synced to ${TARGET_TAG}"
           fi
         else
@@ -337,19 +338,37 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
 else
   warn "git unavailable or not a git checkout — skipping release-file sync; keeping the current compose/scripts."
 fi
+
+# fix(#959): git only says what is on DISK. Whether the running database is
+# serving it is a question only the container can answer, and an attempt that
+# synced the config and then failed later (a pull error, say) leaves the
+# release's file on disk and the OLD inode inside the container — a retry that
+# trusted git alone would skip the bounce and run on stale settings forever.
+# Scoped to a file that IS the release's, so an operator's own tuning is never
+# applied as a side effect of upgrading. No db container (external/managed
+# Postgres) or an unreadable file leaves this at 0.
+if [ "$DB_CONF_AT_TARGET" = "1" ] && [ -f "$DB_CONF" ]; then
+  _db_conf_running="$(mktemp)"
+  if compose exec -T db cat /etc/postgresql/custom.conf > "$_db_conf_running" 2>/dev/null \
+     && [ -s "$_db_conf_running" ] \
+     && ! cmp -s "$_db_conf_running" "$DB_CONF"; then
+    DB_CONF_CHANGED=1
+  fi
+  rm -f "$_db_conf_running"
+fi
 say ""
 
 # --- Step 5: pull the new images --------------------------------------------
 compose pull --ignore-buildable || fail "Could not pull prebuilt images for $TARGET_VERSION."
 say ""
 
-# fix(#959): a synced db/postgresql.conf needs the container RECREATED, not
-# restarted or reloaded — `git checkout` writes a new inode and a single-file
-# bind mount keeps resolving the one the container started with. Do it before
-# the migrate step, while the old app containers are still the ones about to be
-# replaced anyway, and wait for the healthcheck before continuing.
+# fix(#959): the release's db/postgresql.conf needs the container RECREATED,
+# not restarted or reloaded — `git checkout` writes a new inode and a
+# single-file bind mount keeps resolving the one the container started with.
+# Do it before the migrate step, while the old app containers are still the
+# ones about to be replaced anyway, and wait for the healthcheck.
 if [ "$DB_CONF_CHANGED" = "1" ]; then
-  say "Applying the new ${DB_CONF} (recreating the db container)"
+  say "Applying ${DB_CONF} (recreating the db container)"
   compose up -d --force-recreate --no-deps --wait db \
     || fail "Could not recreate the db container after syncing ${DB_CONF}."
   say ""
