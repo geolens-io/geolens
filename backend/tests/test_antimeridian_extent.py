@@ -372,3 +372,58 @@ async def test_make_bbox_filter_finds_a_seam_extent_from_either_side(
     assert await _matches([-179.0, -19.0, -175.0, -16.0]) is True
     # Central France stays a miss through the query path too.
     assert await _matches([1.5, 46.5, 2.5, 47.5]) is False
+
+
+# ---------------------------------------------------------------------------
+# Which surfaces get which form
+# ---------------------------------------------------------------------------
+
+
+def test_map_layer_response_bbox_stays_monotonic():
+    """fix(#892 codex P2): ``dataset_extent_bbox`` is documented as
+    ``[minx, miny, maxx, maxy]`` and feeds map viewers, not a standards
+    serializer.
+
+    A west > east pair there breaks three things at once. MapLibre bounds the
+    layer's tile source to no tiles at all (``map-sync.ts``), so a seam-crossing
+    layer renders blank; the builder's auto-fit and Zoom to Layer both reject an
+    inverted bbox and silently do nothing. Build the response for real, so this
+    holds through any refactor of the helper.
+    """
+    from app.modules.catalog.maps._router_helpers import _build_layer_response
+    from app.modules.catalog.maps.models import MapLayer
+
+    layer = MapLayer(
+        id=uuid.uuid4(),
+        dataset_id=uuid.uuid4(),
+        display_name="Fiji Seam Crosser",
+        sort_order=0,
+        visible=True,
+        opacity=1.0,
+        paint={},
+        layout={},
+        filter=None,
+        label_config=None,
+        popup_config=None,
+        style_config=None,
+        show_in_legend=True,
+    )
+    resp = _build_layer_response(layer, {"extent": _extent(SEAM_MULTIPOLYGON)})
+    assert resp.dataset_extent_bbox == [-180.0, -20.0, 180.0, -15.0]
+    assert resp.dataset_extent_bbox[0] < resp.dataset_extent_bbox[2]
+
+
+def test_standards_record_bbox_keeps_the_spec_form():
+    """The mirror of the above, also behavioral: ``extract_bbox`` backs the
+    STAC/OGC record ``bbox``, which must NOT be moved to the span or a
+    seam-crossing dataset advertises a global footprint again."""
+    from types import SimpleNamespace
+
+    from app.modules.catalog.datasets.domain.utils import extract_bbox
+
+    dataset = SimpleNamespace(
+        record=SimpleNamespace(spatial_extent=_extent(SEAM_MULTIPOLYGON))
+    )
+    bbox = extract_bbox(dataset)
+    assert bbox == [170.0, -20.0, -170.0, -15.0]
+    assert bbox[0] > bbox[2]
