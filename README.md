@@ -90,6 +90,11 @@ curl "http://localhost:8080/api/search/datasets/?q=hydrology&limit=3" \
   -H "Authorization: Bearer $TOKEN" | jq '.features[].properties.title'
 ```
 
+One search-endpoint behavior to know when consuming it programmatically: the
+first page augments the dataset results with up to five matching collections,
+so `numberReturned` can exceed `limit` on page 0 only. That is deliberate, not
+a bug — `limit` still bounds the number of *datasets* per page.
+
 Every dataset is also a standard OGC API Features endpoint:
 
 ```bash
