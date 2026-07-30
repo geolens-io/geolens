@@ -1,7 +1,8 @@
 /**
  * Phase 1136 EDITOR Pitfall #9 grep guard (phase-scoped).
  *
- * Asserts that the 5 editor source files modified during Phase 1136
+ * Asserts that the editor source files modified during Phase 1136
+ * (RasterEditor.tsx dropped from the set in fix(#915) — dead code, deleted)
  * contain ZERO direct `map.setPaintProperty` / `map.setLayoutProperty`
  * callsites. All paint/layout mutations from these files MUST route
  * through the v1026 owned-property contract:
@@ -9,7 +10,7 @@
  *   - layout: `onLayoutChange(layerId, layout)` → reconciler hook `handleLayoutChange`
  *             (documented exception per Phase 1133 WALK-04 audit)
  *
- * This guard is SCOPED to the 5 phase-1136 files. The broader baseline
+ * This guard is SCOPED to those phase-1136 files. The broader baseline
  * of documented exceptions (label-layer-utils, ViewerMap.tsx, reconciler
  * hooks, basemap-style-mutation.ts) is the responsibility of Phase 1133
  * WALK-04's audit table, not this guard.
@@ -17,7 +18,6 @@
  * Uses Vite `?raw` imports (no node:fs / @types/node dependency in tsconfig.app.json).
  */
 import { describe, it, expect } from 'vitest';
-import rasterEditorSrc from '../LayerStyleEditor/RasterEditor.tsx?raw';
 import lineEditorSrc from '../LayerStyleEditor/LineEditor.tsx?raw';
 import fillEditorSrc from '../LayerStyleEditor/FillEditor.tsx?raw';
 import basemapGroupEditorSrc from '../BasemapGroupEditorScene.tsx?raw';
@@ -38,10 +38,6 @@ function countMatches(src: string, pattern: RegExp): number {
 }
 
 const WATCHED = [
-  {
-    name: 'LayerStyleEditor/RasterEditor.tsx',
-    src: rasterEditorSrc,
-  },
   {
     name: 'LayerStyleEditor/LineEditor.tsx',
     src: lineEditorSrc,
