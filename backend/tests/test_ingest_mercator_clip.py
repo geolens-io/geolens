@@ -19,9 +19,11 @@ land between 180 and 360, and a dataset whose X runs past 360.
 """
 
 import pytest
+from geoalchemy2 import WKTElement
 from sqlalchemy import text
 
-from app.processing.ingest.metadata import clip_to_mercator_bounds
+from app.core.geo import extent_to_bbox
+from app.processing.ingest.metadata import clip_to_mercator_bounds, get_extent
 from app.processing.ingest.warnings import make_mercator_clip_warning
 
 TABLE = "test_mercator_clip_888"
@@ -175,21 +177,20 @@ class TestZeroTo360Shift(_FixtureTable):
         assert float(row[1]) == pytest.approx(-160.0)
         assert float(row[2]) == pytest.approx(-150.0)
 
-    async def test_pacific_crossing_source_is_preserved_with_a_naive_extent(
+    async def test_pacific_crossing_source_is_preserved_with_an_honest_extent(
         self, test_db_session
     ):
-        """Pinning test: a Pacific-crossing 0..360 source keeps all its data.
+        """A Pacific-crossing 0..360 source keeps all its data AND its extent.
 
         A 150..250 source lands half on each side of the antimeridian, which is
-        correct per-feature and is the trade this fix makes deliberately: the
-        old behaviour destroyed everything past lon 180 instead.
+        correct per-feature and is the trade #888 makes deliberately: the old
+        behaviour destroyed everything past lon 180 instead.
 
-        The cost is that a bare ``ST_Extent`` over the result reads -170..170,
-        a 340 deg bbox for a source spanning 100 deg. That is the
-        antimeridian-naive extent fold tracked by #886, whose two call sites
-        live in ``metadata.py`` and are untouched here. When #886 folds the
-        extent properly this assertion should start failing, which is the
-        point: it is where the two fixes meet.
+        fix(#934): this used to pin the *cost* — a bare ``ST_Extent`` over the
+        shifted result read -170..170, a 340 deg bbox for a 100 deg source,
+        which the producer sites stored verbatim. The producers now emit the
+        two-ring seam form, so this is where #899 and #934 meet: ``get_extent``
+        over the shifted table reports the honest 150..-110 footprint.
         """
         await _seed_points(
             test_db_session,
@@ -207,16 +208,21 @@ class TestZeroTo360Shift(_FixtureTable):
             [150.0, 170.0, -170.0, -110.0]
         )
 
-        extent = (
-            await test_db_session.execute(
-                text(
-                    f"SELECT ST_XMin(bb), ST_XMax(bb) "
-                    f"FROM (SELECT ST_Extent(geom) AS bb FROM data.{TABLE}) q"
-                )
-            )
-        ).first()
-        assert extent is not None
-        assert (float(extent[0]), float(extent[1])) == pytest.approx((-170.0, 170.0))
+        # The real ingest pipeline materializes geom_4326 before the extent is
+        # produced; mirror that here so the producer path runs as shipped.
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{TABLE} ADD COLUMN geom_4326 geometry(Point, 4326)")
+        )
+        await test_db_session.execute(text(f"UPDATE data.{TABLE} SET geom_4326 = geom"))
+        extent_wkt = await get_extent(test_db_session, TABLE)
+        assert extent_wkt is not None
+        assert extent_wkt.startswith("MULTIPOLYGON")
+        # abs tolerance: all four seed points sit on the equator, so the
+        # producer pads the zero-height extent by the same 1e-9 the naive
+        # ST_Expand path uses.
+        assert extent_to_bbox(WKTElement(extent_wkt, srid=4326)) == pytest.approx(
+            [150.0, 0.0, -110.0, 0.0], abs=1e-6
+        )
 
 
 # ---------------------------------------------------------------------------

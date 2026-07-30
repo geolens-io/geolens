@@ -15,6 +15,8 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.geo import seam_extent_wkt_for_table
+
 if TYPE_CHECKING:
     from app.core.processing_port import Attribute, Dataset, Record
     from app.processing.ingest.warnings import MercatorClipCounts
@@ -336,10 +338,40 @@ async def get_feature_count(
     return result.scalar_one()
 
 
+async def _seam_crossing_extent_wkt(
+    session: AsyncSession,
+    table_name: str,
+    *,
+    schema: str,
+    xmin: float | None,
+    xmax: float | None,
+) -> str | None:
+    """Two-ring extent WKT when the table honestly crosses ±180, else None.
+
+    fix(#934): gate + delegate for the extent producers below. ``xmin``/``xmax``
+    are the naive ``ST_Extent`` bounds already computed by the caller's query;
+    a crossing dataset folded naively always spans more than 180 degrees (its
+    shifted-domain span is ``360 - width``, so the shifted domain can only win
+    when ``width > 180``), which lets the common non-crossing case skip the
+    second aggregate scan entirely.
+    """
+    if xmin is None or xmax is None:
+        return None
+    if float(xmax) - float(xmin) <= 180.0:
+        return None
+    return await seam_extent_wkt_for_table(session, _qtable(table_name, schema=schema))
+
+
 async def get_extent(
     session: AsyncSession, table_name: str, *, schema: str = "data"
 ) -> str | None:
-    """Get the 4326 bbox extent as POLYGON WKT (or None for empty tables).
+    """Get the 4326 extent WKT (or None for empty tables).
+
+    fix(#934): a Pacific-crossing table (reachable through ordinary ingest
+    since #888 shifts 0..360 sources instead of clipping them) must not store
+    the naive fold — a near-global POLYGON. When the honest extent crosses the
+    seam this returns the two-ring MULTIPOLYGON from ``bbox_to_extent_wkt``;
+    non-crossing extents keep the original query's output byte-identical.
 
     fix(#430 BA-18): spatial_extent admits POLYGON or MULTIPOLYGON only (fix(#892):
     typmod geometry(Geometry, 4326) + chk_records_spatial_extent_type). ST_Extent of a
@@ -355,12 +387,19 @@ async def get_extent(
             f"  WHEN GeometryType(ext::geometry) = 'POLYGON' "
             f"    THEN ST_AsText(ST_SetSRID(ext::geometry, 4326)) "
             f"  ELSE ST_AsText(ST_Expand(ST_SetSRID(ext::geometry, 4326), 1e-9)) "
-            f"END "
+            f"END, "
+            f"ST_XMin(ext::geometry), ST_XMax(ext::geometry) "
             f"FROM (SELECT ST_Extent(geom_4326) AS ext FROM "
             f"{_qtable(table_name, schema=schema)}) s"
         )
     )
-    return result.scalar_one_or_none()
+    row = result.one_or_none()
+    if row is None or row[0] is None:
+        return None
+    crossing = await _seam_crossing_extent_wkt(
+        session, table_name, schema=schema, xmin=row[1], xmax=row[2]
+    )
+    return crossing if crossing is not None else row[0]
 
 
 async def detect_3d_metadata(
@@ -897,13 +936,17 @@ async def extract_metadata(
                                     1e-9
                                 )
                             )
-                        END AS extent_wkt
+                        END AS extent_wkt,
+                        ST_XMin(ST_Extent(geom_4326)) AS ext_xmin,
+                        ST_XMax(ST_Extent(geom_4326)) AS ext_xmax
                     FROM {tref}
                 )
                 SELECT
                     feature_count,
                     geometry_type,
                     extent_wkt,
+                    ext_xmin,
+                    ext_xmax,
                     Find_SRID(:schema, :t, 'geom') AS srid
                 FROM meta
                 """
@@ -912,11 +955,20 @@ async def extract_metadata(
         row = result.one()
         # Phase 1057 WFS-04 layer-2 fix: normalize abstract OGC GML 3 types.
         geometry_type = _normalize_geometry_type(row.geometry_type)
+        # fix(#934): a Pacific-crossing source must not store the naive fold
+        # (a near-global POLYGON); emit the two-ring MULTIPOLYGON instead.
+        # Non-crossing extents keep the CTE's output byte-identical.
+        extent_wkt = row.extent_wkt
+        crossing = await _seam_crossing_extent_wkt(
+            session, table_name, schema=schema, xmin=row.ext_xmin, xmax=row.ext_xmax
+        )
+        if crossing is not None:
+            extent_wkt = crossing
         return {
             "srid": int(row.srid) if row.srid is not None else None,
             "geometry_type": geometry_type,
             "feature_count": row.feature_count,
-            "extent_wkt": row.extent_wkt,
+            "extent_wkt": extent_wkt,
             "column_info": column_info,
         }
     except Exception:  # broad: degrade to the per-helper path on any DB-level error

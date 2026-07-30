@@ -1041,7 +1041,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (14 stock SRIDs are GEOGCS in grads, where -360 is not a whole turn) and
     # the note that the envelope bounds X at ±180 too, so the warning built
     # from its counts cannot blame latitude for a lon-400 drop.
-    "backend/app/processing/ingest/metadata.py": 1856,
+    # fix(#934): +52 — the seam-aware extent-producer override: the
+    # `_seam_crossing_extent_wkt` gate (naive width > 180 is the only case
+    # where the shifted domain can win, so the common path skips the second
+    # aggregate) and the crossing override wiring in `get_extent` and the
+    # extract_metadata CTE. Ratchet stays exact.
+    "backend/app/processing/ingest/metadata.py": 1908,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

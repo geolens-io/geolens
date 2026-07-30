@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, column, func, or_, select, text
 from sqlalchemy.sql.elements import ColumnElement
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 # fix(#892): tolerance for recognizing the two-ring seam form. Both rings are
@@ -345,6 +349,44 @@ def rollup_span_bbox(values: Sequence[object]) -> list[float] | None:
     if west > east:
         return [-180.0, south, 180.0, north]
     return [west, south, east, north]
+
+
+async def seam_extent_wkt_for_table(
+    session: AsyncSession, table_sql: str, *, geom_column: str = "geom_4326"
+) -> str | None:
+    """Two-ring extent WKT for a data table that honestly crosses ±180, else None.
+
+    fix(#934): the producer-side twin of :func:`rollup_bbox` for the per-dataset
+    extent writers (``ingest/metadata.py``, ``catalog/features/service.py``). A
+    naive ``ST_Extent`` over a Pacific-crossing table reads near-global
+    (150..250 shifted to both sides folds to -170..170, a 340-degree bbox for a
+    100-degree footprint); this aggregates the same rows in both longitude
+    domains via :func:`rollup_bbox_columns` and, when the shifted domain wins,
+    returns the honest two-ring MULTIPOLYGON from :func:`bbox_to_extent_wkt`.
+
+    Returns None for a non-crossing (or empty) table so callers keep their
+    existing single-polygon path byte-identical — including the degenerate
+    POINT/LINESTRING padding, which can never apply to a crossing extent.
+
+    ``table_sql`` must be an already-quoted, trusted table reference (the
+    callers' ``_qtable`` / ``quote_table``); it is interpolated, not bound.
+    """
+    stmt = select(*rollup_bbox_columns(column(geom_column))).select_from(
+        text(table_sql)
+    )
+    row = (await session.execute(stmt)).first()
+    bbox = rollup_bbox(row) if row is not None else None
+    if bbox is not None and bbox[0] > bbox[2]:
+        west, south, east, north = bbox
+        # Mirror the callers' degenerate padding (their non-crossing path runs
+        # ST_Expand 1e-9 on POINT/LINESTRING extents): a crossing extent can
+        # never be zero-width, but a single-parallel source is zero-height and
+        # would produce invalid zero-height rings. Related: #944.
+        if north - south < 1e-12:
+            south -= 1e-9
+            north += 1e-9
+        return bbox_to_extent_wkt(west, south, east, north)
+    return None
 
 
 def merge_bboxes(bboxes: Iterable[Sequence[float] | None]) -> list[float] | None:
