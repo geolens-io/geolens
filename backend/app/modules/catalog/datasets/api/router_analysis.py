@@ -35,6 +35,13 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+
+# fix(#691): the lease window lives beside the heartbeat machinery so the
+# per-job status read applies the identical rule — see the rationale on the
+# constant itself.
+from app.platform.jobs.heartbeat import (
+    ANALYSIS_MATERIALIZE_LEASE_SECONDS as MATERIALIZE_LEASE_SECONDS,
+)
 from app.platform.jobs.models import IngestJob
 from app.platform.sandbox.schemas import SandboxError
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -60,13 +67,6 @@ _NON_GROUPABLE_TYPES = {"json", "xml"}
 # #696's scope.
 ANALYSIS_JOB_PRIORITY = -10
 
-# fix(#691): lease window for the per-user materialize cap. The worker renews
-# heartbeat_at every HEARTBEAT_INTERVAL_SECONDS (30s, platform/jobs/
-# heartbeat.py); 3x tolerates two missed renewals before declaring the worker
-# dead — generous against transient DB slowness while still releasing the slot
-# in under two minutes instead of the 60-minute JOB_TIMEOUT_SECONDS backstop.
-# Module-level constant on purpose: promoting it to Settings is #696's scope.
-MATERIALIZE_LEASE_SECONDS = 90
 
 # Sandbox error categories → HTTP status. Everything else is a sanitized 500.
 # query_data_error (SQLSTATE class 22 / GEOS internal errors) is a 422: all

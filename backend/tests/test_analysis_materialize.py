@@ -300,7 +300,7 @@ class TestMaterializeEndpoint:
         dead.user_metadata = {"analysis": {"operation": "buffer"}}
         dead.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
         dead.started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
-        dead.heartbeat_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        dead.heartbeat_at = datetime.now(timezone.utc) - timedelta(minutes=10)
         await test_db_session.commit()
 
         with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
