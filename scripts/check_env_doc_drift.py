@@ -116,7 +116,12 @@ SCRIPT_DOC_FILES = (
     ".env.example",
     ".env.test.example",
 )
-SCRIPT_REF_RE = re.compile(r"\bscripts/([A-Za-z0-9_.-]+\.(?:py|sh|mjs|sql))\b")
+# Path components after scripts/ are allowed (codex review on #950's PR:
+# RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh, which a
+# single-component pattern silently skipped).
+SCRIPT_REF_RE = re.compile(
+    r"\bscripts/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:py|sh|mjs|sql))\b"
+)
 
 
 def unresolvable_doc_script_refs() -> list[str]:
@@ -127,9 +132,9 @@ def unresolvable_doc_script_refs() -> list[str]:
         if not doc.is_file():
             continue
         for lineno, line in enumerate(doc.read_text().splitlines(), start=1):
-            for filename in SCRIPT_REF_RE.findall(line):
-                if not (REPO_ROOT / "scripts" / filename).is_file():
-                    errors.append(f"{name}:{lineno} references scripts/{filename}")
+            for rel in SCRIPT_REF_RE.findall(line):
+                if not (REPO_ROOT / "scripts" / rel).is_file():
+                    errors.append(f"{name}:{lineno} references scripts/{rel}")
     return sorted(set(errors))
 
 

@@ -187,6 +187,15 @@ jobs:
               - 'backend/app/core/config.py'
               - '.env.example'
               - 'UPGRADING.md'
+              # fix(#950): the drift gate resolves scripts/ paths referenced by
+              # these docs, so an edit to any of them (or a script deletion)
+              # must re-run it, not just land unchecked until the push on main.
+              - '.env.test.example'
+              - 'RUNBOOK.md'
+              - 'README.md'
+              - 'EDITIONS.md'
+              - 'SUPPORT.md'
+              - 'scripts/**'
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
             backup:

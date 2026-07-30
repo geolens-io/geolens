@@ -163,7 +163,41 @@ uv run alembic downgrade 0016
 uv run alembic upgrade head
 ```
 
-The migration re-upgrade is the whole role-reconstruction step: 0019's upgrade
+On a **brand-new cluster** the fixed NOLOGIN group roles do not exist yet, and
+the downgrade path itself references them before it reaches 0019 (migration
+0024's downgrade re-installs the provisioning function with
+`OWNER TO geolens_tenant_provisioner`). Bootstrap them first — idempotent, run
+as the migrator (needs CREATEROLE), attributes matching what 0019 creates and
+validates:
+
+```sql
+DO $$
+DECLARE
+    group_name text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_provisioner'
+    ) THEN
+        CREATE ROLE geolens_tenant_provisioner
+            NOLOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT
+            NOREPLICATION NOBYPASSRLS;
+    END IF;
+    FOREACH group_name IN ARRAY ARRAY[
+        'geolens_tenant_control', 'geolens_tenant_writer',
+        'geolens_tenant_sandbox', 'geolens_tile_gateway'
+    ] LOOP
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = group_name) THEN
+            EXECUTE format(
+                'CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE '
+                'NOINHERIT NOREPLICATION NOBYPASSRLS', group_name);
+        END IF;
+    END LOOP;
+END
+$$;
+```
+
+With the fixed roles present, the migration re-upgrade is the whole
+per-tenant role-reconstruction step: 0019's upgrade
 recreates the fixed provisioner/control/writer/sandbox/tile roles, walks
 `catalog.tenants` to recreate each tenant reader/writer role via
 `provision_tenant_data_schema`, and transfers restored tenant tables and
