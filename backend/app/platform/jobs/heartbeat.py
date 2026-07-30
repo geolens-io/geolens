@@ -12,6 +12,19 @@ from app.platform.jobs.models import IngestJob
 
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 
+# fix(#691): lease window for analysis materialize jobs. Governs BOTH the
+# per-user materialize cap (router_analysis.py) and the per-job status read's
+# auto-fail (platform/jobs/router.py), so the API and the polling client
+# always agree on when a dead worker's slot is released. 10x the renewal
+# interval: renewal is best-effort (maintain_ingest_job_heartbeat retries
+# through transient DB errors), so a short multiple would declare a live but
+# briefly-degraded worker dead and admit a second concurrent CTAS — ten
+# consecutive missed renewals means the worker is gone or the DB is in a
+# state where one more failed CTAS is not the problem. Still releases the
+# slot in five minutes instead of the 60-minute JOB_TIMEOUT_SECONDS backstop.
+# Module-level constant on purpose: promoting it to Settings is #696's scope.
+ANALYSIS_MATERIALIZE_LEASE_SECONDS = 300.0
+
 
 class StaleIngestAttempt(RuntimeError):
     """Raised when a worker no longer owns the job attempt it received."""

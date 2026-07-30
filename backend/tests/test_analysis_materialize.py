@@ -243,22 +243,21 @@ class TestMaterializeEndpoint:
         backlogged.status = "failed"
         await test_db_session.commit()
 
-    async def test_long_running_job_still_blocks(
+    async def test_long_running_job_with_fresh_heartbeat_still_blocks(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#682 review): elapsed time is NOT a liveness signal, so an old
-        'running' job keeps the slot.
+        """fix(#691): elapsed time is NOT a liveness signal — a 45-minute job
+        whose worker is still renewing its heartbeat keeps the slot.
 
         The 300s statement_timeout bounds each statement, not the job — a
         materialize runs a CTAS, a DELETE, an EXISTS probe, two ALTERs, a
         primary key, add_4326_column and registration in sequence, so a
-        legitimate run over a large dataset can outlive any window short
-        enough to be useful. Releasing the slot on age would let a second
-        expensive CTAS through and defeat the cap. A worker that truly died
-        is resolved by the platform job timeout instead (see #691).
+        legitimate run over a large dataset can outlive any elapsed-time
+        window (fix(#682 review)). The lease keys on heartbeat freshness
+        instead.
         """
         from datetime import datetime, timedelta, timezone
 
@@ -269,6 +268,7 @@ class TestMaterializeEndpoint:
         long_running.user_metadata = {"analysis": {"operation": "buffer"}}
         long_running.started_at = datetime.now(timezone.utc) - timedelta(minutes=45)
         long_running.created_at = datetime.now(timezone.utc) - timedelta(minutes=45)
+        long_running.heartbeat_at = datetime.now(timezone.utc)
         await test_db_session.commit()
 
         with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
@@ -279,6 +279,71 @@ class TestMaterializeEndpoint:
             )
         assert resp.status_code == 429, resp.text
         long_running.status = "failed"
+        await test_db_session.commit()
+
+    async def test_stale_heartbeat_releases_the_slot(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#691): a running job whose lease went stale is a hard-killed
+        worker (SIGKILL/OOM between heartbeat renewal and the sweep). The
+        next materialize must be admitted immediately rather than waiting
+        the 60-minute JOB_TIMEOUT_SECONDS backstop."""
+        from datetime import datetime, timedelta, timezone
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        dead = await _create_job(test_db_session, admin_id)
+        dead.status = "running"
+        dead.user_metadata = {"analysis": {"operation": "buffer"}}
+        dead.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        dead.started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        dead.heartbeat_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        await test_db_session.commit()
+
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Admitted past dead worker"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        new_job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        new_job.status = "failed"
+        dead.status = "failed"
+        await test_db_session.commit()
+
+    async def test_null_heartbeat_with_fresh_started_at_still_blocks(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#691): the coalesce(heartbeat_at, started_at) leg — a running
+        row with no heartbeat yet but a fresh started_at (the pre-migration
+        row shape, or the instant between claim stamping the pair) must keep
+        blocking rather than being dropped by a NULL comparison."""
+        from datetime import datetime, timedelta, timezone
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        fresh = await _create_job(test_db_session, admin_id)
+        fresh.status = "running"
+        fresh.user_metadata = {"analysis": {"operation": "buffer"}}
+        fresh.started_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        fresh.heartbeat_at = None
+        await test_db_session.commit()
+
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "Should be blocked"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 429, resp.text
+        fresh.status = "failed"
         await test_db_session.commit()
 
     async def test_materialize_private_source_hidden(
