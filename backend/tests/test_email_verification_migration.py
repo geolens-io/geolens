@@ -22,12 +22,11 @@ Notes
             uv run pytest tests/test_email_verification_migration.py -x -q
 """
 
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from tests.alembic_helpers import run_alembic as _run_alembic
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,40 +34,6 @@ import sqlalchemy as sa
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
-
-
-def _run_alembic(*args: str) -> subprocess.CompletedProcess:
-    """Run an alembic command via subprocess against the test DB.
-
-    Uses the backend .venv python so the env matches what pytest runs with.
-    PYTHONPATH is set so env.py can ``from app.core.config import settings``.
-    """
-    import os
-
-    from app.core.config import settings
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(_BACKEND_DIR)
-    # Target the per-worker TEST DB so destructive downgrade/upgrade roundtrips
-    # never mutate the shared main DB, which would corrupt sibling workers and
-    # break the drift check.
-    env["POSTGRES_DB"] = settings.postgres_db_test
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "alembic",
-            "-c",
-            str(_ALEMBIC_INI),
-            *args,
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(_BACKEND_DIR),
-    )
-    return result
 
 
 def _enterprise_migrations_present() -> bool:

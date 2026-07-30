@@ -1,14 +1,13 @@
 import { Slider } from '@/components/ui/slider';
-import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import { getNumberPaint } from './paint-accessors';
 import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 import { formatNumber } from '@/lib/format';
 
 /**
  * builder-audit #338 DUP-04: the single brightness/contrast/saturation/hue appearance
- * slider surface, previously implemented twice — once in RasterEditor (RenderModeSwitch
- * path) and once in RasterLayerControls (LayerEditorPanel path) with subtly different
- * step values and formatting. Both editors now consume this component so a fix lands once.
+ * slider surface, previously implemented twice with subtly different step values and
+ * formatting. RasterLayerControls (the LayerEditorPanel path) is the only consumer
+ * since fix(#915) deleted the unreachable RenderModeSwitch raster editor.
  *
  * Fallbacks are read from the adapter's RASTER_PAINT_DEFAULTS (single source of truth)
  * so the editor display and the rendered default cannot diverge.
@@ -79,11 +78,9 @@ export interface RasterAppearanceSlidersProps {
   /** Patch a single raster paint key. */
   onPaintProp: (key: string, value: number | string) => void;
   t: TFn;
-  /** When set, slider writes are RAF-coalesced per (id, property) — the RenderModeSwitch path. */
-  coalesceId?: string;
-  /** RasterLayerControls renders brightness-max + range error; RasterEditor does not. */
+  /** RasterLayerControls renders brightness-max + range error; other callers need not. */
   showBrightnessMax?: boolean;
-  /** RasterLayerControls renders the fade-duration slider; RasterEditor does not. */
+  /** RasterLayerControls renders the fade-duration slider; other callers need not. */
   showFade?: boolean;
 }
 
@@ -91,7 +88,6 @@ export function RasterAppearanceSliders({
   paint,
   onPaintProp,
   t,
-  coalesceId,
   showBrightnessMax = false,
   showFade = false,
 }: RasterAppearanceSlidersProps) {
@@ -99,13 +95,7 @@ export function RasterAppearanceSliders({
   const brightnessMax = getNumberPaint(paint, 'raster-brightness-max', RASTER_PAINT_DEFAULTS['raster-brightness-max']);
   const hasBrightnessRangeError = showBrightnessMax && brightnessMin > brightnessMax;
 
-  const write = (key: string, value: number) => {
-    if (coalesceId) {
-      coalesceFrame(`raster-paint:${coalesceId}:${key}`, () => onPaintProp(key, value));
-    } else {
-      onPaintProp(key, value);
-    }
-  };
+  const write = (key: string, value: number) => onPaintProp(key, value);
 
   return (
     <>

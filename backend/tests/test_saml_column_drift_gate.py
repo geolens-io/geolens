@@ -10,14 +10,12 @@ The positive case (`alembic check` clean at head, columns present and included) 
 covered by `TestAlembicCheckNoDrift` in `test_email_verification_migration.py`.
 """
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import sqlalchemy
 from sqlalchemy import text
+from tests.alembic_helpers import run_alembic as _run_alembic
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -35,21 +33,6 @@ _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
     _enterprise_migrations_present(),
     reason="OSS migration drift gate; multi-head under the enterprise overlay",
 )
-
-
-def _run_alembic(*args: str) -> subprocess.CompletedProcess:
-    from app.core.config import settings
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(_BACKEND_DIR)
-    env["POSTGRES_DB"] = settings.postgres_db_test
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=_BACKEND_DIR,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
 
 
 def _autocommit_engine():

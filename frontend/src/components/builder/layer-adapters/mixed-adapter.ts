@@ -14,6 +14,7 @@ import {
 // the standalone adapters' owned-property sets and defaults instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES } from './circle-adapter';
 import { FILL_OWNED_PAINT_PROPERTIES, OUTLINE_OWNED_PAINT_PROPERTIES } from './fill-adapter';
+import { ensureFillPatternImages } from './fill-pattern-images';
 import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES } from './line-adapter';
 import { DEFAULT_CIRCLE_PAINT, DEFAULT_FILL_PAINT } from './builder-defaults';
 
@@ -261,6 +262,11 @@ export const mixedAdapter: LayerAdapter = {
   type: 'mixed',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
+    // fix(#919): syncFillLayer syncs the whole FILL_OWNED_PAINT_PROPERTIES set,
+    // fill-pattern included, so the pattern images must be registered here too —
+    // otherwise a patterned polygon family draws nothing. syncPaint routes
+    // through addLayers, so this one call covers both entry points.
+    ensureFillPatternImages(map);
     try {
       addFillLayer(map, input);
       addOutlineLayer(map, input);

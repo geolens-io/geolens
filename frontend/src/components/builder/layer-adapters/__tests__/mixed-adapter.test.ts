@@ -6,6 +6,7 @@ import {
   mixedLinesLayerId,
   mixedPointsLayerId,
 } from '../mixed-adapter';
+import { FILL_PATTERN_IDS } from '../fill-pattern-images';
 import type { AdapterLayerInput } from '../types';
 
 /**
@@ -28,6 +29,8 @@ function createMockMap(opts: { layerExists?: boolean } = {}) {
     setPaintProperty: vi.fn(),
     getLayoutProperty: vi.fn().mockReturnValue(undefined),
     getPaintProperty: vi.fn().mockReturnValue(undefined),
+    hasImage: vi.fn().mockReturnValue(false),
+    addImage: vi.fn(),
   };
 }
 
@@ -158,6 +161,30 @@ describe('mixed adapter — syncPaint self-heals missing sublayers', () => {
     const map = createMockMap({ layerExists: false });
     mixedAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput());
     expect(map.addLayer).toHaveBeenCalledTimes(4);
+  });
+});
+
+// fix(#919): the fill sublayer syncs the whole FILL_OWNED_PAINT_PROPERTIES set,
+// fill-pattern included, so the pattern images must be registered — otherwise a
+// patterned polygon family renders empty.
+describe('mixed adapter — fill-pattern images are registered', () => {
+  it('addLayers calls addImage for each fill-pattern id', () => {
+    const map = createMockMap();
+    mixedAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput());
+    expect(map.addImage).toHaveBeenCalledTimes(FILL_PATTERN_IDS.length);
+  });
+
+  it('syncPaint calls addImage for each fill-pattern id', () => {
+    const map = createMockMap({ layerExists: true });
+    mixedAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ paint: { 'fill-pattern': 'geolens-fill-hatch' } }));
+    expect(map.addImage).toHaveBeenCalledTimes(FILL_PATTERN_IDS.length);
+  });
+
+  it('skips ids already present in the image registry', () => {
+    const map = createMockMap();
+    map.hasImage.mockReturnValue(true);
+    mixedAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput());
+    expect(map.addImage).not.toHaveBeenCalled();
   });
 });
 
