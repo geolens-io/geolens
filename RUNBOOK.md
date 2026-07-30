@@ -232,6 +232,37 @@ uv run alembic downgrade 0016
 uv run alembic upgrade head
 ```
 
+> **Capture tenant attribution first — the downgrade discards some of it.**
+> `alembic downgrade 0016` passes through 0022, whose `downgrade()` drops
+> `tenant_id` from `catalog.audit_logs` and `catalog.ingest_jobs`. The
+> re-upgrade rebuilds those columns by reading each row's live parent, so a
+> row whose parent is gone cannot be recovered: an audit row whose actor was
+> deleted (`user_id` is NULL after `ON DELETE SET NULL`), or an ingest job
+> with neither `created_by` nor `dataset_id`. Those rows come back with a
+> NULL tenant permanently. Save the two columns after `pg_restore` and
+> before the downgrade:
+>
+> ```sql
+> CREATE TABLE public.recover_audit_tenant AS
+>   SELECT id, tenant_id FROM catalog.audit_logs WHERE tenant_id IS NOT NULL;
+> CREATE TABLE public.recover_job_tenant AS
+>   SELECT id, tenant_id FROM catalog.ingest_jobs WHERE tenant_id IS NOT NULL;
+> ```
+>
+> and put them back after `alembic upgrade head` (only the rows the
+> re-upgrade could not derive, so the parent-consistency triggers stay
+> satisfied):
+>
+> ```sql
+> UPDATE catalog.audit_logs AS a SET tenant_id = r.tenant_id
+>   FROM public.recover_audit_tenant AS r
+>  WHERE r.id = a.id AND a.tenant_id IS NULL;
+> UPDATE catalog.ingest_jobs AS j SET tenant_id = r.tenant_id
+>   FROM public.recover_job_tenant AS r
+>  WHERE r.id = j.id AND j.tenant_id IS NULL;
+> DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
+> ```
+
 > **Known limitation.** The downgrade passes through migrations whose
 > `downgrade()` rebuilds **global** uniqueness that the current schema scopes
 > per tenant (0020: `datasets.table_name`; 0021: collection names and OAuth
