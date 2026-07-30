@@ -224,46 +224,56 @@ and sequences are all owned by whoever ran `pg_restore`. Migration 0019's
 upgrade is what fixes that, and it is reached by downgrading below it and
 coming back up. Step 2 is required even when step 1's globals replay succeeded.
 
+Work through 2a to 2d **in that order**. The snapshot in 2b and the restore in
+2d bracket the downgrade for a reason: `alembic downgrade 0016` passes through
+0022, whose `downgrade()` drops `tenant_id` from `catalog.audit_logs` and
+`catalog.ingest_jobs`, and the re-upgrade rebuilds those columns by reading
+each row's live parent. A row whose parent is gone has nothing to derive from
+— an audit row whose actor was deleted (`user_id` is NULL after
+`ON DELETE SET NULL`), or an ingest job with neither `created_by` nor
+`dataset_id` — so it comes back with a NULL tenant permanently unless the
+columns were snapshotted first.
+
+**2a. Restore the dump.** Use the privileged migrator
+`DATABASE_URL_OVERRIDE` for every command in this step.
+
 ```bash
-# Use the privileged migrator DATABASE_URL_OVERRIDE for all three commands.
 pg_restore --clean --if-exists --no-owner --no-acl \
   -d "$POSTGRES_DB" geolens_<timestamp>.dump
+```
+
+**2b. Snapshot tenant attribution, BEFORE the downgrade.** Skipping this is
+the one irreversible mistake in the recipe: once 2c has run, the rows you
+would have saved no longer carry a `tenant_id` to save.
+
+```sql
+CREATE TABLE public.recover_audit_tenant AS
+  SELECT id, tenant_id FROM catalog.audit_logs WHERE tenant_id IS NOT NULL;
+CREATE TABLE public.recover_job_tenant AS
+  SELECT id, tenant_id FROM catalog.ingest_jobs WHERE tenant_id IS NOT NULL;
+```
+
+**2c. Rebuild the topology.**
+
+```bash
 uv run alembic downgrade 0016
 uv run alembic upgrade head
 ```
 
-> **Capture tenant attribution first — the downgrade discards some of it.**
-> `alembic downgrade 0016` passes through 0022, whose `downgrade()` drops
-> `tenant_id` from `catalog.audit_logs` and `catalog.ingest_jobs`. The
-> re-upgrade rebuilds those columns by reading each row's live parent, so a
-> row whose parent is gone cannot be recovered: an audit row whose actor was
-> deleted (`user_id` is NULL after `ON DELETE SET NULL`), or an ingest job
-> with neither `created_by` nor `dataset_id`. Those rows come back with a
-> NULL tenant permanently. Save the two columns after `pg_restore` and
-> before the downgrade:
->
-> ```sql
-> CREATE TABLE public.recover_audit_tenant AS
->   SELECT id, tenant_id FROM catalog.audit_logs WHERE tenant_id IS NOT NULL;
-> CREATE TABLE public.recover_job_tenant AS
->   SELECT id, tenant_id FROM catalog.ingest_jobs WHERE tenant_id IS NOT NULL;
-> ```
->
-> and put them back after `alembic upgrade head` (only the rows the
-> re-upgrade could not derive, so the parent-consistency triggers stay
-> satisfied):
->
-> ```sql
-> UPDATE catalog.audit_logs AS a SET tenant_id = r.tenant_id
->   FROM public.recover_audit_tenant AS r
->  WHERE r.id = a.id AND a.tenant_id IS NULL;
-> UPDATE catalog.ingest_jobs AS j SET tenant_id = r.tenant_id
->   FROM public.recover_job_tenant AS r
->  WHERE r.id = j.id AND j.tenant_id IS NULL;
-> DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
-> ```
+**2d. Put the attribution back.** Scoped to the rows the re-upgrade could not
+derive, which is also what keeps the parent-consistency triggers satisfied.
 
-> **Known limitation.** The downgrade passes through migrations whose
+```sql
+UPDATE catalog.audit_logs AS a SET tenant_id = r.tenant_id
+  FROM public.recover_audit_tenant AS r
+ WHERE r.id = a.id AND a.tenant_id IS NULL;
+UPDATE catalog.ingest_jobs AS j SET tenant_id = r.tenant_id
+  FROM public.recover_job_tenant AS r
+ WHERE r.id = j.id AND j.tenant_id IS NULL;
+DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
+```
+
+> **Known limitation.** The downgrade in 2c passes through migrations whose
 > `downgrade()` rebuilds **global** uniqueness that the current schema scopes
 > per tenant (0020: `datasets.table_name`; 0021: collection names and OAuth
 > subjects). A valid multi-tenant dump in which two tenants reuse such a name
