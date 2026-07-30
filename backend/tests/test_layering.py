@@ -1719,8 +1719,12 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
 # Maps origin module -> redirected symbol names. Extend this when a fixture
 # starts redirecting another module-scope-importable helper.
 _FIXTURE_REDIRECTED_SYMBOLS: dict[str, frozenset[str]] = {
-    "app.core.db": frozenset({"async_session"}),
-    "app.core.db.session": frozenset({"async_session"}),
+    # fix(#909 codex review): engine included — the client fixture reassigns
+    # db_module.engine to the test engine, so a module-scope engine binding
+    # escapes the redirect exactly like async_session (the health-service
+    # probe was the live instance).
+    "app.core.db": frozenset({"async_session", "engine"}),
+    "app.core.db.session": frozenset({"async_session", "engine"}),
     "app.processing.ingest.ogr": frozenset({"build_pg_conn_str"}),
 }
 

@@ -1620,11 +1620,8 @@ async def client(tmp_path):
     db_module.engine = test_engine
     db_module.async_session = test_session_factory
 
-    # Patch health service module's engine reference
-    import app.observability.health.service as health_service_module
-
-    original_health_engine = health_service_module.engine
-    health_service_module.engine = test_engine
+    # fix(#909): the health service late-binds engine from app.core.db, so
+    # the db_module patch above covers it — no per-module re-point needed.
 
     # Override the get_db dependency
     from app.core.dependencies import get_db
@@ -1688,7 +1685,6 @@ async def client(tmp_path):
     app.dependency_overrides.clear()
     db_module.engine = original_engine
     db_module.async_session = original_session
-    health_service_module.engine = original_health_engine
     storage_provider_module._storage = original_storage
     settings.upload_staging_dir = original_upload_staging_dir
     tempfile.tempdir = original_tempdir
