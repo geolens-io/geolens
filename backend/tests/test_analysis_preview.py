@@ -974,7 +974,8 @@ class TestBuildPreviewSql:
         # whole-input SubPlan at loops=1715.
         assert buffer_expr.count("ST_Buffer(") == 2
         assert buffer_expr.count("ST_ShiftLongitude(") == 2
-        assert buffer_expr.count("OFFSET 0") == 5
+        # fix(#902): the sliced branch adds one fence for the segmentized copy.
+        assert buffer_expr.count("OFFSET 0") == 6
 
         for op, kwargs in (
             ("centroid", {}),
@@ -983,35 +984,49 @@ class TestBuildPreviewSql:
             other_expr, _ = render_geometry_expr(op, **kwargs)
             assert "ST_ShiftLongitude" not in other_expr
 
-    def test_buffer_sql_projects_each_component_locally(self):
-        """fix(#891): ``ST_Buffer(...::geography, d)`` picks ONE planar SRID for
-        the whole input, so a multipart feature spread across longitudes is
-        buffered in a projection that suits at most one of its components.
+    def test_buffer_sql_slices_wide_inputs_into_local_projections(self):
+        """fix(#891)/fix(#902): ``ST_Buffer(...::geography, d)`` picks ONE
+        planar SRID for the whole input, so anything spanning more than one UTM
+        zone — a spread multipart OR a single wide component — is buffered in
+        a projection local to at most part of it. The wide branch slices the
+        geography-segmentized input into sub-zone longitude bands.
         """
         from app.platform.analysis_sql import (
             BUFFER_LOCAL_SRID_SPAN_DEG,
+            BUFFER_SLICE_SEGMENTIZE_M,
             render_geometry_expr,
         )
 
         buffer_expr, _ = render_geometry_expr("buffer", distance_meters=500)
-        # Both guard conditions on the SOURCE, not on the buffer output, and on
-        # the VALIDATED source specifically: ST_MakeValid can raise the part
-        # count (a self-intersecting POLYGON with lobes 90° apart is one
-        # component as stored, two after validation), so reading geom_4326
-        # directly would send exactly this case down the whole-input path. That
-        # is what the extra OFFSET 0 fence pays for.
+        # The guard is on the SOURCE, and on the VALIDATED source specifically
+        # (ST_MakeValid can widen the effective footprint of a
+        # self-intersecting POLYGON); that is what the OFFSET 0 fence pays for.
         assert "(SELECT ST_MakeValid(geom_4326) AS g OFFSET 0) AS _pb" in buffer_expr
-        assert "ST_NumGeometries(_pb.g) > 1" in buffer_expr
         assert (
             f"ST_XMax(_pb.g) - ST_XMin(_pb.g) >= {BUFFER_LOCAL_SRID_SPAN_DEG}"
             in buffer_expr
         )
-        assert "ST_NumGeometries(geom_4326)" not in buffer_expr
-        # Each component is buffered on its own, and each component's buffer is
-        # dumped so ST_Collect never mixes POLYGON with MULTIPOLYGON into a
-        # GEOMETRYCOLLECTION.
+        # fix(#902): the ST_NumGeometries(...) > 1 half of the old gate is
+        # deliberately gone — a single 90°-wide component fell to world
+        # Mercator exactly like a spread multipart did.
+        assert "ST_NumGeometries" not in buffer_expr
+        # Edges are densified along great circles BEFORE the planar band cut,
+        # because geography buffers geodesic edges: cutting the bare planar
+        # chord buffered a different line (141.7e9 m² vs the 134.1e9 truth on
+        # the 90° fixture).
+        assert (
+            f"ST_Segmentize(_pb.g::geography, {BUFFER_SLICE_SEGMENTIZE_M})::geometry"
+            in buffer_expr
+        )
+        # Bands are anchored at the input's own XMin and cut a hair under the
+        # zone width: at exactly 6.0° _ST_BestSRID leaves the local UTM zone.
+        assert f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)" in buffer_expr
+        assert "generate_series" in buffer_expr
+        assert "ST_Intersection(_pb_g.sg," in buffer_expr
+        # Each band piece is dumped to simple parts and buffered on its own,
+        # and each piece's buffer is dumped so ST_Collect never mixes POLYGON
+        # with MULTIPOLYGON into a GEOMETRYCOLLECTION.
         assert "ST_Dump(ST_Buffer(_pb_c.c::geography, 500.0)::geometry)" in buffer_expr
-        assert "(ST_Dump(_pb.g)).geom AS c" in buffer_expr
         assert "ST_CollectionHomogenize(ST_Collect(_pb_p.p))" in buffer_expr
         # Pass order: seam split (_pb_m) INSIDE the union, never the reverse —
         # unioning a still-wrapping component raises a GEOS side-location
@@ -1020,7 +1035,7 @@ class TestBuildPreviewSql:
         split_at = buffer_expr.index("ST_WrapX(ST_MakeValid(_pb_m_c.s)")
         assert union_at < split_at
         # The common path is a bare ELSE: the whole-input buffer, wrapped in the
-        # fix(#883) seam pass and nothing else — no dump, no re-collect, no
+        # fix(#883) seam pass and nothing else — no slicing, no re-collect, no
         # dissolve.
         else_at = buffer_expr.index("ELSE (SELECT CASE WHEN ST_XMax(_dl.g)")
         assert buffer_expr.count("ST_UnaryUnion(") == 1

@@ -90,7 +90,19 @@ DATELINE_WRAP_SPAN_DEG = 180
 # while the input fits inside a single UTM zone — 6° of longitude. Measured on
 # PostGIS 3.6, the switch away from the UTM zone happens exactly at a 6.0° span,
 # so the guard in ``render_geodesic_buffer`` tests ``>=``, not ``>``.
+# fix(#902): the same constant is the slice width for inputs wider than one
+# zone — slicing at the number the gate tests keeps one threshold.
 BUFFER_LOCAL_SRID_SPAN_DEG = 6
+
+# fix(#902): before a wide input is sliced into longitude bands, its edges are
+# densified along GREAT CIRCLES (``ST_Segmentize`` on geography) at this max
+# edge length. Geography semantics make every edge a geodesic, so cutting the
+# bare planar chord would buffer a different line: for ``LINESTRING(0 45,
+# 90 45)`` the great-circle path (what ``ST_Buffer(geography)`` buffers) yields
+# 134.1e9 m² while the planar chord yields 141.7e9 m². 20 km keeps the
+# chord-vs-arc deviation under 8 m — noise against the ±1% radius bar — and is
+# the same step the issue's piecewise ground truth was built with.
+BUFFER_SLICE_SEGMENTIZE_M = 20_000
 
 
 def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
@@ -249,11 +261,21 @@ def render_geodesic_buffer(
 
     Three passes, and the order is load-bearing:
 
-    1. Buffer each component in a projection chosen for that component
-       (``ST_Dump`` -> per-part ``::geography``), then re-collect. The inner
-       dump of each part's buffer keeps every collected element a bare polygon:
-       ``ST_Collect`` of a ``POLYGON`` and a ``MULTIPOLYGON`` would yield a
-       ``GEOMETRYCOLLECTION``.
+    1. Slice the input into longitude bands ``BUFFER_LOCAL_SRID_SPAN_DEG``
+       wide (fix(#902): bands, not components — a SINGLE component 90° wide
+       lands in world Mercator exactly like a multipart spread does, and
+       per-component dumping cannot touch it because there is nothing to dump
+       it into; measured, a 10 km buffer of ``LINESTRING(0 45, 90 45)`` held
+       63.7% of its piecewise-truth area). Each band piece is dumped to simple
+       parts and buffered on its own ``::geography``, so ``_ST_BestSRID`` sees
+       at most a 6° span and picks a projection local to the piece. Buffering
+       a covering set of slices and dissolving equals buffering the whole
+       (a Minkowski sum distributes over union), so correctness rides on the
+       dissolve in pass 3. Bands start at the geometry's own ``ST_XMin``, so
+       a narrow component never straddles a band edge gratuitously. The inner
+       dump of each piece's buffer keeps every collected element a bare
+       polygon: ``ST_Collect`` of a ``POLYGON`` and a ``MULTIPOLYGON`` would
+       yield a ``GEOMETRYCOLLECTION``.
     2. ``render_dateline_safe`` splits any component that wraps ±180. It has to
        run BEFORE the dissolve: a wrapping component's buffer is
        self-intersecting in the planar domain, and unioning it in that state
@@ -273,71 +295,82 @@ def render_geodesic_buffer(
        (the fix(#883) seam fixture measures 623 944 052 m² and 3 parts either
        way), which is why it can sit unconditionally on this branch.
 
-    Two cheap conditions on the SOURCE gate all of that, so an ordinary
-    single-part buffer takes a bare ``ELSE`` rendering exactly the fix(#883)
-    expression, with no dump, no re-collect and no union:
+    One cheap condition on the SOURCE gates all of that, so an ordinary
+    narrow buffer takes a bare ``ELSE`` rendering exactly the fix(#883)
+    expression, with no slicing, no re-collect and no union: the longitude
+    span must reach ``BUFFER_LOCAL_SRID_SPAN_DEG``. Below that the whole
+    input fits one UTM zone and is already buffered in a projection local to
+    it (measured ±0.04%), while a dense source — up to 500 000 rows of it,
+    per ``MAX_SOURCE_FEATURES`` — would otherwise pay a slice plus a union
+    per row for nothing. The same constant is the slice width, deliberately:
+    under 6° the produced radius holds 9 997-10 004 m for a requested
+    10 000 m, and slicing at the number the gate tests keeps one threshold to
+    reason about.
 
-    - ``ST_NumGeometries(...) > 1``. A single component has nothing to dump into,
-      so per-component buffering cannot differ from buffering the whole input.
-      This is what keeps single-part output byte-identical.
-    - the longitude span reaches ``BUFFER_LOCAL_SRID_SPAN_DEG``. Below that the
-      whole input fits one UTM zone and every component is already buffered in a
-      projection local to it (measured ±0.04%), while a dense multipart source —
-      up to 500 000 rows of it, per ``MAX_SOURCE_FEATURES`` — would otherwise pay
-      a dump plus a union per row for nothing.
-
-    Both conditions are necessary, not merely cheap: dropping the span test
-    also drops the guarantee that overlapping components stay rare on this
-    branch, and dropping the multipart test would put every large single-part
-    buffer through a dump that cannot change its result.
+    fix(#902) blast radius, decided up front: fix(#891) also required
+    ``ST_NumGeometries(...) > 1``, which kept every single-part output
+    byte-identical at the price of leaving a wide single component in world
+    Mercator. Dropping that condition means every buffer whose span reaches
+    the threshold — single-part included — changes vertex structure. Output
+    stays geometrically correct and ``ST_IsValid``; callers comparing WKT or
+    vertex counts for WIDE inputs will see a difference, and narrow inputs
+    (under the threshold) remain byte-identical, which the tests pin.
 
     The guard reads the VALIDATED geometry, not the raw column, and that is what
     the ``OFFSET 0`` fence buys. ``ST_MakeValid`` can raise the part count: a
     self-intersecting ``POLYGON`` whose lobes sit 90° apart is one component as
-    stored and two after validation. Gating on the column would have read 1 and
-    sent it down the whole-input path — the exact case this function exists for.
-
-    NOT fixed here, and deliberately: a SINGLE component wider than one UTM zone
-    is still buffered in one non-local projection, because there is nothing to
-    dump it into. Measured, a 10 km buffer of ``LINESTRING(0 45, 90 45)`` — one
-    component, 90° wide — produces 85 485 981 084 m² against 134 146 143 319 m²
-    for the same line segmentized to 20 km and buffered piecewise, so 63.7% of
-    the correct area, before and after this change alike. Closing that needs the
-    buffer to subdivide within a component, which changes the vertex structure of
-    every large single-part output, so it wants its own decision.
+    stored and two after validation. Gating on the column would have read a
+    misleadingly narrow single part in fix(#891); the slice pass now works on
+    the validated shape for the same reason.
 
     ``geom_expr`` is evaluated inside an ``OFFSET 0``-fenced subquery, the same
     pull-up fence the rest of this module uses (fix(#700 review)), because the
-    ``CASE`` references the source geometry five times.
+    ``CASE`` references the source geometry several times.
 
-    Cost, from ``EXPLAIN ANALYZE`` over 2 000 rows against the pre-fix
-    expression. The guard itself is free: PostgreSQL short-circuits the ``AND``,
-    so single-part rows never reach the bbox scan (2 000 66-vertex polygons —
-    ``ST_NumGeometries`` alone 3.75 ms, the span test alone 7.34 ms, both
-    together 3.60 ms). What the common path does pay is this function's own
-    ``OFFSET 0`` fence: 335 ms -> 376 ms on those polygons (+20 µs/row), and
-    53 ms -> 38 ms on 2 000 bare points, where materializing ``ST_MakeValid``
-    once is cheaper than re-deriving it. The gated path costs 87 ms -> 116 ms
-    for 2 000 two-component rows and 586 ms -> 1 316 ms for 200 hundred-part
-    rows, the extra time being the per-part buffers plus the dissolve. On a
-    2 000-row mix (285 wide multipart) the per-component ``SubPlan`` ran at
-    ``loops=285`` and the whole-input ``SubPlan`` at ``loops=1715`` — both
-    ``ST_Buffer`` call sites are rendered, only one is reached per row.
+    Cost, from the fix(#891) ``EXPLAIN ANALYZE`` baselines over 2 000 rows,
+    which the slice pass inherits. The span guard is free (7.34 ms alone over
+    2 000 66-vertex polygons, short-circuited before any heavy work). What the
+    common path pays is this function's own ``OFFSET 0`` fence: 335 ms ->
+    376 ms on those polygons (+20 µs/row), and 53 ms -> 38 ms on 2 000 bare
+    points, where materializing ``ST_MakeValid`` once is cheaper than
+    re-deriving it. The gated path paid 87 ms -> 116 ms for 2 000
+    two-component rows and 586 ms -> 1 316 ms for 200 hundred-part rows, the
+    extra time being the per-piece buffers plus the dissolve; slicing swaps
+    the per-component dump for a band ``generate_series`` + ``ST_Intersection``
+    in the same cost class. Both ``ST_Buffer`` call sites are rendered, only
+    one is reached per row.
     """
-    per_component = (
+    # Slice a hair UNDER the constant: the SRID switch away from the local UTM
+    # zone happens AT exactly a 6.0° span (the reason the gate tests >=), so a
+    # dense piece filling its band exactly would land in the ±1% fallback SRID
+    # instead of the ±0.04% zone. Measured: exact-width slices produced a
+    # 9 905 m radius (999247's signature) where 5.999° slices hold 9 997+.
+    width = f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)"
+    band = (
+        f"ST_MakeEnvelope("
+        f"ST_XMin({alias}_g.sg) + {alias}_i.i * {width}, -90,"
+        f" ST_XMin({alias}_g.sg) + ({alias}_i.i + 1) * {width}, 90, 4326)"
+    )
+    sliced = (
         f"(SELECT ST_CollectionHomogenize(ST_Collect({alias}_p.p))"
         f" FROM (SELECT (ST_Dump("
         f"ST_Buffer({alias}_c.c::geography, {distance})::geometry)).geom AS p"
-        f" FROM (SELECT (ST_Dump({alias}.g)).geom AS c) AS {alias}_c) AS {alias}_p)"
+        f" FROM (SELECT (ST_Dump({alias}_s.piece)).geom AS c"
+        f" FROM (SELECT ST_Segmentize({alias}.g::geography,"
+        f" {BUFFER_SLICE_SEGMENTIZE_M})::geometry AS sg OFFSET 0) AS {alias}_g,"
+        f" LATERAL (SELECT ST_Intersection({alias}_g.sg, {band}) AS piece"
+        f" FROM generate_series(0, GREATEST(ceil("
+        f"(ST_XMax({alias}_g.sg) - ST_XMin({alias}_g.sg)) / {width})::int, 1) - 1)"
+        f" AS {alias}_i(i)) AS {alias}_s) AS {alias}_c"
+        f" WHERE NOT ST_IsEmpty({alias}_c.c)) AS {alias}_p)"
     )
-    local = render_dateline_safe(per_component, alias=f"{alias}_m")
+    local = render_dateline_safe(sliced, alias=f"{alias}_m")
     whole = render_dateline_safe(
         f"ST_Buffer({alias}.g::geography, {distance})::geometry"
     )
     return (
         "(SELECT CASE"
-        f" WHEN ST_NumGeometries({alias}.g) > 1"
-        f" AND ST_XMax({alias}.g) - ST_XMin({alias}.g)"
+        f" WHEN ST_XMax({alias}.g) - ST_XMin({alias}.g)"
         f" >= {BUFFER_LOCAL_SRID_SPAN_DEG}"
         f" THEN ST_UnaryUnion({local})"
         f" ELSE {whole} END"
