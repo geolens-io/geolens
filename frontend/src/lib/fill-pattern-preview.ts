@@ -1,3 +1,5 @@
+import { FILL_PATTERN_IDS } from '@/components/builder/layer-adapters/fill-pattern-images';
+
 /**
  * CSS-only previews for the built-in fill patterns, shared by every surface that
  * has to show "this polygon is patterned": the builder's FillPatternPicker, the
@@ -47,8 +49,17 @@ export function patternPreviewStyle(id: string): React.CSSProperties {
   }
 }
 
-/** The paint value, when it names a pattern we can preview. */
+/**
+ * The paint value, when it names a BUILT-IN pattern we can actually preview.
+ *
+ * An imported or API-authored layer may carry any sprite id in `fill-pattern`;
+ * patternPreviewStyle returns no CSS for those, and a consumer that took the
+ * patterned branch anyway would draw an empty outlined chip instead of falling
+ * back to the solid colour.
+ */
 export function fillPatternFromPaint(paint: Record<string, unknown> | undefined): string | undefined {
   const value = paint?.['fill-pattern'];
-  return typeof value === 'string' && value ? value : undefined;
+  return typeof value === 'string' && (FILL_PATTERN_IDS as readonly string[]).includes(value)
+    ? value
+    : undefined;
 }

@@ -191,6 +191,37 @@ describe('patterned polygon swatch (fix #951)', () => {
     expect(extractStyleHints({ 'fill-color': '#fff' }, {}, 'POLYGON').fillPattern).toBeUndefined();
   });
 
+  it('ignores a fill-pattern id that has no built-in preview', () => {
+    // An imported layer can carry any sprite id; taking the patterned branch for
+    // one we cannot draw would render an empty chip instead of the solid colour.
+    expect(extractStyleHints({ 'fill-pattern': 'custom-sprite' }, {}, 'POLYGON').fillPattern).toBeUndefined();
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="x"
+        styleHints={extractStyleHints({ 'fill-pattern': 'custom-sprite' }, {}, 'POLYGON')}
+      />,
+    );
+    expect(container.querySelector('.lucide-pentagon')).not.toBeNull();
+  });
+
+  it('carries the pattern through generic GEOMETRY layers (mixed adapter)', () => {
+    for (const gt of ['GEOMETRY', 'GEOMETRYCOLLECTION']) {
+      expect(extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, gt).fillPattern)
+        .toBe('geolens-fill-grid');
+    }
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="GEOMETRY"
+        colors={['#ff5a5f']}
+        layerId="x"
+        styleHints={{ fillPattern: 'geolens-fill-grid' }}
+      />,
+    );
+    expect(container.querySelector('.lucide-pentagon')).toBeNull();
+  });
+
   it('leaves unpatterned polygons on the pentagon glyph', () => {
     const { container } = render(
       <ColorizedGeometryIcon geometryType="POLYGON" colors={['#ff5a5f']} layerId="x" />,

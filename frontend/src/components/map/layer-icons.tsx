@@ -68,8 +68,12 @@ export function extractStyleHints(
     }
     const fo = paint['fill-opacity'];
     if (typeof fo === 'number' && fo < 1) hints.fillOpacity = fo;
-    hints.fillPattern = fillPatternFromPaint(paint);
   }
+
+  // fix(#951 review): read the pattern independently of the POLYGON-only branch
+  // above — a GEOMETRY / GEOMETRYCOLLECTION layer renders a fill sublayer via
+  // the mixed adapter and gets the shape icon, but matches neither branch.
+  hints.fillPattern = fillPatternFromPaint(paint);
 
   if (gt.includes('POINT')) {
     if (!paint['_stroke-disabled']) {
