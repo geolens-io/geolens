@@ -317,6 +317,22 @@ describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
     ]);
   });
 
+  // codex round 2 on #903: shifting on the west edge alone pushed a contained
+  // layer a whole turn away from a world-wide one, fitting a 530 degree span.
+  it('leaves a contained layer inside a world-wide one', () => {
+    expect(getVisibleLayerBounds([layer([-180, -85, 180, 85]), layer([10, 0, 20, 5])])).toEqual([
+      [-180, -85],
+      [180, 85],
+    ]);
+  });
+
+  it('picks the turn that minimizes the merged span, whichever way it lies', () => {
+    // Same two layers, opposite order: the answer must not depend on which one
+    // happened to be seen first.
+    expect(getVisibleLayerBounds([layer([-179, -18, -177, -14]), layer([178, -20, -178, -15])]))
+      .toEqual([[-182, -20], [-177, -14]]);
+  });
+
   it('leaves two ordinary layers exactly where they were', () => {
     expect(
       getVisibleLayerBounds([layer([-74.5, 40.5, -73.5, 41.5]), layer([-75, 40, -74, 41])]),

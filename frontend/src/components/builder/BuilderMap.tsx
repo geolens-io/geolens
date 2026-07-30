@@ -119,14 +119,26 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
     let west = bbox[0];
     let east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
 
-    // Then shift each interval into the same turn as the first one before
-    // min/maxing. Without this a crossing layer next to a non-crossing one on
-    // the far side of the seam ([178, -178] and [-179, -177]) merged to
-    // [-179, 182] — a 361° span for a union that occupies about 5°, which the
-    // auto-fit turns into a world-scale zoom.
+    // Then place the interval on whichever turn of the globe makes the merged
+    // extent SMALLEST. Comparing west edges alone was not enough in either
+    // direction: a crossing layer beside a non-crossing one across the seam
+    // ([178, -178] + [-179, -177]) merged to a 361° span for a ~5° union, and a
+    // world-wide layer followed by a contained one ([-180, 180] + [10, 20])
+    // pushed the contained layer a turn away into a 530° span. Three candidates
+    // is the whole search space — a longitude interval has no other placement.
     if (hasBounds) {
-      while (west - minX > 180) { west -= 360; east -= 360; }
-      while (minX - west > 180) { west += 360; east += 360; }
+      let bestSpan = Infinity;
+      let bestShift = 0;
+      for (const shift of [-360, 0, 360]) {
+        const span =
+          Math.max(maxX, east + shift) - Math.min(minX, west + shift);
+        if (span < bestSpan) {
+          bestSpan = span;
+          bestShift = shift;
+        }
+      }
+      west += bestShift;
+      east += bestShift;
     }
 
     hasBounds = true;
