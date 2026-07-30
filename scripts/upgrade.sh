@@ -272,6 +272,8 @@ say ""
 # continues with the current files (the pre-v1043 pull-only behaviour) rather than
 # aborting the upgrade. Local edits to the tracked files above are replaced.
 say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
+DB_CONF="db/postgresql.conf"
+DB_CONF_CHANGED=0
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
@@ -288,6 +290,23 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
          scripts/lib scripts/minio-setup.sh scripts/backup-entrypoint.sh 2>/dev/null; then
       say "  mounted helper scripts synced to ${TARGET_TAG}"
     fi
+    # fix(#959): db/postgresql.conf is bind-mounted into the db container, so a
+    # release that changes a Postgres setting (temp_file_limit, log_temp_files)
+    # never reaches an existing install unless this file is synced too. Unlike
+    # the files above it is one operators are told to tune (RUNBOOK section 4),
+    # so overwrite it ONLY when it still matches the installed checkout; a
+    # customised file is left alone with instructions to merge by hand.
+    if git cat-file -e "${TARGET_TAG}:${DB_CONF}" 2>/dev/null; then
+      if ! git diff --quiet HEAD -- "$DB_CONF" 2>/dev/null; then
+        warn "${DB_CONF} has local edits — not overwriting your tuning."
+        warn "  Review 'git diff ${TARGET_TAG} -- ${DB_CONF}', merge any new settings,"
+        warn "  then apply them with 'docker compose up -d --force-recreate db'."
+      elif git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null \
+           && ! git diff --quiet HEAD -- "$DB_CONF" 2>/dev/null; then
+        DB_CONF_CHANGED=1
+        say "  ${DB_CONF} synced to ${TARGET_TAG}"
+      fi
+    fi
   else
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
   fi
@@ -299,6 +318,18 @@ say ""
 # --- Step 5: pull the new images --------------------------------------------
 compose pull --ignore-buildable || fail "Could not pull prebuilt images for $TARGET_VERSION."
 say ""
+
+# fix(#959): a synced db/postgresql.conf needs the container RECREATED, not
+# restarted or reloaded — `git checkout` writes a new inode and a single-file
+# bind mount keeps resolving the one the container started with. Do it before
+# the migrate step, while the old app containers are still the ones about to be
+# replaced anyway, and wait for the healthcheck before continuing.
+if [ "$DB_CONF_CHANGED" = "1" ]; then
+  say "Applying the new ${DB_CONF} (recreating the db container)"
+  compose up -d --force-recreate --no-deps --wait db \
+    || fail "Could not recreate the db container after syncing ${DB_CONF}."
+  say ""
+fi
 
 # --- Step 6: run migrations (fail-closed) BEFORE bringing the app up ---------
 say "Step 4/5: running database migrations (fail-closed)"

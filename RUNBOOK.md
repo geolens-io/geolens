@@ -401,15 +401,36 @@ only the offending session failed. Two responses:
   spill, which usually means the analysis input should be narrowed (smaller
   area of interest, fewer features) before rerunning.
 - **Raise the ceiling**: if the disk has the headroom and the workload is
-  legitimate, increase `temp_file_limit` in `db/postgresql.conf` and reload
-  from inside the container, where Compose has already set the credentials
-  (single quotes on purpose — the variables must expand in the container
-  shell, not on the host, where `.env` values are not exported):
+  legitimate, increase `temp_file_limit` in `db/postgresql.conf`, then
+  **recreate** the db container:
+
+  ```bash
+  docker compose up -d --force-recreate --wait db
+  ```
+
+  Recreate, not `restart` and not `pg_reload_conf()`. `db/postgresql.conf` is
+  bind-mounted as a single file, and most editors save by writing a new file
+  and renaming it over the old one; the running container keeps resolving the
+  inode it started with, so a reload re-reads the *old* contents and the
+  change appears to do nothing. Recreating re-resolves the mount. (If you
+  edited in place — `sed -i` does not qualify, it renames too — a reload is
+  enough, from inside the container where Compose has already set the
+  credentials; single quotes on purpose, so the variables expand in the
+  container shell rather than on the host, where `.env` values are not
+  exported.)
 
   ```bash
   docker compose exec db sh -c \
     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT pg_reload_conf();"'
   ```
+
+  Verify either way with `SHOW temp_file_limit;`.
+
+  `scripts/upgrade.sh` syncs `db/postgresql.conf` from the target release and
+  recreates the db container when it changed, but only if you have not edited
+  the file. A customised config is never overwritten — the upgrade warns and
+  leaves your version in place, so re-check it against the release after any
+  upgrade that mentions a Postgres setting.
 
   The limit is enforced **per process**, not per query: every session
   spilling at once gets the full ceiling, and a parallel query spills from
