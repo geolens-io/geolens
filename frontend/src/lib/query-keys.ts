@@ -201,6 +201,15 @@ export const queryKeys = {
   tileTokens: {
     token: (datasetId: string | undefined) => ['tile-token', datasetId] as const,
     batch: (sortedIds: string) => ['tile-tokens-batch', sortedIds] as const,
+    // fix(#890): the viewer's batch. Separate from `batch` because the viewer
+    // mints with an API key / embed token instead of the session JWT, and those
+    // grants scope differently — sharing one cache entry would serve a viewer
+    // tokens minted for someone else's scope. `auth` is that discriminator, and
+    // it stays out of bug reports because main.tsx's reportQueryKey serializes
+    // only the leading namespace segment. Keeping 'tile-tokens-batch' first also
+    // puts these under useInvalidateTileTokens' sweep (WebGL context restore).
+    viewerBatch: (sortedIds: string, auth: string) =>
+      ['tile-tokens-batch', 'viewer', sortedIds, auth] as const,
   },
 
   // -------------------------------------------------------------------------
