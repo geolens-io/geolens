@@ -40,6 +40,15 @@ import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-sty
 import { useTileConfig } from '@/hooks/use-settings';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
+// fix(#913 review): the hydrated shape of mapData's folder-expansion state,
+// mirroring the load path below (hydrated markers overlaid with group_meta).
+function savedGroupMeta(mapData: MapResponse): Record<string, { expanded: boolean }> {
+  return {
+    ...hydrateFolderGroupLayers(mapData.layers ?? []).groupMeta,
+    ...((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {}),
+  };
+}
+
 // fix(#913): the hydrated shape of mapData.terrain_config, shared by the load
 // path and the clean-state recheck so the two cannot drift.
 function savedTerrainConfig(mapData: { terrain_config?: MapTerrainConfig | null }): MapTerrainConfig | null {
@@ -842,7 +851,14 @@ export function useBuilderLayers(
     );
   }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
-  const markDirty = useCallback(() => {
+  const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
+
+  // fix(#913 review): the opaque flag is only for state this hook CANNOT compare
+  // against server data — dock notes and plugin toggles live outside it. Marking
+  // re-derivable edits (map name, description, basemap) opaque made the unsaved
+  // indicator unclearable for the rest of the session once any of them was
+  // touched, even after the value was put back.
+  const markOpaqueDirty = useCallback(() => {
     opaqueDirtyRef.current = true;
     setHasUnsavedChanges(true);
   }, []);
@@ -869,30 +885,48 @@ export function useBuilderLayers(
       if (!saved || saved.id !== baseline[i].id || !deepEqual(current[i], saved)) return false;
     }
 
-    if (localName !== mapData.name) return false;
-    if (localDescription !== (mapData.description ?? '')) return false;
-    if (localLegendTitle !== (mapData.legend_title ?? null)) return false;
+    // fix(#913 review): compare the SAVE payload's normalization, not the raw
+    // local strings — handleSave persists `localName || undefined`,
+    // `localDescription.trim() || null`, and a trimmed-or-null legend title, so
+    // an untrimmed local value would otherwise read as permanently dirty.
+    if (localName && localName !== mapData.name) return false;
+    if ((localDescription.trim() || null) !== (mapData.description ?? null)) return false;
+    const savedLegend = mapData.legend_title ?? null;
+    if ((localLegendTitle?.trim() || null) !== (savedLegend?.trim() || null)) return false;
     if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
+    // fix(#913 review): folder expansion is persisted (prepareLayersForPersistence
+    // reads groupMeta), and handleToggleGroupExpand marks the map dirty — without
+    // this an expand-then-revert reported clean and the expansion was lost.
+    if (!deepEqual(groupMeta, savedGroupMeta(mapData))) return false;
 
     return true;
   }, [
     mapData, localName, localDescription, localLegendTitle, localBasemap,
-    showBasemapLabels, basemapConfig, localTerrainConfig,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta,
   ]);
 
   // The recheck must observe the reverted layers, so it runs in an effect after
   // commit rather than inline in the revert handler. The nonce and the layer
   // updates batch into the same render, so one request costs one pass.
   const [recheckNonce, setRecheckNonce] = useState(0);
-  const requestCleanRecheck = useCallback(() => setRecheckNonce((n) => n + 1), []);
+  const recheckPendingRef = useRef(false);
+  const requestCleanRecheck = useCallback(() => {
+    recheckPendingRef.current = true;
+    setRecheckNonce((n) => n + 1);
+  }, []);
+  // fix(#913 review): a request stays pending until it actually finds the map
+  // clean, and re-runs whenever the saved baselines it compares against change.
+  // A save invalidates the map-detail query, so a revert racing the refetch used
+  // to compare against stale server data, fail once, and never retry.
   useEffect(() => {
-    if (recheckNonce === 0) return;
-    if (computeMapIsClean()) setHasUnsavedChanges(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fires only on an explicit request
-  }, [recheckNonce]);
+    if (recheckNonce === 0 || !recheckPendingRef.current) return;
+    if (!computeMapIsClean()) return;
+    recheckPendingRef.current = false;
+    setHasUnsavedChanges(false);
+  }, [recheckNonce, computeMapIsClean]);
 
   // fix(v1.6.0 audit D7): identity-stable "is this row a folder group?" lookup.
   // Reads through layersRef so callers (MapBuilderPage's memoized
@@ -1073,6 +1107,7 @@ export function useBuilderLayers(
     handleToggleLegend,
     handleDismissEphemeral,
     markDirty,
+    markOpaqueDirty,
     chatLayerActions,
     // Bulk operation handlers (Phase 1041 Plan 03)
     handleBulkVisibility,
