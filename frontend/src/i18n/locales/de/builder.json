@@ -190,8 +190,10 @@
     "stroke": "Umriss",
     "line": "Linie",
     "point": "Punkt",
-    "opacity": "Deckkraft",
-    "layer": "Layer",
+    "fillOpacity": "Deckkraft der Fläche",
+    "lineOpacity": "Deckkraft der Linie",
+    "pointOpacity": "Deckkraft des Punkts",
+    "layerOpacity": "Deckkraft des Layers",
     "color": "Farbe",
     "width": "Breite",
     "gapWidth": "Lückenbreite",
@@ -314,7 +316,7 @@
       "colorRamp": "Farbverlauf",
       "radius": "Radius",
       "intensity": "Intensität",
-      "opacity": "Deckkraft"
+      "opacity": "Deckkraft der Heatmap"
     },
     "cluster": {
       "radius": "Cluster-Radius",

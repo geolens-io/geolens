@@ -66,7 +66,7 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
       const labels: Record<string, string> = {
         'style.point': 'Point',
         'style.color': 'Color',
-        'style.opacity': 'Opacity',
+        'style.pointOpacity': 'Point opacity',
         'style.radius': 'Radius',
         'style.stroke': 'Stroke',
         'style.toggleStroke': 'Toggle stroke visibility',
@@ -86,7 +86,7 @@ describe('CircleEditor', () => {
 
     // Color label may appear more than once (for the circle color + stroke color)
     expect(screen.getAllByText('Color').length).toBeGreaterThan(0);
-    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Point opacity' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Radius' })).toBeInTheDocument();
     expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
   });
@@ -115,7 +115,7 @@ describe('CircleEditor', () => {
           t: (key: string, opts?: Record<string, unknown>) => {
             if (key === 'style.styledBy') return `Styled by: ${opts?.column}`;
             const labels: Record<string, string> = {
-              'style.point': 'Point', 'style.opacity': 'Opacity', 'style.radius': 'Radius',
+              'style.point': 'Point', 'style.pointOpacity': 'Point opacity', 'style.radius': 'Radius',
               'style.stroke': 'Stroke', 'style.toggleStroke': 'Toggle stroke visibility', 'style.width': 'Width',
             };
             return labels[key] ?? key;
@@ -140,7 +140,7 @@ describe('CircleEditor', () => {
           t: (key: string, opts?: Record<string, unknown>) => {
             if (key === 'style.radiusByColumn') return `Radius by: ${opts?.column}`;
             const labels: Record<string, string> = {
-              'style.point': 'Point', 'style.opacity': 'Opacity', 'style.radius': 'Radius',
+              'style.point': 'Point', 'style.pointOpacity': 'Point opacity', 'style.radius': 'Radius',
               'style.stroke': 'Stroke', 'style.toggleStroke': 'Toggle stroke visibility', 'style.width': 'Width',
             };
             return labels[key] ?? key;
@@ -166,7 +166,7 @@ describe('CircleEditor', () => {
       if (key === 'style.radiusByColumn') return `Radius by: ${opts?.column}`;
       if (key === 'style.styledBy') return `Styled by: ${opts?.column}`;
       const labels: Record<string, string> = {
-        'style.point': 'Point', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.point': 'Point', 'style.color': 'Color', 'style.pointOpacity': 'Point opacity',
         'style.radius': 'Radius', 'style.stroke': 'Stroke',
         'style.toggleStroke': 'Toggle stroke visibility', 'style.width': 'Width',
       };
@@ -189,7 +189,7 @@ describe('CircleEditor', () => {
     const t = (key: string, opts?: Record<string, unknown>) => {
       if (key === 'style.styledBy') return `Styled by: ${opts?.column}`;
       const labels: Record<string, string> = {
-        'style.point': 'Point', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.point': 'Point', 'style.color': 'Color', 'style.pointOpacity': 'Point opacity',
         'style.radius': 'Radius', 'style.stroke': 'Stroke',
         'style.toggleStroke': 'Toggle stroke visibility', 'style.width': 'Width',
       };

@@ -190,8 +190,10 @@
     "stroke": "Contour",
     "line": "Ligne",
     "point": "Point",
-    "opacity": "Opacité",
-    "layer": "Couche",
+    "fillOpacity": "Opacité du remplissage",
+    "lineOpacity": "Opacité de la ligne",
+    "pointOpacity": "Opacité du point",
+    "layerOpacity": "Opacité de la couche",
     "color": "Couleur",
     "width": "Largeur",
     "gapWidth": "Largeur de l'écart",
@@ -314,7 +316,7 @@
       "colorRamp": "Palette de couleurs",
       "radius": "Rayon",
       "intensity": "Intensité",
-      "opacity": "Opacité"
+      "opacity": "Opacité de la carte de chaleur"
     },
     "cluster": {
       "radius": "Rayon d'agrégat",

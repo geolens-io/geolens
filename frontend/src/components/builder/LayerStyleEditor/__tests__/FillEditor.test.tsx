@@ -71,7 +71,7 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
         'style.fill': 'Fill',
         'style.toggleFill': 'Toggle fill visibility',
         'style.color': 'Color',
-        'style.opacity': 'Opacity',
+        'style.fillOpacity': 'Fill opacity',
         'style.stroke': 'Stroke',
         'style.toggleStroke': 'Toggle stroke visibility',
         'style.width': 'Width',
@@ -91,7 +91,7 @@ describe('FillEditor', () => {
 
     expect(screen.getByLabelText('Toggle fill visibility')).toBeInTheDocument();
     expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Fill opacity' })).toBeInTheDocument();
     // Color label appears for fill color and stroke color; both should be present
     expect(screen.getAllByText('Color').length).toBeGreaterThan(0);
   });
@@ -109,7 +109,7 @@ describe('FillEditor', () => {
     // Fill toggle still present
     expect(screen.getByLabelText('Toggle fill visibility')).toBeInTheDocument();
     // Fill opacity slider hidden when collapsed
-    expect(screen.queryByRole('slider', { name: 'Opacity' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Fill opacity' })).not.toBeInTheDocument();
   });
 
   it('shows data-driven message instead of color picker when isDataDriven is true', () => {
@@ -162,7 +162,7 @@ describe('FillEditor', () => {
           t: (key: string) => {
             const labels: Record<string, string> = {
               'style.fill': 'Fill', 'style.toggleFill': 'Toggle fill visibility',
-              'style.color': 'Color', 'style.opacity': 'Opacity',
+              'style.color': 'Color', 'style.fillOpacity': 'Fill opacity',
               'style.stroke': 'Stroke', 'style.toggleStroke': 'Toggle stroke visibility',
               'style.width': 'Width', 'style.heightColumn': 'Height column',
               'style.none': 'None', 'style.styledBy': 'Styled by',
@@ -375,7 +375,7 @@ describe('FillEditor', () => {
           'style.fill': 'Fill',
           'style.toggleFill': 'Toggle fill visibility',
           'style.color': 'Color',
-          'style.opacity': 'Opacity',
+          'style.fillOpacity': 'Fill opacity',
           'style.stroke': 'Stroke',
           'style.toggleStroke': 'Toggle stroke visibility',
           'style.width': 'Width',
@@ -464,7 +464,7 @@ describe('FillEditor', () => {
       />,
     );
     expect(screen.getByLabelText('Toggle fill visibility')).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Fill opacity' })).toBeInTheDocument();
     expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
   });
 
