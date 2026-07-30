@@ -69,30 +69,14 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-# fix(#887): source paths whose host an attacker can influence.
-# ``resolve_open_path`` passes a remotely imported STAC asset's URL through
-# UNCHANGED, so these arrive here verbatim. ``/vsis3/``, ``/vsiaz/`` and local
-# paths are managed storage -- bucket from settings, key already validated by
-# ``resolve_storage_key`` -- and are not in this set.
-_ATTACKER_CONTROLLABLE_PREFIXES: tuple[str, ...] = (
-    "http://",
-    "https://",
-    "/vsicurl/",
-    "/vsicurl_streaming/",
-)
-
-
-def is_attacker_controllable_source(path: str) -> bool:
-    """True when a source path points at a host the caller chose."""
-    return path.startswith(_ATTACKER_CONTROLLABLE_PREFIXES)
-
-
 def gdal_safe_open_env():
     """In-process twin of :func:`gdal_safe_env`, for ``rasterio.open`` calls.
 
     ``gdal_safe_env`` clamps SUBPROCESS environments only; an in-process
     ``rasterio.open`` gets none of it. Built from the same ``_VRT_SAFE_ENV``
-    constant so the two cannot drift when a clamp is added.
+    constant so the two cannot drift when a clamp is added. Used by
+    :func:`_write_python_vrt`, which must open the sources it is asked to build
+    from -- the only in-process source access left in this module.
 
     fix(#887): note what this does NOT buy. Measured on GDAL 3.12.1,
     ``GDAL_HTTP_FOLLOWLOCATION`` is not a GDAL configuration option at all --
@@ -101,8 +85,7 @@ def gdal_safe_open_env():
     follows the 302 anyway, in-process and in the subprocess alike. So this env
     carries the two clamps that ARE real (the ``/vsicurl`` extension allow-list
     and ``VRT_VIRTUAL_OVERVIEWS``) and provides no redirect protection to
-    anybody. Redirect safety for user-supplied URLs has to come from not handing
-    them to GDAL -- see :func:`is_attacker_controllable_source`.
+    anybody.
     """
     import rasterio
 
@@ -508,63 +491,7 @@ def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> 
     return resolve_open_path(asset_uri, tenant_id=tenant_id)
 
 
-def sources_seam_frame_origin(source_paths: list[str]) -> float | None:
-    """Frame origin for a geographic mosaic that crosses ±180, else ``None``.
-
-    fix(#887): ``gdalbuildvrt`` has no antimeridian handling. It takes the plain
-    min/max hull of the source extents, so two 5°-wide tiles either side of the
-    seam come out as a 3600 x 50 px mosaic anchored at -180 with the eastern tile
-    at ``dst_x_off`` 3550 -- byte-for-byte the same defect the Python writer had,
-    verified against the GDAL 3.10 in the worker image and GDAL 3.13 locally. The
-    ``FileNotFoundError`` fallback below never fires in a deployed worker, because
-    the image installs ``gdal-bin``, so the subprocess output is what has to be
-    corrected.
-
-    Nor can the subprocess be nudged into the right answer up front.
-    ``-te 175 0 185 5`` sizes the mosaic correctly but places each source at its
-    own coordinates, so every source outside that window is dropped: the run
-    exits 0 and half the mosaic comes back empty. Pre-shifting each source
-    through its own intermediate VRT is geometrically sound, but those
-    intermediates are temp files that never get stored, so ``rewrite_vrt_sources``
-    (STOR-03) would leave the outer VRT pointing at paths that do not survive
-    ingest.
-
-    Returns ``None`` unless every source is geographic and the mosaic really
-    crosses the seam, so the ordinary build is left completely alone.
-
-    **Never probes a caller-supplied URL** (AGENTS.md Rule 2). This runs *ahead*
-    of ``gdalbuildvrt``, so for a remotely imported STAC asset -- whose ``https://``
-    URL ``resolve_open_path`` passes through unchanged -- it would be the first
-    thing to fetch it. A URL that was validated at import time but now
-    3xx-redirects to a private address would be followed, and there is no GDAL
-    setting that prevents that: ``GDAL_HTTP_FOLLOWLOCATION`` is not a real
-    configuration option (see :func:`gdal_safe_open_env`), so clamping the open
-    would only look like a fix. Refusing to open it is the actual fix.
-
-    The cost, stated plainly: a genuinely seam-crossing mosaic built from remote
-    sources keeps the old over-broad -180..180 hull. That is the pre-existing
-    behaviour, it is rare, and it is a much better trade than adding a fetch of
-    an attacker-chosen host to a code path that had none.
-    """
-    import rasterio
-
-    if any(is_attacker_controllable_source(path) for path in source_paths):
-        return None
-
-    try:
-        with gdal_safe_open_env(), ExitStack() as stack:
-            datasets = [
-                stack.enter_context(rasterio.open(path)) for path in source_paths
-            ]
-            if not all(_is_degree_based(ds.crs) for ds in datasets):
-                return None
-            spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
-    except Exception:  # broad: a source that cannot be opened is gdalbuildvrt's error to report, with its own message — never this probe's
-        return None
-    return _seam_frame_origin(spans)
-
-
-def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
+def shift_vrt_longitude_frame(vrt_path: str) -> None:
     """Re-anchor a built VRT's longitude frame so the seam falls inside it.
 
     fix(#887): ``gdalbuildvrt`` gets everything about a seam-crossing mosaic
@@ -587,39 +514,62 @@ def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
     wrote (``old_left + xOff * res_x``), so this needs no second pass over the
     sources and no filename matching.
 
-    Editing generated XML is version-sensitive, so the structure this depends on
-    is asserted rather than assumed: GDAL 3.10.3 (worker image) and 3.13.0 both
-    emit the same root ``rasterXSize``, ``GeoTransform``, and one ``DstRect`` per
-    source. A source without a ``DstRect`` covers the whole raster implicitly, and
-    shrinking the raster underneath it would silently restretch it, so anything
-    unexpected raises here. Failing the build is the only acceptable outcome --
-    the alternative is shipping a misregistered mosaic that looks fine.
+    It also DECIDES, from the same XML, opening nothing. That is deliberate
+    (fix(#887), codex round 9): the previous version probed every source with
+    ``rasterio.open`` before the build, and ``build_vrt`` runs inside
+    ``asyncio.to_thread`` (``tasks_vrt.py``). Python threads are not killable, so
+    a stalled ``/vsis3/`` read pinned a pool thread forever with none of
+    ``run_gdal``'s wall-clock timeout and kill-on-hang applying to it -- enough
+    stalled VRT jobs would starve every other ``to_thread`` in the worker. The
+    module comment on ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` names that hazard
+    already; the probe reintroduced it.
 
-    Raises:
-        RuntimeError: If the VRT lacks the geometry this correction needs.
+    ``gdalbuildvrt`` has already opened every source, under that timeout, and
+    written what this needs: per-source ``DstRect`` geometry, the hull
+    ``GeoTransform``, and the ``SRS``. Deriving the decision from those closes the
+    timeout gap and removes the SSRF question entirely rather than fencing it off
+    by URL prefix -- nothing here ever touches a source.
+
+    Returns without writing when the VRT is not a degree-based geographic mosaic,
+    when its sources do not straddle the seam, or when the XML lacks the geometry
+    this needs. That last case cannot hide a real crossing: detecting one requires
+    exactly the same ``GeoTransform`` and per-source ``DstRect`` values the
+    rewrite consumes, so a VRT this cannot read is one it also cannot have
+    detected. Verified against GDAL 3.10.3 (worker image) and 3.13.0, which emit
+    identical structure.
     """
     from xml.etree.ElementTree import parse
 
-    tree = parse(vrt_path)
+    from rasterio.crs import CRS
+
+    try:
+        tree = parse(vrt_path)
+    except Exception:  # broad: a post-build correction must never turn a build gdalbuildvrt reported as successful into a crash — an unreadable or absent output is that subprocess's business, not this function's
+        return
     root = tree.getroot()
 
     gt_node = root.find("GeoTransform")
     if gt_node is None or not gt_node.text:
-        raise RuntimeError(
-            f"cannot correct the antimeridian frame of {vrt_path}: no GeoTransform"
-        )
+        return
     geotransform = [float(v) for v in gt_node.text.split(",")]
     if len(geotransform) != 6:
-        raise RuntimeError(
-            f"cannot correct the antimeridian frame of {vrt_path}: GeoTransform has "
-            f"{len(geotransform)} terms, expected 6"
-        )
+        return
     old_left, res_x = geotransform[0], geotransform[1]
     if res_x <= 0.0:
-        raise RuntimeError(
-            f"cannot correct the antimeridian frame of {vrt_path}: "
-            f"non-positive x resolution {res_x}"
-        )
+        return
+
+    # Parsing the SRS text is pure string work -- CRS.from_wkt does no I/O -- so
+    # the degree-based gate costs nothing and still rejects grads (EPSG:4807,
+    # which turns at 400) and every projected CRS.
+    srs_node = root.find("SRS")
+    if srs_node is None or not srs_node.text:
+        return
+    try:
+        crs = CRS.from_wkt(srs_node.text)
+    except Exception:  # broad: an SRS PROJ cannot parse is one we must not re-frame
+        return
+    if not _is_degree_based(crs):
+        return
 
     sources = [
         el
@@ -628,23 +578,39 @@ def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
     ]
     rects = [el.find("DstRect") for el in sources]
     if not sources or any(rect is None for rect in rects):
-        raise RuntimeError(
-            f"cannot correct the antimeridian frame of {vrt_path}: expected one "
-            f"DstRect per source, got {sum(r is not None for r in rects)} for "
-            f"{len(sources)} source(s)"
+        return
+
+    # A source's own longitude span is recoverable from the offset GDAL already
+    # wrote, so the seam decision needs no second pass over the sources and no
+    # filename matching. Duplicate spans (one DstRect per band, plus any mask
+    # band) are harmless: they change neither the hull nor the candidate origins.
+    reconstructed = [
+        (
+            rect,
+            old_left + float(rect.get("xOff", "0")) * res_x,
+            float(rect.get("xSize", "0")),
         )
+        for rect in rects
+    ]
+    seam_origin = _seam_frame_origin(
+        [(left, left + size * res_x) for _, left, size in reconstructed]
+    )
+    if seam_origin is None:
+        return
 
     placements = []
-    for rect in rects:
-        x_off = float(rect.get("xOff", "0"))
-        x_size = float(rect.get("xSize", "0"))
-        # `src_left` is RECONSTRUCTED from a serialized pixel offset while
-        # `seam_origin` was read straight off the source, so the two describe the
-        # same edge by different arithmetic and disagree by ~1e-14 degrees. A bare
-        # `<` then shifts the origin source itself: for old_left=-180, res_x=0.02,
-        # xOff=17750.05 and seam_origin=175.001 it reconstructs 175.00099999999998,
-        # every tile gets +360, and the mosaic stays 17998 px wide instead of 300.
-        src_left = old_left + x_off * res_x
+    for rect, src_left, x_size in reconstructed:
+        # fix(#887): DEFENSIVE here, and deliberately kept. Codex round 6 found
+        # this comparison shifting the origin source itself, because `src_left`
+        # was reconstructed from a serialized pixel offset while `seam_origin`
+        # had been read straight off the source -- two derivations of one edge,
+        # disagreeing by ~1e-14, and the whole mosaic stayed 17998 px wide
+        # instead of 300. Round 9 removed the source-opening probe, so both
+        # values now come from THIS reconstruction and `seam_origin` is
+        # bit-identical to one of them; the mismatch is structurally impossible.
+        # The epsilon stays so that reintroducing a second derivation cannot
+        # quietly bring the bug back. (The load-bearing one is in
+        # _seam_frame_origin's hull contest.)
         shift = 360.0 if src_left < seam_origin - LON_EPSILON_DEGREES else 0.0
         placements.append((rect, src_left + shift, x_size))
 
@@ -686,10 +652,6 @@ def _build_vrt(
         KeyError: If an unrecognised resolution_strategy is supplied.
     """
     gdal_res = _RES_MAP[resolution_strategy]
-    # fix(#887): measured BEFORE the build, because a source's own bounds are the
-    # input to the frame choice; the correction itself is applied to gdalbuildvrt's
-    # output so its nodata, colour-interpretation and mask semantics survive.
-    seam_origin = sources_seam_frame_origin(source_paths)
     cmd = ["gdalbuildvrt"]
     if separate:
         cmd.append("-separate")
@@ -705,8 +667,11 @@ def _build_vrt(
         )
     if result.returncode != 0:
         raise RuntimeError(f"gdalbuildvrt failed: {result.stderr}")
-    if seam_origin is not None:
-        shift_vrt_longitude_frame(output_path, seam_origin)
+    # fix(#887): correct the antimeridian frame AFTER the build, from the XML
+    # gdalbuildvrt just wrote. It opens nothing itself and no-ops unless the
+    # sources really straddle ±180 -- so nothing in this function touches a
+    # source outside the timed, killable subprocess above.
+    shift_vrt_longitude_frame(output_path)
     return output_path
 
 

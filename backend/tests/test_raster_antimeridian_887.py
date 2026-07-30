@@ -24,11 +24,14 @@ are pure rasterio/XML unit tests. Any test here that commits a seam-crossing
 extent MUST take ``clean_tables`` — see ``TestRasterTokenAcrossTheSeam``.
 """
 
+import contextlib
 import io
 import math
 import shutil
 import subprocess
 import threading
+import time
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -62,9 +65,7 @@ from app.processing.raster.vrt import (
     _seam_frame_origin,
     _write_python_vrt,
     build_vrt,
-    is_attacker_controllable_source,
     shift_vrt_longitude_frame,
-    sources_seam_frame_origin,
 )
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.processing.tiles.router import _raster_maxzoom_from_metadata
@@ -591,88 +592,30 @@ class TestSeamStraddlingVrt:
 # ---------------------------------------------------------------------------
 
 
-class TestSourcesSeamFrameOrigin:
-    """The build-time probe, on the inputs that must not trip it."""
+class TestSeamDecisionOpensNothing:
+    """The seam decision comes from the built XML, never from opening sources.
 
-    def test_geographic_seam_pair_is_detected(self, tmp_path):
-        sources = [
-            _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
-            _write_tif(
-                tmp_path / "b.tif", epsg=4326, bounds=(-180.0, 0.0, -175.0, 5.0)
-            ),
-        ]
+    fix(#887), codex round 9: an earlier cut probed every source with
+    ``rasterio.open`` before the build. ``build_vrt`` runs inside
+    ``asyncio.to_thread`` and Python threads are not killable, so a stalled
+    ``/vsis3/`` read pinned a pool thread with none of ``run_gdal``'s wall-clock
+    timeout applying — enough of them starve every other ``to_thread`` in the
+    worker. ``gdalbuildvrt`` already opens every source under that timeout and
+    writes what the decision needs, so the probe is gone.
+    """
 
-        assert sources_seam_frame_origin(sources) == pytest.approx(175.0)
+    # Long enough that a real open would blow the elapsed budget below by 3x,
+    # short enough that a regression fails the assertion instead of wedging CI.
+    _STALL_SECONDS = 6.0
+    _ELAPSED_BUDGET = 2.0
 
-    def test_off_seam_pair_is_not_detected(self, tmp_path):
-        sources = [
-            _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(10.0, 0.0, 15.0, 5.0)),
-            _write_tif(tmp_path / "b.tif", epsg=4326, bounds=(15.0, 0.0, 20.0, 5.0)),
-        ]
-
-        assert sources_seam_frame_origin(sources) is None
-
-    def test_one_crs_less_source_disables_detection(self, tmp_path):
-        """Unknown units means unknown wrap: refuse rather than guess."""
-        sources = [
-            _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
-            _write_tif(
-                tmp_path / "b.tif", epsg=None, bounds=(-180.0, 0.0, -175.0, 5.0)
-            ),
-        ]
-
-        assert sources_seam_frame_origin(sources) is None
-
-    def test_projected_sources_are_not_detected(self, tmp_path):
-        """Metres are not degrees — a 4e7 m hull must not read as a seam crossing."""
-        half = WEB_MERCATOR_HALF_WORLD_M
-        sources = [
-            _write_tif(
-                tmp_path / "w.tif",
-                epsg=3857,
-                bounds=(-half, 0.0, -half + 1_000_000.0, 1_000_000.0),
-            ),
-            _write_tif(
-                tmp_path / "e.tif",
-                epsg=3857,
-                bounds=(half - 1_000_000.0, 0.0, half, 1_000_000.0),
-            ),
-        ]
-
-        assert sources_seam_frame_origin(sources) is None
-
-    def test_unopenable_source_is_not_detected(self, tmp_path):
-        bogus = tmp_path / "broken.tif"
-        bogus.write_bytes(b"not a tiff")
-
-        assert sources_seam_frame_origin([str(bogus)]) is None
-
-    def test_remote_source_is_never_fetched_by_the_probe(self, tmp_path):
-        """AGENTS.md Rule 2: the probe must not fetch a caller-supplied URL.
-
-        This runs *ahead* of ``gdalbuildvrt``, so for a remotely imported STAC
-        asset — whose URL ``resolve_open_path`` passes through unchanged — it
-        would be the first thing to fetch it, and a URL that was safe at import
-        time but now redirects to a private address would be followed.
-
-        Asserting "the redirect was not followed" would be too weak, because no
-        GDAL setting can deliver that: measured on GDAL 3.12.1,
-        ``GDAL_HTTP_FOLLOWLOCATION`` is not a real config option
-        (``Warning 1: Unknown configuration option``) and the 302 is followed
-        with or without it, in-process and in the subprocess alike. So assert
-        the strong property instead: **the host is never contacted at all.**
-        A local server records every hit; the list must stay empty.
-        """
-        requested: list[str] = []
+    def _stalling_server(self, requested: list[str]):
+        stall = self._STALL_SECONDS
 
         class _Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802 (BaseHTTPRequestHandler API)
                 requested.append(self.path)
-                if self.path.startswith("/redirect"):
-                    self.send_response(302)
-                    self.send_header("Location", "/private.tif")
-                    self.end_headers()
-                    return
+                time.sleep(stall)  # the stalled /vsi read this test is about
                 self.send_response(200)
                 self.send_header("Content-Type", "image/tiff")
                 self.end_headers()
@@ -681,86 +624,83 @@ class TestSourcesSeamFrameOrigin:
             def do_HEAD(self):  # noqa: N802 (GDAL probes with HEAD first)
                 self.do_GET()
 
-            def log_message(self, *args):  # silence the default stderr spam
+            def log_message(self, *args):
                 return
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        return ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+
+    def test_build_is_bounded_when_a_source_stalls(self, tmp_path, monkeypatch):
+        """A stalling source must not block the calling thread.
+
+        This is the P1 in miniature. ``build_vrt`` runs under
+        ``asyncio.to_thread``; a synchronous open of a stalled ``/vsis3/`` source
+        pins a pool thread that cannot be cancelled, and none of ``run_gdal``'s
+        timeout applies to it. With the probe removed nothing here opens a
+        source, so the call returns immediately even though the host would hang
+        for seconds.
+
+        Asserted two ways: elapsed time (bounded) and the server's own request
+        log (never contacted). A control fetch afterwards proves the log records
+        hits, so the empty list is evidence rather than an accident.
+        """
+        requested: list[str] = []
+        server = self._stalling_server(requested)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        url = f"http://127.0.0.1:{server.server_address[1]}/remote.tif"
+
+        def _write(cmd, **kwargs):
+            Path(cmd[cmd.index("-resolution") + 2]).write_text(_GDALBUILDVRT_SEAM_XML)
+            return SimpleNamespace(returncode=0, stderr="")
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _write)
         try:
-            url = f"http://127.0.0.1:{server.server_address[1]}/redirect.tif"
-            assert sources_seam_frame_origin([url]) is None
+            started = time.monotonic()
+            vrt_module._build_vrt([url], str(tmp_path / "remote.vrt"), "finest")
+            elapsed = time.monotonic() - started
+
+            assert elapsed < self._ELAPSED_BUDGET, (
+                f"_build_vrt blocked {elapsed:.1f}s on a stalling source — it "
+                "opened one itself, outside the timed subprocess"
+            )
+            assert requested == [], (
+                f"a source was opened outside gdalbuildvrt: {requested}"
+            )
+
+            # Control: the log DOES record a hit when the host is contacted, so
+            # the empty assertion above cannot pass by a broken rig.
+            with contextlib.suppress(OSError):
+                urllib.request.urlopen(url, timeout=self._STALL_SECONDS + 4)
+            assert requested, "the request log never recorded anything; rig is broken"
         finally:
             server.shutdown()
             server.server_close()
-            thread.join(timeout=5)
+            thread.join(timeout=self._STALL_SECONDS + 5)
 
-        assert requested == [], f"the probe fetched a caller-supplied URL: {requested}"
+    def test_seam_decision_reads_the_xml_not_the_sources(self, tmp_path, monkeypatch):
+        """The re-frame still happens with the sources unreadable.
 
-    @pytest.mark.parametrize(
-        "path,controllable",
-        [
-            ("https://example.invalid/a.tif", True),
-            ("http://example.invalid/a.tif", True),
-            ("/vsicurl/https://example.invalid/a.tif", True),
-            ("/vsicurl_streaming/https://example.invalid/a.tif", True),
-            # Managed storage: bucket from settings, key already validated.
-            ("/vsis3/bucket/rasters/a.tif", False),
-            ("/vsiaz/container/rasters/a.tif", False),
-            ("/srv/staging/rasters/a.tif", False),
-        ],
-    )
-    def test_attacker_controllable_source_classification(self, path, controllable):
-        assert is_attacker_controllable_source(path) is controllable
-
-    def test_managed_storage_paths_are_still_probed(self, tmp_path):
-        """The refusal is scoped to caller-supplied hosts, not to all I/O.
-
-        Same seam pair as the positive case, just proving the local/managed path
-        did not get caught by the URL guard.
+        The source paths here do not exist at all. If the decision needed to open
+        them it could not be made; it is made from the XML, so it is.
         """
-        sources = [
-            _write_tif(tmp_path / "m1.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
-            _write_tif(
-                tmp_path / "m2.tif", epsg=4326, bounds=(-180.0, 0.0, -175.0, 5.0)
-            ),
-        ]
 
-        assert sources_seam_frame_origin(sources) == pytest.approx(175.0)
+        def _write(cmd, **kwargs):
+            Path(cmd[cmd.index("-resolution") + 2]).write_text(_GDALBUILDVRT_SEAM_XML)
+            return SimpleNamespace(returncode=0, stderr="")
 
-    def test_grads_based_geographic_crs_is_not_detected(self, tmp_path):
-        """``is_geographic`` is not the same as "wraps at ±180".
+        monkeypatch.setattr(vrt_module, "run_gdal", _write)
 
-        EPSG:4807 (NTF Paris) is geographic with an angular unit of GRADS: a full
-        turn is 400 and the seam sits at 200. The seam logic is written in
-        degrees end to end, so a 195..200 / -200..-195 pair here would be shifted
-        by 360 instead of 400 and land as a 40-grad hull instead of a 10-grad
-        one. Refuse rather than corrupt it.
-        """
-        sources = [
-            _write_tif(tmp_path / "g1.tif", epsg=4807, bounds=(195.0, 0.0, 200.0, 5.0)),
-            _write_tif(
-                tmp_path / "g2.tif", epsg=4807, bounds=(-200.0, 0.0, -195.0, 5.0)
-            ),
-        ]
+        out = vrt_module._build_vrt(
+            ["/nonexistent/a.tif", "/nonexistent/b.tif"],
+            str(tmp_path / "seam.vrt"),
+            "finest",
+        )
 
-        assert sources_seam_frame_origin(sources) is None
+        assert _vrt_size(out) == (100, 50)
+        assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
 
-    def test_degree_based_non_4326_crs_is_still_detected(self, tmp_path):
-        """Positive control for the unit gate: EPSG:4269 is degrees, so it counts.
 
-        Differs from the grads fixture in exactly one axis — same longitudes,
-        same latitudes, same seam crossing, only the CRS's angular unit changes.
-        """
-        sources = [
-            _write_tif(tmp_path / "n1.tif", epsg=4269, bounds=(175.0, 0.0, 180.0, 5.0)),
-            _write_tif(
-                tmp_path / "n2.tif", epsg=4269, bounds=(-180.0, 0.0, -175.0, 5.0)
-            ),
-        ]
-
-        assert sources_seam_frame_origin(sources) == pytest.approx(175.0)
-
+_WGS84_WKT = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]'
 
 # A gdalbuildvrt mosaic of two nodata-carrying tiles either side of ±180, as
 # emitted verbatim by BOTH GDAL 3.10.3 (worker image) and GDAL 3.13.0 (local):
@@ -768,7 +708,7 @@ class TestSourcesSeamFrameOrigin:
 # here so the rewrite is tested deterministically on machines with no GDAL CLI --
 # the skipif-gated tests below drive the real binary where it exists.
 _GDALBUILDVRT_SEAM_XML = """<VRTDataset rasterXSize="3600" rasterYSize="50">
-  <SRS dataAxisToSRSAxisMapping="2,1">GEOGCS["WGS 84"]</SRS>
+  <SRS dataAxisToSRSAxisMapping="2,1">GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]</SRS>
   <GeoTransform> -1.8000000000000000e+02,  1.0000000000000001e-01,  0.0000000000000000e+00,  5.0000000000000000e+00,  0.0000000000000000e+00, -1.0000000000000001e-01</GeoTransform>
   <VRTRasterBand dataType="Byte" band="1">
     <NoDataValue>0</NoDataValue>
@@ -800,6 +740,38 @@ _GDALBUILDVRT_SEAM_XML = """<VRTDataset rasterXSize="3600" rasterYSize="50">
   </VRTRasterBand>
 </VRTDataset>
 """
+
+
+def _plain_vrt_xml(
+    left: float, res_x: float, spans_px: list[tuple[float, float]]
+) -> str:
+    """A gdalbuildvrt-shaped VRT with the given per-source DstRects.
+
+    fix(#887): the seam decision is read from this XML, so a test asserting
+    "left alone" needs a fixture that genuinely does not straddle the seam —
+    stubbing seam XML and non-crossing source paths would assert nothing.
+    """
+    width = max(1, int(round(max(off + size for off, size in spans_px))))
+    rects = "".join(
+        f'<ComplexSource><DstRect xOff="{off!r}" yOff="0" '
+        f'xSize="{size!r}" ySize="50" /></ComplexSource>'
+        for off, size in spans_px
+    )
+    return (
+        f'<VRTDataset rasterXSize="{width}" rasterYSize="50">'
+        f"<SRS>{_WGS84_WKT}</SRS>"
+        f"<GeoTransform> {left!r}, {res_x!r}, 0.0, 5.0, 0.0, -{res_x!r}</GeoTransform>"
+        f'<VRTRasterBand dataType="Byte" band="1">{rects}</VRTRasterBand>'
+        "</VRTDataset>"
+    )
+
+
+# Two adjacent 5-degree tiles at 10..20 — nowhere near the seam.
+_GDALBUILDVRT_OFFSEAM_XML = _plain_vrt_xml(10.0, 0.1, [(0.0, 50.0), (50.0, 50.0)])
+# A genuinely global tiling: 36 contiguous 10-degree tiles across -180..180.
+_GDALBUILDVRT_GLOBAL_XML = _plain_vrt_xml(
+    -180.0, 10.0, [(float(i), 1.0) for i in range(36)]
+)
 
 
 class TestSeamFrameRewrite:
@@ -877,20 +849,20 @@ class TestSeamFrameRewrite:
         monkeypatch.setattr(
             vrt_module,
             "run_gdal",
-            self._fake_gdalbuildvrt(_GDALBUILDVRT_SEAM_XML),
+            self._fake_gdalbuildvrt(_GDALBUILDVRT_OFFSEAM_XML),
         )
         sources = self._tiles(tmp_path, [(10.0, 15.0), (15.0, 20.0)])
 
         out = vrt_module._build_vrt(sources, str(tmp_path / "plain.vrt"), "finest")
 
-        assert Path(out).read_text() == _GDALBUILDVRT_SEAM_XML
+        assert Path(out).read_text() == _GDALBUILDVRT_OFFSEAM_XML
 
     def test_global_mosaic_output_is_left_alone(self, tmp_path, monkeypatch):
         """A genuinely global mosaic is not a seam crossing."""
         monkeypatch.setattr(
             vrt_module,
             "run_gdal",
-            self._fake_gdalbuildvrt(_GDALBUILDVRT_SEAM_XML),
+            self._fake_gdalbuildvrt(_GDALBUILDVRT_GLOBAL_XML),
         )
         sources = self._tiles(
             tmp_path, [(-180.0 + 10 * i, -170.0 + 10 * i) for i in range(36)]
@@ -898,7 +870,7 @@ class TestSeamFrameRewrite:
 
         out = vrt_module._build_vrt(sources, str(tmp_path / "global.vrt"), "finest")
 
-        assert Path(out).read_text() == _GDALBUILDVRT_SEAM_XML
+        assert Path(out).read_text() == _GDALBUILDVRT_GLOBAL_XML
 
     def test_band_stack_dispatch_also_rewrites(self, tmp_path, monkeypatch):
         """``build_vrt("band_stack", ...)`` reaches the rewrite too."""
@@ -914,32 +886,74 @@ class TestSeamFrameRewrite:
         assert _vrt_size(out) == (100, 50)
         assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
 
-    def test_missing_dstrect_fails_loudly(self, tmp_path):
-        """Editing generated XML is version-sensitive, so assert the structure.
+    @pytest.mark.parametrize(
+        "label,xml",
+        [
+            (
+                "no DstRect",
+                '<VRTDataset rasterXSize="3600" rasterYSize="50">'
+                "<SRS>" + _WGS84_WKT + "</SRS>"
+                "<GeoTransform>-180.0, 0.1, 0.0, 5.0, 0.0, -0.1</GeoTransform>"
+                '<VRTRasterBand dataType="Byte" band="1"><SimpleSource>'
+                "<SourceFilename>w.tif</SourceFilename></SimpleSource>"
+                "</VRTRasterBand></VRTDataset>",
+            ),
+            ("no GeoTransform", '<VRTDataset rasterXSize="10" rasterYSize="10" />'),
+            (
+                "no SRS",
+                '<VRTDataset rasterXSize="3600" rasterYSize="50">'
+                "<GeoTransform>-180.0, 0.1, 0.0, 5.0, 0.0, -0.1</GeoTransform>"
+                '<VRTRasterBand dataType="Byte" band="1"><ComplexSource>'
+                '<DstRect xOff="3550" yOff="0" xSize="50" ySize="50" />'
+                "</ComplexSource></VRTRasterBand></VRTDataset>",
+            ),
+            (
+                "unparseable SRS",
+                '<VRTDataset rasterXSize="3600" rasterYSize="50">'
+                "<SRS>not a coordinate system</SRS>"
+                "<GeoTransform>-180.0, 0.1, 0.0, 5.0, 0.0, -0.1</GeoTransform>"
+                '<VRTRasterBand dataType="Byte" band="1"><ComplexSource>'
+                '<DstRect xOff="3550" yOff="0" xSize="50" ySize="50" />'
+                "</ComplexSource></VRTRasterBand></VRTDataset>",
+            ),
+        ],
+    )
+    def test_unreadable_geometry_is_left_untouched(self, tmp_path, label, xml):
+        """A VRT this cannot read is one it also cannot have judged.
 
-        A source with no ``DstRect`` covers the whole raster implicitly; shrinking
-        the raster underneath it would silently restretch it. Raise instead —
-        shipping a misregistered mosaic that looks fine is the one unacceptable
-        outcome.
+        Deciding the seam needs exactly the ``GeoTransform``, ``SRS`` and
+        per-source ``DstRect`` values the rewrite consumes, so "cannot read" and
+        "no crossing detected" are the same state — there is no case where a
+        detected crossing goes unfixed. Leave the file byte-identical rather than
+        failing a build that ``gdalbuildvrt`` completed successfully.
         """
-        vrt = tmp_path / "no_dstrect.vrt"
-        vrt.write_text(
-            '<VRTDataset rasterXSize="3600" rasterYSize="50">'
-            "<GeoTransform>-180.0, 0.1, 0.0, 5.0, 0.0, -0.1</GeoTransform>"
-            '<VRTRasterBand dataType="Byte" band="1"><SimpleSource>'
-            "<SourceFilename>w.tif</SourceFilename></SimpleSource>"
-            "</VRTRasterBand></VRTDataset>"
+        vrt = tmp_path / f"{abs(hash(label))}.vrt"
+        vrt.write_text(xml)
+
+        shift_vrt_longitude_frame(str(vrt))
+
+        assert vrt.read_text() == xml, f"{label}: file must be left untouched"
+
+    def test_missing_output_does_not_crash_a_successful_build(
+        self, tmp_path, monkeypatch
+    ):
+        """A post-build correction must not fail a build gdalbuildvrt completed.
+
+        The rewrite now runs on every build, so an output it cannot read — absent,
+        truncated, not XML — has to be a no-op rather than an exception. Whether
+        the subprocess really produced a file is that subprocess's business.
+        """
+
+        def _succeed_without_writing(cmd, **kwargs):
+            return SimpleNamespace(returncode=0, stderr="")
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _succeed_without_writing)
+
+        out = vrt_module._build_vrt(
+            ["/a.tif", "/b.tif"], str(tmp_path / "never_written.vrt"), "finest"
         )
 
-        with pytest.raises(RuntimeError, match="expected one DstRect per source"):
-            shift_vrt_longitude_frame(str(vrt), 175.0)
-
-    def test_missing_geotransform_fails_loudly(self, tmp_path):
-        vrt = tmp_path / "no_gt.vrt"
-        vrt.write_text('<VRTDataset rasterXSize="10" rasterYSize="10" />')
-
-        with pytest.raises(RuntimeError, match="no GeoTransform"):
-            shift_vrt_longitude_frame(str(vrt), 175.0)
+        assert out == str(tmp_path / "never_written.vrt")
 
     def test_fractional_offsets_stay_fractional(self, tmp_path):
         """Sub-pixel offsets must not be rounded to whole pixels.
@@ -952,6 +966,7 @@ class TestSeamFrameRewrite:
         vrt = tmp_path / "frac.vrt"
         vrt.write_text(
             '<VRTDataset rasterXSize="18000" rasterYSize="50">'
+            "<SRS>" + _WGS84_WKT + "</SRS>"
             "<GeoTransform> -1.8e+02, 2.0e-02, 0.0, 5.0, 0.0, -2.0e-02</GeoTransform>"
             '<VRTRasterBand dataType="Byte" band="1">'
             "<ComplexSource>"
@@ -965,7 +980,7 @@ class TestSeamFrameRewrite:
             "</VRTRasterBand></VRTDataset>"
         )
 
-        shift_vrt_longitude_frame(str(vrt), 175.0)
+        shift_vrt_longitude_frame(str(vrt))
 
         root = parse_vrt(str(vrt)).getroot()
         offsets = [d.get("xOff") for d in root.iter("DstRect")]
@@ -989,6 +1004,7 @@ class TestSeamFrameRewrite:
         vrt = tmp_path / "contain.vrt"
         vrt.write_text(
             '<VRTDataset rasterXSize="18000" rasterYSize="50">'
+            "<SRS>" + _WGS84_WKT + "</SRS>"
             "<GeoTransform> -1.8e+02, 2.0e-02, 0.0, 5.0, 0.0, -2.0e-02</GeoTransform>"
             '<VRTRasterBand dataType="Byte" band="1">'
             "<ComplexSource>"
@@ -1000,7 +1016,7 @@ class TestSeamFrameRewrite:
             "</VRTRasterBand></VRTDataset>"
         )
 
-        shift_vrt_longitude_frame(str(vrt), 175.0)
+        shift_vrt_longitude_frame(str(vrt))
 
         root = parse_vrt(str(vrt)).getroot()
         width = int(root.get("rasterXSize"))
@@ -1058,6 +1074,7 @@ class TestSeamFrameRewrite:
         vrt = tmp_path / f"prop_{abs(hash((res_x, lefts)))}.vrt"
         vrt.write_text(
             f'<VRTDataset rasterXSize="{plain_width}" rasterYSize="10">'
+            f"<SRS>{_WGS84_WKT}</SRS>"
             f"<GeoTransform> {old_left!r}, {res_x!r}, 0.0, 5.0, 0.0, -{res_x!r}</GeoTransform>"
             f'<VRTRasterBand dataType="Byte" band="1">{rects}</VRTRasterBand>'
             "</VRTDataset>"
@@ -1065,7 +1082,7 @@ class TestSeamFrameRewrite:
 
         seam_origin = _seam_frame_origin(sources)
         assert seam_origin is not None, "fixture must straddle the seam"
-        shift_vrt_longitude_frame(str(vrt), seam_origin)
+        shift_vrt_longitude_frame(str(vrt))
 
         root = parse_vrt(str(vrt)).getroot()
         width = int(root.get("rasterXSize"))
@@ -1140,7 +1157,7 @@ class TestSeamFrameRewrite:
         vrt = tmp_path / "whole.vrt"
         vrt.write_text(_GDALBUILDVRT_SEAM_XML)
 
-        shift_vrt_longitude_frame(str(vrt), 175.0)
+        shift_vrt_longitude_frame(str(vrt))
 
         root = parse_vrt(str(vrt)).getroot()
         assert [d.get("xOff") for d in root.iter("DstRect")] == ["0", "50", "0"]
