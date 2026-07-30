@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { ColorizedGeometryIcon, LayerTypeIcon, type LayerTypeIconLayer } from '../layer-icons';
+import { ColorizedGeometryIcon, LayerTypeIcon, extractStyleHints, type LayerTypeIconLayer } from '../layer-icons';
 
 // Guards the contract LegendPlugin + StackRow both depend on: callers pass the
 // capability KIND ('raster'/'vrt'), not the raw layer_type ('raster_geolens').
@@ -163,5 +163,38 @@ describe('LayerTypeIcon style-hint memoization (GUARD-04)', () => {
     rerender(<LayerTypeIcon layer={layer} iconId="icon-b" />);
     rerender(<LayerTypeIcon layer={layer} iconId="icon-c" />);
     expect(layoutReads).toBe(initialReads);
+  });
+});
+
+// fix(#951): the layer-list swatch showed a solid pentagon for a patterned
+// polygon layer. extractStyleHints now carries fill-pattern through.
+describe('patterned polygon swatch (fix #951)', () => {
+  it('renders the pattern preview instead of the solid pentagon', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="x"
+        styleHints={{ fillPattern: 'geolens-fill-dots' }}
+      />,
+    );
+    expect(container.querySelector('.lucide-pentagon')).toBeNull();
+    const chip = container.firstElementChild as HTMLElement;
+    expect(chip.style.backgroundImage).toContain('radial-gradient');
+    expect(chip.style.color).toBe('rgb(255, 90, 95)');
+  });
+
+  it('extractStyleHints picks fill-pattern up from polygon paint', () => {
+    expect(
+      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON').fillPattern,
+    ).toBe('geolens-fill-grid');
+    expect(extractStyleHints({ 'fill-color': '#fff' }, {}, 'POLYGON').fillPattern).toBeUndefined();
+  });
+
+  it('leaves unpatterned polygons on the pentagon glyph', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType="POLYGON" colors={['#ff5a5f']} layerId="x" />,
+    );
+    expect(container.querySelector('.lucide-pentagon')).not.toBeNull();
   });
 });

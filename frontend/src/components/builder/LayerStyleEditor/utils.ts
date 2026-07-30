@@ -1,4 +1,5 @@
 import { MAP_COLORS } from '@/lib/map-colors';
+import { fillPatternFromPaint } from '@/lib/fill-pattern-preview';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,7 @@ export function stylePreviewStyle(layer: MapLayerResponse) {
       strokeDisabled: Boolean(layer.style_config?.builder?.strokeDisabled ?? paint['_stroke-disabled']),
       opacity: layer.opacity,
       fillOpacity: typeof paint['fill-opacity'] === 'number' ? paint['fill-opacity'] as number : undefined,
+      fillPattern: fillPatternFromPaint(paint),
       strokeWidth: typeof layer.style_config?.builder?.outlineWidth === 'number'
         ? layer.style_config.builder.outlineWidth
         : typeof paint['_outline-width'] === 'number'

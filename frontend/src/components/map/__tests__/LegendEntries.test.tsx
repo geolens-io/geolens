@@ -20,3 +20,33 @@ describe('CategoricalLegend', () => {
     expect(screen.queryByText('02')).not.toBeInTheDocument();
   });
 });
+
+// fix(#951): MapLibre draws a fill-pattern INSTEAD of the fill, so a solid chip
+// described a colour that appeared nowhere on the map.
+describe('GeometrySwatch — patterned polygons', () => {
+  it('draws the pattern preview, in the class colour, instead of a solid block', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#ff5a5f' }]}
+        style={{ fillPattern: 'geolens-fill-hatch' }}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.backgroundImage).toContain('repeating-linear-gradient');
+    expect(swatch.style.backgroundColor).toBe('transparent');
+    expect(swatch.style.color).toBe('rgb(255, 90, 95)');
+  });
+
+  it('leaves unpatterned polygons on the solid chip', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#ff5a5f' }]}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.backgroundImage).toBe('');
+    expect(swatch.style.backgroundColor).toBe('rgb(255, 90, 95)');
+  });
+});
