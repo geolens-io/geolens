@@ -297,28 +297,39 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
     # so overwrite it ONLY when it still matches the installed checkout; a
     # customised file is left alone with instructions to merge by hand.
     #
-    # Both tests are deliberately index-relative, never HEAD-relative: a
-    # path-restricted checkout updates the index and worktree but leaves HEAD
-    # at the tag the install was created from, so a HEAD comparison would read
-    # the PREVIOUS upgrade's own file as an operator edit and freeze the config
-    # forever after the first upgrade (codex review on #959's PR).
-    #   "needs changing"  = worktree differs from the target tag's blob
-    #   "operator edited" = worktree differs from the index
+    # Both tests compare file CONTENT against release blobs, never against HEAD
+    # or the index (codex review on #959's PR). A path-restricted checkout
+    # updates the index and worktree but leaves HEAD at the tag the install was
+    # created from, so a HEAD comparison would read the PREVIOUS upgrade's own
+    # file as an operator edit and freeze the config forever; an index
+    # comparison misses tuning the operator has staged, e.g. to version-control
+    # it. Content against the installed release's blob is true in both cases:
+    #   "needs changing"  = worktree differs from the TARGET tag's blob
+    #   "operator edited" = worktree differs from the CURRENT release's blob
+    # Unresolvable current tag => treated as edited, i.e. never clobbered.
+    if [ -n "${CURRENT_VERSION:-}" ] && [ "$CURRENT_VERSION" != "latest" ]; then
+      git fetch --depth 1 --quiet "$REPO_URL" \
+        "refs/tags/v${CURRENT_VERSION}:refs/tags/v${CURRENT_VERSION}" 2>/dev/null || true
+    fi
     if git cat-file -e "${TARGET_TAG}:${DB_CONF}" 2>/dev/null; then
       _db_conf_target="$(mktemp)"
+      _db_conf_installed="$(mktemp)"
       if git show "${TARGET_TAG}:${DB_CONF}" > "$_db_conf_target" 2>/dev/null; then
         if cmp -s "$_db_conf_target" "$DB_CONF"; then
           :   # already at the target release's version; nothing to apply
-        elif ! git diff --quiet -- "$DB_CONF" 2>/dev/null; then
-          warn "${DB_CONF} has local edits — not overwriting your tuning."
+        elif git show "v${CURRENT_VERSION:-}:${DB_CONF}" > "$_db_conf_installed" 2>/dev/null \
+             && cmp -s "$_db_conf_installed" "$DB_CONF"; then
+          if git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null; then
+            DB_CONF_CHANGED=1
+            say "  ${DB_CONF} synced to ${TARGET_TAG}"
+          fi
+        else
+          warn "${DB_CONF} does not match the installed release — keeping your version."
           warn "  Review 'git diff ${TARGET_TAG} -- ${DB_CONF}', merge any new settings,"
           warn "  then apply them with 'docker compose up -d --force-recreate db'."
-        elif git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null; then
-          DB_CONF_CHANGED=1
-          say "  ${DB_CONF} synced to ${TARGET_TAG}"
         fi
       fi
-      rm -f "$_db_conf_target"
+      rm -f "$_db_conf_target" "$_db_conf_installed"
     fi
   else
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."

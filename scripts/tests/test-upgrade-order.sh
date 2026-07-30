@@ -181,16 +181,39 @@ DOCKER
   # (the UPG release-file sync) record to $GIT_LOG so the sync can be asserted
   # WITHOUT polluting the docker call-order log. rev-parse --git-dir succeeds so
   # upgrade.sh treats the fake tree as a git checkout. Everything else is a no-op.
+  #
+  # fix(#959): `show <tag>:db/postgresql.conf` answers per tag, so the config
+  # sync can be exercised for real — v1.2.3 is what the install is running,
+  # v1.2.4 is what the release ships. `checkout ... db/postgresql.conf` writes
+  # the target content, matching what real git does to the worktree.
   cat > "$SHIM/git" <<'GIT'
 #!/bin/sh
 GLOG="${GIT_LOG:-/dev/null}"
+DB_CONF_INSTALLED='temp_file_limit = 0
+'
+DB_CONF_TARGET='temp_file_limit = 4GB
+'
 case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
   fetch)     echo "fetch" >> "$GLOG" ;;
-  checkout)  echo "checkout" >> "$GLOG" ;;
+  checkout)
+    echo "checkout" >> "$GLOG"
+    for a in "$@"; do
+      if [ "$a" = "db/postgresql.conf" ]; then
+        printf '%s' "$DB_CONF_TARGET" > db/postgresql.conf
+      fi
+    done ;;
   # `git show <tag>:db/Dockerfile` -> the target release's bundled db base
   # image, which the Step 2.5 PG-major guard parses.
-  show)      printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
+  show)
+    case "$2" in
+      *:db/postgresql.conf)
+        case "$2" in
+          v1.2.4:*) printf '%s' "$DB_CONF_TARGET" ;;
+          *)        printf '%s' "$DB_CONF_INSTALLED" ;;
+        esac ;;
+      *) printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
+    esac ;;
   *)         exit 0 ;;
 esac
 GIT
@@ -208,6 +231,12 @@ ENV
   # compose files referenced by name only (stub never reads them) but keep real.
   printf 'services: {}\n' > "$FAKE/docker-compose.prod.yml"
   printf 'services: {}\n' > "$FAKE/docker-compose.yml"
+  # fix(#959): the bind-mounted Postgres config, seeded to the INSTALLED
+  # release's content ($DB_CONF_INSTALLED in the git stub) so the default case
+  # is an untouched file the upgrade may sync. Pass $1 to seed something else
+  # and model an operator who tuned it.
+  mkdir -p "$FAKE/db"
+  printf '%s\n' "${1:-temp_file_limit = 0}" > "$FAKE/db/postgresql.conf"
 }
 
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
@@ -360,6 +389,43 @@ if [ -n "$(pos_of backup)" ] && [ -z "$(pos_of app_up)" ]; then
   ok "backup was taken before the failed migrate (data safe)"
 else
   bad "backup ordering wrong on the failure path"
+fi
+
+# ============================================================================
+# CASE 2b — fix(#959): a tuned db/postgresql.conf survives the upgrade.
+# The customization test is CONTENT-based (worktree vs the installed release's
+# blob), not `git diff`-based, so it holds whether or not the operator staged
+# or committed their tuning — an operator who version-controls production
+# tuning would otherwise look clean to git and get silently overwritten
+# (codex review on #959's PR).
+# ============================================================================
+seed_prod_env 'temp_file_limit = 64GB   # tuned by the operator'
+run_upgrade ok 1.2.4
+
+if grep -q '64GB' "$FAKE/db/postgresql.conf"; then
+  ok "customized db/postgresql.conf is NOT overwritten by the upgrade"
+else
+  bad "upgrade clobbered a customized db/postgresql.conf: $(cat "$FAKE/db/postgresql.conf")"
+fi
+if [ -z "$(pos_of db_recreate)" ]; then
+  ok "no db container bounce when the config was left alone"
+else
+  bad "db was recreated even though the config was not synced"
+fi
+if grep -q 'keeping your version' "$WORK/out.txt"; then
+  ok "upgrade warns that it kept the operator's config"
+else
+  bad "upgrade did not warn about the retained config"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# An unmodified config IS synced, and the sync is what triggers the bounce.
+seed_prod_env
+run_upgrade ok 1.2.4
+if grep -q '4GB' "$FAKE/db/postgresql.conf" && [ -n "$(pos_of db_recreate)" ]; then
+  ok "unmodified db/postgresql.conf is synced to the target release and applied"
+else
+  bad "unmodified config was not synced/applied (conf=$(cat "$FAKE/db/postgresql.conf"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
 fi
 
 # ============================================================================

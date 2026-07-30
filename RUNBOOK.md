@@ -427,8 +427,10 @@ only the offending session failed. Two responses:
   Verify either way with `SHOW temp_file_limit;`.
 
   `scripts/upgrade.sh` syncs `db/postgresql.conf` from the target release and
-  recreates the db container when it changed, but only if you have not edited
-  the file. A customised config is never overwritten — the upgrade warns and
+  recreates the db container when it changed, but only while the file still
+  matches the release you are upgrading *from*. The comparison is on file
+  contents, not on `git status`, so tuning you committed or staged counts as
+  tuning: a customised config is never overwritten. The upgrade warns and
   leaves your version in place, so re-check it against the release after any
   upgrade that mentions a Postgres setting.
 
