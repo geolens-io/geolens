@@ -440,6 +440,67 @@ class TestAnonymousAccess:
         )
         assert as_admin.status_code == 200
 
+    async def test_owner_of_restricted_dataset_keeps_access(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """The creator of a restricted dataset is exempt from the grant check.
+
+        fix(#929): restricted means "owner, admins, and grant holders". Before
+        the creator exemption, a non-admin owner who set their own dataset to
+        restricted lost read access to it — grants have no write path, so the
+        lockout was unrecoverable without manual SQL. Pins both the detail
+        path (can_access_dataset) and the list path (filter_visible), because
+        the two deny independently.
+        """
+        from tests.conftest import _create_test_user
+
+        _owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        owner_headers = _owner_headers
+        restricted = await _create_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            visibility="restricted",
+            name="Owner Restricted DS",
+        )
+
+        # Detail path: the owner reads their own restricted dataset...
+        detail = await client.get(f"/datasets/{restricted.id}", headers=owner_headers)
+        assert detail.status_code == 200
+
+        # ...while another authenticated non-grantee still cannot.
+        as_other = await client.get(
+            f"/datasets/{restricted.id}", headers=viewer_auth_header
+        )
+        assert as_other.status_code == 404
+
+        # List path (GET /datasets/): visible to the owner, not to others.
+        owner_list = await client.get("/datasets/", headers=owner_headers)
+        assert owner_list.status_code == 200
+        owner_ids = [d["id"] for d in owner_list.json()["datasets"]]
+        assert str(restricted.id) in owner_ids
+
+        other_list = await client.get("/datasets/", headers=viewer_auth_header)
+        assert other_list.status_code == 200
+        other_ids = [d["id"] for d in other_list.json()["datasets"]]
+        assert str(restricted.id) not in other_ids
+
+        # List path (search): same rule on the search surface.
+        owner_search = await client.get("/search/datasets/", headers=owner_headers)
+        assert owner_search.status_code == 200
+        search_ids = [f["id"] for f in owner_search.json()["features"]]
+        assert str(restricted.id) in search_ids
+
+        other_search = await client.get("/search/datasets/", headers=viewer_auth_header)
+        assert other_search.status_code == 200
+        other_search_ids = [f["id"] for f in other_search.json()["features"]]
+        assert str(restricted.id) not in other_search_ids
+
     async def test_anon_get_attributes_public(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
