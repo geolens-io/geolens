@@ -368,6 +368,44 @@ def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> 
     return resolve_open_path(asset_uri, tenant_id=tenant_id)
 
 
+def sources_straddle_seam(source_paths: list[str]) -> bool:
+    """True when the sources form a geographic mosaic that crosses ±180.
+
+    fix(#887): ``gdalbuildvrt`` has no antimeridian handling. It takes the plain
+    min/max hull of the source extents, so two 5°-wide tiles either side of the
+    seam come out as a 3600 x 50 px mosaic anchored at -180 with the eastern tile
+    at ``dst_x_off`` 3550 -- byte-for-byte the same defect the Python writer had,
+    verified against the GDAL 3.10 in the worker image and GDAL 3.13 locally.
+
+    Nor can the subprocess be nudged into the right answer. ``-te 175 0 185 5``
+    sizes the mosaic correctly but places each source at its own coordinates, so
+    every source outside that window is dropped: the run exits 0 and half the
+    mosaic comes back empty, which is worse than the bug. Pre-shifting each
+    source through its own intermediate VRT would work geometrically, but those
+    intermediates are temp files that never get stored, so ``rewrite_vrt_sources``
+    (STOR-03) would leave the outer VRT pointing at paths that do not survive
+    ingest.
+
+    So the seam case belongs to :func:`_write_python_vrt`, which computes the
+    mosaic geometry in a shifted frame, and this predicate is the deliberate
+    branch into it -- not the ``FileNotFoundError`` fallback, which never fires in
+    a deployed worker because the image installs ``gdal-bin``.
+    """
+    import rasterio
+
+    try:
+        with ExitStack() as stack:
+            datasets = [
+                stack.enter_context(rasterio.open(path)) for path in source_paths
+            ]
+            if not all(ds.crs is not None and ds.crs.is_geographic for ds in datasets):
+                return False
+            spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
+    except Exception:  # broad: a source that cannot be opened is gdalbuildvrt's error to report, with its own message — never this predicate's
+        return False
+    return _seam_frame_origin(spans) is not None
+
+
 def _build_vrt(
     source_paths: list[str],
     output_path: str,
@@ -391,6 +429,17 @@ def _build_vrt(
         KeyError: If an unrecognised resolution_strategy is supplied.
     """
     gdal_res = _RES_MAP[resolution_strategy]
+    # fix(#887): the seam-crossing mosaic is the one shape gdalbuildvrt cannot
+    # express -- see sources_straddle_seam for why neither -te nor pre-shifted
+    # intermediates work. Branch before spawning it, or the normalization only
+    # ever runs on hosts that lack the GDAL CLI.
+    if sources_straddle_seam(source_paths):
+        return _write_python_vrt(
+            source_paths,
+            output_path,
+            resolution_strategy,
+            separate=separate,
+        )
     cmd = ["gdalbuildvrt"]
     if separate:
         cmd.append("-separate")

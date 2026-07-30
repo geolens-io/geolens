@@ -8,10 +8,13 @@ Three sites, one seam:
    was the *complement*: a Pacific COG spanning 175E..175W registered a valid
    350°-wide rectangle covering 7000 deg² of the wrong side of the world
    instead of its real 200.
-2. ``processing/raster/vrt.py`` — ``_write_python_vrt`` took ``min(left)`` /
+2. ``processing/raster/vrt.py`` — both builders took ``min(left)`` /
    ``max(right)`` across sources, so a 10°-wide mosaic straddling the seam was
    allocated 360° wide (3600 x 50 px instead of 100 x 50) with every source at
-   the wrong ``dst_x_off``.
+   the wrong ``dst_x_off``. ``gdalbuildvrt`` is the production builder and does
+   the same thing, so the normalization has to be reached from ``_build_vrt``
+   with the subprocess available — see
+   ``TestSeamFramingReachesTheProductionPath``.
 3. ``processing/tiles/router.py`` — the user-visible symptom. Source maxzoom is
    derived from extent width when the COG has no recorded resolution, so a
    seam-crossing raster measured 36x too wide, understated its own resolution,
@@ -22,8 +25,11 @@ are pure rasterio/XML unit tests.
 """
 
 import io
+import shutil
+import subprocess
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree.ElementTree import parse as parse_vrt
 
 import numpy as np
@@ -43,7 +49,13 @@ from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.cog import extract_raster_metadata
 from app.processing.raster.models import RasterAsset
-from app.processing.raster.vrt import _seam_frame_origin, _write_python_vrt
+from app.processing.raster import vrt as vrt_module
+from app.processing.raster.vrt import (
+    _seam_frame_origin,
+    _write_python_vrt,
+    build_vrt,
+    sources_straddle_seam,
+)
 from app.processing.tiles.router import _raster_maxzoom_from_metadata
 
 
@@ -453,6 +465,212 @@ class TestSeamStraddlingVrt:
 
         assert _vrt_size(out) == (100, 50)
         assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
+        assert _dst_x_offs(out) == [0, 50]
+
+
+# ---------------------------------------------------------------------------
+# Site 2, the path production actually takes
+# ---------------------------------------------------------------------------
+
+
+class TestSourcesStraddleSeamPredicate:
+    """The branch condition, on the inputs that must not trip it."""
+
+    def test_geographic_seam_pair_is_detected(self, tmp_path):
+        sources = [
+            _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
+            _write_tif(
+                tmp_path / "b.tif", epsg=4326, bounds=(-180.0, 0.0, -175.0, 5.0)
+            ),
+        ]
+
+        assert sources_straddle_seam(sources) is True
+
+    def test_off_seam_pair_is_not_detected(self, tmp_path):
+        sources = [
+            _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(10.0, 0.0, 15.0, 5.0)),
+            _write_tif(tmp_path / "b.tif", epsg=4326, bounds=(15.0, 0.0, 20.0, 5.0)),
+        ]
+
+        assert sources_straddle_seam(sources) is False
+
+    def test_one_crs_less_source_disables_detection(self, tmp_path):
+        """Unknown units means unknown wrap: refuse rather than guess.
+
+        The result is the un-normalized mosaic, which is the pre-existing
+        behaviour for a VRT nobody can interpret — `_write_python_vrt` takes its
+        SRS from the first source and never checks the rest agree.
+        """
+        sources = [
+            _write_tif(tmp_path / "a.tif", epsg=4326, bounds=(175.0, 0.0, 180.0, 5.0)),
+            _write_tif(
+                tmp_path / "b.tif", epsg=None, bounds=(-180.0, 0.0, -175.0, 5.0)
+            ),
+        ]
+
+        assert sources_straddle_seam(sources) is False
+
+    def test_unopenable_source_is_not_detected(self, tmp_path):
+        bogus = tmp_path / "broken.tif"
+        bogus.write_bytes(b"not a tiff")
+
+        assert sources_straddle_seam([str(bogus)]) is False
+
+
+class TestSeamFramingReachesTheProductionPath:
+    """``_write_python_vrt`` is the fallback; ``gdalbuildvrt`` is what ships.
+
+    The worker image installs ``gdal-bin``, so ``_build_vrt`` gets a working
+    subprocess and the ``FileNotFoundError`` fallback never fires in a deployed
+    worker. A test that calls ``_write_python_vrt`` directly therefore proves
+    nothing about production, which is exactly how the first cut of this fix
+    landed as dead code (codex P1 on #924). Every test here enters through
+    ``_build_vrt`` with the subprocess *available*.
+
+    ``gdalbuildvrt`` itself is not the fix: verified against GDAL 3.10 (worker
+    image) and 3.13 (local), it emits 3600 x 50 px anchored at -180 with
+    ``dst_x_off`` 3550 for the seam pair below, and ``-te`` on the shifted hull
+    exits 0 while silently dropping every source outside the window.
+    """
+
+    def _tiles(self, tmp_path, lon_pairs, *, epsg=4326):
+        return [
+            _write_tif(
+                tmp_path / f"p{i}.tif",
+                epsg=epsg,
+                bounds=(west, 0.0, east, 5.0),
+                width=50,
+                height=50,
+            )
+            for i, (west, east) in enumerate(lon_pairs)
+        ]
+
+    def test_seam_mosaic_never_reaches_gdalbuildvrt(self, tmp_path, monkeypatch):
+        """With the subprocess available, the seam pair still normalizes.
+
+        ``run_gdal`` is stubbed to a *successful* call, so nothing can fall back:
+        if the seam branch were removed, the stub would be invoked and no VRT
+        would be written at all.
+        """
+        calls = []
+
+        def _never(cmd, **kwargs):
+            calls.append(cmd)
+            raise AssertionError(
+                "gdalbuildvrt was spawned for a seam-straddling mosaic"
+            )
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _never)
+        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
+
+        out = vrt_module._build_vrt(sources, str(tmp_path / "seam.vrt"), "finest")
+
+        assert calls == []
+        assert _vrt_size(out) == (100, 50)
+        assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
+        assert _dst_x_offs(out) == [0, 50]
+
+    def test_non_crossing_mosaic_still_uses_gdalbuildvrt(self, tmp_path, monkeypatch):
+        """Negative probe: same two tiles, same latitudes, moved off the seam.
+
+        Only the longitude position differs, so this pins that the branch is
+        narrow — everything else keeps going to the subprocess builder.
+        """
+        calls = []
+
+        def _record(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stderr="")
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _record)
+        sources = self._tiles(tmp_path, [(10.0, 15.0), (15.0, 20.0)])
+
+        vrt_module._build_vrt(sources, str(tmp_path / "plain.vrt"), "finest")
+
+        assert len(calls) == 1
+        assert calls[0][0] == "gdalbuildvrt"
+
+    def test_global_mosaic_still_uses_gdalbuildvrt(self, tmp_path, monkeypatch):
+        """A genuinely global mosaic is not a seam crossing; leave it to GDAL."""
+        calls = []
+
+        def _record(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stderr="")
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _record)
+        sources = self._tiles(
+            tmp_path, [(-180.0 + 10 * i, -170.0 + 10 * i) for i in range(36)]
+        )
+
+        vrt_module._build_vrt(sources, str(tmp_path / "global.vrt"), "finest")
+
+        assert len(calls) == 1
+
+    def test_band_stack_dispatch_keeps_the_seam_branch(self, tmp_path, monkeypatch):
+        """``build_vrt("band_stack", ...)`` reaches the branch too."""
+
+        def _never(cmd, **kwargs):
+            raise AssertionError("gdalbuildvrt was spawned for a seam band stack")
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _never)
+        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
+
+        out = build_vrt("band_stack", sources, str(tmp_path / "stack.vrt"), "finest")
+
+        assert _vrt_size(out) == (100, 50)
+        assert _vrt_geotransform(out)[0] == pytest.approx(175.0)
+
+    def test_unopenable_source_is_left_to_gdalbuildvrt(self, tmp_path, monkeypatch):
+        """The predicate must never swallow a broken source's real error."""
+        calls = []
+
+        def _record(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=1, stderr="not a recognized file format")
+
+        monkeypatch.setattr(vrt_module, "run_gdal", _record)
+        bogus = tmp_path / "broken.tif"
+        bogus.write_bytes(b"not a tiff")
+
+        with pytest.raises(RuntimeError, match="gdalbuildvrt failed"):
+            vrt_module._build_vrt([str(bogus)], str(tmp_path / "x.vrt"), "finest")
+
+        assert len(calls) == 1
+
+    def test_bad_resolution_strategy_still_raises_before_any_branch(self, tmp_path):
+        """The KeyError contract holds on both sides of the new branch."""
+        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
+
+        with pytest.raises(KeyError):
+            vrt_module._build_vrt(sources, str(tmp_path / "bad.vrt"), "sharpest")
+
+    @pytest.mark.skipif(
+        shutil.which("gdalbuildvrt") is None,
+        reason="needs the real gdalbuildvrt (present in the worker image)",
+    )
+    def test_real_gdalbuildvrt_would_get_this_wrong(self, tmp_path):
+        """Pin the upstream behaviour this branch exists to route around.
+
+        Not a test of our code — a test of the premise. If a future GDAL learns
+        to fold longitudes, this fails and the branch can be reconsidered.
+        """
+        sources = self._tiles(tmp_path, [(175.0, 180.0), (-180.0, -175.0)])
+        raw = str(tmp_path / "raw.vrt")
+        result = subprocess.run(
+            ["gdalbuildvrt", "-resolution", "highest", raw, *sources],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        assert _vrt_size(raw) == (3600, 50), "gdalbuildvrt folded the seam itself"
+        assert _vrt_geotransform(raw)[0] == pytest.approx(-180.0)
+        assert 3550 in _dst_x_offs(raw)
+
+        # And the same inputs through _build_vrt, with that binary on PATH.
+        out = vrt_module._build_vrt(sources, str(tmp_path / "fixed.vrt"), "finest")
+        assert _vrt_size(out) == (100, 50)
         assert _dst_x_offs(out) == [0, 50]
 
 
