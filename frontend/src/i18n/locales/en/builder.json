@@ -190,8 +190,10 @@
     "stroke": "Stroke",
     "line": "Line",
     "point": "Point",
-    "opacity": "Opacity",
-    "layer": "Layer",
+    "fillOpacity": "Fill opacity",
+    "lineOpacity": "Line opacity",
+    "pointOpacity": "Point opacity",
+    "layerOpacity": "Layer opacity",
     "color": "Color",
     "width": "Width",
     "gapWidth": "Gap",
@@ -314,7 +316,7 @@
       "colorRamp": "Color ramp",
       "radius": "Radius",
       "intensity": "Intensity",
-      "opacity": "Opacity"
+      "opacity": "Heatmap opacity"
     },
     "cluster": {
       "radius": "Cluster radius",

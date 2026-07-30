@@ -551,9 +551,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         {/* Master opacity — all geometry types; omitted when parent owns the opacity control */}
         {onOpacityChange && (
           <>
-            <div className="text-xs font-medium mt-2 pt-2 border-t">{t('style.opacity')}</div>
+            {/* fix(#912): one "Layer opacity" row, no separate "Opacity" heading —
+                the per-geometry sliders above already say what they scope. */}
+            <div className="mt-2 pt-2 border-t" />
             <SliderRow
-              label={t('style.layer')}
+              label={t('style.layerOpacity')}
               value={localOpacity}
               min={0}
               max={1}
