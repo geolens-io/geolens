@@ -673,7 +673,8 @@ export const DatasetMap = memo(function DatasetMap({
       tileAuthErrorHandlerRef.current = (e: { error?: { status?: number; url?: string } }) => {
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
-        const recovering = recoverTileAuth() && !isRasterTileAuthError(e);
+        const reminting = recoverTileAuth();
+        const recovering = reminting && !isRasterTileAuthError(e);
         if (!recovering && !errorFiredRef.current) {
           errorFiredRef.current = true;
           onTileError?.();

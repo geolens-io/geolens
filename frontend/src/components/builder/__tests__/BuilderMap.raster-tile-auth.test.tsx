@@ -1,15 +1,17 @@
 // fix(#890): the #755 double-log shape was still live for raster/DEM tiles.
-// `isHandledTileAuthError` excludes `/raster-tiles/` (audit w3-maps A1) because
-// raster auth rides the Authorization header, so nothing the surface does can
-// recover it — but BuilderMap's own error handler called recoverTileAuth() for
-// EVERY 401/403 and reported a suppressed "re-mint requested" row (reminted is
-// true even though resignVectorSourceForRetry returned false), while the <Map>
-// onError fallback still console.errored the same failure. One suppressed yellow
-// next to one unsuppressed red, for a failure nobody was recovering.
+// `isHandledTileAuthError` excludes `/raster-tiles/` (audit w3-maps A1) because a
+// fresh tile sig cannot fix raster auth — that rides the Authorization header —
+// but BuilderMap's own error handler reported a suppressed "re-mint requested"
+// row anyway (`reminted` is true even though resignVectorSourceForRetry returned
+// false), while the <Map> onError fallback still console.errored the same
+// failure. One suppressed yellow next to one unsuppressed red, and the early
+// return swallowed the toast, for a failure nobody was recovering.
 //
-// The handler is now narrowed to agree with the predicate: a raster/DEM 401/403
-// is reported ONCE, unsuppressed, and surfaces the session-expired toast. The
-// vector path (GUARD-03 re-sign + #621 re-mint) is unchanged.
+// The handler now agrees with the predicate: a raster/DEM 401/403 is reported
+// ONCE, unsuppressed, and surfaces the session-expired toast. The re-mint itself
+// still runs — its apiFetch renews an expiring JWT, which IS what a raster 401
+// needs (codex P1 on this PR) — it just no longer counts as recovery. The vector
+// path (GUARD-03 re-sign + #621 re-mint) is unchanged.
 
 import type { ReactNode } from 'react';
 import { act, render } from '@/test/test-utils';
@@ -253,7 +255,7 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
       mapState.onError?.(event);
     });
 
-    // fix(#890, codex P1): the re-mint still runs — its apiFetch renews an
+    // fix(#890) (codex P1): the re-mint still runs — its apiFetch renews an
     // expiring JWT, the one thing that can fix a raster 401 — but nothing about
     // it recovers the tile, so no recovery may be CLAIMED.
     expect(tileTokenState.invalidate).toHaveBeenCalledTimes(1);

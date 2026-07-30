@@ -631,14 +631,14 @@ export const BuilderMap = memo(function BuilderMap({
       // real error has occurred (RES-3). Previously silenced in production.
       errorHandlerRef.current = (e: { error: { message?: string; status?: number; url?: string }; sourceId?: string }) => {
         const status = e.error?.status;
-        // fix(#890): a raster/DEM 401/403 has NO client-side cure — raster auth
-        // rides the Authorization header (setTransformRequest), so neither the
-        // GUARD-03 re-sign nor the #621 re-mint touches it. Claiming it
-        // "handled" (a suppressed warning) while logUnhandledMapError still
-        // console.errors the same failure is the #755 double-log shape, still
-        // live for raster/DEM. `isHandledTileAuthError` already excludes these,
-        // so the handler now agrees with it: report it as the unsuppressed
-        // error it is and let the toast + single console row own it.
+        // fix(#890): a raster/DEM 401/403 is not cured by anything the recovery
+        // path produces — raster auth rides the Authorization header
+        // (setTransformRequest), so neither the GUARD-03 re-sign nor a fresh sig
+        // reaches it. Reporting it "handled" (a suppressed warning) while
+        // logUnhandledMapError still console.errors the same failure is the #755
+        // double-log shape, still live for raster/DEM. `isHandledTileAuthError`
+        // already excludes these, so the handler now agrees with it: report the
+        // unsuppressed error it is and let the toast + single console row own it.
         const rasterAuthError = isRasterTileAuthError(e);
         // Capture EVERY map error into the problem-reporter buffer before the
         // suppression/early-return logic below — suppressed errors (expected
@@ -679,7 +679,7 @@ export const BuilderMap = memo(function BuilderMap({
               // the fresh batch, and a conclusively dead session surfaces
               // through the global signed-out handling (#628) via the mint
               // request itself.
-              // fix(#890, codex P1): the re-mint runs for raster too — the mint
+              // fix(#890) (codex P1): the re-mint runs for raster too — the mint
               // request goes through apiFetch, whose proactive refresh renews an
               // expiring JWT, and that Bearer is the ONLY thing that fixes a
               // raster 401. What must not happen is treating it as recovery: the
