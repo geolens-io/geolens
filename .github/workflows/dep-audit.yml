@@ -48,7 +48,11 @@ jobs:
         run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"
 
       # Extend the BLOCKING license gate to the CLI + Python SDK (same allowlist).
-      # Both ship their own uv.lock; `--project` resolves each locked env.
+      # fix(#932): unlike the backend and MCP gates above, these two run against
+      # an UNLOCKED resolution — cli/ and sdks/python/ deliberately gitignore
+      # uv.lock (cli/.gitignore, sdks/python/.gitignore) and have never
+      # committed one, so each run audits whatever resolves that day. That is
+      # acceptable for a copyleft block, but it is not a pinned-tree audit.
       - name: License gate — CLI (block strong/network copyleft)
         working-directory: cli
         run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"

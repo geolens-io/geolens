@@ -89,7 +89,14 @@ jobs:
             # unreleased candidate (same spirit as #325 gating release.yml's
             # isPrerelease). Fresh `:latest` pulls must track the last GA.
             type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+          # fix(#932): --label overrides Dockerfile LABEL, and metadata-action's
+          # defaults derive title from the REPO name — without the explicit
+          # title below, all four published images reported title=geolens and
+          # the per-stage Dockerfile titles were discarded. The Dockerfile
+          # LABEL blocks stay: they are the only metadata source on non-publish
+          # build paths (local docker build, compose).
           labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
