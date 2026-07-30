@@ -2,9 +2,10 @@
 
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import defer_async_with_tenant
@@ -58,6 +59,14 @@ _NON_GROUPABLE_TYPES = {"json", "xml"}
 # indefinitely — acceptable for background work; a per-op budget knob is
 # #696's scope.
 ANALYSIS_JOB_PRIORITY = -10
+
+# fix(#691): lease window for the per-user materialize cap. The worker renews
+# heartbeat_at every HEARTBEAT_INTERVAL_SECONDS (30s, platform/jobs/
+# heartbeat.py); 3x tolerates two missed renewals before declaring the worker
+# dead — generous against transient DB slowness while still releasing the slot
+# in under two minutes instead of the 60-minute JOB_TIMEOUT_SECONDS backstop.
+# Module-level constant on purpose: promoting it to Settings is #696's scope.
+MATERIALIZE_LEASE_SECONDS = 90
 
 # Sandbox error categories → HTTP status. Everything else is a sanitized 500.
 # query_data_error (SQLSTATE class 22 / GEOS internal errors) is a 422: all
@@ -262,20 +271,27 @@ async def analysis_materialize_endpoint(
     # race can briefly admit two; add a DB-side partial unique index if
     # operators need a hard guarantee.
     #
-    # Any pending-or-running job blocks, with NO staleness window (fix(#682
-    # review)). A window looks appealing — it would stop a worker that died
-    # mid-job from holding the slot — but there is no liveness signal here to
-    # base one on, and elapsed time is not a substitute: the 300s
-    # statement_timeout bounds each STATEMENT, while the task runs a CTAS, a
-    # DELETE, an EXISTS probe, two ALTERs, a primary key, add_4326_column and
-    # registration in sequence. A legitimate materialize over a large dataset
-    # can outlive any window short enough to be useful, and releasing the slot
-    # then lets a second expensive CTAS through — defeating the cap outright.
-    # The cost of not having one is bounded and visible: a dead worker holds
-    # the slot until the platform's job timeout fails the row (started_at is
-    # stamped, so that path works), and the client applies this same rule, so
-    # the UI never disagrees with the API about whether a job is active.
-    # Proper fix is a heartbeat lease (issue #691), as the ingest tasks use.
+    # fix(#691): the slot is held on a heartbeat LEASE, not job status alone.
+    # The worker claims the job and renews heartbeat_at every 30s (#682/#700),
+    # so a running job whose lease has gone stale means a hard-killed worker
+    # (SIGKILL/OOM) — release the slot instead of waiting for the 60-minute
+    # JOB_TIMEOUT_SECONDS backstop to fail the row. Elapsed time alone was
+    # tried and reverted (#682 review): a legitimate materialize can outlive
+    # any useful window, and enqueue-relative age is wrong for queued jobs.
+    #
+    # The pending branch MUST stay status-only: a pending job has never been
+    # claimed, so heartbeat_at and started_at are both NULL and any cutoff
+    # comparison would silently drop it from the count — letting a user stack
+    # unbounded queued CTASes, defeating the cap while passing every test.
+    # coalesce(heartbeat_at, started_at) covers pre-heartbeat rows that only
+    # carry started_at.
+    #
+    # The client deliberately applies no staleness rule of its own
+    # (AnalysisJobWatcher.tsx): it mirrors job status from the API, and on a
+    # released lease the next create attempt simply succeeds server-side.
+    lease_cutoff = datetime.now(timezone.utc) - timedelta(
+        seconds=MATERIALIZE_LEASE_SECONDS
+    )
     active = await db.scalar(
         select(func.count())
         .select_from(IngestJob)
@@ -287,7 +303,14 @@ async def analysis_materialize_endpoint(
             # uploader out of analysis. The metadata below is written in the
             # same transaction as the job row, so this never misses one.
             IngestJob.user_metadata.has_key("analysis"),
-            IngestJob.status.in_(("pending", "running")),
+            or_(
+                IngestJob.status == "pending",
+                and_(
+                    IngestJob.status == "running",
+                    func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+                    >= lease_cutoff,
+                ),
+            ),
         )
     )
     if active:

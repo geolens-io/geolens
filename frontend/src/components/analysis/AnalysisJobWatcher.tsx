@@ -50,9 +50,12 @@ export function AnalysisJobWatcher() {
     // staleness rule (fix(#682 review)). An elapsed-time guess is wrong in both
     // directions: too short and a legitimately long job loses its completion
     // notification entirely, too long and the save guard outlives the API's own
-    // cap. The endpoint applies the same rule (pending or running blocks), so
-    // the two never disagree. A dead worker is resolved by the platform's job
-    // timeout rather than guessed at here.
+    // cap. fix(#691): the server now releases a dead worker's slot via a
+    // heartbeat lease, but the client STILL applies no rule of its own — it
+    // has no heartbeat visibility, only status, and it does not need one: on
+    // a released lease the next create attempt simply succeeds server-side,
+    // while this watcher keeps waiting for the job row's terminal status
+    // (stamped by the sweeper's 60-minute backstop at the latest).
     if (status !== 'complete' && status !== 'failed') return;
 
     // Stable id so a re-run (StrictMode's double invoke) replaces the toast
