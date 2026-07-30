@@ -31,15 +31,30 @@ const REMINT_SETTLE_MS = 10_000;
  * kicked off, or the error is part of the burst that kicked it — suppress
  * per-surface error UI); false when errors persist after the re-mint had time
  * to land (it didn't cure them — fall through to existing error UI).
+ *
+ * fix(#890): `onRemint` fires exactly when this hook kicks a FRESH mint — never
+ * inside the settle window or the cooldown gap, where the returned boolean says
+ * nothing about whether a mint ran. That makes it the only honest place to
+ * report a re-mint from; `trigger` names the path that asked for one so the
+ * report distinguishes a tab return from a tile error. It is injected (not
+ * imported) so this module keeps no dependency beyond the TileToken type, and
+ * held in a ref so the returned callback keeps a stable identity — ViewerMap and
+ * DatasetMap list it in `handleLoad`'s deps.
  */
-export function useTileAuthRecovery(remint: () => void) {
+export function useTileAuthRecovery(
+  remint: () => void,
+  onRemint?: (trigger: string) => void,
+) {
   const lastAttemptRef = useRef(0);
-  return useCallback((): boolean => {
+  const onRemintRef = useRef(onRemint);
+  onRemintRef.current = onRemint;
+  return useCallback((trigger: string = 'tile-error'): boolean => {
     const elapsed = Date.now() - lastAttemptRef.current;
     if (elapsed < REMINT_SETTLE_MS) return true;
     if (elapsed < REMINT_COOLDOWN_MS) return false;
     lastAttemptRef.current = Date.now();
     remint();
+    onRemintRef.current?.(trigger);
     return true;
   }, [remint]);
 }
@@ -85,10 +100,14 @@ export function hasExpiringVectorToken(
  * Fires on the VISIBLE edge only: MapLibre 5 drops a `setTiles` reload while
  * the source's TileManager is paused (fix(#584)) and a hidden tab has no rAF,
  * so re-minting while still hidden would silently no-op.
+ *
+ * fix(#890): passes the `tab-return` trigger so `useTileAuthRecovery`'s
+ * `onRemint` reports which path recovered — the 403 burst this replaced at
+ * least evidenced a recovery, and a proactive re-mint otherwise leaves none.
  */
 export function useVisibleTileTokenRefresh(
   getTokens: () => Iterable<TileToken | null | undefined>,
-  recover: () => boolean,
+  recover: (trigger?: string) => boolean,
 ): void {
   const getTokensRef = useRef(getTokens);
   getTokensRef.current = getTokens;
@@ -97,7 +116,7 @@ export function useVisibleTileTokenRefresh(
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
       if (!hasExpiringVectorToken(getTokensRef.current())) return;
-      recover();
+      recover('tab-return');
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);

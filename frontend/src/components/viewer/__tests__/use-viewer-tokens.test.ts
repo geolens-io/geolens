@@ -1,7 +1,23 @@
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// fix(#890): the viewer used to refresh tile tokens by a hand-rolled
+// `useState` + `setTimeout` loop while the builder and dataset preview used
+// TanStack Query — two opposite policies for one problem. Chrome throttles a
+// hidden tab's timers but still FIRES them, so the viewer's refresh could land
+// while hidden and push a fresh tile URL at a paused map (the dropped-`setTiles`
+// hazard from fix(#584)), while the TanStack surfaces did nothing at all until
+// the tab returned.
+//
+// The viewer is now on the same TanStack path, so these specs pin the unified
+// policy rather than the deleted timer machinery (the fix(#831) single-retry-timer
+// and fix(#850) late-rejection specs went with it — TanStack owns scheduling and
+// cancellation now):
+//   1. a HIDDEN tab performs zero refreshes (refetchIntervalInBackground: false)
+//   2. a VISIBLE tab refreshes at 80% of the shortest vector TTL
+//   3. the tab-return edge re-mints through the fix(#755) visible-edge hook
+//   4. a failed mint keeps retrying, and surfaces the token-error toast
+import { act, renderHook, waitFor } from '@/test/test-utils';
 import { getTileTokensBatch } from '@/api/tiles';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
+import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import type { SharedLayerResponse } from '@/types/api';
 
 vi.mock('@/api/tiles', () => ({
@@ -16,110 +32,169 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
+import { toast } from 'sonner';
+
 const mockedGetTileTokensBatch = vi.mocked(getTileTokensBatch);
 
 const layers = [{ dataset_id: 'dataset-1' }] as unknown as SharedLayerResponse[];
 
-/** Flush pending microtasks (promise rejections) without advancing timers. */
-async function flushMicrotasks() {
-  await act(async () => {
-    await Promise.resolve();
-  });
+/** `expires_in` 300 s → the refresh interval is 300 * 800 = 240_000 ms. */
+const TTL_SECONDS = 300;
+const REFRESH_MS = TTL_SECONDS * 800;
+
+function batchResponse(expOffsetSeconds = 900) {
+  return {
+    tokens: {
+      'dataset-1': {
+        kind: 'vector' as const,
+        sig: 'sig-1',
+        exp: Math.floor(Date.now() / 1000) + expOffsetSeconds,
+        scope: 'dataset-1',
+        expires_in: TTL_SECONDS,
+      },
+    },
+  };
 }
 
-describe('useViewerTokens retry scheduling', () => {
+function setVisibility(state: 'visible' | 'hidden') {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+}
+
+describe('useViewerTokens refresh policy (fix #890)', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
     mockedGetTileTokensBatch.mockReset();
-    mockedGetTileTokensBatch.mockRejectedValue(new Error('mint endpoint down'));
+    mockedGetTileTokensBatch.mockResolvedValue(batchResponse());
+    vi.mocked(toast.error).mockClear();
+    setVisibility('visible');
   });
 
   afterEach(() => {
+    setVisibility('visible');
     vi.useRealTimers();
   });
 
-  // fix(#831): an out-of-band refreshTokens() during an outage must replace
-  // the pending retry timer, not add a second retry loop alongside it.
-  it('keeps a single retry timer when refreshTokens fires during an outage', async () => {
-    const { result, unmount } = renderHook(() => useViewerTokens({ layers }));
+  it('exposes the minted tokens as a token map', async () => {
+    const { result } = renderHook(() => useViewerTokens({ layers }));
 
-    // The mount fetch fails and arms the first backoff retry timer (5s).
-    await flushMicrotasks();
-    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(1);
-
-    // Out-of-band refresh (tile-auth recovery, visibility change) while the
-    // retry timer is still pending. It fails too and re-arms the backoff.
-    act(() => {
-      result.current.refreshTokens();
-    });
-    await flushMicrotasks();
-    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(2);
-
-    // Only ONE retry timer may be pending: the stale 5s timer from the first
-    // failure must have been cleared when the 10s backoff was armed.
-    expect(vi.getTimerCount()).toBe(1);
-
-    // Advance past both the stale 5s slot and the live 10s backoff — exactly
-    // one retry fires. Before the fix both timers fired, doubling the loops.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(3);
-
-    unmount();
+    await waitFor(() => expect(result.current.tokenMap.size).toBe(1));
+    expect(result.current.tokenMap.get('dataset-1')).toMatchObject({ kind: 'vector', sig: 'sig-1' });
+    expect(result.current.tokenError).toBe(false);
   });
 
-  // fix(#850): a cancelled generation whose request rejects late must not
-  // clear the newer generation's valid refresh timer from the shared ref.
-  it('preserves the new generation timer when a stale request rejects late', async () => {
-    type BatchResult = Awaited<ReturnType<typeof getTileTokensBatch>>;
-    const deferreds: Array<{
-      resolve: (value: BatchResult) => void;
-      reject: (reason: unknown) => void;
-    }> = [];
-    mockedGetTileTokensBatch.mockImplementation(
-      () =>
-        new Promise<BatchResult>((resolve, reject) => {
-          deferreds.push({ resolve, reject });
-        }),
-    );
+  it('skips the mint entirely when the map has no layers', () => {
+    renderHook(() => useViewerTokens({ layers: [] }));
+    expect(mockedGetTileTokensBatch).not.toHaveBeenCalled();
+  });
 
-    const layersB = [{ dataset_id: 'dataset-2' }] as unknown as SharedLayerResponse[];
-    const { rerender, unmount } = renderHook(
-      ({ l }: { l: SharedLayerResponse[] }) => useViewerTokens({ layers: l }),
-      { initialProps: { l: layers } },
-    );
+  // Fake timers are installed BEFORE the render in the two cadence specs: the
+  // refetch interval is scheduled during the mount fetch, and a timer created
+  // under real timers is never advanced by fake ones.
+  it('does NOT refresh while the tab is hidden', async () => {
+    vi.useFakeTimers();
+    setVisibility('hidden');
+    const { result } = renderHook(() => useViewerTokens({ layers }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.tokenMap.size).toBe(1);
     expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
 
-    // Deps change while the first request is still in flight: the old
-    // generation is cancelled and the new generation starts its own fetch.
-    rerender({ l: layersB });
+    // TanStack's interval timer still ticks; `refetchIntervalInBackground: false`
+    // makes it a no-op while document.visibilityState is 'hidden'.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REFRESH_MS * 3);
+    });
+
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes on the TTL cadence while the tab is visible', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useViewerTokens({ layers }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.tokenMap.size).toBe(1);
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REFRESH_MS + 1_000);
+    });
+
     expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(2);
+  });
 
-    // The new generation succeeds and arms its 80%-of-TTL refresh timer
-    // (300s * 800 = 240s).
-    await act(async () => {
-      deferreds[1].resolve({
-        tokens: {
-          'dataset-2': { kind: 'vector', sig: 's', exp: 1, scope: 'dataset-2', expires_in: 300 },
-        },
-      } as BatchResult);
+  it('re-mints on the visible edge when the sig has expired (the fix(#755) hook path)', async () => {
+    // An already-expired sig, i.e. the tab-return case the burst came from.
+    mockedGetTileTokensBatch.mockResolvedValue(batchResponse(-60));
+    const { result } = renderHook(() => {
+      const tokens = useViewerTokens({ layers });
+      const recover = useTileAuthRecovery(tokens.refreshTokens);
+      useVisibleTileTokenRefresh(() => tokens.tokenMap.values(), recover);
+      return tokens;
     });
-    expect(vi.getTimerCount()).toBe(1);
+    await waitFor(() => expect(result.current.tokenMap.size).toBe(1));
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
 
-    // The stale generation's request rejects late. It must not clear the new
-    // generation's timer or replace it with a dead (cancelled) callback.
     await act(async () => {
-      deferreds[0].reject(new Error('stale request failed'));
+      document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // The refresh timer must survive and actually fire the next fetch.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(240_000);
-    });
-    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(2));
+  });
 
-    unmount();
+  it('does not re-mint on the visible edge while the sig is still fresh', async () => {
+    const { result } = renderHook(() => {
+      const tokens = useViewerTokens({ layers });
+      const recover = useTileAuthRecovery(tokens.refreshTokens);
+      useVisibleTileTokenRefresh(() => tokens.tokenMap.values(), recover);
+      return tokens;
+    });
+    await waitFor(() => expect(result.current.tokenMap.size).toBe(1));
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes on demand for the 401/403 recovery path', async () => {
+    const { result } = renderHook(() => useViewerTokens({ layers }));
+    await waitFor(() => expect(result.current.tokenMap.size).toBe(1));
+    const refreshTokens = result.current.refreshTokens;
+
+    await act(async () => {
+      refreshTokens();
+    });
+
+    expect(mockedGetTileTokensBatch).toHaveBeenCalledTimes(2);
+    // Stable identity: the map error handlers close over it once (fix #621).
+    expect(result.current.refreshTokens).toBe(refreshTokens);
+  });
+
+  it('surfaces the token-error toast and keeps retrying when the mint endpoint is down', async () => {
+    vi.useFakeTimers();
+    mockedGetTileTokensBatch.mockRejectedValue(new Error('mint endpoint down'));
+    const { result } = renderHook(() => useViewerTokens({ layers }));
+
+    // The bounded `retry: 3` backoff runs first, then the query settles as error.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(result.current.tokenError).toBe(true);
+    expect(toast.error).toHaveBeenCalledWith(
+      'viewer.tokenError',
+      expect.objectContaining({ id: 'viewer-token-error' }),
+    );
+    const attemptsAfterFailure = mockedGetTileTokensBatch.mock.calls.length;
+
+    // A failed query has no TTL to derive a cadence from, so the outage retry
+    // interval keeps it trying instead of leaving the viewer permanently blank.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+    });
+
+    expect(mockedGetTileTokensBatch.mock.calls.length).toBeGreaterThan(attemptsAfterFailure);
   });
 });

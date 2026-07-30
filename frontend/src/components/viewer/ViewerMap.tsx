@@ -13,7 +13,8 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
-import { logUnhandledMapError } from '@/lib/map-error-log';
+import { isRasterTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { reportTileTokenRemint } from '@/lib/report';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
@@ -188,7 +189,12 @@ export const ViewerMap = memo(function ViewerMap({
   const { tokenMap, refreshTokens } = useViewerTokens({ layers, apiKey, embedToken });
   // fix(#621): shared tile-auth recovery — a vector tile 401/403 kicks one
   // throttled token re-mint; the token-refresh effect below re-signs sources.
-  const recoverTileAuth = useTileAuthRecovery(refreshTokens);
+  // fix(#890): report every mint the recovery path actually kicks (suppressed),
+  // so a tab-return recovery still leaves a trace now that it no longer arrives
+  // wrapped in a 403 burst.
+  const recoverTileAuth = useTileAuthRecovery(refreshTokens, (trigger) =>
+    reportTileTokenRemint('viewer', trigger),
+  );
   // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
@@ -404,7 +410,15 @@ export const ViewerMap = memo(function ViewerMap({
           // grant, expired signature). Previously the return value was
           // discarded and the surface stayed fully silent; fall through to
           // the existing deduped tile-error toast instead.
-          if (!recoverTileAuth()) {
+          // fix(#890): the re-mint still runs for a raster/DEM failure — the
+          // mint request goes through apiFetch, whose proactive refresh renews
+          // an expiring JWT, and that Bearer is the ONLY thing that fixes a
+          // raster 401 (fix(#890) codex P1). But a fresh sig cannot help a
+          // raster tile, so its `true` must not silence the surface the way it
+          // does for a vector tile: toast regardless, matching
+          // `isHandledTileAuthError`, which keeps logging these.
+          const recovering = recoverTileAuth();
+          if (isRasterTileAuthError(e) || !recovering) {
             toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
               id: 'viewer-map-error',
             });

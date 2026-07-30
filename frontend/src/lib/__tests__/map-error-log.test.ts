@@ -5,7 +5,12 @@
 // react-maplibre wrapper's default `console.error(e.error)` for everything
 // else, so real failures stay visible in devtools and the problem report.
 
-import { isHandledTileAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import {
+  isHandledTileAuthError,
+  isRasterTileAuthError,
+  isRasterTileUrl,
+  logUnhandledMapError,
+} from '@/lib/map-error-log';
 
 function ajaxError(status: number, url: string) {
   return { error: { message: `AJAXError: (${status}): ${url}`, status, url } };
@@ -118,5 +123,47 @@ describe('isHandledTileAuthError (fix #755)', () => {
     expect(isHandledTileAuthError(ajaxError(403, rasterUrl))).toBe(false);
     // Vector tile URLs stay handled after the exclusion.
     expect(isHandledTileAuthError(ajaxError(403, `${window.location.origin}/api/tiles/data.t/1/2/3.pbf?sig=a`))).toBe(true);
+  });
+});
+
+// fix(#890): the surfaces' own error handlers claimed to have "handled" raster
+// 401/403s (re-mint requested) even though nothing there can cure them, which
+// left one suppressed report row next to the unsuppressed console row above.
+// They now share this predicate, so the two sides cannot disagree again.
+describe('isRasterTileAuthError (fix #890)', () => {
+  const rasterUrl = `${window.location.origin}/raster-tiles/0b0af5ab-1f3e-4c1a-9d7e-8f1f0c9d2e11/tiles/9/151/191.png`;
+  const vectorUrl = `${window.location.origin}/api/tiles/data.t/1/2/3.pbf?sig=a`;
+
+  it('matches raster/DEM tile auth statuses only', () => {
+    expect(isRasterTileAuthError(ajaxError(401, rasterUrl))).toBe(true);
+    expect(isRasterTileAuthError(ajaxError(403, rasterUrl))).toBe(true);
+    expect(isRasterTileAuthError(ajaxError(404, rasterUrl))).toBe(false);
+    expect(isRasterTileAuthError(ajaxError(500, rasterUrl))).toBe(false);
+  });
+
+  it('never matches a vector tile, a non-tile URL, or a status-less error', () => {
+    expect(isRasterTileAuthError(ajaxError(403, vectorUrl))).toBe(false);
+    expect(isRasterTileAuthError(ajaxError(403, `${window.location.origin}/api/datasets/`))).toBe(false);
+    expect(isRasterTileAuthError({ error: { status: 403 } })).toBe(false);
+    expect(isRasterTileAuthError({ error: { message: 'no status' } })).toBe(false);
+    expect(isRasterTileAuthError({})).toBe(false);
+  });
+
+  it('matches relative and CDN-fronted raster URLs alike', () => {
+    expect(isRasterTileAuthError(ajaxError(403, '/raster-tiles/abc/tiles/9/151/191.png'))).toBe(true);
+    expect(isRasterTileAuthError(ajaxError(403, 'https://cdn.example.com/raster-tiles/abc/tiles/9/151/191.png?sig=a'))).toBe(true);
+  });
+
+  it('is mutually exclusive with isHandledTileAuthError', () => {
+    for (const url of [rasterUrl, vectorUrl, '/raster-tiles/a/tiles/1/2/3.png', '/api/tiles/x/1/2/3.pbf']) {
+      const e = ajaxError(403, url);
+      expect(isRasterTileAuthError(e) && isHandledTileAuthError(e)).toBe(false);
+    }
+  });
+
+  it('classifies raster tile URLs regardless of status', () => {
+    expect(isRasterTileUrl(rasterUrl)).toBe(true);
+    expect(isRasterTileUrl(vectorUrl)).toBe(false);
+    expect(isRasterTileUrl(undefined)).toBe(false);
   });
 });

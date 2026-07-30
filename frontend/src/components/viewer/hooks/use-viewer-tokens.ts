@@ -1,44 +1,51 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { getTileTokensBatch } from '@/api/tiles';
-import type { TileToken, VectorTileToken } from '@/api/tiles';
+import type { TileToken, TileTokenBatchResponse } from '@/api/tiles';
+import { queryKeys } from '@/lib/query-keys';
 import type { SharedLayerResponse } from '@/types/api';
 
-/** Fetch tile tokens in a single batch using API key auth. */
-async function fetchTokensWithApiKey(
-  datasetIds: string[],
-  apiKey: string,
-  embedToken?: string,
-): Promise<Map<string, TileToken>> {
-  const response = await getTileTokensBatch(datasetIds, apiKey, embedToken);
-  const map = new Map<string, TileToken>();
-  for (const [datasetId, entry] of Object.entries(response.tokens)) {
-    if ('kind' in entry) {
-      map.set(datasetId, entry);
-    }
-  }
-  return map;
-}
+// fix(#890): while the mint endpoint is down, keep retrying at this cadence.
+// TanStack's bounded `retry` covers the fast attempts; this covers a longer
+// outage the way the deleted hand-rolled loop's backoff CAP did. Without it the
+// interval below would return false (no data → no TTL to derive) and a viewer
+// that failed its first mint would never recover on its own.
+const TOKEN_RETRY_INTERVAL_MS = 60_000;
 
-/** Fetch tile tokens in a single batch (anonymous / JWT / embed-token auth). */
-async function fetchTokensBatch(
-  datasetIds: string[],
-  embedToken?: string,
-): Promise<Map<string, TileToken>> {
-  const response = await getTileTokensBatch(datasetIds, undefined, embedToken);
-  const map = new Map<string, TileToken>();
-  for (const [datasetId, entry] of Object.entries(response.tokens)) {
-    if ('kind' in entry) {
-      map.set(datasetId, entry);
+/**
+ * Refresh at 80% of the minimum vector-token TTL, floored at 30 s. Raster
+ * tokens have no `expires_in` (their tile_url is stable), so a map with no
+ * vector tokens skips the refresh cycle entirely.
+ */
+function refreshIntervalMs(data: TileTokenBatchResponse | undefined): number | false {
+  let minTtl = Infinity;
+  for (const entry of Object.values(data?.tokens ?? {})) {
+    if ('kind' in entry && entry.kind === 'vector') {
+      minTtl = Math.min(minTtl, entry.expires_in);
     }
   }
-  return map;
+  if (!Number.isFinite(minTtl)) return false;
+  return Math.max(minTtl * 800, 30_000);
 }
 
 /**
  * Manages tile token fetching and auto-refresh for the viewer map.
  * Returns the current token map and whether a fetch error occurred.
+ *
+ * fix(#890): this used to be a hand-rolled `useState` + `setTimeout` loop, which
+ * gave the viewer the OPPOSITE refresh policy to the builder and dataset
+ * preview: Chrome throttles a hidden tab's timers but still fires them, so a
+ * refresh landing while hidden pushed a fresh token URL at a paused map — the
+ * dropped-`setTiles` hazard from fix(#584) — while the TanStack-based surfaces
+ * did nothing at all until the tab came back. It is now the same TanStack path
+ * the builder uses: `refetchIntervalInBackground: false` means a hidden tab gets
+ * ZERO refreshes, and the visible-edge re-mint (fix(#755) /
+ * `useVisibleTileTokenRefresh` in ViewerMap) owns the tab-return case. That
+ * deletes the timer/cancellation machinery behind fix(#831) and fix(#850)
+ * outright, and makes ViewerMap's existing `useInvalidateTileTokens()` (WebGL
+ * context restore, fix(#438) BLD-04) actually reach the viewer's tokens.
  */
 export function useViewerTokens({
   layers,
@@ -50,93 +57,52 @@ export function useViewerTokens({
   embedToken?: string;
 }) {
   const { t } = useTranslation('common');
-  const [tokenMap, setTokenMap] = useState<Map<string, TileToken>>(new Map());
-  const [tokenError, setTokenError] = useState(false);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // fix(#621): latest fetchTokens, so the on-demand refresh below always runs
-  // the current effect generation's fetcher (or nothing after unmount).
-  const fetchRef = useRef<(() => void) | null>(null);
 
   const layerDatasetIds = useMemo(
     () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
     [layers],
   );
+  // Sorted so a layer reorder reuses the cached batch instead of re-minting.
+  const sortedIds = useMemo(() => [...layerDatasetIds].sort().join(','), [layerDatasetIds]);
 
-  useEffect(() => {
-    // fix(#394) SH-04: embed mode no longer skips token fetching — the batch
-    // endpoint accepts X-Embed-Token, so embeds get the same raster/DEM tile
-    // descriptors (bounds, resolution-derived maxzoom) as normal viewers
-    // instead of building the terrain source from empty defaults.
-    if (layerDatasetIds.length === 0) return;
+  // fix(#394) SH-04: embed mode does not skip token fetching — the batch
+  // endpoint accepts X-Embed-Token, so embeds get the same raster/DEM tile
+  // descriptors (bounds, resolution-derived maxzoom) as normal viewers instead
+  // of building the terrain source from empty defaults.
+  const query = useQuery({
+    queryKey: queryKeys.tileTokens.viewerBatch(sortedIds, `${apiKey ?? ''}|${embedToken ?? ''}`),
+    queryFn: () => getTileTokensBatch(layerDatasetIds, apiKey, embedToken),
+    enabled: layerDatasetIds.length > 0,
+    staleTime: 60_000,
+    // Bounded backoff for a transient hiccup (parity with useTileTokens).
+    retry: 3,
+    refetchInterval: (q) =>
+      q.state.status === 'error' ? TOKEN_RETRY_INTERVAL_MS : refreshIntervalMs(q.state.data),
+    // fix(#890): explicit because it is the whole policy — a hidden tab must not
+    // refresh, since MapLibre drops the resulting setTiles reload while the
+    // source's TileManager is paused (fix(#584)).
+    refetchIntervalInBackground: false,
+  });
 
-    let cancelled = false;
-    let retryAttempt = 0;
-
-    async function fetchTokens() {
-      try {
-        const newMap = apiKey
-          ? await fetchTokensWithApiKey(layerDatasetIds, apiKey, embedToken)
-          : await fetchTokensBatch(layerDatasetIds, embedToken);
-
-        if (cancelled) return;
-        setTokenMap(newMap);
-        setTokenError(false);
-        retryAttempt = 0;
-
-        // Refresh at 80% of the minimum vector-token TTL. Raster tokens
-        // have no expires_in (the tile_url is stable), so if there are no
-        // vector tokens in the map, skip the refresh cycle entirely.
-        const vectorTtls = [...newMap.values()]
-          .filter((t): t is VectorTileToken => t.kind === 'vector')
-          .map((t) => t.expires_in);
-        if (vectorTtls.length > 0) {
-          const minTtl = Math.min(...vectorTtls);
-          const refreshMs = Math.max(minTtl * 800, 30_000);
-          if (refreshTimerRef.current) {
-            clearTimeout(refreshTimerRef.current);
-          }
-          refreshTimerRef.current = setTimeout(() => {
-            if (!cancelled) fetchTokens();
-          }, refreshMs);
-        }
-      } catch (err) {
-        // fix(#850): a cancelled generation rejecting late must not touch the
-        // shared timer ref — a newer effect generation may already own it, and
-        // clearing here would kill that generation's valid refresh timer.
-        if (cancelled) return;
-        if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
-        setTokenError(true);
-        // Exponential backoff retry: 5s, 10s, 20s, 40s, capped at 60s
-        retryAttempt++;
-        const backoffMs = Math.min(5_000 * Math.pow(2, retryAttempt - 1), 60_000);
-        // fix(#831): clear the pending retry timer before arming a new one —
-        // out-of-band refreshes during outages multiplied retry loops.
-        if (refreshTimerRef.current) {
-          clearTimeout(refreshTimerRef.current);
-        }
-        refreshTimerRef.current = setTimeout(() => {
-          if (!cancelled) fetchTokens();
-        }, backoffMs);
-      }
+  // Identity is stable while TanStack's structural sharing keeps `data` stable
+  // (an unchanged sig across a refresh), so ViewerMap's token→setTiles effect
+  // only re-runs when a token actually rotated.
+  const tokenMap = useMemo(() => {
+    const map = new Map<string, TileToken>();
+    for (const [datasetId, entry] of Object.entries(query.data?.tokens ?? {})) {
+      if ('kind' in entry) map.set(datasetId, entry);
     }
+    return map;
+  }, [query.data]);
 
-    fetchTokens();
-    fetchRef.current = fetchTokens;
-
-    return () => {
-      cancelled = true;
-      fetchRef.current = null;
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-    };
-  }, [embedToken, apiKey, layerDatasetIds]);
+  const tokenError = query.isError;
 
   // fix(#621): on-demand re-mint for the tile 401/403 recovery path. Stable
   // identity so map error handlers can depend on it without re-registering.
+  const refetchRef = useRef(query.refetch);
+  refetchRef.current = query.refetch;
   const refreshTokens = useCallback(() => {
-    fetchRef.current?.();
+    void refetchRef.current();
   }, []);
 
   // Surface tile token fetch failures as a user-visible toast

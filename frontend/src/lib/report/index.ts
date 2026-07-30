@@ -2,6 +2,7 @@ export { redact } from './redact';
 export {
   pushReportEntry,
   reportNetworkError,
+  reportTileTokenRemint,
   clearReportEntries,
   getReportEntries,
   useReportEntries,
