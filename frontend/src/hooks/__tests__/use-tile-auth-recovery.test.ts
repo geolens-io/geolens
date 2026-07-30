@@ -437,6 +437,27 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
   });
 
+  // codex on #964: a dead session ends in `logout()`, which moves the token to
+  // null. Treating that as a rotation would refetch every raster tile with no
+  // Authorization header — a second 401 burst under the signed-out dialog.
+  it('does not treat a logout as a credential renewal', async () => {
+    const recover = vi.fn(() => true);
+    const onCredentialRenewed = vi.fn();
+    vi.mocked(tryRefresh).mockResolvedValueOnce(true);
+    useAuthStore.setState({ token: 'stale', expiresAt: Date.now() + 10_000 });
+    renderHook(() =>
+      useVisibleTileTokenRefresh(() => [rasterToken], recover, onCredentialRenewed),
+    );
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    act(() => useAuthStore.setState({ token: null }));
+
+    expect(onCredentialRenewed).not.toHaveBeenCalled();
+  });
+
   it('does not touch raster sources when only a vector sig is expiring', async () => {
     const recover = vi.fn(() => true);
     const onCredentialRenewed = vi.fn();

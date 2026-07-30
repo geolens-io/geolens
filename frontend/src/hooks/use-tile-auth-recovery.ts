@@ -115,15 +115,21 @@ const RENEWAL_WATCH_MS = 30_000;
  * 401 against the same Bearer. */
 function reloadOnTokenRotation(reload: () => void): void {
   const tokenBefore = useAuthStore.getState().token;
+  // A CHANGED token is not automatically a renewed one: when the session turns
+  // out to be dead, `notifySessionExpired` logs out and moves the token to
+  // null. Reloading on that would refetch every raster tile with no
+  // Authorization header at all — a second 401 burst, on top of the signed-out
+  // dialog. Only a non-null, different token is a rotation.
+  const isRotation = (token: string | null) => token !== null && token !== tokenBefore;
   void tryRefresh().then(() => {
-    if (useAuthStore.getState().token !== tokenBefore) {
+    if (isRotation(useAuthStore.getState().token)) {
       reload();
       return;
     }
     let unsubscribe: (() => void) | null = null;
     const timer = setTimeout(() => unsubscribe?.(), RENEWAL_WATCH_MS);
     unsubscribe = useAuthStore.subscribe((state) => {
-      if (state.token === tokenBefore) return;
+      if (!isRotation(state.token)) return;
       clearTimeout(timer);
       unsubscribe?.();
       reload();
