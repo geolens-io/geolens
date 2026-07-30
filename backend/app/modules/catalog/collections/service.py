@@ -16,7 +16,6 @@ Handles CRUD operations for collections and collection-dataset membership.
 # follow the flush-only pattern — never commit internally.
 """
 
-import json
 import uuid
 
 from fastapi import HTTPException, status
@@ -24,6 +23,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.geo import rollup_bbox_columns, rollup_span_bbox
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.collections.models import Collection, CollectionDataset
@@ -273,24 +273,6 @@ async def get_dataset_collections(
     return list(result.scalars().all())
 
 
-def _iter_coord_pairs(coords):
-    """Yield (x, y) from arbitrarily-nested GeoJSON coordinates.
-
-    Handles Point ([x, y]), LineString ([[x, y], ...]) and Polygon
-    ([[[x, y], ...]]) alike so an envelope that degenerates to a point/line
-    doesn't crash the bbox math (BA-20).
-    """
-    if (
-        len(coords) >= 2
-        and isinstance(coords[0], (int, float))
-        and isinstance(coords[1], (int, float))
-    ):
-        yield (coords[0], coords[1])
-        return
-    for c in coords:
-        yield from _iter_coord_pairs(c)
-
-
 async def batch_collection_extents(
     session: AsyncSession,
     collection_ids: list[uuid.UUID],
@@ -305,12 +287,15 @@ async def batch_collection_extents(
     if not collection_ids:
         return {}
 
+    # fix(#886): the bbox is aggregated in two longitude domains so a collection
+    # holding datasets either side of the antimeridian keeps the narrower range
+    # instead of folding to a global bbox. The degenerate point/line extents
+    # that used to need GeoJSON coordinate flattening (#430 BA-20) come out of
+    # ST_XMin/ST_XMax as an equal-min/max bbox with no special case.
     stmt = (
         select(
             CollectionDataset.collection_id,
-            func.ST_AsGeoJSON(
-                func.ST_Envelope(func.ST_Collect(Record.spatial_extent))
-            ).label("bbox_geojson"),
+            *rollup_bbox_columns(Record.spatial_extent),
             func.min(Record.temporal_start).label("temporal_start"),
             func.max(Record.temporal_end).label("temporal_end"),
         )
@@ -327,19 +312,13 @@ async def batch_collection_extents(
 
     extents: dict[uuid.UUID, dict] = {}
     for row in rows:
-        coll_id = row.collection_id
-        extent_bbox = None
-        if row.bbox_geojson is not None:
-            geojson = json.loads(row.bbox_geojson)
-            # fix(#430 BA-20): ST_Envelope of a single point/line is a Point/LineString,
-            # not a Polygon ring -- flatten coordinates generically.
-            pairs = list(_iter_coord_pairs(geojson["coordinates"]))
-            if pairs:
-                xs = [p[0] for p in pairs]
-                ys = [p[1] for p in pairs]
-                extent_bbox = [min(xs), min(ys), max(xs), max(ys)]
-        extents[coll_id] = {
-            "extent_bbox": extent_bbox,
+        extents[row.collection_id] = {
+            # fix(#886): span form, not the spec west > east form -- the only
+            # consumer is CollectionCard's BBoxPreview, which derives its SVG
+            # width from maxx - minx and has no crossing guard yet (#903). This
+            # matches the sibling per-dataset extent_bbox (datasets/domain/
+            # helpers.py), so both fields keep one contract.
+            "extent_bbox": rollup_span_bbox(row[1:7]),
             "temporal_start": row.temporal_start,
             "temporal_end": row.temporal_end,
         }

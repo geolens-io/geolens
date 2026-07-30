@@ -6,7 +6,6 @@ import re
 import uuid
 
 import structlog
-from geoalchemy2.shape import to_shape
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +28,7 @@ from app.processing.ai.tools import (
 )
 from typing import TYPE_CHECKING
 
+from app.core.geo import extent_to_bbox, merge_bboxes, wrap_longitude
 from app.core.identity import Identity
 from app.processing.ai.token_usage import record_token_usage
 
@@ -473,6 +473,48 @@ async def _repair_map_spec(
         ) from e
 
 
+def _snap_viewport_to_extent(spec: LLMMapSpec, extents: list[object]) -> None:
+    """Pull an LLM viewport back to the layer data when it points elsewhere.
+
+    fix(#886): the union used to be a naive min/max fold over
+    ``to_shape(ext).bounds``, so a map over Fiji datasets at lon 179 and -179
+    unioned to -180..180 and "snapped" the centre to lon 0 --- the Gulf of
+    Guinea, a quarter of the planet from the data. ``merge_bboxes`` folds the
+    per-dataset bboxes on the circle instead.
+
+    The margin and centroid arithmetic needs a monotonic width, so a crossing
+    east is lifted past +180 and the spec's longitude is brought into the same
+    unwrapped domain before comparison. Mutates ``spec`` in place.
+    """
+    merged = merge_bboxes(extent_to_bbox(ext) for ext in extents)
+    if merged is None:
+        return
+    min_x, min_y, max_x, max_y = merged
+    center_lng = spec.center_lng
+    if min_x > max_x:
+        max_x += 360.0
+        if center_lng < min_x:
+            center_lng += 360.0
+    # Add a generous margin (50% of extent in each direction)
+    dx = (max_x - min_x) * 0.5 or 1.0
+    dy = (max_y - min_y) * 0.5 or 1.0
+    if (
+        center_lng < min_x - dx
+        or center_lng > max_x + dx
+        or spec.center_lat < min_y - dy
+        or spec.center_lat > max_y + dy
+    ):
+        centroid_lng = wrap_longitude((min_x + max_x) / 2)
+        centroid_lat = (min_y + max_y) / 2
+        logger.warning(
+            "LLM viewport outside dataset extent, snapping to centroid",
+            llm_center=(spec.center_lng, spec.center_lat),
+            snapped_center=(centroid_lng, centroid_lat),
+        )
+        spec.center_lng = centroid_lng
+        spec.center_lat = centroid_lat
+
+
 async def _validate_and_persist_map(
     session: AsyncSession,
     user: Identity,
@@ -536,41 +578,9 @@ async def _validate_and_persist_map(
     # Validate viewport coords against union of dataset bboxes
     # If the LLM-generated center is far outside the data extent, snap to centroid
     try:
-        min_x, min_y, max_x, max_y = (
-            float("inf"),
-            float("inf"),
-            float("-inf"),
-            float("-inf"),
+        _snap_viewport_to_extent(
+            spec, [info.get("spatial_extent") for info in ds_info.values()]
         )
-        has_bbox = False
-        for info in ds_info.values():
-            ext = info.get("spatial_extent")
-            if ext is not None:
-                bounds = to_shape(ext).bounds  # (minx, miny, maxx, maxy)
-                min_x = min(min_x, bounds[0])
-                min_y = min(min_y, bounds[1])
-                max_x = max(max_x, bounds[2])
-                max_y = max(max_y, bounds[3])
-                has_bbox = True
-        if has_bbox:
-            # Add a generous margin (50% of extent in each direction)
-            dx = (max_x - min_x) * 0.5 or 1.0
-            dy = (max_y - min_y) * 0.5 or 1.0
-            if (
-                spec.center_lng < min_x - dx
-                or spec.center_lng > max_x + dx
-                or spec.center_lat < min_y - dy
-                or spec.center_lat > max_y + dy
-            ):
-                centroid_lng = (min_x + max_x) / 2
-                centroid_lat = (min_y + max_y) / 2
-                logger.warning(
-                    "LLM viewport outside dataset extent, snapping to centroid",
-                    llm_center=(spec.center_lng, spec.center_lat),
-                    snapped_center=(centroid_lng, centroid_lat),
-                )
-                spec.center_lng = centroid_lng
-                spec.center_lat = centroid_lat
     except Exception:  # broad: viewport validation is non-fatal context-builder; skip on any geometry/DB error
         logger.debug("Viewport validation skipped", exc_info=True)
 

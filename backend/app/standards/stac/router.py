@@ -50,7 +50,7 @@ from app.standards.ogc.utils import (
     link_header_value,
     parse_accept_languages,
 )
-from app.core.geo import make_bbox_filter
+from app.core.geo import make_bbox_filter, rollup_bbox, rollup_bbox_columns
 from app.modules.catalog.search.service import build_assets, dataset_to_ogc_record
 from app.standards.stac.schemas import (
     StacCatalog,
@@ -174,21 +174,20 @@ def _stac_page_url(
 def _parse_extent_row(
     ext_row: tuple | None,
 ) -> tuple[list[float] | None, list[str | None] | None, str | None]:
-    """Parse a spatial/temporal extent + license DB row into STAC-ready values."""
-    spatial_extent = None
+    """Parse a spatial/temporal extent + license DB row into STAC-ready values.
+
+    fix(#886): the leading six columns come from ``rollup_bbox_columns``, and
+    the STAC Collection ``extent.spatial.bbox`` takes the spec form -- STAC
+    inherits RFC 7946 §5.2, so a rollup that crosses the antimeridian must be
+    served as ``west > east`` rather than the global bbox a naive fold produced.
+    """
     temporal_extent = None
-    if ext_row and ext_row[0] is not None:
-        spatial_extent = [
-            float(ext_row[0]),
-            float(ext_row[1]),
-            float(ext_row[2]),
-            float(ext_row[3]),
-        ]
-    if ext_row and (ext_row[4] is not None or ext_row[5] is not None):
-        t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
-        t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
+    spatial_extent = rollup_bbox(ext_row[:6]) if ext_row else None
+    if ext_row and (ext_row[6] is not None or ext_row[7] is not None):
+        t_start = ext_row[6].isoformat() + "T00:00:00Z" if ext_row[6] else None
+        t_end = ext_row[7].isoformat() + "T00:00:00Z" if ext_row[7] else None
         temporal_extent = [t_start, t_end]
-    license = _collapse_licenses(ext_row[6]) if ext_row else None
+    license = _collapse_licenses(ext_row[8]) if ext_row else None
     return spatial_extent, temporal_extent, license
 
 
@@ -632,10 +631,7 @@ async def get_collections(
         extent_stmt = (
             select(
                 CollectionDataset.collection_id,
-                func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
-                func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
-                func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
-                func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
+                *rollup_bbox_columns(Record.spatial_extent),
                 func.min(Record.temporal_start),
                 func.max(Record.temporal_end),
                 func.array_agg(func.distinct(Record.license)),
@@ -852,10 +848,7 @@ async def get_collection(
     async def _fetch_extent() -> tuple | None:
         extent_stmt = (
             select(
-                func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
-                func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
-                func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
-                func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
+                *rollup_bbox_columns(Record.spatial_extent),
                 func.min(Record.temporal_start),
                 func.max(Record.temporal_end),
                 func.array_agg(func.distinct(Record.license)),

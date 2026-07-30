@@ -1,7 +1,6 @@
 """Search and OGC API Records endpoints."""
 
 import asyncio
-import json
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -42,7 +41,7 @@ from app.standards.ogc.utils import (
     parse_accept_languages,
 )
 from app.standards.ogc.errors import BAD_REQUEST_RESPONSE, ERROR_RESPONSES_PUBLIC
-from app.core.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox, rollup_bbox, rollup_bbox_columns
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.modules.catalog.search.schemas import (
     FacetCountResponse,
@@ -565,11 +564,12 @@ async def _build_collection_metadata(
         user_roles = set()
 
     # Spatial + temporal extent in one query (these fields are now on Record)
+    # fix(#886): rollup_bbox_columns aggregates in two longitude domains so a
+    # catalog with records either side of the antimeridian keeps the narrower
+    # range instead of folding to a global bbox.
     extent_stmt = (
         select(
-            func.ST_AsGeoJSON(
-                func.ST_Envelope(func.ST_Collect(Record.spatial_extent))
-            ).label("bbox_geojson"),
+            *rollup_bbox_columns(Record.spatial_extent),
             func.min(Record.temporal_start).label("temporal_start"),
             func.max(Record.temporal_end).label("temporal_end"),
         )
@@ -588,14 +588,9 @@ async def _build_collection_metadata(
         )
         row = None
 
-    # Parse spatial extent
-    spatial_extent = None
-    if row is not None and row.bbox_geojson is not None:
-        geojson = json.loads(row.bbox_geojson)
-        coords = geojson["coordinates"][0]
-        xs = [c[0] for c in coords]
-        ys = [c[1] for c in coords]
-        spatial_extent = [min(xs), min(ys), max(xs), max(ys)]
+    # Parse spatial extent. The OGC collection extent is the spec (west > east)
+    # form, matching the per-dataset bboxes served from extent_to_bbox below.
+    spatial_extent = rollup_bbox(row[:6]) if row is not None else None
 
     # Build temporal extent
     temporal_extent = None

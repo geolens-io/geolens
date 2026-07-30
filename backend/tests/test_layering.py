@@ -1057,7 +1057,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#892): +4 — the per-dataset OGC collection extent moved off a bare
     # to_shape().bounds read onto extent_to_bbox() so a seam-crossing extent
     # serves the RFC 7946 west > east bbox. Ratchet stays exact.
-    "backend/app/modules/catalog/search/router.py": 1432,
+    # fix(#886): -5 — the aggregate collection extent moved off
+    # ST_AsGeoJSON(ST_Envelope(ST_Collect(...))) plus its GeoJSON coordinate
+    # fold onto rollup_bbox_columns()/rollup_bbox(), which also retires the
+    # module's last json import. Cap lowered 1432 -> 1427, still exact.
+    "backend/app/modules/catalog/search/router.py": 1427,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -1066,7 +1070,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead of advertising a fabricated global extent, and stac-api-validator
     # conformance (strict RFC 3339 datetime gate, bbox/intersects exclusivity,
     # south<=north bbox check, limit clamping). Ratchet stays exact.
-    "backend/app/standards/stac/router.py": 1796,
+    # fix(#886): -7 — both Collection extent queries drop their four repeated
+    # ST_XMin/ST_YMin/ST_XMax/ST_YMax(ST_Extent(...)) columns for one
+    # rollup_bbox_columns() splat, and _parse_extent_row folds the row through
+    # rollup_bbox(). Cap lowered 1796 -> 1789, still exact.
+    "backend/app/standards/stac/router.py": 1789,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

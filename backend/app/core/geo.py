@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
+
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.sql.elements import ColumnElement
 
 
@@ -139,6 +141,187 @@ def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> 
     if len(halves) == 1:
         return f"POLYGON({halves[0]})"
     return f"MULTIPOLYGON({','.join(f'({h})' for h in halves)})"
+
+
+# ---------------------------------------------------------------------------
+# fix(#886): antimeridian-aware extent rollups
+# ---------------------------------------------------------------------------
+
+# The prime meridian, used to detect footprints that ST_ShiftLongitude would
+# tear apart (see _shifted_longitude_geom).
+_PRIME_MERIDIAN_WKT = "LINESTRING(0 -90,0 90)"
+
+
+def wrap_longitude(lng: float) -> float:
+    """Fold a longitude from the shifted domain back into ``[-180, 180]``.
+
+    fix(#886): the rollup helpers below evaluate a second, ``+360``-shifted
+    longitude domain, so their intermediate values run up to ~540. One
+    subtraction is enough because a winning shifted range is always narrower
+    than 360 degrees. ``180`` stays ``180`` rather than flipping to ``-180``.
+    """
+    if lng > 180.0:
+        return lng - 360.0
+    if lng < -180.0:
+        return lng + 360.0
+    return lng
+
+
+def _shifted_longitude_geom(geom_col: ColumnElement) -> ColumnElement:
+    """Move a footprint into the ``+360``-shifted longitude domain.
+
+    fix(#886): ``ST_ShiftLongitude`` shifts *each vertex* with ``x < 0``, which
+    is exactly right for the two-ring seam form (``150..180`` plus
+    ``-180..-110`` becomes a contiguous ``150..250``) and exactly wrong for a
+    footprint that crosses the prime meridian: Europe's ``-10..30`` becomes the
+    vertex pair ``350, 30``, i.e. a claimed span of ``30..350``, and a rollup
+    that then wins on span emits a bbox which *excludes the Europe dataset
+    itself*. Verified against PostGIS: a Europe/UK/Africa record plus a Fiji
+    pair yields ``covers-all-inputs=False`` with a bare ``ST_ShiftLongitude``.
+
+    So shift whole footprints that reach the prime meridian, and only let
+    ``ST_ShiftLongitude`` work per-vertex on the ones that do not. Translating
+    preserves a footprint's own span, so it can never invent a narrower range
+    than the data has; the worst it does is leave the shifted domain wide
+    enough to lose, which falls back to the normal domain.
+
+    Requires a 4326 (degree) geometry column.
+    """
+    return case(
+        (
+            and_(
+                func.ST_XMin(geom_col) < 0,
+                func.ST_Intersects(
+                    geom_col,
+                    func.ST_SetSRID(func.ST_GeomFromText(_PRIME_MERIDIAN_WKT), 4326),
+                ),
+            ),
+            func.ST_Translate(geom_col, 360, 0),
+        ),
+        else_=func.ST_ShiftLongitude(geom_col),
+    )
+
+
+def rollup_bbox_columns(geom_col: ColumnElement) -> list[ColumnElement]:
+    """Six aggregate columns describing an extent rollup in two longitude domains.
+
+    fix(#886): a bare ``ST_Extent`` / ``ST_Envelope(ST_Collect(...))`` fold over
+    records on both sides of the antimeridian manufactures a global bbox --- two
+    ordinary Fiji datasets at lon 179 and -179 roll up to ``-180..180``. These
+    columns aggregate the same rows twice, once as stored and once in the
+    ``+360``-shifted domain, so :func:`rollup_bbox` can keep whichever range is
+    narrower.
+
+    Returns ``[xmin, ymin, xmax, ymax, shifted_xmin, shifted_xmax]``; splat it
+    as the leading columns of a ``select()`` and hand the matching row slice to
+    :func:`rollup_bbox` or :func:`rollup_span_bbox`. Latitudes come from the
+    unshifted extent because shifting longitudes cannot change them.
+    """
+    normal = func.ST_Extent(geom_col)
+    shifted = func.ST_Extent(_shifted_longitude_geom(geom_col))
+    return [
+        func.ST_XMin(normal),
+        func.ST_YMin(normal),
+        func.ST_XMax(normal),
+        func.ST_YMax(normal),
+        func.ST_XMin(shifted),
+        func.ST_XMax(shifted),
+    ]
+
+
+def _narrower_domain(
+    xmin: float, ymin: float, xmax: float, ymax: float, sxmin: float, sxmax: float
+) -> list[float]:
+    """Keep whichever longitude domain spans less, as an RFC 7946 §5.2 bbox.
+
+    A tie goes to the unshifted domain, so nothing that does not actually cross
+    the seam is ever re-expressed as ``west > east``.
+
+    Documented ceiling: this is not the true minimal covering range, which
+    needs the largest gap anywhere on the circle rather than at one of two cut
+    points. Footprints at ``-170``, ``-15``, ``25`` and ``165`` have their
+    largest gap at ``-160..-20`` and could be covered in 220 degrees; both cut
+    points fall inside data, so this returns 330. Always a valid covering
+    range, sometimes broader than optimal --- never inverted, never partial.
+    """
+    if sxmax - sxmin < xmax - xmin:
+        return [wrap_longitude(sxmin), ymin, wrap_longitude(sxmax), ymax]
+    return [xmin, ymin, xmax, ymax]
+
+
+def _rollup_floats(values: Sequence[object]) -> list[float] | None:
+    """Coerce a :func:`rollup_bbox_columns` row slice to six floats, or None."""
+    if values is None or len(values) < 6:
+        return None
+    if any(v is None for v in values[:6]):
+        return None
+    try:
+        return [float(v) for v in values[:6]]  # type: ignore[arg-type]
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return None
+
+
+def rollup_bbox(values: Sequence[object]) -> list[float] | None:
+    """Fold a :func:`rollup_bbox_columns` row into an RFC 7946 §5.2 bbox.
+
+    Returns ``[west, south, east, north]`` with ``west > east`` when the rollup
+    honestly crosses the antimeridian --- the STAC / OGC / GeoJSON encoding.
+    Consumers that cannot express a crossing box want
+    :func:`rollup_span_bbox`.
+    """
+    nums = _rollup_floats(values)
+    return None if nums is None else _narrower_domain(*nums)
+
+
+def rollup_span_bbox(values: Sequence[object]) -> list[float] | None:
+    """Fold a :func:`rollup_bbox_columns` row into monotonic bounds.
+
+    fix(#886): the sibling of :func:`rollup_bbox` for consumers that feed
+    ``maxx - minx`` span arithmetic or a viewer with no antimeridian handling.
+    A crossing rollup is honestly ``-180..180`` here: over-broad, never
+    inverted.
+    """
+    nums = _rollup_floats(values)
+    if nums is None:
+        return None
+    west, south, east, north = _narrower_domain(*nums)
+    if west > east:
+        return [-180.0, south, 180.0, north]
+    return [west, south, east, north]
+
+
+def merge_bboxes(bboxes: Iterable[Sequence[float] | None]) -> list[float] | None:
+    """Merge RFC 7946 §5.2 bboxes on the circle, preferring the narrower domain.
+
+    fix(#886): the Python twin of :func:`rollup_bbox`, for folds that already
+    hold per-record bboxes (from :func:`extent_to_bbox`) instead of a SQL
+    aggregate. Inputs may themselves be ``west > east``; so may the result.
+    """
+    xmin = ymin = sxmin = float("inf")
+    xmax = ymax = sxmax = float("-inf")
+    seen = False
+
+    for bbox in bboxes:
+        if bbox is None or len(bbox) < 4:
+            continue
+        west, south, east, north = (float(v) for v in bbox[:4])
+        seen = True
+        ymin, ymax = min(ymin, south), max(ymax, north)
+        if west > east:
+            # Crossing: the unshifted domain can only say "the whole world",
+            # while the shifted domain holds the real, contiguous range.
+            xmin, xmax = min(xmin, -180.0), max(xmax, 180.0)
+            shifted = (west, east + 360.0)
+        else:
+            xmin, xmax = min(xmin, west), max(xmax, east)
+            # Shift the whole interval, mirroring _shifted_longitude_geom:
+            # a footprint reaching the prime meridian must move as one piece.
+            shifted = (west + 360.0, east + 360.0) if west < 0 else (west, east)
+        sxmin, sxmax = min(sxmin, shifted[0]), max(sxmax, shifted[1])
+
+    if not seen:
+        return None
+    return _narrower_domain(xmin, ymin, xmax, ymax, sxmin, sxmax)
 
 
 def make_bbox_filter(

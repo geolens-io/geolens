@@ -6,6 +6,7 @@ import importlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import NamedTuple
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -193,6 +194,23 @@ async def test_catalog_invalidation_only_evicts_active_tenant(
     assert await cache.get(keys[TENANT_B]) == TENANT_B
 
 
+# fix(#886): _build_collection_metadata's extent query now leads with the six
+# rollup_bbox_columns() aggregates and slices the row positionally, so the fake
+# row has to be indexable as well as attribute-addressable.
+class _ExtentRow(NamedTuple):
+    xmin: float | None
+    ymin: float | None
+    xmax: float | None
+    ymax: float | None
+    shifted_xmin: float | None
+    shifted_xmax: float | None
+    temporal_start: object | None
+    temporal_end: object | None
+
+
+_EMPTY_EXTENT_ROW = _ExtentRow(None, None, None, None, None, None, None, None)
+
+
 @pytest.mark.anyio
 async def test_unscoped_collection_metadata_never_populates_shared_cache(multi_tenant):
     search_router = importlib.import_module("app.modules.catalog.search.router")
@@ -207,9 +225,7 @@ async def test_unscoped_collection_metadata_never_populates_shared_cache(multi_t
 
     db = AsyncMock()
     db.execute.side_effect = [
-        _Result(
-            SimpleNamespace(bbox_geojson=None, temporal_start=None, temporal_end=None)
-        ),
+        _Result(_EMPTY_EXTENT_ROW),
         _Result(
             SimpleNamespace(geometry_types=[], srids=[], organizations=[], keywords=[])
         ),
@@ -266,11 +282,7 @@ async def test_catalog_metadata_and_ai_vocabulary_caches_are_tenant_scoped(
     async def build_for(tenant_id: str, organization: str):
         db = AsyncMock()
         db.execute.side_effect = [
-            _Result(
-                SimpleNamespace(
-                    bbox_geojson=None, temporal_start=None, temporal_end=None
-                )
-            ),
+            _Result(_EMPTY_EXTENT_ROW),
             _Result(
                 SimpleNamespace(
                     geometry_types=[],
