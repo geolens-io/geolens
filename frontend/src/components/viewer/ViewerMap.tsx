@@ -16,7 +16,7 @@ import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap
 import { logUnhandledMapError } from '@/lib/map-error-log';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
-import { useTileAuthRecovery } from '@/hooks/use-tile-auth-recovery';
+import { useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { isViewerTerrainExpected, useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
@@ -189,6 +189,10 @@ export const ViewerMap = memo(function ViewerMap({
   // fix(#621): shared tile-auth recovery — a vector tile 401/403 kicks one
   // throttled token re-mint; the token-refresh effect below re-signs sources.
   const recoverTileAuth = useTileAuthRecovery(refreshTokens);
+  // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
+  // stale tokens, so MapLibre's resumed fetches 403 before the error handler
+  // can heal them. Kick the same throttled re-mint on the visible edge.
+  useVisibleTileTokenRefresh(() => tokenMap.values(), recoverTileAuth);
 
   // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
   // visibility is handled inside the hook (HT-12); this covers the client-side
