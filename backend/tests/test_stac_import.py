@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +415,112 @@ class TestStacImport:
         assert data["errors"] == 0
         assert data["results"][0]["status"] == "created"
         assert data["results"][0]["dataset_id"] is not None
+
+    async def test_import_antimeridian_bbox_stores_two_rings(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+        test_db_session,
+    ):
+        """fix(#884): RFC 7946 §5.2 mandates west > east for a crossing bbox, and
+        the old code fed [170, -20, -170, -15] straight into
+        POLYGON((w s, e s, e n, w n, w s)). That ring is valid but spans longitude
+        -170..170: 1700 deg² on the wrong side of the world instead of the
+        intended 100, missing the Fiji data it was supposed to describe while
+        matching everything else in the -20..-15 latitude band.
+
+        Every other STAC fixture in this file is low-lon; this is the only
+        crossing one.
+        """
+        from geoalchemy2 import WKTElement
+
+        from app.core.geo import extent_to_bbox
+
+        item_id = f"antimeridian-{uuid.uuid4().hex[:8]}"
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": item_id,
+                        "collection": "fiji-collection",
+                        "title": "Fiji Seam Crosser",
+                        "data_asset_href": (f"https://example.com/data/{item_id}.tif"),
+                        # west > east: the spec encoding of a crossing bbox.
+                        "bbox": [170, -20, -170, -15],
+                        "epsg": 4326,
+                        "keywords": [],
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["created"] == 1
+        dataset_id = resp.json()["results"][0]["dataset_id"]
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT GeometryType(r.spatial_extent) AS gtype,"
+                    " ST_NumGeometries(r.spatial_extent) AS parts,"
+                    " ST_IsValid(r.spatial_extent) AS valid,"
+                    " ST_XMin(r.spatial_extent) AS xmin,"
+                    " ST_XMax(r.spatial_extent) AS xmax,"
+                    " ST_AsText(r.spatial_extent) AS extent_wkt,"
+                    " ST_Area(r.spatial_extent) AS area,"
+                    " ST_Intersects("
+                    "   r.spatial_extent, ST_MakeEnvelope(177, -19, 179, -16, 4326)"
+                    " ) AS hits_fiji,"
+                    " ST_Intersects("
+                    "   r.spatial_extent, ST_MakeEnvelope(-1, -19, 1, -16, 4326)"
+                    " ) AS hits_south_atlantic,"
+                    " ST_Intersects("
+                    "   r.spatial_extent, ST_MakeEnvelope(1.5, 46.5, 2.5, 47.5, 4326)"
+                    " ) AS hits_france"
+                    " FROM catalog.records r"
+                    " JOIN catalog.datasets d ON d.record_id = r.id"
+                    " WHERE d.id = :did"
+                ).bindparams(did=uuid.UUID(dataset_id))
+            )
+        ).one()
+
+        # Split at the seam into one part per hemisphere, each planar-valid.
+        assert row.gtype == "MULTIPOLYGON"
+        assert row.parts == 2
+        assert row.valid is True
+        # Every vertex stays inside the WGS84 domain.
+        assert row.xmin == -180.0
+        assert row.xmax == 180.0
+        # 10° west of the seam plus 10° east over a 5° band, not the old 1700.
+        assert row.area == pytest.approx(100.0)
+
+        # The served bbox is the spec form the item arrived in — a round trip,
+        # not a globe-spanning -180..180.
+        assert extent_to_bbox(WKTElement(row.extent_wkt, srid=4326)) == [
+            170.0,
+            -20.0,
+            -170.0,
+            -15.0,
+        ]
+
+        # The two assertions that discriminate old from new: the extent now covers
+        # the data it describes, and no longer covers the same latitude band on the
+        # far side of the world. (hits_france was False under the old ring too —
+        # latitude 47 fell outside the band — so it is only a sanity check.)
+        assert row.hits_fiji is True
+        assert row.hits_south_atlantic is False
+        assert row.hits_france is False
+
+        # fix(#892 codex P2): the dataset payload's own extent_bbox stays
+        # monotonic, because DatasetMap draws an unguarded planar ring from it and
+        # calls fitBounds. The spec form lives on the STAC/OGC surfaces instead.
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        assert detail.json()["extent_bbox"] == [-180.0, -20.0, 180.0, -15.0]
 
     async def test_import_duplicate_skipped(
         self,

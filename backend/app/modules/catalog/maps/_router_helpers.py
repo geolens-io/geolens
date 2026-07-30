@@ -12,7 +12,7 @@ import structlog
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.geo import extent_to_bbox
+from app.core.geo import extent_to_span_bbox
 from app.core.identity import Identity
 from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
@@ -108,7 +108,13 @@ def _build_layer_response(
         dataset_name=meta.get("dataset_name", ""),
         dataset_geometry_type=meta.get("geometry_type"),
         dataset_table_name=meta.get("table_name", ""),
-        dataset_extent_bbox=extent_to_bbox(meta.get("extent")),
+        # fix(#892 codex P2): the SPAN, not the RFC 7946 spec bbox. Per MVT-06
+        # this value bounds tile fetching, and it lands in a MapLibre source
+        # `bounds` (map-sync.ts) where a west > east pair matches NO tile, so a
+        # seam-crossing layer would render blank. The two builder fit-bounds
+        # paths also skip an inverted bbox, which silently disables auto-fit and
+        # Zoom to Layer. -180..180 is over-broad but keeps all three working.
+        dataset_extent_bbox=extent_to_span_bbox(meta.get("extent")),
         dataset_column_info=meta.get("column_info"),
         dataset_feature_count=meta.get("feature_count"),
         dataset_sample_values=meta.get("sample_values"),
