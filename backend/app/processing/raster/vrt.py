@@ -6,7 +6,7 @@ import subprocess
 from contextlib import ExitStack
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
-from app.core.geo import LON_EPSILON_DEGREES
+from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
 
 
 # IA-P1-03 (Phase 1068): clamp the GDAL VSI surface that VRT processing
@@ -261,6 +261,28 @@ def _is_degree_based(crs) -> bool:
     return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
 
 
+def normalize_lon_span(left: float, right: float) -> tuple[float, float]:
+    """Fold a span's origin into a single turn, preserving its width.
+
+    fix(#887): :func:`_seam_frame_origin` shifts a source by exactly ONE turn,
+    which is only sound when every span already sits within one turn of the
+    others. GDAL accepts georeferencing further out, and the failure is silent
+    and scales with the distance -- spans ``535..540`` and ``-180..-175`` are
+    adjacent at the seam (535 ≡ 175), but at candidate origin 535 the second
+    source is moved only to ``180..185``, which is still WEST of the origin. The
+    chooser scores that frame at 5° and the shift then emits 360°; two turns out
+    emits 720°, three turns 1080°, and the westward and mixed-direction variants
+    behave the same way.
+
+    Normalizing up front restores the invariant the frame chooser's proof rests
+    on -- every source at or east of the returned origin after one turn -- rather
+    than complicating the shift with a per-source turn count. It is a no-op for
+    any raster already inside a single turn, which is every real one.
+    """
+    folded = wrap_longitude(math.fmod(left, 360.0))
+    return (folded, folded + (right - left))
+
+
 def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     """Pick the longitude frame origin for a seam-straddling geographic mosaic.
 
@@ -346,22 +368,34 @@ def _write_python_vrt(
         # +360 shift would move a source by 360 *metres* -- and a grads-based
         # geographic CRS turns at 400, not 360. Gate the whole thing on EVERY
         # source before computing any of the geometry.
+        raw_spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
+        # fix(#887): normalized into a single turn for the seam decision, because
+        # the frame chooser shifts by exactly one (see normalize_lon_span).
+        normalized_spans = [
+            normalize_lon_span(left, right) for left, right in raw_spans
+        ]
         seam_origin = (
-            _seam_frame_origin([(ds.bounds.left, ds.bounds.right) for ds in datasets])
+            _seam_frame_origin(normalized_spans)
             if all(_is_degree_based(ds.crs) for ds in datasets)
             else None
         )
+        # Only a mosaic actually being re-framed adopts the normalized
+        # longitudes; every other build keeps the coordinates its sources carry.
+        spans = normalized_spans if seam_origin is not None else raw_spans
         lon_offsets = [
             360.0
-            if seam_origin is not None
-            and ds.bounds.left < seam_origin - LON_EPSILON_DEGREES
+            if seam_origin is not None and left < seam_origin - LON_EPSILON_DEGREES
             else 0.0
-            for ds in datasets
+            for left, _ in spans
         ]
-        shifted = list(zip(datasets, lon_offsets, strict=True))
+        placed = [
+            (left + offset, right + offset)
+            for (left, right), offset in zip(spans, lon_offsets, strict=True)
+        ]
+        shifted = list(zip(datasets, [left for left, _ in placed], strict=True))
 
-        left = min(ds.bounds.left + offset for ds, offset in shifted)
-        right = max(ds.bounds.right + offset for ds, offset in shifted)
+        left = min(left for left, _ in placed)
+        right = max(right for _, right in placed)
         bottom = min(ds.bounds.bottom for ds in datasets)
         top = max(ds.bounds.top for ds in datasets)
         # fix(#887): same containment rule as the gdalbuildvrt rewrite. Rounding
@@ -381,7 +415,7 @@ def _write_python_vrt(
             dataset,
             *,
             band_index: int,
-            lon_offset: float = 0.0,
+            placed_left: float,
         ) -> None:
             source = SubElement(parent, "SimpleSource")
             # STOR-03 (Phase 1210): write logical key + relativeToVRT="1" so the stored
@@ -419,10 +453,11 @@ def _write_python_vrt(
             # 248, sliding it half an output pixel and changing its resampling.
             dst_width = dataset.width * abs(dataset.transform.a) / res_x
             dst_height = dataset.height * abs(dataset.transform.e) / res_y
-            # lon_offset places the source in the same re-framed longitude frame
-            # as `left`. Mixing frames here is how a seam-straddling source ended
-            # up half a world from its own pixels.
-            dst_x_off = (dataset.bounds.left + lon_offset - left) / res_x
+            # `placed_left` is the source's position in the SAME frame as `left`
+            # -- normalized into one turn, then shifted if it sits west of the
+            # seam origin. Mixing frames here is how a seam-straddling source
+            # ended up half a world from its own pixels.
+            dst_x_off = (placed_left - left) / res_x
             dst_y_off = (top - dataset.bounds.top) / res_y
             SubElement(
                 source,
@@ -435,7 +470,7 @@ def _write_python_vrt(
 
         if separate:
             band_number = 1
-            for dataset, lon_offset in shifted:
+            for dataset, placed_left in shifted:
                 for source_band in range(1, dataset.count + 1):
                     band = SubElement(
                         root,
@@ -447,7 +482,10 @@ def _write_python_vrt(
                         band=str(band_number),
                     )
                     add_simple_source(
-                        band, dataset, band_index=source_band, lon_offset=lon_offset
+                        band,
+                        dataset,
+                        band_index=source_band,
+                        placed_left=placed_left,
                     )
                     band_number += 1
         else:
@@ -466,9 +504,12 @@ def _write_python_vrt(
                     ),
                     band=str(band_number),
                 )
-                for dataset, lon_offset in shifted:
+                for dataset, placed_left in shifted:
                     add_simple_source(
-                        band, dataset, band_index=band_number, lon_offset=lon_offset
+                        band,
+                        dataset,
+                        band_index=band_number,
+                        placed_left=placed_left,
                     )
 
         ElementTree(root).write(output_path, encoding="utf-8", xml_declaration=True)
@@ -557,6 +598,12 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     old_left, res_x = geotransform[0], geotransform[1]
     if res_x <= 0.0:
         return
+    # fix(#887): a rotated GeoTransform makes gt[0] no longer a pure longitude
+    # origin, so translating it along x would shear the mosaic. gdalbuildvrt
+    # never emits rotation terms, but this function's contract is that it fully
+    # understands the geometry it rewrites -- decline rather than assume.
+    if geotransform[2] or geotransform[4]:
+        return
 
     # Parsing the SRS text is pure string work -- CRS.from_wkt does no I/O -- so
     # the degree-based gate costs nothing and still rejects grads (EPSG:4807,
@@ -584,14 +631,19 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     # wrote, so the seam decision needs no second pass over the sources and no
     # filename matching. Duplicate spans (one DstRect per band, plus any mask
     # band) are harmless: they change neither the hull nor the candidate origins.
-    reconstructed = [
-        (
-            rect,
-            old_left + float(rect.get("xOff", "0")) * res_x,
-            float(rect.get("xSize", "0")),
-        )
-        for rect in rects
-    ]
+    #
+    # fix(#887): normalized into a single turn first. The frame chooser shifts by
+    # exactly one turn, and a source georeferenced further out is still west of
+    # the origin afterwards -- see normalize_lon_span. Placement is pixel-space
+    # (SrcRect/DstRect), so re-expressing a source's longitude changes where the
+    # mosaic sits, never which pixels land in it.
+    reconstructed = []
+    for rect in rects:
+        raw_left = old_left + float(rect.get("xOff", "0")) * res_x
+        x_size = float(rect.get("xSize", "0"))
+        left, _ = normalize_lon_span(raw_left, raw_left)
+        reconstructed.append((rect, left, x_size))
+
     seam_origin = _seam_frame_origin(
         [(left, left + size * res_x) for _, left, size in reconstructed]
     )

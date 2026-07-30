@@ -65,6 +65,7 @@ from app.processing.raster.vrt import (
     _seam_frame_origin,
     _write_python_vrt,
     build_vrt,
+    normalize_lon_span,
     shift_vrt_longitude_frame,
 )
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
@@ -460,6 +461,73 @@ class TestSeamFrameOrigin:
     def test_margin_does_not_suppress_a_real_crossing(self, spans, expected):
         """The margin is 0.1 mm — it must not swallow a genuine 5° seam pair."""
         assert _seam_frame_origin(spans) == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        "label,spans",
+        [
+            # 535 ≡ 175, so each of these is the same 10° seam mosaic expressed
+            # in a domain further out. The frame chooser shifts by exactly one
+            # turn, so before normalizing, a source further than that stayed WEST
+            # of the origin and the hull came out global — and it got worse with
+            # distance: measured 360°, 720° and 1080° for one, two and three
+            # turns. The chooser scored every one of them at 5°.
+            ("east +1 turn", [(535.0, 540.0), (-180.0, -175.0)]),
+            ("east +2 turns", [(895.0, 900.0), (-180.0, -175.0)]),
+            ("east +3 turns", [(1255.0, 1260.0), (-180.0, -175.0)]),
+            ("west -1 turn", [(175.0, 180.0), (-540.0, -535.0)]),
+            ("west -2 turns", [(175.0, 180.0), (-900.0, -895.0)]),
+            ("mixed east +1 / west -1", [(535.0, 540.0), (-540.0, -535.0)]),
+            ("mixed east +2 / west -1", [(895.0, 900.0), (-540.0, -535.0)]),
+            (
+                "three sources, one out",
+                [(175.0, 180.0), (-180.0, -175.0), (535.0, 540.0)],
+            ),
+        ],
+    )
+    def test_spans_more_than_one_turn_apart_still_yield_the_real_hull(
+        self, label, spans
+    ):
+        """Assert the HULL, not the origin — a wrong frame is still a valid one.
+
+        Normalizing restores the invariant the chooser's proof rests on (every
+        source at or east of the origin after one turn), so the placed hull must
+        come out 10°, not 360/720/1080.
+        """
+        normalized = [normalize_lon_span(left, right) for left, right in spans]
+        origin = _seam_frame_origin(normalized)
+        assert origin is not None, f"{label}: must still be detected as a crossing"
+
+        placed = [
+            (left + 360.0, right + 360.0)
+            if left < origin - LON_EPSILON_DEGREES
+            else (left, right)
+            for left, right in normalized
+        ]
+        hull = max(right for _, right in placed) - min(left for left, _ in placed)
+
+        assert hull == pytest.approx(10.0), (
+            f"{label}: placed hull is {hull:.1f}°, expected 10° — sources were "
+            "left scattered across a world"
+        )
+
+    def test_normalize_lon_span_preserves_width_and_in_range_values(self):
+        """A no-op for anything already inside one turn, which is every real raster."""
+        for left, right in [
+            (175.0, 180.0),
+            (-180.0, -175.0),
+            (-10.0, 170.0),
+            (0.0, 0.0),
+        ]:
+            assert normalize_lon_span(left, right) == (left, right)
+
+        for left, right, expected_left in [
+            (535.0, 540.0, 175.0),
+            (-540.0, -535.0, -180.0),
+            (895.0, 900.0, 175.0),
+        ]:
+            folded_left, folded_right = normalize_lon_span(left, right)
+            assert folded_left == pytest.approx(expected_left)
+            assert folded_right - folded_left == pytest.approx(right - left)
 
     def test_shifted_hull_is_the_tightest_available(self):
         """The chosen origin must minimise the hull, not merely improve on it."""
@@ -969,6 +1037,79 @@ class TestSeamFrameRewrite:
         shift_vrt_longitude_frame(str(vrt))
 
         assert vrt.read_text() == xml, f"{label}: file must be left untouched"
+
+    @pytest.mark.parametrize(
+        "label,lefts,expected_left",
+        [
+            ("east +1 turn", (535.0, -180.0), 175.0),
+            ("east +2 turns", (895.0, -180.0), 175.0),
+            ("west -1 turn", (175.0, -540.0), 175.0),
+            ("mixed east +1 / west -1", (535.0, -540.0), 175.0),
+        ],
+    )
+    def test_sources_more_than_one_turn_apart_size_to_the_real_footprint(
+        self, tmp_path, label, lefts, expected_left
+    ):
+        """The dimensions, end to end through the rewrite.
+
+        Same 10° seam mosaic, expressed in domains further than one turn apart.
+        Before normalizing, the frame chooser scored 5° and the rewrite emitted a
+        360°-wide raster (3600 px at 0.1°) — 720° and 1080° further out. Asserting
+        rasterXSize is the point: every wrong answer is a valid frame.
+        """
+        res_x = 0.1
+        rects = "".join(
+            f'<ComplexSource><DstRect xOff="{(left - min(lefts)) / res_x!r}" yOff="0" '
+            f'xSize="{5.0 / res_x!r}" ySize="20" /></ComplexSource>'
+            for left in lefts
+        )
+        span_px = (max(lefts) + 5.0 - min(lefts)) / res_x
+        vrt = tmp_path / f"turns{abs(hash(label))}.vrt"
+        vrt.write_text(
+            f'<VRTDataset rasterXSize="{int(span_px)}" rasterYSize="20">'
+            f"<SRS>{_WGS84_WKT}</SRS>"
+            f"<GeoTransform> {min(lefts)!r}, {res_x!r}, 0.0, 5.0, 0.0, -{res_x!r}"
+            "</GeoTransform>"
+            f'<VRTRasterBand dataType="Byte" band="1">{rects}</VRTRasterBand>'
+            "</VRTDataset>"
+        )
+
+        shift_vrt_longitude_frame(str(vrt))
+
+        root = parse_vrt(str(vrt)).getroot()
+        width = int(root.get("rasterXSize"))
+        assert width == 100, (
+            f"{label}: raster is {width} px ({width * res_x:.0f}°), expected 100 "
+            "px (10°)"
+        )
+        assert float(root.find("GeoTransform").text.split(",")[0]) == pytest.approx(
+            expected_left
+        )
+
+    def test_rotated_geotransform_is_left_untouched(self, tmp_path):
+        """A rotated GeoTransform means gt[0] is not a pure longitude origin.
+
+        ``gdalbuildvrt`` never emits rotation terms, but translating gt[0] along
+        x under one would shear the mosaic. Decline rather than assume — same
+        cannot-decide path as a missing SRS.
+        """
+        xml = (
+            '<VRTDataset rasterXSize="3600" rasterYSize="50">'
+            f"<SRS>{_WGS84_WKT}</SRS>"
+            "<GeoTransform>-180.0, 0.1, 0.02, 5.0, 0.03, -0.1</GeoTransform>"
+            '<VRTRasterBand dataType="Byte" band="1">'
+            '<ComplexSource><DstRect xOff="3550" yOff="0" xSize="50" ySize="50" />'
+            "</ComplexSource>"
+            '<ComplexSource><DstRect xOff="0" yOff="0" xSize="50" ySize="50" />'
+            "</ComplexSource>"
+            "</VRTRasterBand></VRTDataset>"
+        )
+        vrt = tmp_path / "rotated.vrt"
+        vrt.write_text(xml)
+
+        shift_vrt_longitude_frame(str(vrt))
+
+        assert vrt.read_text() == xml
 
     def test_missing_output_does_not_crash_a_successful_build(
         self, tmp_path, monkeypatch
