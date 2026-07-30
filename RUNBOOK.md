@@ -150,10 +150,30 @@ PostgreSQL roles are cluster objects and are not included in a database-only
 not the ACLs on schemas that `--clean` drops and recreates: those (including
 default privileges) die with the schema and must be re-granted after the
 restore, which is why `restore.sh` re-applies the `geolens_reader` grants as a
-post-restore step. When restoring a
-multi-tenant dump into a brand-new cluster, restore without ACL entries (the old
-tenant role names do not exist yet), then rebuild the guarded topology with the
-0019 migration before starting API, worker, or tile traffic:
+post-restore step.
+
+**Preferred path — carry the roles over.** The cleanest fresh-cluster restore
+never reconstructs roles at all: capture them from the source cluster while it
+is still reachable and replay them on the new one before restoring the dump:
+
+```bash
+# On the source cluster (or from a scheduled copy kept with your backups):
+pg_dumpall --globals-only -U "$POSTGRES_USER" > globals.sql
+# On the new cluster, BEFORE pg_restore:
+psql -U "$POSTGRES_USER" -d postgres -f globals.sql
+```
+
+With the roles present, restore the dump (keep `--no-acl`; the ACLs are
+rebuilt by the migration path below or by re-running the grants from
+`.env.example`), run `alembic upgrade head` if the dump predates the current
+release, and skip the reconstruction dance entirely. Consider adding a
+`pg_dumpall --globals-only` artifact to your backup cycle now — it is the
+piece a database-only `pg_dump` can never give back.
+
+**Fallback — rebuild the topology via the migrations.** When no globals dump
+exists, restore without ACL entries (the old tenant role names do not exist
+yet), then rebuild the guarded topology with the 0019 migration before
+starting API, worker, or tile traffic:
 
 ```bash
 # Use the privileged migrator DATABASE_URL_OVERRIDE for all three commands.
@@ -195,6 +215,18 @@ BEGIN
 END
 $$;
 ```
+
+> **Known limitation of the fallback.** The downgrade passes through
+> migrations whose `downgrade()` rebuilds **global** uniqueness that the
+> current schema scopes per tenant (0020: `datasets.table_name`; 0021:
+> collection names and OAuth subjects). A valid multi-tenant dump in which
+> two tenants reuse such a name makes `alembic downgrade 0016` refuse on
+> data the current schema permits. That refusal is correct — forcing it
+> would corrupt the restored data — and it means the fallback cannot serve
+> every multi-tenant dump. If you hit it, the globals-dump path above is the
+> supported route: capture `pg_dumpall --globals-only` from the source
+> cluster (even a degraded one usually still serves it) or from any replica,
+> and restore roles from that instead.
 
 With the fixed roles present, the migration re-upgrade is the whole
 per-tenant role-reconstruction step: 0019's upgrade
