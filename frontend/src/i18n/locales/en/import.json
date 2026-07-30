@@ -87,12 +87,12 @@
       "description": "Shapefile DBF field names are capped at 10 characters. Two or more source fields collapsed to the same truncated name and may have been merged during import."
     },
     "mercatorClip": {
-      "title": "Geometry outside the Web Mercator latitude limit",
-      "description": "GeoLens serves Web Mercator tiles, which cannot represent latitudes beyond ±85.06°. Geometry past that limit was clipped away during import. The rows are still in the dataset — only their geometry changed.",
+      "title": "Geometry outside the Web Mercator bounds",
+      "description": "GeoLens serves Web Mercator tiles, which cover longitude -180° to 180° and latitude -85.06° to 85.06°. Geometry outside that box was clipped away during import. The rows are still in the dataset; only their geometry changed. Check both the coordinate order and the coordinate range of your source.",
       "dropped_one": "{{count}} feature lost its geometry entirely",
       "dropped_other": "{{count}} features lost their geometry entirely",
-      "clipped_one": "{{count}} feature was trimmed at ±85.06° latitude",
-      "clipped_other": "{{count}} features were trimmed at ±85.06° latitude"
+      "clipped_one": "{{count}} feature was trimmed at the boundary",
+      "clipped_other": "{{count}} features were trimmed at the boundary"
     },
     "archiveFailed": {
       "title": "Original file archive failed",

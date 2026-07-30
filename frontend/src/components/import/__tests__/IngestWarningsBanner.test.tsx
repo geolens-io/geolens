@@ -30,13 +30,18 @@ describe('IngestWarningsBanner', () => {
     );
 
     expect(
-      screen.getByText('Geometry outside the Web Mercator latitude limit'),
+      screen.getByText('Geometry outside the Web Mercator bounds'),
     ).toBeInTheDocument();
     expect(
       screen.getByText('12 features lost their geometry entirely'),
     ).toBeInTheDocument();
     expect(
-      screen.getByText('3 features were trimmed at ±85.06° latitude'),
+      screen.getByText('3 features were trimmed at the boundary'),
+    ).toBeInTheDocument();
+    // fix(#899 codex r1): the envelope bounds BOTH axes, so the copy must not
+    // blame latitude — a point at lon 400 / lat 0 is dropped by the X bound.
+    expect(
+      screen.getByText(/longitude -180° to 180° and latitude/),
     ).toBeInTheDocument();
   });
 
@@ -56,7 +61,7 @@ describe('IngestWarningsBanner', () => {
       screen.getByText('1 feature lost its geometry entirely'),
     ).toBeInTheDocument();
     // A zero clipped count must not render an empty bullet.
-    expect(screen.queryByText(/trimmed at/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/was trimmed/)).not.toBeInTheDocument();
   });
 
   it('still renders the pre-existing warning kinds', () => {

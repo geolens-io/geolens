@@ -1033,7 +1033,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # single-condition guard on antimeridian/longitude-convention problems is
     # a coin flip, so the conditions and their near misses are documented at
     # the code rather than only in the issue. Ratchet stays exact.
-    "backend/app/processing/ingest/metadata.py": 1833,
+    # fix(#899 codex r1): +23 — the angular-unit half of guard condition 1
+    # (14 stock SRIDs are GEOGCS in grads, where -360 is not a whole turn) and
+    # the note that the envelope bounds X at ±180 too, so the warning built
+    # from its counts cannot blame latitude for a lon-400 drop.
+    "backend/app/processing/ingest/metadata.py": 1856,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.

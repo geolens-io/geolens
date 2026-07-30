@@ -87,12 +87,12 @@
       "description": "Shapefile-DBF-Feldnamen sind auf 10 Zeichen begrenzt. Zwei oder mehr Quellfelder wurden auf denselben gekürzten Namen reduziert und können beim Import zusammengeführt worden sein."
     },
     "mercatorClip": {
-      "title": "Geometrie außerhalb der Web-Mercator-Breitengradgrenze",
-      "description": "GeoLens liefert Web-Mercator-Kacheln, die Breitengrade jenseits von ±85,06° nicht darstellen können. Geometrie jenseits dieser Grenze wurde beim Import abgeschnitten. Die Zeilen sind weiterhin im Datensatz enthalten – nur ihre Geometrie hat sich geändert.",
+      "title": "Geometrie außerhalb der Web-Mercator-Grenzen",
+      "description": "GeoLens liefert Web-Mercator-Kacheln, die Längengrade von -180° bis 180° und Breitengrade von -85,06° bis 85,06° abdecken. Geometrie außerhalb dieses Rahmens wurde beim Import abgeschnitten. Die Zeilen sind weiterhin im Datensatz enthalten; nur ihre Geometrie hat sich geändert. Prüfen Sie sowohl die Reihenfolge als auch den Wertebereich der Quellkoordinaten.",
       "dropped_one": "{{count}} Objekt hat seine Geometrie vollständig verloren",
       "dropped_other": "{{count}} Objekte haben ihre Geometrie vollständig verloren",
-      "clipped_one": "{{count}} Objekt wurde bei ±85,06° Breite beschnitten",
-      "clipped_other": "{{count}} Objekte wurden bei ±85,06° Breite beschnitten"
+      "clipped_one": "{{count}} Objekt wurde an der Grenze beschnitten",
+      "clipped_other": "{{count}} Objekte wurden an der Grenze beschnitten"
     },
     "archiveFailed": {
       "title": "Archivierung der Originaldatei fehlgeschlagen",

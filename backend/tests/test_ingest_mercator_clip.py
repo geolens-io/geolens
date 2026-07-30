@@ -298,6 +298,44 @@ class TestZeroTo360GuardNearMisses(_FixtureTable):
         }
         assert await _xs(test_db_session) == pytest.approx([100.0, 200.0])
 
+    async def test_grads_based_geographic_crs_is_not_shifted(self, test_db_session):
+        """Guard condition 1b: a geographic CRS in grads is not degree-based.
+
+        fix(#899 codex r1): EPSG:4807 (NTF Paris) and 13 more SRIDs in a stock
+        ``spatial_ref_sys`` are ``GEOGCS`` with ``UNIT["grad"]``, where a full
+        circle is 400. Translating one of those by -360 would move a valid
+        feature to a wrong place, so the prefix test alone is not enough.
+
+        This drives ``_shift_zero_to_360_longitudes`` directly rather than the
+        public entry point: ``ST_Transform`` collapses the global Mercator
+        envelope into a degenerate polygon in 4807, so the clip that follows
+        would empty every row and hide what the shift did or did not do. The
+        4326 positive control below proves the unit check is what differs.
+        """
+        from app.processing.ingest.metadata import _shift_zero_to_360_longitudes
+
+        await _seed_points(test_db_session, [(100.0, 10.0), (200.0, 10.0)], srid=4807)
+
+        shifted = await _shift_zero_to_360_longitudes(
+            test_db_session, TABLE, "data", 4807
+        )
+
+        assert shifted is False
+        assert await _xs(test_db_session) == pytest.approx([100.0, 200.0])
+
+    async def test_degree_based_geographic_crs_is_shifted(self, test_db_session):
+        """Positive control for the grads case above: same numbers, SRID 4326."""
+        from app.processing.ingest.metadata import _shift_zero_to_360_longitudes
+
+        await _seed_points(test_db_session, [(100.0, 10.0), (200.0, 10.0)], srid=4326)
+
+        shifted = await _shift_zero_to_360_longitudes(
+            test_db_session, TABLE, "data", 4326
+        )
+
+        assert shifted is True
+        assert await _xs(test_db_session) == pytest.approx([100.0, -160.0])
+
     async def test_longitudes_past_360_are_not_shifted(self, test_db_session):
         """Guard condition 4: past 360 is not the 0..360 convention at all."""
         await _seed_points(test_db_session, [(0.0, 0.0), (400.0, 0.0)])

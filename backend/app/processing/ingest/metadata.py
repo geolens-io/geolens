@@ -1182,12 +1182,28 @@ def detect_dbf_truncation_collisions(
 # Web Mercator (EPSG:3857) cannot represent latitudes beyond ±85.06°.
 # Geometries extending past this (e.g. Antarctica at -90°) cause
 # "transform: tolerance condition error" in ST_Transform.
+#
+# fix(#899 codex r1): this is a box, not a latitude cutoff — it bounds X at
+# ±180 as well. A point at lon 400 is dropped by the X bound with a perfectly
+# ordinary latitude, so the warning built from these counts must not tell the
+# user that latitude was the problem.
 _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
 
 # fix(#888): matches the WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
 # ships in spatial_ref_sys.srtext for lon/lat CRSs. 4326/4979/4269 match;
 # 2263/3857 (projected, X in feet/metres) do not.
 _GEOGRAPHIC_SRTEXT_RE = "^GEOG(CS|CRS)"
+
+# fix(#899 codex r1): geographic is not the same as degree-based. 14 SRIDs in a
+# stock PostGIS spatial_ref_sys are GEOGCS with an angular unit of grads — the
+# Paris-meridian family, 4807 NTF (Paris) and relatives — where a full circle
+# is 400, not 360. Translating one of those by -360 would move a valid feature
+# to a wrong place, so the unit has to be degrees before anything shifts. The
+# pattern covers WKT1 (`UNIT["degree"`) and WKT2 (`ANGLEUNIT["degree"`) in one
+# go, since the WKT2 spelling contains the WKT1 substring. The prefix test
+# above is what keeps a projected CRS out: 3857's srtext also carries
+# `UNIT["degree"` inside its nested GEOGCS.
+_DEGREE_UNIT_SRTEXT_RE = 'UNIT\\["degree'
 
 
 async def _shift_zero_to_360_longitudes(
@@ -1203,8 +1219,10 @@ async def _shift_zero_to_360_longitudes(
     problem is a coin flip, so *all four* of these must hold before anything
     moves:
 
-    1. The geometry column's CRS is lon/lat. "Longitude" is meaningless in a
-       projected CRS, where X is metres or feet and 300 is not out of range.
+    1. The geometry column's CRS is lon/lat AND its angular unit is degrees.
+       "Longitude" is meaningless in a projected CRS, where X is metres or feet
+       and 300 is not out of range; and in a grads-based geographic CRS a full
+       circle is 400, so -360 is not a whole turn (fix(#899 codex r1)).
     2. Table-wide min X >= 0. Any negative longitude means the source is
        already -180..180; a source mixing both conventions is ambiguous, so
        refuse to guess.
@@ -1223,12 +1241,17 @@ async def _shift_zero_to_360_longitudes(
     """
     tref = _qtable(table_name, schema=schema)
 
-    is_geographic = await session.scalar(
+    is_degree_lonlat = await session.scalar(
         text(
-            "SELECT srtext ~ :pattern FROM spatial_ref_sys WHERE srid = :srid"
-        ).bindparams(pattern=_GEOGRAPHIC_SRTEXT_RE, srid=src_srid)
+            "SELECT srtext ~* :geographic AND srtext ~* :degree_unit "
+            "FROM spatial_ref_sys WHERE srid = :srid"
+        ).bindparams(
+            geographic=_GEOGRAPHIC_SRTEXT_RE,
+            degree_unit=_DEGREE_UNIT_SRTEXT_RE,
+            srid=src_srid,
+        )
     )
-    if not is_geographic:
+    if not is_degree_lonlat:
         return False
 
     # The raw (unfolded) coordinate range is exactly what is wanted here —
