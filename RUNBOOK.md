@@ -432,6 +432,15 @@ only the offending session failed. Two responses:
   leaves your version in place, so re-check it against the release after any
   upgrade that mentions a Postgres setting.
 
+  Two cases where the upgrade will not do it for you, both needing the
+  recreate command above by hand. The upgrader excludes itself from the
+  release-file sync so it is never swapped under itself mid-run, so an install
+  still running an upgrader from before this behaviour shipped skips the
+  config sync entirely; it picks it up on the following upgrade. And a
+  customised file is left alone by design. Either way, `SHOW
+  temp_file_limit;` after an upgrade tells you whether the running cluster has
+  the release's value.
+
   The limit is enforced **per process**, not per query: every session
   spilling at once gets the full ceiling, and a parallel query spills from
   each worker process separately (`max_parallel_workers_per_gather = 1` in

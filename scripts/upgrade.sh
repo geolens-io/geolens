@@ -296,16 +296,29 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
     # the files above it is one operators are told to tune (RUNBOOK section 4),
     # so overwrite it ONLY when it still matches the installed checkout; a
     # customised file is left alone with instructions to merge by hand.
+    #
+    # Both tests are deliberately index-relative, never HEAD-relative: a
+    # path-restricted checkout updates the index and worktree but leaves HEAD
+    # at the tag the install was created from, so a HEAD comparison would read
+    # the PREVIOUS upgrade's own file as an operator edit and freeze the config
+    # forever after the first upgrade (codex review on #959's PR).
+    #   "needs changing"  = worktree differs from the target tag's blob
+    #   "operator edited" = worktree differs from the index
     if git cat-file -e "${TARGET_TAG}:${DB_CONF}" 2>/dev/null; then
-      if ! git diff --quiet HEAD -- "$DB_CONF" 2>/dev/null; then
-        warn "${DB_CONF} has local edits — not overwriting your tuning."
-        warn "  Review 'git diff ${TARGET_TAG} -- ${DB_CONF}', merge any new settings,"
-        warn "  then apply them with 'docker compose up -d --force-recreate db'."
-      elif git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null \
-           && ! git diff --quiet HEAD -- "$DB_CONF" 2>/dev/null; then
-        DB_CONF_CHANGED=1
-        say "  ${DB_CONF} synced to ${TARGET_TAG}"
+      _db_conf_target="$(mktemp)"
+      if git show "${TARGET_TAG}:${DB_CONF}" > "$_db_conf_target" 2>/dev/null; then
+        if cmp -s "$_db_conf_target" "$DB_CONF"; then
+          :   # already at the target release's version; nothing to apply
+        elif ! git diff --quiet -- "$DB_CONF" 2>/dev/null; then
+          warn "${DB_CONF} has local edits — not overwriting your tuning."
+          warn "  Review 'git diff ${TARGET_TAG} -- ${DB_CONF}', merge any new settings,"
+          warn "  then apply them with 'docker compose up -d --force-recreate db'."
+        elif git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null; then
+          DB_CONF_CHANGED=1
+          say "  ${DB_CONF} synced to ${TARGET_TAG}"
+        fi
       fi
+      rm -f "$_db_conf_target"
     fi
   else
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."

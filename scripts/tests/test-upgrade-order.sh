@@ -102,10 +102,16 @@ if [ "$1" = "compose" ]; then
       printf 'PGDMP-fake-custom-format-dump-bytes\n'
       exit 0 ;;
     up)
-      # detect the migrate one-shot vs the full app up
+      # detect the migrate one-shot vs the db-only config recreate vs the app up
       for a in "$@"; do
         if [ "$a" = "migrate" ]; then echo "migrate_up" >> "$LOG"; exit 0; fi
       done
+      # fix(#959): `up -d --force-recreate --no-deps --wait db` applies a synced
+      # db/postgresql.conf. It is NOT an app up — logging it as one would make
+      # the ordering assertions read a config bounce as bringing the app back.
+      case "$*" in
+        *--no-deps*\ db|*--no-deps*\ db\ *) echo "db_recreate" >> "$LOG"; exit 0 ;;
+      esac
       echo "app_up" >> "$LOG"; exit 0 ;;
     ps)
       # `ps -aq migrate` -> a fake container id. `ps --format ...` (the
@@ -270,13 +276,25 @@ else
 fi
 
 # Full expected order: probe_pg, stop_app, backup, verify_backup, pull,
-# migrate_up, app_up. The PG-major probe runs first — it must decide before
-# anything is changed.
+# db_recreate, migrate_up, app_up. The PG-major probe runs first — it must
+# decide before anything is changed. db_recreate appears because the git stub
+# reports a db/postgresql.conf that differs from the target tag (fix(#959));
+# it lands after the pull and before migrate, so migrations already run under
+# the release's Postgres settings.
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-if [ "$order" = "probe_pg,stop_app,backup,verify_backup,pull,migrate_up,app_up," ]; then
-  ok "full call order is probe pg major -> stop api/worker -> backup -> verify -> pull -> migrate -> app_up"
+expected="probe_pg,stop_app,backup,verify_backup,pull,db_recreate,migrate_up,app_up,"
+if [ "$order" = "$expected" ]; then
+  ok "full call order is probe pg major -> stop api/worker -> backup -> verify -> pull -> db conf recreate -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
+fi
+
+# fix(#959): the config bounce must not straddle the migrate step or the app up.
+d="$(pos_of db_recreate)"
+if [ -n "$d" ] && [ -n "$p" ] && [ -n "$m" ] && [ "$p" -lt "$d" ] && [ "$d" -lt "$m" ]; then
+  ok "synced db/postgresql.conf is applied between the pull and migrate ($p < $d < $m)"
+else
+  bad "db config recreate out of place (pull=$p db_recreate=$d migrate=$m)"
 fi
 
 # fix(#714): the rollback dump is read back end-to-end BEFORE the first
