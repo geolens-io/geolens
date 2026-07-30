@@ -245,11 +245,20 @@ upgrade is what fixes that, and the only way to reach it is to downgrade below
 > with the functions the restored dump already carries).
 >
 > **So: do not treat this as routine.** Open a support issue (`SUPPORT.md`)
-> before running it on data you care about. The two things that keep you out
-> of here entirely are keeping a `pg_dumpall --globals-only` artifact with
-> your backups, and restoring into the *same* cluster where roles, ownership,
-> and grants all survive — which is what `scripts/restore.sh` does and what
-> the rest of this section covers.
+> before running it on data you care about.
+>
+> Be clear about what the alternatives do and do not buy you. A globals dump
+> and a same-cluster restore both remove the *role* half of the problem —
+> globals replays the role definitions onto a new cluster, and on the same
+> cluster they never left. Neither touches the *ownership* half. The archive
+> carries no owner or ACL metadata, `--clean` drops each schema together with
+> its ACLs and default privileges, and `scripts/restore.sh` restores
+> `--no-owner` and re-grants only the single-tenant `geolens_reader`
+> privileges on schema `data`. In multi-tenant mode every restore therefore
+> lands tenant relations owned by `$POSTGRES_USER` with no per-tenant grants,
+> and step 2 is the only shipped way to fix that. Removing that dependency is
+> the product gap this section is really describing — keep a globals dump
+> regardless, because it is the half you *can* solve today.
 
 If you have read the above and are proceeding anyway, work through 2a to 2d
 **in that order**. The snapshot in 2b and the restore in 2d bracket the
