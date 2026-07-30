@@ -50,9 +50,13 @@ export function AnalysisJobWatcher() {
     // staleness rule (fix(#682 review)). An elapsed-time guess is wrong in both
     // directions: too short and a legitimately long job loses its completion
     // notification entirely, too long and the save guard outlives the API's own
-    // cap. The endpoint applies the same rule (pending or running blocks), so
-    // the two never disagree. A dead worker is resolved by the platform's job
-    // timeout rather than guessed at here.
+    // cap. fix(#691): the server holds the materialize slot on a heartbeat
+    // lease, and the job-status route this component polls auto-fails an
+    // analysis job whose lease expired — so a hard-killed worker surfaces
+    // here as status 'failed' within the lease window, this watcher clears,
+    // and the Analysis panel's Create button re-enables at the same moment
+    // the server would admit a new materialize. The client still needs no
+    // staleness rule of its own; it mirrors the server's verdict.
     if (status !== 'complete' && status !== 'failed') return;
 
     // Stable id so a re-run (StrictMode's double invoke) replaces the toast
