@@ -562,6 +562,39 @@ class TestSourcesSeamFrameOrigin:
 
         assert sources_seam_frame_origin([str(bogus)]) is None
 
+    def test_grads_based_geographic_crs_is_not_detected(self, tmp_path):
+        """``is_geographic`` is not the same as "wraps at ±180".
+
+        EPSG:4807 (NTF Paris) is geographic with an angular unit of GRADS: a full
+        turn is 400 and the seam sits at 200. The seam logic is written in
+        degrees end to end, so a 195..200 / -200..-195 pair here would be shifted
+        by 360 instead of 400 and land as a 40-grad hull instead of a 10-grad
+        one. Refuse rather than corrupt it.
+        """
+        sources = [
+            _write_tif(tmp_path / "g1.tif", epsg=4807, bounds=(195.0, 0.0, 200.0, 5.0)),
+            _write_tif(
+                tmp_path / "g2.tif", epsg=4807, bounds=(-200.0, 0.0, -195.0, 5.0)
+            ),
+        ]
+
+        assert sources_seam_frame_origin(sources) is None
+
+    def test_degree_based_non_4326_crs_is_still_detected(self, tmp_path):
+        """Positive control for the unit gate: EPSG:4269 is degrees, so it counts.
+
+        Differs from the grads fixture in exactly one axis — same longitudes,
+        same latitudes, same seam crossing, only the CRS's angular unit changes.
+        """
+        sources = [
+            _write_tif(tmp_path / "n1.tif", epsg=4269, bounds=(175.0, 0.0, 180.0, 5.0)),
+            _write_tif(
+                tmp_path / "n2.tif", epsg=4269, bounds=(-180.0, 0.0, -175.0, 5.0)
+            ),
+        ]
+
+        assert sources_seam_frame_origin(sources) == pytest.approx(175.0)
+
 
 # A gdalbuildvrt mosaic of two nodata-carrying tiles either side of ±180, as
 # emitted verbatim by BOTH GDAL 3.10.3 (worker image) and GDAL 3.13.0 (local):
@@ -741,6 +774,48 @@ class TestSeamFrameRewrite:
 
         with pytest.raises(RuntimeError, match="no GeoTransform"):
             shift_vrt_longitude_frame(str(vrt), 175.0)
+
+    def test_fractional_offsets_stay_fractional(self, tmp_path):
+        """Sub-pixel offsets must not be rounded to whole pixels.
+
+        ``gdalbuildvrt`` emits fractional ``xOff`` whenever a source is not
+        aligned to the chosen output grid — measured ``17751.5`` and ``349.51``
+        on mixed-resolution mosaics. Rounding slides the source by up to half an
+        output pixel and changes its resampling alignment.
+        """
+        vrt = tmp_path / "frac.vrt"
+        vrt.write_text(
+            '<VRTDataset rasterXSize="18000" rasterYSize="50">'
+            "<GeoTransform> -1.8e+02, 2.0e-02, 0.0, 5.0, 0.0, -2.0e-02</GeoTransform>"
+            '<VRTRasterBand dataType="Byte" band="1">'
+            "<ComplexSource>"
+            '<SrcRect xOff="0" yOff="0" xSize="50" ySize="50" />'
+            '<DstRect xOff="17751.5" yOff="0" xSize="248.5" ySize="50" />'
+            "</ComplexSource>"
+            "<ComplexSource>"
+            '<SrcRect xOff="0" yOff="0" xSize="50" ySize="50" />'
+            '<DstRect xOff="0" yOff="0" xSize="50" ySize="50" />'
+            "</ComplexSource>"
+            "</VRTRasterBand></VRTDataset>"
+        )
+
+        shift_vrt_longitude_frame(str(vrt), 175.0)
+
+        offsets = [d.get("xOff") for d in parse_vrt(str(vrt)).getroot().iter("DstRect")]
+        # 17751.5 px at 0.02 deg puts the western source at 175.03; re-anchored
+        # there it sits at 0, and the eastern source lands 248.5 px further on.
+        assert offsets == ["0", "248.5"]
+        assert float(offsets[1]) == pytest.approx(248.5)
+
+    def test_whole_pixel_offsets_stay_integral(self, tmp_path):
+        """The common case still reads like GDAL's own output, not ``50.0``."""
+        vrt = tmp_path / "whole.vrt"
+        vrt.write_text(_GDALBUILDVRT_SEAM_XML)
+
+        shift_vrt_longitude_frame(str(vrt), 175.0)
+
+        offsets = [d.get("xOff") for d in parse_vrt(str(vrt)).getroot().iter("DstRect")]
+        assert offsets == ["0", "50", "0"]
 
     def test_unopenable_source_is_left_to_gdalbuildvrt(self, tmp_path, monkeypatch):
         """The probe must never swallow a broken source's real error."""

@@ -1,5 +1,6 @@
 """VRT build module: gdalbuildvrt subprocess wrappers and source path resolver."""
 
+import math
 import os
 import subprocess
 from contextlib import ExitStack
@@ -153,6 +154,27 @@ def _resolve_target_resolution(values: list[float], resolution_strategy: str) ->
     raise KeyError(resolution_strategy)
 
 
+# fix(#887): the seam logic is written in degrees throughout -- the >180 guard,
+# the +360 shift, the ±180 rings. `is_geographic` is NOT enough to guarantee
+# that: EPSG:4807 (NTF Paris) is geographic with an angular unit of GRADS, where
+# a full turn is 400 and the seam sits at 200. Feeding it a 360 shift moves the
+# eastern tile to the wrong place entirely -- a 195..200 / -200..-195 pair comes
+# out as a 40-grad hull instead of the intended 10. Compare the CRS's own
+# radians-per-unit factor rather than a unit name, which varies by PROJ build.
+_RADIANS_PER_DEGREE = math.pi / 180.0
+
+
+def _is_degree_based(crs) -> bool:
+    """True only for a geographic CRS whose angular unit is degrees."""
+    if crs is None or not crs.is_geographic:
+        return False
+    try:
+        _, radians_per_unit = crs.units_factor
+    except Exception:  # broad: units_factor raises CRSError on exotic/!undefined CRSs, which are exactly the ones to exclude
+        return False
+    return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
+
+
 def _seam_frame_origin(spans: list[tuple[float, float]]) -> float | None:
     """Pick the longitude frame origin for a seam-straddling geographic mosaic.
 
@@ -220,17 +242,15 @@ def _write_python_vrt(
             [abs(ds.transform.e) for ds in datasets], resolution_strategy
         )
 
-        # fix(#887): only a geographic CRS wraps at ±180. Projected easting runs
-        # continuously across the seam, and its numbers are metres -- a 40 000 km
-        # wide EPSG:3857 pair clears the >180 guard trivially and a +360 shift
-        # would move a source by 360 *metres*. So gate the whole thing on EVERY
-        # source being geographic before computing any of the geometry.
-        all_geographic = all(
-            ds.crs is not None and ds.crs.is_geographic for ds in datasets
-        )
+        # fix(#887): only a degree-based geographic CRS wraps at ±180. Projected
+        # easting runs continuously across the seam and its numbers are metres --
+        # a 40 000 km wide EPSG:3857 pair clears the >180 guard trivially and a
+        # +360 shift would move a source by 360 *metres* -- and a grads-based
+        # geographic CRS turns at 400, not 360. Gate the whole thing on EVERY
+        # source before computing any of the geometry.
         seam_origin = (
             _seam_frame_origin([(ds.bounds.left, ds.bounds.right) for ds in datasets])
-            if all_geographic
+            if all(_is_degree_based(ds.crs) for ds in datasets)
             else None
         )
         lon_offsets = [
@@ -399,12 +419,27 @@ def sources_seam_frame_origin(source_paths: list[str]) -> float | None:
             datasets = [
                 stack.enter_context(rasterio.open(path)) for path in source_paths
             ]
-            if not all(ds.crs is not None and ds.crs.is_geographic for ds in datasets):
+            if not all(_is_degree_based(ds.crs) for ds in datasets):
                 return None
             spans = [(ds.bounds.left, ds.bounds.right) for ds in datasets]
     except Exception:  # broad: a source that cannot be opened is gdalbuildvrt's error to report, with its own message — never this probe's
         return None
     return _seam_frame_origin(spans)
+
+
+def _offset_text(value: float) -> str:
+    """Render a DstRect offset, keeping a fractional pixel fractional.
+
+    fix(#887): ``gdalbuildvrt`` emits sub-pixel offsets whenever a source is not
+    aligned to the chosen output grid -- a mixed-resolution mosaic produced
+    ``xOff="17751.5"`` and ``xOff="349.51"`` here. Rounding those to whole pixels
+    would slide the source by up to half an output pixel and change how GDAL
+    resamples it, so keep the fraction and only drop a trailing ``.0`` so the
+    common whole-pixel case still reads like GDAL's own output.
+    """
+    if math.isclose(value, round(value), abs_tol=1e-9):
+        return str(int(round(value)))
+    return f"{value:.10f}".rstrip("0").rstrip(".")
 
 
 def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
@@ -488,11 +523,12 @@ def shift_vrt_longitude_frame(vrt_path: str, seam_origin: float) -> None:
     new_left = min(left for _, left, _ in placements)
     new_right = max(left + size * res_x for _, left, size in placements)
 
+    # rasterXSize is a pixel count and must stay integral; the offsets must not.
     root.set("rasterXSize", str(max(1, int(round((new_right - new_left) / res_x)))))
     geotransform[0] = new_left
     gt_node.text = ", ".join(repr(v) for v in geotransform)
     for rect, left, _ in placements:
-        rect.set("xOff", str(int(round((left - new_left) / res_x))))
+        rect.set("xOff", _offset_text((left - new_left) / res_x))
 
     tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
 
