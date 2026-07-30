@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 
 from geoalchemy2.shape import to_shape
@@ -414,7 +415,7 @@ def make_bbox_filter(
 
 
 def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
-    """Classify a CRS WKT as geographic (degree units) or projected.
+    """Classify a CRS WKT as geographic (lon/lat axes) or projected.
 
     fix(#569): the frontend rendered geographic-CRS pixel resolutions as
     meters ("60 arc-second" ETOPO showed "2 cm"). The API has no proj
@@ -423,6 +424,12 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     WKT1 nests a GEOGCS inside every PROJCS — otherwise a GEOGCRS/GEOGCS
     keyword (including inside a COMPOUNDCRS like EPSG:9518) means
     geographic. Engineering/local/unknown CRSs return None.
+
+    fix(#939): this is a keyword test only — it does NOT check the angular
+    unit, so a grads-based GEOGCS (the Paris-meridian family, e.g. EPSG:4807)
+    also returns True. When "geographic" needs to mean "resolutions are in
+    degrees", pair this with :func:`wkt_has_degree_unit`. The codebase's
+    other unit tests are catalogued in #939 — don't invent a fifth.
     """
     if not crs_wkt:
         return None
@@ -432,3 +439,24 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     if "GEOGCRS" in head or "GEOGCS" in head:
         return True
     return None
+
+
+# fix(#939): covers WKT1 (`UNIT["degree"`) and WKT2 (`ANGLEUNIT["degree"`) in
+# one pattern, since the WKT2 spelling contains the WKT1 substring. Mirrors
+# _DEGREE_UNIT_SRTEXT_RE in processing/ingest/metadata.py, which does the same
+# test in SQL against spatial_ref_sys.srtext.
+_WKT_DEGREE_UNIT_RE = re.compile(r'UNIT\["degree', re.IGNORECASE)
+
+
+def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
+    """Whether a CRS WKT declares a degree angular unit anywhere.
+
+    fix(#939): companion to :func:`wkt_is_geographic`, which is keyword-only
+    and admits grads CRSs. Only meaningful for a WKT already classified as
+    geographic — every projected WKT1 nests a GEOGCS whose UNIT is degrees,
+    so call :func:`wkt_is_geographic` first. Returns None when no WKT is
+    stored.
+    """
+    if not crs_wkt:
+        return None
+    return _WKT_DEGREE_UNIT_RE.search(crs_wkt) is not None

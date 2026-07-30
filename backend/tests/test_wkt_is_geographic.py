@@ -4,7 +4,7 @@ The frontend must not format degree resolutions as meters; this helper
 classifies the stored WKT with zero proj dependencies.
 """
 
-from app.core.geo import wkt_is_geographic
+from app.core.geo import wkt_has_degree_unit, wkt_is_geographic
 
 WKT2_GEOGRAPHIC = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]]]'
 WKT1_GEOGRAPHIC = (
@@ -19,6 +19,11 @@ WKT2_PROJECTED = (
 WKT2_COMPOUND_GEOGRAPHIC = 'COMPOUNDCRS["WGS 84 + EGM2008 height",GEOGCRS["WGS 84",DATUM["World Geodetic System 1984"]],VERTCRS["EGM2008 height"]]'
 WKT2_COMPOUND_PROJECTED = 'COMPOUNDCRS["NAD83 / UTM 18N + NAVD88",PROJCRS["NAD83 / UTM zone 18N",BASEGEOGCRS["NAD83"]],VERTCRS["NAVD88 height"]]'
 WKT_ENGINEERING = 'ENGCRS["Site grid",EDATUM["Site origin"]]'
+# fix(#939): degree-unit fixtures for wkt_has_degree_unit. Grads GEOGCS is
+# geographic per the keyword test but its resolutions are not degrees.
+WKT1_GEOGRAPHIC_DEGREE = 'GEOGCS["NAD83",DATUM["North_American_Datum_1983",SPHEROID["GRS 1980",6378137,298.257222101]],UNIT["degree",0.0174532925199433]]'
+WKT2_GEOGRAPHIC_DEGREE = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,2],AXIS["latitude",north],AXIS["longitude",east],ANGLEUNIT["degree",0.0174532925199433]]'
+WKT1_GEOGRAPHIC_GRADS = 'GEOGCS["NTF (Paris)",DATUM["Nouvelle_Triangulation_Francaise_Paris",SPHEROID["Clarke 1880 (IGN)",6378249.2,293.4660212936265]],PRIMEM["Paris",2.33722917],UNIT["grad",0.01570796326794897]]'
 
 
 def test_geographic_wkt2():
@@ -49,3 +54,26 @@ def test_engineering_and_missing_are_unknown():
     assert wkt_is_geographic(WKT_ENGINEERING) is None
     assert wkt_is_geographic(None) is None
     assert wkt_is_geographic("") is None
+
+
+# fix(#939): wkt_has_degree_unit — the companion unit test wkt_is_geographic
+# deliberately does not perform.
+
+
+def test_degree_unit_wkt1():
+    assert wkt_has_degree_unit(WKT1_GEOGRAPHIC_DEGREE) is True
+
+
+def test_degree_unit_wkt2_angleunit():
+    # WKT2 spells it ANGLEUNIT["degree"...] — must match too.
+    assert wkt_has_degree_unit(WKT2_GEOGRAPHIC_DEGREE) is True
+
+
+def test_grads_geogcs_is_geographic_but_not_degrees():
+    assert wkt_is_geographic(WKT1_GEOGRAPHIC_GRADS) is True
+    assert wkt_has_degree_unit(WKT1_GEOGRAPHIC_GRADS) is False
+
+
+def test_degree_unit_missing_wkt_is_unknown():
+    assert wkt_has_degree_unit(None) is None
+    assert wkt_has_degree_unit("") is None

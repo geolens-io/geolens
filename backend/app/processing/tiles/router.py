@@ -26,7 +26,12 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.geo import extent_lon_span, extent_to_span_bbox
+from app.core.geo import (
+    extent_lon_span,
+    extent_to_span_bbox,
+    wkt_has_degree_unit,
+    wkt_is_geographic,
+)
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import get_optional_user
@@ -401,8 +406,26 @@ def _native_resolution_meters(
     values: list[float] = []
 
     if res_x is not None or res_y is not None:
-        if asset.epsg == 4326:
-            values.extend(_degrees_resolution_to_meters(res_x, res_y, bounds))
+        # fix(#939): "is this resolution in degrees?" must not be an EPSG
+        # equality test. 4326 is not the only geographic CRS — 4269, 4258,
+        # 4979, 9518 and friends all store degree resolutions, and reading
+        # those as metres collapsed native resolution by ~5 orders of
+        # magnitude and pinned maxzoom to the cap (ETOPO at epsg=9518 got
+        # z22 instead of z7). Classify from the WKT already on the asset row
+        # (no per-request PROJ lookup); the degree-unit check is separate
+        # because a grads GEOGCS (Paris-meridian family) is geographic
+        # without its resolutions being degrees.
+        geographic = wkt_is_geographic(asset.crs_wkt)
+        if geographic is None:
+            # No usable WKT stored: fall back to the historical EPSG test.
+            geographic = asset.epsg == 4326
+        if geographic:
+            if wkt_has_degree_unit(asset.crs_wkt) is not False:
+                values.extend(_degrees_resolution_to_meters(res_x, res_y, bounds))
+            # else: geographic with a non-degree angular unit (grads).
+            # The stored resolution is neither metres nor degrees, so leave
+            # ``values`` empty and let the bounds-derived estimate below
+            # take over instead of guessing.
         else:
             # GeoLens raster ingest normally stores COGs in meter-based CRSs
             # (often EPSG:3857). For unsupported projected CRSs this still
