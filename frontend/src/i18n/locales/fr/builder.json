@@ -8,7 +8,9 @@
     "opacityModified": "Opacité ajustée"
   },
   "map": {
-    "ariaLabel": "Constructeur de carte"
+    "ariaLabel": "Constructeur de carte",
+    "autoFitMoved": "La vue s’est ajustée aux couches visibles",
+    "returnToPreviousView": "Revenir à la vue précédente"
   },
   "mapNameLabel": "Nom de la carte",
   "descriptionLabel": "Description de la carte",
@@ -1093,12 +1095,13 @@
     "emptyTitle": "Aucun historique de modification",
     "emptyDescription": "L'historique commence après l'enregistrement des modifications pour cette carte.",
     "errorTitle": "Impossible de charger l'historique",
-    "errorDescription": "Essayez de fermer et rouvrir ce panneau.",
+    "errorDescription": "Vérifiez votre connexion, puis réessayez.",
     "notAvailableTitle": "Enregistrez cette carte pour voir l'historique",
     "notAvailableDescription": "L'historique de modification est disponible après la création de la carte.",
     "unknownTime": "Heure inconnue",
     "unknownActor": "Utilisateur inconnu",
-    "actorTarget": "{{actor}} - {{target}}"
+    "actorTarget": "{{actor}} - {{target}}",
+    "retry": "Réessayer"
   },
   "dock": {
     "askAi": "Demander à l'IA",
