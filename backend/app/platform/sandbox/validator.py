@@ -449,21 +449,40 @@ def _extract_buffer_input(node: exp.Expression) -> tuple[exp.Expression, float] 
 _MAX_LINEAGE_HOPS = 4
 
 
+# The managed 4326 geometry column. Ingest keeps a source dataset's ORIGINAL
+# `geom` in whatever CRS it arrived in and adds this one alongside
+# (`processing/ingest/service.py` probes for both), so "reached a base table"
+# is not the same as "reached a bounded geometry": a Web Mercator `s.geom` has
+# a 40-million-unit span and drives the scaffold's six-unit bands and 0.1-unit
+# segmentization exactly like a reprojection does (fix(#1001 codex r3)).
+_MANAGED_GEOMETRY_COLUMN = "geom_4326"
+
+
 def _named_sources(scope: exp.Expression, name: str) -> list[exp.Expression]:
     """Sources in `scope` bound to `name` — a base table, CTE, or subquery.
 
-    A schema-less `exp.Table` is a REFERENCE to a CTE, not a base table (the
-    validator rejects every real-table schema but `data` elsewhere), so it is
-    skipped: counting `FROM x` alongside the CTE that defines `x` would make
-    every CTE name look ambiguous.
+    Bindings only, never definitions. A CTE is reachable solely through a
+    from/join reference to it, and that reference is what carries the binding
+    name: `FROM bad AS x` binds `x` to `bad`, whatever a CTE literally named
+    `x` may also define. Scanning CTE definitions directly missed that
+    shadowing (fix(#1001 codex r3)) and double-counted the plain `FROM x` case
+    against its own definition.
     """
     matches: list[exp.Expression] = []
-    for cte in scope.find_all(exp.CTE):
-        if cte.alias == name:
-            matches.append(cte.this)
     for table in scope.find_all(exp.Table):
-        if table.db and (table.alias or table.name) == name:
-            matches.append(table)
+        if (table.alias or table.name) != name:
+            continue
+        if table.db:
+            matches.append(table)  # a real table in a real schema
+            continue
+        # Schema-less: a reference to a CTE, resolved by the CTE's own name
+        # rather than by the binding name.
+        definitions = [
+            cte.this for cte in scope.find_all(exp.CTE) if cte.alias == table.name
+        ]
+        if len(definitions) != 1:
+            return []  # unresolvable -> caller fails closed
+        matches.append(definitions[0])
     for sub in scope.find_all(exp.Subquery):
         if sub.alias == name:
             matches.append(sub.this)
@@ -500,13 +519,17 @@ def _resolves_to_stored_column(scope: exp.Expression, column: exp.Column) -> boo
         if not qualifier:
             # Unqualified: only safe when the scope has exactly one base table
             # and no alias indirection that could bind the name elsewhere.
-            return _sole_base_table(scope) is not None
+            return (
+                _sole_base_table(scope) is not None and name == _MANAGED_GEOMETRY_COLUMN
+            )
         sources = _named_sources(scope, qualifier)
         if len(sources) != 1:
             return False
         source = sources[0]
         if isinstance(source, exp.Table):
-            return True
+            # Terminal: a base-table column only counts as bounded when it is
+            # the managed 4326 column.
+            return name == _MANAGED_GEOMETRY_COLUMN
         if not isinstance(source, exp.Select):
             return False
         projection = next(

@@ -946,6 +946,57 @@ class TestCanonicalBufferExemptionIsScoped:
             + ") FROM data.stations, data.cities"
         )
 
+    def test_rejects_an_alias_shadowing_a_safe_cte(self):
+        """fix(#1001 codex r3): `FROM bad AS x` binds x to `bad`, whatever a
+        CTE literally named x also defines. Resolving through CTE definitions
+        instead of through the from/join reference read the safe one."""
+        _assert_rejects(
+            "WITH x AS (SELECT s.geom_4326 AS g FROM data.safe s), "
+            "bad AS (SELECT ST_Transform(c.geom_4326, 3857) AS g "
+            "FROM data.cities c) "
+            "SELECT ST_AsGeoJSON(" + _canonical_buffer("x.g", 1000) + ") FROM bad AS x"
+        )
+
+    def test_admits_a_cte_reference_under_an_alias(self):
+        """The paired control: binding through the reference has to keep
+        working for the ordinary aliased case."""
+        _assert_allows(
+            "WITH good AS (SELECT geom_4326 AS g FROM data.cities) "
+            "SELECT ST_AsGeoJSON(" + _canonical_buffer("x.g", 1000) + ") FROM good AS x"
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "sql"),
+        [
+            (
+                "qualified",
+                "SELECT ST_AsGeoJSON("
+                + _canonical_buffer("s.geom", 1000)
+                + ") FROM data.stations s",
+            ),
+            (
+                "unqualified",
+                "SELECT ST_AsGeoJSON("
+                + _canonical_buffer("geom", 1000)
+                + ") FROM data.stations",
+            ),
+            (
+                "through a CTE",
+                "WITH x AS (SELECT geom AS g FROM data.cities) "
+                "SELECT ST_AsGeoJSON(" + _canonical_buffer("x.g", 1000) + ") FROM x",
+            ),
+        ],
+    )
+    def test_rejects_a_base_column_that_is_not_the_managed_4326_column(
+        self, label, sql
+    ):
+        """fix(#1001 codex r3): reaching a base table is not enough. Ingest
+        keeps a dataset's ORIGINAL `geom` in whatever CRS it arrived in and
+        adds `geom_4326` alongside, so a Web Mercator `s.geom` has a
+        40-million-unit span and drives the scaffold exactly like a
+        reprojection does."""
+        _assert_rejects(sql)
+
     def test_rejects_an_unresolvable_qualifier(self):
         _assert_rejects(
             "SELECT ST_AsGeoJSON("
@@ -981,8 +1032,11 @@ class TestCanonicalBufferExemptionIsScoped:
 
     @staticmethod
     def _n_buffers(count: int) -> str:
+        # Distinct DISTANCES rather than distinct columns: only the managed
+        # geom_4326 column resolves as a bounded source, so varying the column
+        # would refuse them all for the wrong reason.
         buffers = ", ".join(
-            f"ST_AsGeoJSON({_canonical_buffer(f's.geom_{i}')}) AS g{i}"
+            f"ST_AsGeoJSON({_canonical_buffer('s.geom_4326', 1000 + i)}) AS g{i}"
             for i in range(count)
         )
         return f"SELECT {buffers} FROM data.stations s"

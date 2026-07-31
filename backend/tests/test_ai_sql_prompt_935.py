@@ -148,8 +148,11 @@ def test_prompt_states_the_bounded_input_rule():
     The model has to be told, or it emits a shape that is silently refused —
     the same prompt-vs-validator disagreement this whole chain is about.
     """
-    assert "<GEOM> must be a stored geometry" in SQL_SYSTEM_PROMPT
+    assert "<GEOM> must be the managed geom_4326 column" in SQL_SYSTEM_PROMPT
     assert "s.geom_4326" in SQL_SYSTEM_PROMPT
-    assert "A reprojection, a nested buffer, or a constructed geometry" in (
+    assert "A reprojection, a nested buffer, a constructed geometry" in (
         SQL_SYSTEM_PROMPT
     )
+    # fix(#1001 codex r3): a dataset's original projected geom column is the
+    # non-obvious one, so the prompt has to name it.
+    assert "original geom column in another CRS" in SQL_SYSTEM_PROMPT
