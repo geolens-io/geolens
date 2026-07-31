@@ -133,12 +133,21 @@ def _runs_on_merge_group(job: dict) -> bool:
     """
     condition = job.get("if")
     if condition is None:
-        return True  # no gate
-    cond = " ".join(str(condition).split()).replace("always()", "").strip()
+        return True  # no `if:` key at all — no gate
+    raw = " ".join(str(condition).split())
+    if not raw:
+        # fix(#1074 review): `if: ""` is NOT the same as no `if:`. GitHub
+        # evaluates an empty condition as falsy and skips the job, while
+        # normalisation made it indistinguishable from the bare always() case
+        # and reported it as running — the same false all-clear again.
+        return False
+    cond = raw.replace("always()", "").strip()
     while cond.startswith("&&"):
         cond = cond[2:].strip()
     if not cond:
-        return True  # bare always()
+        # Nothing left, and the original was not empty: what got stripped was
+        # always(). Checked explicitly rather than inferred from emptiness.
+        return "always()" in raw
     if "merge_group" in _EVENT_NE.findall(cond):
         return False  # explicitly excluded
     return any(_satisfied_by_merge_group_alone(p) for p in _top_level_or_split(cond))
@@ -335,3 +344,14 @@ def test_predicate_nested_conjunction_beside_a_clean_disjunct_runs():
         "|| github.event_name == 'merge_group'"
     )
     assert _runs_on_merge_group({"if": condition}) is True
+
+
+def test_predicate_explicitly_empty_if_reports_as_skipping():
+    """fix(#1074 review), third finding. `if: ""` is not the same as no `if:`.
+    GitHub evaluates an empty condition as falsy and skips the job; the
+    normalised form was indistinguishable from bare `always()` and reported it
+    as running."""
+    assert _runs_on_merge_group({"if": ""}) is False
+    assert _runs_on_merge_group({"if": "   "}) is False
+    # The control: a genuinely absent `if:` still means no gate.
+    assert _runs_on_merge_group({}) is True
