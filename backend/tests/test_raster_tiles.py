@@ -980,7 +980,7 @@ class TestSignedRasterTileTemplate:
 
         assert resp.status_code == 401
 
-    async def test_a_tampered_signature_is_refused(
+    async def test_a_tampered_signature_falls_through_to_normal_auth(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         admin_id = await _get_admin_id(test_db_session)
@@ -998,10 +998,12 @@ class TestSignedRasterTileTemplate:
             params={"dataset_id": str(dataset.id), **params},
         )
 
-        assert resp.status_code == 403
-        assert resp.json()["detail"] == "Invalid or expired signature"
+        # fix(#688 codex r1): an unusable signature falls through to the normal
+        # branches rather than refusing, so an unauthenticated caller lands on
+        # the same 401 it would have got without presenting one at all.
+        assert resp.status_code == 401
 
-    async def test_a_signature_minted_for_another_dataset_is_refused(
+    async def test_a_signature_minted_for_another_dataset_does_not_authorize(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """The scope binds the token to one dataset, so it cannot be replayed.
@@ -1025,10 +1027,9 @@ class TestSignedRasterTileTemplate:
             params={"dataset_id": str(other.id), **self._signed_params(token)},
         )
 
-        assert resp.status_code == 403
-        assert resp.json()["detail"] == "Scope mismatch"
+        assert resp.status_code == 401
 
-    async def test_an_expired_signature_is_refused(
+    async def test_an_expired_signature_does_not_authorize(
         self, client: AsyncClient, test_db_session
     ):
         from app.core.tenancy import tenant_bound_scope
@@ -1051,10 +1052,9 @@ class TestSignedRasterTileTemplate:
             },
         )
 
-        assert resp.status_code == 403
-        assert resp.json()["detail"] == "Invalid or expired signature"
+        assert resp.status_code == 401
 
-    async def test_a_non_numeric_exp_is_refused_rather_than_500ing(
+    async def test_a_non_numeric_exp_does_not_500(
         self, client: AsyncClient, test_db_session
     ):
         admin_id = await _get_admin_id(test_db_session)
@@ -1072,4 +1072,71 @@ class TestSignedRasterTileTemplate:
             },
         )
 
-        assert resp.status_code == 403
+        assert resp.status_code == 401
+
+    async def test_a_signed_template_renders_an_unpublished_public_draft(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#688 codex r1): the draft-preview case.
+
+        A public-but-unpublished raster is an owner/admin preview, and the mint
+        endpoint issues a template for it. Gating the signature branch on
+        ``visibility != "public"`` sent that template to the unpublished branch,
+        which 404s a headerless caller — so the advertised self-sufficient
+        template could not render a case it was minted for.
+        """
+        admin_id = await _get_admin_id(test_db_session)
+        record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        record.record_status = "draft"
+        await test_db_session.commit()
+        token = (
+            await client.get(f"/tiles/token/{dataset.id}/", headers=admin_auth_header)
+        ).json()
+
+        # Without the signature this same caller is anonymous, so it 404s.
+        bare = await client.get(
+            "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
+        )
+        assert bare.status_code == 404
+
+        signed = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), **self._signed_params(token)},
+        )
+        assert signed.status_code == 200
+
+    async def test_an_expired_signature_does_not_break_a_signed_in_session(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#688 codex r1): the signature is additive, never a restriction.
+
+        MapLibre keeps requesting the URL it was handed, so a preemptive refusal
+        403'd an in-app map holding a valid session the moment its 15-minute
+        template aged out. An unusable signature must fall through to the
+        credentials the caller actually has.
+        """
+        from app.core.tenancy import tenant_bound_scope
+        from app.processing.tiles.signing import generate_tile_signature
+
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        scope = tenant_bound_scope(str(dataset.id))
+        expired = int(time.time()) - 60
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={
+                "dataset_id": str(dataset.id),
+                "sig": generate_tile_signature(scope, expired),
+                "exp": expired,
+                "scope": scope,
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200
+        assert asset.asset_uri in resp.headers["x-geolens-asset-openpath"]

@@ -750,22 +750,23 @@ async def _resolve_raster_meta(
     return meta
 
 
-def _has_tile_signature(request: Request) -> bool:
-    """Whether the caller presented a full signed-template triple."""
-    params = request.query_params
-    return all(params.get(name) for name in ("sig", "exp", "scope"))
-
-
-def _verify_raster_tile_signature(request: Request, dataset_id: uuid.UUID) -> None:
-    """Authorize a raster tile request by its signed template, or raise 403.
+def _tile_signature_authorizes(request: Request, dataset_id: uuid.UUID) -> bool:
+    """Whether the caller presented a VALID signed template for this dataset.
 
     fix(#688): the mirror of the vector verify path. The expected scope is
-    recomputed here with the SAME ``tenant_bound_scope(str(dataset.id))``
-    expression the mint site uses — the two must never be allowed to drift,
-    because a divergence is a silent authorization bypass rather than a test
-    failure. A raster dataset has no ``table_name``, so the dataset id is the
-    resource string; it is already unique per tenant and is what the tile URL
-    keys on.
+    recomputed with the SAME ``tenant_bound_scope(str(dataset.id))`` expression
+    the mint site uses — the two must never be allowed to drift, because a
+    divergence is a silent authorization bypass rather than a test failure. A
+    raster dataset has no ``table_name``, so the dataset id is the resource
+    string; it is already unique per tenant and is what the tile URL keys on.
+
+    fix(#688 codex r1): returns a bool instead of raising. The signature is an
+    ADDITIONAL way in for a client that cannot send headers, never a restriction
+    on one that can, so an absent, malformed, or expired signature has to fall
+    through to the other branches rather than refuse. Refusing preemptively
+    403'd an in-app map holding a perfectly valid session the moment its
+    15-minute template aged out, since MapLibre keeps requesting the URL it was
+    given.
 
     ``tenant_bound_scope`` raises when multi-tenant is active with no tenant in
     context, so the import stays inside the function exactly as it does on the
@@ -773,26 +774,17 @@ def _verify_raster_tile_signature(request: Request, dataset_id: uuid.UUID) -> No
     """
     from app.core.tenancy import tenant_bound_scope
 
-    sig = request.query_params.get("sig")
-    exp_raw = request.query_params.get("exp")
-    scope = request.query_params.get("scope")
-
+    params = request.query_params
+    sig, exp_raw, scope = (params.get(n) for n in ("sig", "exp", "scope"))
+    if not (sig and exp_raw and scope):
+        return False
     if scope != tenant_bound_scope(str(dataset_id)):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
-        )
+        return False
     try:
-        exp = int(exp_raw or "")
+        exp = int(exp_raw)
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or expired signature",
-        )
-    if not verify_tile_signature(scope, exp, sig or ""):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or expired signature",
-        )
+        return False
+    return verify_tile_signature(scope, exp, sig)
 
 
 async def _resolve_raster_access(
@@ -828,14 +820,22 @@ async def _resolve_raster_access(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired embed token",
             )
-    elif visibility != "public" and _has_tile_signature(request):
-        # fix(#688) auth priority 2: a signed template, mirroring the vector
-        # path. MapLibre issues tile image requests itself and attaches no
-        # header, so without this an API-key-only client could not render a
+    elif _tile_signature_authorizes(request, dataset_id):
+        # fix(#688) auth priority 2: a valid signed template, mirroring the
+        # vector path. MapLibre issues tile image requests itself and attaches
+        # no header, so without this an API-key-only client could not render a
         # private raster at all — the contract handed it a template that could
         # never authenticate. nginx forwards `$is_args$args` to this proxy, so
         # the query string arrives intact (`frontend/nginx.conf`).
-        _verify_raster_tile_signature(request, dataset_id)
+        #
+        # fix(#688 codex r1): checked ahead of the visibility split rather than
+        # inside the non-public arm. A public-but-unpublished raster is an
+        # owner/admin draft preview, and the mint endpoint issues a template for
+        # it; gating on `visibility != "public"` sent that template to the
+        # unpublished branch below, which 404s a headerless caller. The
+        # signature already attests that someone authorized minted it for this
+        # dataset, which is the same thing it attests on the vector path.
+        pass
     elif visibility != "public":
         # Auth priority 3: require authenticated user for non-public datasets
         if user is None:
