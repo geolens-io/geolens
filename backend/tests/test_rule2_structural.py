@@ -1251,24 +1251,47 @@ def _escape_kind(node: ast.AST, *, vector: bool = True) -> int:
     return best
 
 
-def _target_names(target: ast.expr) -> set[str]:
-    """The names an assignment TARGET actually binds.
+def _expr_path(expr: ast.expr) -> str | None:
+    """A stable textual handle for a storable location, or None.
 
-    fix(#996 review): walking every ``Name`` in the target read
-    ``settings.choices = [...]`` as binding ``settings``, so a later
-    ``render(settings)`` looked like the argv escaping — a false positive on
-    data that is never handed anywhere. An attribute or subscript target binds
-    nothing this analysis can follow: it mutates an object whose other
-    references live outside this expression. Return nothing for those rather
-    than guessing at the container.
+    ``cmd`` -> ``"cmd"``; ``box.cmd`` -> ``"box.cmd"``; ``registry['tools']``
+    -> ``"registry['tools']"``. fix(#996 review): the analysis tracks PATHS
+    rather than bare names, so a vector stored on an attribute or under a
+    constant key can be matched when it is loaded back. A computed key gets no
+    path — it cannot be compared textually, and guessing would be the
+    container mistake again.
     """
-    if isinstance(target, ast.Name):
-        return {target.id}
+    if isinstance(expr, ast.Name):
+        return expr.id
+    if isinstance(expr, ast.Attribute):
+        base = _expr_path(expr.value)
+        return f"{base}.{expr.attr}" if base else None
+    if isinstance(expr, ast.Subscript) and isinstance(expr.slice, ast.Constant):
+        base = _expr_path(expr.value)
+        return f"{base}[{expr.slice.value!r}]" if base else None
+    return None
+
+
+def _target_names(target: ast.expr) -> set[str]:
+    """The paths an assignment TARGET binds.
+
+    fix(#996 review), twice over. First: walking every ``Name`` in the target
+    read ``settings.choices = [...]`` as binding ``settings``, so a later
+    ``render(settings)`` looked like the argv escaping — a false positive on
+    data that never moves. Then: returning NOTHING for such targets meant
+    ``box.cmd = [...]`` followed by ``subprocess.run(box.cmd)`` reported zero
+    sites for a literal that really is executed.
+
+    Binding the PATH answers both. ``box.cmd = [...]`` binds ``"box.cmd"``,
+    which matches a later load of ``box.cmd`` and does not match a load of
+    ``box``.
+    """
     if isinstance(target, (ast.Tuple, ast.List)):
         return {n for elt in target.elts for n in _target_names(elt)}
     if isinstance(target, ast.Starred):
         return _target_names(target.value)
-    return set()  # Attribute, Subscript — not a name binding
+    path = _expr_path(target)
+    return {path} if path else set()
 
 
 def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] | None:
@@ -1439,22 +1462,36 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
         current_batch = pending
         pending = set()
         seen |= {n for n, _ in current_batch}
-        current_names = {n: c for n, c in current_batch}
+        current_paths = {n: c for n, c in current_batch}
         for used in ast.walk(scope):
-            if not (
-                isinstance(used, ast.Name)
-                and used.id in current_names
-                and isinstance(used.ctx, ast.Load)
-                and _use_reaches_the_binding(used, scope, rel)
-            ):
+            if not isinstance(used, (ast.Name, ast.Attribute, ast.Subscript)):
                 continue
-            best = max(best, _escape_kind(used, vector=not current_names[used.id]))
+            if not isinstance(getattr(used, "ctx", None), ast.Load):
+                continue
+            path = _expr_path(used)
+            if path is None or path not in current_paths:
+                continue
+            root = _expression_root_name(used)
+            if root is not None and not _use_reaches_the_binding(root, scope, rel):
+                continue
+            holds = current_paths[path]
+            # fix(#996 review): reading a CONTAINER through a subscript or
+            # attribute yields the vector — `commands = {...}` then
+            # `cmd = commands["inspect"]`. Follow that extraction, or the
+            # alias chain stops dead at the container.
+            if holds:
+                parent = getattr(used, "_rule2_parent", None)
+                if (
+                    isinstance(parent, (ast.Subscript, ast.Attribute))
+                    and parent.value is used
+                ):
+                    extracted, _ = _binding_targets(parent)
+                    pending |= {(n, False) for n in extracted - seen}
+            best = max(best, _escape_kind(used, vector=not holds))
             if best == _ESCAPE_CALL:
                 return best
             aliases, alias_container = _binding_targets(used)
-            pending |= {
-                (n, current_names[used.id] or alias_container) for n in aliases - seen
-            }
+            pending |= {(n, holds or alias_container) for n in aliases - seen}
     return best
 
 
@@ -2760,3 +2797,42 @@ def test_guard_subscript_target_does_not_bind_its_container_either():
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_argv_stored_on_an_attribute_or_key_is_detected():
+    """fix(#996 review): refusing to bind the container was right; binding
+    NOTHING was not. `box.cmd = [...]` then `subprocess.run(box.cmd)` executes
+    the literal, so the PATH is what gets tracked."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def via_attribute(box, path):\n"
+            "    box.cmd = ['gdalinfo', path]\n"
+            "    subprocess.run(box.cmd)\n"
+            "def via_key(registry, path):\n"
+            "    registry['cmd'] = ['ogrinfo', path]\n"
+            "    subprocess.run(registry['cmd'])\n"
+        ),
+        {},
+    )
+    assert total == 2, (total, violations)
+    assert any("(via_attribute)" in v for v in violations)
+    assert any("(via_key)" in v for v in violations)
+
+
+def test_guard_extracting_a_vector_from_a_container_keeps_the_chain():
+    """fix(#996 review): `commands = {...}`, `cmd = commands["inspect"]`,
+    `run(cmd)`. The alias chain used to stop at the container, because a
+    subscript is not a transparent wrapper for a vector."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    commands = {'inspect': ['gdalinfo', path]}\n"
+            "    cmd = commands['inspect']\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
