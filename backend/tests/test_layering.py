@@ -914,7 +914,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # emptiness. Cap 390 -> 396, no headroom.
         # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import. Cap 397,
         # still no headroom.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 397,
+        # feat(#765): +7 — the detail response resolves derived_from through
+        # visible_derived_from, so a private source is never disclosed via a
+        # derived dataset. Cap 397 -> 404, still no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 404,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -1156,6 +1159,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1058,
     "backend/app/modules/auth/oauth/service.py": 1031,
     "backend/app/processing/ingest/service.py": 1017,
+    # --- entered by the inclusion rule, feat(#765) -------------------------
+    # First time this module crosses 1000. main sat at 994, six lines under the
+    # gate, so it was going to fire on whoever added next; it fired here.
+    # +38 — DerivedFromResponse. The provenance reference was typed
+    # dict[str, Any], which OpenAPI renders as additionalProperties: true, and
+    # both SDKs then generate an untyped map — the shape is exactly what a
+    # durable reference exists to carry, so leaving it untyped defeated the
+    # feature (#1045 review). The model's own docstring holds the part worth
+    # keeping: `params` stays untyped deliberately, because it is the
+    # operation's parameter dict AND it is redacted per requester, so a union
+    # of per-operation models would describe a shape visible_derived_from is
+    # free to punch holes in. Ratchet exact at 1032.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1032,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
@@ -1190,7 +1206,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ST_XMin/ST_YMin/ST_XMax/ST_YMax(ST_Extent(...)) columns for one
     # rollup_bbox_columns() splat, and _parse_extent_row folds the row through
     # rollup_bbox(). Cap lowered 1796 -> 1789, still exact.
-    "backend/app/standards/stac/router.py": 1789,
+    # feat(#765): +44 — _visible_derived_from_id resolves the rel="derived_from"
+    # source against the same published+visible query the item endpoints serve
+    # from, and user/user_roles are threaded to the four item builders that
+    # feed it. Cap 1789 -> 1833, still exact.
+    "backend/app/standards/stac/router.py": 1833,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

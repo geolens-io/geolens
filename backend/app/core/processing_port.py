@@ -71,6 +71,8 @@ class RecordProtocol(Protocol):
     translations: Sequence[TranslationProtocol]
     spatial_extent: Any  # geoalchemy2 type — Any keeps core/ free of geoalchemy2 import
     lineage_summary: str | None
+    # feat(#765): analysis provenance, written by processing/analysis.
+    derived_from: dict | None
     source_organization: str | None
     access_constraints: str | None
     temporal_start: date | None

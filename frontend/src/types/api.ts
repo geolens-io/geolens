@@ -175,6 +175,19 @@ export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
 /** Response returned by dataset publication-status mutation endpoints. */
 export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse'];
 
+/** Mirrors backend `DerivedFromResponse` (datasets/domain/schemas.py).
+ *
+ * fix(#765 review): a named type here too, matching the backend model the
+ * SDKs now generate from. `params` stays open because it is the operation's
+ * own parameter dict AND is redacted per requester — `visible_derived_from`
+ * drops any dataset id the caller cannot see. */
+export interface DerivedFrom {
+  dataset_id: string;
+  operation: string;
+  params: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface DatasetResponse {
   id: string;
   record_id: string;
@@ -207,6 +220,11 @@ export interface DatasetResponse {
   last_edited_at: string | null;
   record_status: RecordStatus;
   lineage_summary: string | null;
+  /** fix(#765): provenance for an analysis output — which dataset it came from
+   * and which operation produced it. Null when the dataset was not derived, and
+   * also when the requester cannot see the source (visible_derived_from gates
+   * both this dataset_id and params.mask_dataset_id). */
+  derived_from?: DerivedFrom | null;
   update_frequency: string | null;
   usage_constraints: string | null;
   access_constraints: string | null;

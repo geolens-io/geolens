@@ -215,6 +215,36 @@ class CollectionRef(BaseModel):
     name: str
 
 
+class DerivedFromResponse(BaseModel):
+    """Provenance for an analysis output: what it came from, and how.
+
+    fix(#765 review): declared as a model rather than ``dict[str, Any]``. The
+    dict spelled itself into the checked-in OpenAPI as bare
+    ``additionalProperties: true``, so both generated SDKs lost the shape — the
+    TypeScript one degraded to an index signature and the Python one to an
+    empty additional-properties container. The stable shape was documented in
+    prose and mirrored by hand in the frontend types while the SDKs, which is
+    where most consumers actually meet it, could not use it type-safely.
+
+    ``params`` stays untyped on purpose: it is the operation's own parameter
+    dict, so its keys differ per operation (``distance_meters`` for a buffer,
+    ``mask_source``/``mask_dataset_id`` for a clip), and it is additionally
+    REDACTED per requester — ``visible_derived_from`` drops any embedded
+    dataset id the caller cannot see. A union of per-operation models would
+    describe a shape the redaction is free to punch holes in.
+    """
+
+    dataset_id: uuid.UUID = Field(description="The dataset this one was derived from")
+    operation: str = Field(description="Analysis operation that produced it")
+    params: dict[str, Any] = Field(
+        description=(
+            "Operation parameters, minus any dataset reference the requester "
+            "cannot access"
+        )
+    )
+    created_at: datetime
+
+
 class DatasetResponse(BaseModel):
     id: uuid.UUID
     record_id: uuid.UUID = Field(description="Parent catalog record UUID")
@@ -308,6 +338,14 @@ class DatasetResponse(BaseModel):
     )
     lineage_summary: str | None = Field(
         default=None, description="Free-text provenance / lineage statement"
+    )
+    derived_from: DerivedFromResponse | None = Field(
+        default=None,
+        description=(
+            "Provenance for an analysis output. Null for a dataset that was not "
+            "derived, and also for a requester who cannot access the source "
+            "dataset — the two are deliberately indistinguishable."
+        ),
     )
     update_frequency: str | None = Field(
         default=None, description="ISO maintenance frequency code"
