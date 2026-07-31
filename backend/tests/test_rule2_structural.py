@@ -1232,25 +1232,67 @@ def _escape_kind(node: ast.AST) -> int:
     return best
 
 
+def _positional_target(targets: list[ast.expr], index: int) -> ast.expr | None:
+    """The single target an unpacking assigns position ``index`` to.
+
+    fix(#996 review): binding every target name to every nested literal made
+    ``ignored, choices = (None, ["gdalinfo", "-json"])`` read ``choices`` as
+    escaping through ``ignored``, a false positive on inert data — the class of
+    failure this whole issue is about. Only a same-length flat unpacking is
+    matched; a starred target makes positions ambiguous, so those fall back to
+    the conservative all-names answer.
+    """
+    for target in targets:
+        if not isinstance(target, (ast.Tuple, ast.List)):
+            continue
+        if any(isinstance(e, ast.Starred) for e in target.elts):
+            return None
+        if index < len(target.elts):
+            return target.elts[index]
+    return None
+
+
+# Expression wrappers a value passes through without being consumed. A literal
+# inside one is still the value the surrounding statement binds or hands on.
+_TRANSPARENT_WRAPPERS = (
+    ast.List,
+    ast.Tuple,
+    ast.Set,
+    ast.Dict,
+    ast.Starred,
+    # fix(#996 review): `cmd = [...] if flag else [...]` and `[...] + extra`
+    # both stopped the climb short of the assignment, so a real invocation read
+    # as inert.
+    ast.IfExp,
+    ast.BinOp,
+)
+
+
 def _binding_targets(node: ast.AST) -> set[str]:
     """Names this literal's value is reachable through in its own scope.
 
-    Climbs out of enclosing container literals first (fix(#996 review)), so
+    Climbs out of transparent wrappers first (fix(#996 review)), so
     ``commands = {"inspect": ["gdalinfo", path]}`` binds through ``commands``
     and a later ``subprocess.run(commands["inspect"])`` still counts. Covers
-    ``=`` including unpacking, annotated ``=``, and the walrus.
+    ``=`` including unpacking, annotated ``=``, the walrus, and the loop target
+    of a ``for``/``async for``/comprehension over a literal.
     """
     current: ast.AST = node
     parent = getattr(current, "_rule2_parent", None)
-    while isinstance(parent, (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Starred)):
+    index_in_parent: int | None = None
+    while isinstance(parent, _TRANSPARENT_WRAPPERS):
+        if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
+            index_in_parent = parent.elts.index(current)
+        else:
+            index_in_parent = None
         current = parent
         parent = getattr(current, "_rule2_parent", None)
+
     if isinstance(parent, ast.Assign) and parent.value is current:
-        # Every Name in the target, including through unpacking (fix(#996
-        # review): `cmd, _ = (["gdalinfo", path], None)` put an ast.Tuple in
-        # `targets` and a Name-only filter returned nothing, so a real
-        # invocation read as inert). Over-approximating here binds a sibling
-        # name too, which can only ever ADD detection.
+        if index_in_parent is not None:
+            positional = _positional_target(parent.targets, index_in_parent)
+            if positional is not None:
+                return {n.id for n in ast.walk(positional) if isinstance(n, ast.Name)}
         return {
             n.id
             for target in parent.targets
@@ -1263,6 +1305,13 @@ def _binding_targets(node: ast.AST) -> set[str]:
         and isinstance(parent.target, ast.Name)
     ):
         return {parent.target.id}
+    # fix(#996 review): `for cmd in (["gdalinfo", path],): subprocess.run(cmd)`
+    # reaches an exec through the loop target. Same for `async for` and for a
+    # comprehension's generator.
+    if isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension)) and (
+        parent.iter is current
+    ):
+        return {n.id for n in ast.walk(parent.target) if isinstance(n, ast.Name)}
     return set()
 
 
@@ -1274,14 +1323,19 @@ def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
     turned an inert constant into a security failure. Any lexical scope between
     the use and the binding that binds the same name breaks the link -- the
     same rule ``_classify_name`` applies to rasterio names.
+
+    ``bound`` is not the whole binding table: a canonical import
+    (``from rasterio import open as cmd``) is recorded in ``canonical``
+    instead, and reading only ``bound`` missed that shadow.
     """
     current: ast.AST | None = getattr(used, "_rule2_parent", None)
     while current is not None and current is not scope:
-        if (
-            isinstance(current, _LEXICAL_SCOPES)
-            and used.id in _scope_info(current, rel).bound
-        ):
-            return False
+        if isinstance(current, _LEXICAL_SCOPES):
+            info = _scope_info(current, rel)
+            if used.id in info.bound or any(
+                used.id in names for names in info.canonical.values()
+            ):
+                return False
         current = getattr(current, "_rule2_parent", None)
     return True
 
@@ -2390,3 +2444,92 @@ def test_guard_genuine_closure_use_still_escapes():
     )
     assert total == 1, (total, violations)
     assert len(violations) == 1 and "(outer)" in violations[0]
+
+
+def test_guard_argv_built_by_a_conditional_or_concatenation_is_detected():
+    """fix(#996 review): the climb used to stop at the wrapping expression, so
+    a literal assembled through a ternary or a `+` never reached its
+    assignment and read as inert."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def ternary(path, inspect):\n"
+            "    cmd = ['gdalinfo', path] if inspect else ['ogrinfo', path]\n"
+            "    subprocess.run(cmd)\n"
+            "def concatenated(path, extra):\n"
+            "    cmd = ['gdalwarp', path] + extra\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 3, (total, violations)
+    assert any("(ternary)" in v for v in violations)
+    assert any("(concatenated)" in v for v in violations)
+
+
+def test_guard_argv_reached_through_a_loop_target_is_detected():
+    """fix(#996 review): iteration binds the argv to the loop target, which
+    the assignment-only model did not see."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def looped(path):\n"
+            "    for cmd in (['gdalinfo', path],):\n"
+            "        subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(looped)" in violations[0]
+
+
+def test_guard_unpacking_binds_by_position_not_by_all_names():
+    """fix(#996 review): attaching every target name to every nested literal
+    let a SIBLING's escape drag inert data into the gate — the false-positive
+    class this issue exists to remove. Positions are matched instead."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def fn():\n"
+            "    ignored, choices = (None, ['gdalinfo', '-json'])\n"
+            "    consume(ignored)\n"
+            "    if choices[0] == 'gdalinfo':\n"
+            "        pass\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_unpacking_still_detects_the_position_that_does_escape():
+    """The control: the same shape with the roles swapped is a real argv."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    cmd, ignored = (['gdalinfo', path], None)\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_canonical_import_shadow_also_breaks_the_escape_link():
+    """fix(#996 review): a canonical import lands in `canonical`, not `bound`,
+    so a nested `from rasterio import open as cmd` was not recognised as a
+    shadow and the inner load was credited to an outer literal."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def outer():\n"
+            "    cmd = ['gdalinfo', '-json']\n"
+            "    def inner():\n"
+            "        from rasterio import open as cmd\n"
+            "        return consume(cmd)\n"
+            "    return inner\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
