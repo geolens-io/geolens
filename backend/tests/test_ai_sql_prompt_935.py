@@ -139,3 +139,17 @@ def test_no_bare_geography_buffer_taught_positively():
     for line in remainder.splitlines():
         if "::geography," in line and "ST_Buffer(" in line:
             assert _is_negative_teaching(line), line
+
+
+def test_prompt_states_the_bounded_input_rule():
+    """fix(#1001): the sandbox admits the rendered buffer only around a stored
+    geometry, because the expression's cost scales with its input's extent.
+
+    The model has to be told, or it emits a shape that is silently refused —
+    the same prompt-vs-validator disagreement this whole chain is about.
+    """
+    assert "<GEOM> must be a stored geometry" in SQL_SYSTEM_PROMPT
+    assert "s.geom_4326" in SQL_SYSTEM_PROMPT
+    assert "A reprojection, a nested buffer, or a constructed geometry" in (
+        SQL_SYSTEM_PROMPT
+    )
