@@ -836,31 +836,35 @@ async def _ingest_vector_into_staging(
     tests a callable seam over vector ingest's pre-staging half, which
     production runs inline inside its own job lifecycle.
 
-    What it mirrors, and what it shares (fix(#1018 review)):
+    What it mirrors, and what it shares (fix(#1018 review)). Deliberately no
+    line numbers: this docstring's own growth moved them twice while it was
+    being written, so it names FUNCTIONS, which do not drift.
 
-    - The pre-staging steps here — run_ogr2ogr, rename_reserved_columns, the
-      DBF-truncation check, the ``user_wants_geom`` override — are a PARALLEL
-      COPY of ``tasks_vector.py`` (:459-560) and ``tasks_reupload.py``
-      (:261-340). Those can drift from this, and only the tests would notice.
-    - The staging steps are the real ``_run_staging_pipeline`` (:650), so this
-      helper does not fork them — but almost nothing else calls it either.
-      Where the sequence is written out, and how much of it:
+    - Pre-staging. ``run_ogr2ogr``, ``rename_reserved_columns``, the
+      DBF-truncation check, then ``_detect_and_override_geometry`` under
+      ``user_wants_geom``. ``tasks_vector.ingest_file`` runs the same four —
+      it is the only production path with the override, so this helper's
+      ``user_wants_geom`` branch has exactly one counterpart.
+      ``tasks_reupload.reupload_file`` runs the first three and passes its
+      detected geometry type straight to ``run_ogr2ogr`` instead
+      (fix(#1018 review): an earlier draft claimed all four).
+    - Staging. This helper calls the real ``_run_staging_pipeline``, so it does
+      not fork those steps — but little else calls it either. The sequence
+      exists in three independent places:
 
-        1. ``_run_staging_pipeline`` (:650) — the full eight steps
+        1. ``_run_staging_pipeline`` — the full eight steps
            (ensure_geom_column, clip_to_mercator_bounds, add_4326_column,
            grant_reader_access, extract_metadata, detect_3d_metadata,
            promote_z_to_elev, get_sample_values). Reached in production only by
-           ``reupload_file`` (``tasks_reupload.py:337``), and by this helper.
-        2. ``_finalize_ingest`` (:1069, block at :1114-1177) — the same eight,
-           inlined. New vector ingest, via ``tasks_vector.py:572``.
-        3. ``reupload_service`` (``tasks_reupload.py:463``, block at :670-690)
-           — a SHORTER copy: ensure_geom_column, clip, add_4326_column,
-           grant_reader_access, extract_metadata, get_sample_values. No 3D
-           detection and no elevation promotion, so do not "fix" it by
-           symmetry with the other two; find out why first (fix(#1018 review)).
+           ``tasks_reupload.reupload_file``, and by this helper.
+        2. ``_finalize_ingest`` in this module — the same eight, inlined. New
+           vector ingest, via ``tasks_vector.ingest_file``.
+        3. ``tasks_reupload.reupload_service`` — a SHORTER copy: no 3D
+           detection and no elevation promotion. Do not "fix" that by symmetry
+           with the other two; find out why first.
 
-      A change to the shared six therefore has three independent sites, and
-      the tests here cover the one production reaches least.
+      So a change to the shared six has three sites, and the tests here cover
+      the one production reaches least.
 
     It intentionally performs no commits.
     """
