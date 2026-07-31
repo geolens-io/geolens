@@ -2186,6 +2186,37 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
         (["case", [">", 1, 0], ["image", "geolens-fill-hatch"], "up-b"], True),
         # An expression shape that cannot yield an image id is left alone.
         (["zoom"], False),
+        # fix(#917 codex r4): MapLibre's LEGACY function object, still accepted
+        # for data-driven properties and preserved by style import and the
+        # open-dict paint API. Outputs are each stop's second element plus
+        # `default`; the first element is the matched INPUT, so it is data.
+        (
+            {
+                "type": "categorical",
+                "property": "kind",
+                "stops": [["x", "geolens-fill-grid"]],
+                "default": "up-a",
+            },
+            True,
+        ),
+        (
+            {
+                "type": "categorical",
+                "stops": [["x", "up-a"]],
+                "default": "geolens-fill-dots",
+            },
+            True,
+        ),
+        (
+            {
+                "type": "categorical",
+                "stops": [["geolens-fill-grid", "up-a"]],
+                "default": "up-b",
+            },
+            False,
+        ),
+        ({"stops": [["x", ["image", "geolens-fill-hatch"]]]}, True),
+        ({"type": "exponential", "base": 2}, False),
     ],
 )
 def test_data_driven_fill_pattern_is_read_at_its_output_positions(pattern, stripped):

@@ -1328,6 +1328,23 @@ def _references_builtin_fill_pattern(value: Any) -> bool:
     """
     if isinstance(value, str):
         return value in _BUILTIN_FILL_PATTERN_IDS
+    if isinstance(value, dict):
+        # fix(#917 codex r4): MapLibre's LEGACY function object, still accepted
+        # for data-driven properties and preserved by both the style import and
+        # the open-dict `paint` API:
+        #   {"type": "categorical", "property": "kind",
+        #    "stops": [["x", "geolens-fill-grid"]], "default": "uploaded-a"}
+        # Its outputs are the second element of each stop, plus `default`. The
+        # first element is the input value being matched — data, like a `match`
+        # label — so it is read at the same positions the array forms are.
+        outputs = [
+            stop[-1]
+            for stop in (value.get("stops") or [])
+            if isinstance(stop, (list, tuple)) and len(stop) >= 2
+        ]
+        if "default" in value:
+            outputs.append(value["default"])
+        return any(_references_builtin_fill_pattern(out) for out in outputs)
     if not (isinstance(value, list) and value and isinstance(value[0], str)):
         return False
     positions = _EXPRESSION_OUTPUT_POSITIONS.get(value[0])
