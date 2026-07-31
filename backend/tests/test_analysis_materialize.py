@@ -17,6 +17,7 @@ from geoalchemy2 import WKTElement
 from httpx import AsyncClient
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.pool import NullPool
 
 import app.core.db as core_db
 from app.core.geo import extent_to_bbox
@@ -120,8 +121,28 @@ async def _release_jobs(session: AsyncSession, jobs: list[IngestJob]) -> None:
 _SLOT_HOLDING_STATUSES = ("pending", "running")
 
 
+@pytest.fixture(scope="module")
+def _slot_cleanup_engine():
+    """A synchronous engine for the teardown below — see its docstring for why.
+
+    Module-scoped so construction is paid once; NullPool because it wants one
+    statement at a time and idle connections are the scarce resource in this
+    suite. The URL is read lazily, after conftest has stamped the per-xdist
+    worker database name onto settings.
+    """
+    from sqlalchemy import create_engine
+
+    from app.core.config import settings
+
+    engine = create_engine(settings.test_database_url_sync, poolclass=NullPool)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture(autouse=True)
-async def _release_analysis_job_slots(test_db_session: AsyncSession):
+def _release_analysis_job_slots(request, _slot_cleanup_engine):
     """fix(#789): fail whatever analysis jobs a test leaves behind.
 
     The materialize endpoint admits one non-terminal analysis job per user, and
@@ -129,24 +150,38 @@ async def _release_analysis_job_slots(test_db_session: AsyncSession):
     pending 429s whatever runs next — under `pytest -n 4`, some unrelated
     victim in another file. Releasing the slot by hand at the end of each test
     worked right up until someone forgot, which is why this is autouse rather
-    than opt-in: forgetting is the whole failure mode. A single UPDATE, a no-op
-    when there is nothing to release.
+    than opt-in: forgetting is the whole failure mode.
 
     Analysis jobs only, keyed on the same ``user_metadata`` marker the endpoint
     counts, so an upload job a test is still asserting on is left alone. Not
     scoped to one user: the cap is per user but the tests here run as admin,
     editor and viewer, and no test wants another user's leftovers to survive.
+
+    SYNCHRONOUS, and deliberately not routed through ``test_db_session``. An
+    autouse ASYNC fixture applies to every test in the module and pytest
+    refuses to hand one to a sync test, so the moment any session adds a plain
+    ``def`` test here it errors at setup — and takes the rest of the file with
+    it, because a failed fixture corrupts pytest's finalizer state. That is not
+    hypothetical: it is what this did in an integration batch beside two sync
+    tests from another PR. A per-class override patches one occurrence and
+    loses to the next, so the fixture must not care what shape the tests are.
+    Owning its connection also makes teardown ordering irrelevant, which the
+    async version got wrong in the other direction.
     """
     yield
-    await test_db_session.execute(
-        update(IngestJob)
-        .where(
-            IngestJob.user_metadata.has_key("analysis"),
-            IngestJob.status.in_(_SLOT_HOLDING_STATUSES),
+    # A test that never took a client cannot have enqueued anything, so there
+    # is nothing to release and no reason to spend a connection.
+    if not {"client", "test_db_session"} & set(request.fixturenames):
+        return
+    with _slot_cleanup_engine.begin() as conn:
+        conn.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.user_metadata.has_key("analysis"),
+                IngestJob.status.in_(_SLOT_HOLDING_STATUSES),
+            )
+            .values(status="failed")
         )
-        .values(status="failed")
-    )
-    await test_db_session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -3641,16 +3676,6 @@ class TestWideSingleComponentBuffer:
 
 
 class TestUserErrorMessage:
-    @pytest.fixture(autouse=True)
-    def _release_analysis_job_slots(self):
-        """Override the module's async teardown for this class.
-
-        These are pure-function tests: sync, no database, no job to release.
-        Inheriting the async fixture would hand a sync test an async generator
-        and error out during setup.
-        """
-        yield
-
     def test_db_error_hides_generated_sql(self):
         """fix(#692): SQLAlchemy appends `[SQL: …]` to DB errors — schema and
         table names must never reach GET /jobs/{id}."""
