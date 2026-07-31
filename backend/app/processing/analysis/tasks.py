@@ -159,7 +159,7 @@ async def _apply_materialize_work_mem(session: AsyncSession) -> None:
     work_mem = _materialize_work_mem()
     if work_mem is None:
         return
-    # Pin parallelism first, so the budget arithmetic is true by construction
+    # Cap parallelism first, so the budget arithmetic is true by construction
     # rather than by assuming the server's configuration. work_mem is granted to
     # the leader AND to every parallel worker, so a server with
     # max_parallel_workers_per_gather above 1 — a customised bundled conf, or
@@ -167,7 +167,19 @@ async def _apply_materialize_work_mem(session: AsyncSession) -> None:
     # which db/postgresql.conf:73 constrains — would multiply the ceiling by a
     # number this process cannot see. One leader plus one worker is what the
     # budget in config.py is sized for.
-    await session.execute(text("SET LOCAL max_parallel_workers_per_gather = 1"))
+    #
+    # LEAST, not a plain assignment: an operator who set 0 has DISABLED parallel
+    # query, and raising them to 1 would hand this statement a worker and the
+    # CPU and memory that comes with it. Only ever lower. set_config's third
+    # argument is is_local, so this is transaction-scoped exactly like SET LOCAL
+    # — which cannot take an expression.
+    await session.execute(
+        text(
+            "SELECT set_config('max_parallel_workers_per_gather', "
+            "LEAST(current_setting('max_parallel_workers_per_gather')::int, 1)"
+            "::text, true)"
+        )
+    )
     await session.execute(text(f"SET LOCAL work_mem = '{work_mem}'"))
 
 

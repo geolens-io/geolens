@@ -571,6 +571,17 @@ class Settings(BaseSettings):
         if budget_kb <= 0:
             return self
         per_slot_kb = budget_kb // max(1, self.worker_concurrency)
+        # PostgreSQL's own ceiling for work_mem. A share above it fails at
+        # SET LOCAL, so every materialize would be recorded as a failed job —
+        # a boot failure names the cause once instead.
+        if per_slot_kb > 2147483647:
+            raise ValueError(
+                f"ANALYSIS_MATERIALIZE_WORK_MEM_MB="
+                f"{self.analysis_materialize_work_mem_mb} divided across "
+                f"WORKER_CONCURRENCY={self.worker_concurrency} is "
+                f"{per_slot_kb}kB per slot, above PostgreSQL's work_mem maximum "
+                "of 2147483647kB."
+            )
         if per_slot_kb < 64:
             raise ValueError(
                 f"ANALYSIS_MATERIALIZE_WORK_MEM_MB="

@@ -446,6 +446,15 @@ class TestSettingsConstraints:
         assert "32kB per slot" in message, message
         assert "64kB minimum" in message, message
 
+        # And above PostgreSQL's own work_mem maximum, for the same reason:
+        # every materialize would fail at SET LOCAL and be recorded as a
+        # failed job.
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                analysis_materialize_work_mem_mb=2097152, worker_concurrency=1
+            )
+        assert "work_mem maximum" in str(exc_info.value), str(exc_info.value)
+
         # The documented escape hatches both boot.
         assert (
             _make_settings(

@@ -2669,7 +2669,11 @@ class TestMaterializeWorker:
         # from db/postgresql.conf — which says nothing about an external server.
         par = [s for s in executed if "max_parallel_workers_per_gather" in s]
         assert len(par) == 1, par
-        assert par[0].startswith("SET LOCAL"), par[0]
+        # LEAST, never a plain assignment: an operator who set 0 has disabled
+        # parallel query, and raising them to 1 would hand this statement a
+        # worker they said no to. set_config(..., true) is transaction-scoped.
+        assert "LEAST" in par[0], par[0]
+        assert "set_config" in par[0] and ", true)" in par[0], par[0]
         assert executed.index(par[0]) < executed.index(ctas[0])
 
     async def test_work_mem_override_can_be_disabled(
