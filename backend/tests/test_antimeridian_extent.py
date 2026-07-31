@@ -25,6 +25,9 @@ from app.core.geo import bbox_to_extent_wkt, extent_to_bbox, extent_to_span_bbox
 # The canonical crossing case: a Fiji-area strip that spans the seam.
 FIJI_BBOX = (170.0, -20.0, -170.0, -15.0)
 
+# fix(#944): the sliver bbox_to_extent_wkt widens a degenerate axis to.
+PAD = 1e-9
+
 ORDINARY_POLYGON = "POLYGON((0 0,10 0,10 5,0 5,0 0))"
 SEAM_MULTIPOLYGON = bbox_to_extent_wkt(*FIJI_BBOX)
 # Two real footprints on opposite sides of the world. Neither touches ±180, so
@@ -188,6 +191,68 @@ class TestBboxToExtentWkt:
         assert shape.is_valid
         assert shape.geom_type == expected_type
         assert shape.bounds == expected_bounds
+
+    @pytest.mark.parametrize(
+        ("bbox", "expected_type", "expected_bounds"),
+        [
+            # A run of points on one parallel: zero height, non-crossing.
+            ((1.0, 2.0, 3.0, 2.0), "Polygon", (1.0, 2.0 - PAD, 3.0, 2.0 + PAD)),
+            # The same, crossing the seam — both halves must stay valid.
+            (
+                (170.0, -20.0, -170.0, -20.0),
+                "MultiPolygon",
+                (-180.0, -20.0 - PAD, 180.0, -20.0 + PAD),
+            ),
+            # A meridian-aligned run: zero width, non-crossing.
+            ((5.0, 1.0, 5.0, 4.0), "Polygon", (5.0 - PAD, 1.0, 5.0 + PAD, 4.0)),
+            # A single point: degenerate on both axes at once.
+            (
+                (5.0, 6.0, 5.0, 6.0),
+                "Polygon",
+                (5.0 - PAD, 6.0 - PAD, 5.0 + PAD, 6.0 + PAD),
+            ),
+            # On the antimeridian, where an outward pad would leave the domain:
+            # the sliver grows inward instead of emitting longitude 180.000…001.
+            ((180.0, 1.0, 180.0, 4.0), "Polygon", (180.0 - PAD, 1.0, 180.0, 4.0)),
+            ((-180.0, 1.0, -180.0, 4.0), "Polygon", (-180.0, 1.0, -180.0 + PAD, 4.0)),
+            # The same at a pole.
+            ((1.0, 90.0, 3.0, 90.0), "Polygon", (1.0, 90.0 - PAD, 3.0, 90.0)),
+            ((1.0, -90.0, 3.0, -90.0), "Polygon", (1.0, -90.0, 3.0, -90.0 + PAD)),
+        ],
+    )
+    def test_degenerate_span_is_padded_to_a_valid_ring(
+        self, bbox, expected_type, expected_bounds
+    ):
+        """fix(#944): a zero-span axis builds four collinear points — zero area,
+        and not a valid polygon.
+
+        Only the width case was guarded before, and only on the crossing
+        branch, so a single-parallel source stored an invalid ring through the
+        STAC import path. Pad both axes on both branches, following the
+        ``ST_Expand`` convention the producer paths already use.
+        """
+        shape = shapely_wkt.loads(bbox_to_extent_wkt(*bbox))
+        assert shape.is_valid
+        assert shape.geom_type == expected_type
+        assert shape.bounds == pytest.approx(expected_bounds)
+        assert shape.area > 0
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            FIJI_BBOX,
+            (1.0, 2.0, 3.0, 4.0),
+            (179.5, 0.0, -179.5, 1.0),
+            (0.0, 0.0, 1e-9, 1e-9),
+        ],
+    )
+    def test_padding_never_moves_a_genuine_bbox(self, bbox):
+        """The pad triggers below 1e-12, so a real extent round-trips exactly.
+
+        The last case is the tightest bbox the ``ST_Expand`` producers emit: it
+        must be treated as genuine, not re-padded.
+        """
+        assert extent_to_bbox(_extent(bbox_to_extent_wkt(*bbox))) == list(bbox)
 
 
 # ---------------------------------------------------------------------------
