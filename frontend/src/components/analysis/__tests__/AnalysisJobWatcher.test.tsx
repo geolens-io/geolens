@@ -1,9 +1,14 @@
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
-import { analysisAddToMap, useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
+import {
+  ANALYSIS_JOB_STORAGE_KEY,
+  analysisAddToMap,
+  useAnalysisAddedStore,
+  useAnalysisJobStore,
+} from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { ApiError } from '@/api/client';
@@ -47,7 +52,8 @@ function mockJob(data: unknown, error: unknown = null) {
 describe('AnalysisJobWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAnalysisJobStore.setState({ job: null });
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    localStorage.removeItem(ANALYSIS_JOB_STORAGE_KEY);
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
     analysisAddToMap.current = null;
     analysisAddToMap.mapId = null;
@@ -148,6 +154,329 @@ describe('AnalysisJobWatcher', () => {
     // A long job lands after attention has moved on — the notification has to wait.
     expect(options?.duration).toBe(Infinity);
     expect(useAnalysisJobStore.getState().job).toBeNull();
+  });
+
+  // feat(#1008): two builders open means two watchers polling the same job.
+  // Without a claim each raises its own toast and its own invalidation — the
+  // per-job toastId only collapses StrictMode's double invoke within one tab.
+  it('stays silent when another tab already claimed the completion', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    // Seeded AFTER the setState above, which writes the store through and
+    // would otherwise flatten the foreign claim back to null.
+    localStorage.setItem(
+      ANALYSIS_JOB_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' },
+          completedAt: { jobId: 'j1', tabId: 'some-other-tab', at: Date.now() },
+        },
+        version: 1,
+      }),
+    );
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+
+    renderWatcher();
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(toast.success).not.toHaveBeenCalled();
+    // fix(#1008 codex P2): the claim dedups REPORTING, not refreshing. This
+    // tab has its own QueryClient and focus-refetch is off, so skipping the
+    // invalidation would leave it showing a catalog without the new dataset.
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    // The local cleanup still runs: this tab's Create button has to re-enable,
+    // and the finished run's name must not come back with it.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    invalidate.mockRestore();
+  });
+
+  it('stays silent on a FAILED job another tab already claimed', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    localStorage.setItem(
+      ANALYSIS_JOB_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' },
+          completedAt: { jobId: 'j1', tabId: 'some-other-tab', at: Date.now() },
+        },
+        version: 1,
+      }),
+    );
+    mockJob({ status: 'failed', dataset_id: null, error_message: 'no features' });
+
+    renderWatcher();
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('reports exactly once and invalidates its own caches when it wins', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+
+    renderWatcher();
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    // Datasets and search, one apiece.
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    invalidate.mockRestore();
+  });
+
+  // fix(#1008 codex P2): a tab throttled through the terminal poll never sees
+  // it — the job simply vanishes when the reporting tab's clear propagates.
+  // Its QueryClient and its remembered form title are document-local, so
+  // without this it keeps a catalog that omits the new dataset and reopens the
+  // form with the finished run's name.
+  it('runs its local cleanup when another tab clears a completed job', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    // Still running as far as this tab knows.
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+    expect(invalidate).not.toHaveBeenCalled();
+
+    // The reporting tab's claim and clear arrive together through the mirror.
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    // Reporting still belongs to the tab that claimed it.
+    expect(toast.success).not.toHaveBeenCalled();
+    invalidate.mockRestore();
+  });
+
+  // fix(#1008 codex P2, second pass): a resuming tab rehydrates from the
+  // latest payload, so it can go straight from job1 to job2 without ever
+  // rendering null. job1's cleanup is owed all the same.
+  it('runs the cleanup when a completed job is replaced by the next one', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: { jobId: 'j2', title: 'Next run', mapId: 'm1' },
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    // ...and the replacement run is still being tracked.
+    expect(useAnalysisJobStore.getState().job?.jobId).toBe('j2');
+    invalidate.mockRestore();
+  });
+
+  it('waits for the claim when it arrives after the job is replaced', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    // The two storage writes need not land on one render.
+    act(() => {
+      useAnalysisJobStore.setState({ job: { jobId: 'j2', title: 'Next', mapId: 'm1' } });
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    invalidate.mockRestore();
+  });
+
+  // fix(#1008 codex P2, third pass): a tab suspended across two whole runs
+  // resumes to a claim naming the second while it still remembers the first.
+  // Refreshing is not job-specific — one invalidation re-reads the whole
+  // catalog — so it has to fire on the claim it can see, not on an id match.
+  it('refreshes on a claim for a run it never tracked', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    // It slept through j1 finishing, j2 starting, and j2 finishing.
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j2',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    invalidate.mockRestore();
+  });
+
+  // fix(#1008 codex P2, fourth pass): claim and clear are separate persisted
+  // writes and arrive in either order, and a swept job departs with no claim
+  // at all. Retiring the remembered title therefore keys on the departure of
+  // the run this tab was showing, not on a claim turning up to explain it.
+  it('retires the remembered title when the claim lands before the clear', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    // The claim's storage event is processed first...
+    act(() => {
+      useAnalysisJobStore.setState({
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+    // ...and the clear arrives on its own.
+    act(() => {
+      useAnalysisJobStore.setState({ job: null });
+    });
+
+    await waitFor(() =>
+      expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe(''),
+    );
+  });
+
+  it('retires the remembered title when a swept job departs with no claim', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    // Another tab got the 401/403/404 and cleared. No claim is ever written
+    // for a swept run, so waiting for one would keep the name forever.
+    act(() => {
+      useAnalysisJobStore.setState({ job: null });
+    });
+
+    await waitFor(() =>
+      expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe(''),
+    );
+  });
+
+  it('keeps the remembered title when the claim says the run failed', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'failed',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    // Nothing was created — re-entering the name to retry would be pure loss.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
+  });
+
+  // fix(#1008 codex P2, fifth pass): a tab suspended while one run succeeded
+  // and a later one failed resumes to the failed claim only. Gating the
+  // refresh on the status would leave it a catalog missing the first run's
+  // dataset, with nothing to correct it.
+  it('refreshes on a failed claim too, since an earlier run may have succeeded', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j2',
+          tabId: 'some-other-tab',
+          status: 'failed',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    invalidate.mockRestore();
+  });
+
+  it('does not refresh when the job is cleared without a completion claim', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    // A logout or an identity change clears the job with no claim behind it —
+    // nothing was created, so there is nothing to refresh.
+    act(() => {
+      useAnalysisJobStore.setState({ job: null, completedAt: null });
+    });
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(invalidate).not.toHaveBeenCalled();
+    invalidate.mockRestore();
   });
 
   it('offers Add to map only when a builder for that map is mounted', async () => {
