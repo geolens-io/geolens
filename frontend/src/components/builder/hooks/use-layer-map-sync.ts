@@ -8,6 +8,7 @@ import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
 import { reconcileColorClassification } from '@/lib/color-ramps';
+import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
@@ -226,8 +227,16 @@ export function resolveFillExclusions(
   // changing the colour is as much a request as adding one, and a presence-only check
   // read it as "nothing introduced" and deleted the new colour. An absent key compares
   // unequal to any value, so this subsumes the added case rather than sitting beside it.
+  //
+  // fix(#910, codex P2): STRUCTURALLY, not by reference. Advanced JSON applies
+  // `JSON.parse` of the whole block, so an untouched expression comes back as a fresh
+  // array — `!==` read a `fill-opacity` edit as a colour change and deleted the layer's
+  // pattern. `deepEqual` is the same comparison the dirty check already uses on paint,
+  // so "same JSON, new object" means unchanged in both places. Comparing values is also
+  // why this stays keyed off state: propagating which JSON keys the editor touched
+  // would put intent back in the caller's hands, one caller at a time.
   const touched = (key: string) =>
-    collides && !!previousPaint && previousPaint[key] !== effectivePaint[key];
+    collides && !!previousPaint && !deepEqual(previousPaint[key], effectivePaint[key]);
   const changedFillColor = touched('fill-color');
   const changedFillPattern = touched('fill-pattern');
   const colorWins = collides && (isDataDrivenColor || (changedFillColor && !changedFillPattern));

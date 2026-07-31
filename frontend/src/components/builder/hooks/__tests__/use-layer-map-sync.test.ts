@@ -1645,3 +1645,73 @@ describe('useLayerMapSync — an orphaned colour classification is reconciled at
     expect(configOf(layers().find((l) => l.id === LID)!)?.mode).toBe('categorical');
   });
 });
+
+// fix(#910, codex P2): the provenance diff has to compare expression VALUES. The
+// Advanced JSON editor applies `JSON.parse` of the whole block, so every array-valued
+// key comes back as a fresh object even when its text never changed — and a reference
+// comparison read that as "the user asked for this colour" and deleted the pattern.
+describe('useLayerMapSync — provenance survives a JSON round-trip of an untouched expression', () => {
+  const LID = 'layer-uuid-123';
+  const RAMP_JSON = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+
+  function renderBoundary(initialLayer: MapLayerResponse) {
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub([`layer-${LID}`]) } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, layers: () => finalLayers };
+  }
+
+  it('keeps the pattern when an unrelated Advanced JSON edit reparses the colour', () => {
+    const savedPaint = {
+      'fill-color': RAMP_JSON,
+      'fill-pattern': 'geolens-fill-hatch',
+      'fill-opacity': 0.3,
+    };
+    const { result, layers } = renderBoundary(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: savedPaint }),
+    );
+
+    act(() => {
+      // Exactly what AdvancedJsonEditor.handleApply hands over: a parse of the edited
+      // text, so `fill-color` is a NEW array holding the same expression.
+      const reparsed = JSON.parse(JSON.stringify(savedPaint)) as Record<string, unknown>;
+      reparsed['fill-opacity'] = 0.6;
+      result.current.handlePaintChange(LID, reparsed);
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(updated.paint?.['fill-color']).toEqual(RAMP_JSON);
+    expect(updated.paint?.['fill-opacity']).toBe(0.6);
+  });
+
+  // The mirror: a genuine edit to the expression still reads as intent, so the pattern
+  // goes. Otherwise the fix above would just disable provenance for expressions.
+  it('still drops the pattern when the reparsed colour actually differs', () => {
+    const savedPaint = {
+      'fill-color': RAMP_JSON,
+      'fill-pattern': 'geolens-fill-hatch',
+      'fill-opacity': 0.3,
+    };
+    const { result, layers } = renderBoundary(
+      makeLayer({ dataset_geometry_type: 'Polygon', paint: savedPaint }),
+    );
+
+    act(() => {
+      const reparsed = JSON.parse(JSON.stringify(savedPaint)) as Record<string, unknown>;
+      reparsed['fill-color'] = ['match', ['get', 'era'], 'pre-war', '#0000ff', '#00ff00'];
+      result.current.handlePaintChange(LID, reparsed);
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect('fill-pattern' in (updated.paint ?? {})).toBe(false);
+  });
+});
