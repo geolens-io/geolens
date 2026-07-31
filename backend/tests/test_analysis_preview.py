@@ -211,6 +211,36 @@ def _preview_url(dataset_id) -> str:
 class TestPreviewGlobalBound:
     """fix(#1014): previews are bounded globally, not only per user."""
 
+    def test_bound_is_sized_from_the_configured_pool(self, monkeypatch):
+        """fix(#1014 review): the bound must track DB_POOL_SIZE/DB_MAX_OVERFLOW.
+
+        A hardcoded 4 against the supported small-pool configuration
+        (DB_POOL_SIZE=2, DB_MAX_OVERFLOW=0) would admit twice as many previews
+        as there are connections — the exact failure the bound exists to
+        prevent, at a different scale.
+        """
+        from app.core.config import settings
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        # Default pool: 10 + 3 = 13 slots, a third of which is 4.
+        monkeypatch.setattr(settings, "db_pool_size", 10)
+        monkeypatch.setattr(settings, "db_max_overflow", 3)
+        assert service_analysis._preview_bound() == 4
+
+        monkeypatch.setattr(settings, "db_pool_size", 2)
+        monkeypatch.setattr(settings, "db_max_overflow", 0)
+        assert service_analysis._preview_bound() == 1
+
+        # -1 means "unlimited overflow"; it must not shrink the budget.
+        monkeypatch.setattr(settings, "db_pool_size", 9)
+        monkeypatch.setattr(settings, "db_max_overflow", -1)
+        assert service_analysis._preview_bound() == 3
+
+        # Never zero — a semaphore of zero would refuse every preview.
+        monkeypatch.setattr(settings, "db_pool_size", 1)
+        monkeypatch.setattr(settings, "db_max_overflow", 0)
+        assert service_analysis._preview_bound() == 1
+
     async def test_previews_never_exceed_the_global_bound(
         self,
         client: AsyncClient,

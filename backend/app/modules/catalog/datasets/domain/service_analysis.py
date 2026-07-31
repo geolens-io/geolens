@@ -40,6 +40,7 @@ from app.platform.sandbox.schemas import SandboxError
 
 PREVIEW_FEATURE_CAP = 500
 
+
 # fix(#1014): total concurrent previews, on top of the per-user lock.
 #
 # The per-user `pg_try_advisory_xact_lock` in execute_safe stops ONE user from
@@ -53,8 +54,15 @@ PREVIEW_FEATURE_CAP = 500
 # #716 halved the cost to one slot, which doubles the headroom without changing
 # the shape of the failure.
 #
-# Four, well under thirteen, so previews can never be the reason an unrelated
-# endpoint waits on the pool.
+# Derived from the configured pool, not hardcoded at four. The default pool is
+# 13 slots and a third of that is 4, which is the number the paragraph above is
+# reasoning about — but DB_POOL_SIZE and DB_MAX_OVERFLOW are operator knobs, and
+# a small local pool (DB_POOL_SIZE=2, DB_MAX_OVERFLOW=0) would have let a
+# hardcoded 4 admit twice as many previews as there are connections, which is
+# the exact failure this bound exists to prevent, just at a different scale.
+#
+# A third leaves two thirds for everything else, and the floor of 1 keeps a
+# one-slot pool working rather than deadlocking on a semaphore of zero.
 #
 # A GLOBAL bound, not a tenant-scoped one. Re-keying the per-user lock to the
 # tenant is the smaller diff and the wrong behaviour: in the single-tenant
@@ -68,7 +76,16 @@ PREVIEW_FEATURE_CAP = 500
 # which is the thing that actually runs out. A cross-worker bound would need
 # another advisory lock keyed on a slot index; that is more machinery than this
 # warrants unless the per-process reading turns out to be wrong.
-_MAX_CONCURRENT_PREVIEWS = 4
+def _preview_bound() -> int:
+    from app.core.config import settings
+
+    # db_max_overflow uses -1 for "unlimited"; treat that as no extra headroom
+    # rather than letting a negative shrink the budget.
+    overflow = max(0, settings.db_max_overflow)
+    return max(1, (settings.db_pool_size + overflow) // 3)
+
+
+_MAX_CONCURRENT_PREVIEWS = _preview_bound()
 _preview_slots = asyncio.Semaphore(_MAX_CONCURRENT_PREVIEWS)
 _GEOJSON_PRECISION = 6
 
