@@ -371,22 +371,86 @@ upload_to_s3() {
 # there is the copy order, not the backup order); and `find -printf` is a GNU
 # extension, so mtime ordering made this function silently unrunnable outside
 # the container — including in scripts/tests/test-backup-restore-roundtrip.sh,
-# which is documented as a standalone local tool. `<db>_<YYYYmmdd_HHMMSS>.dump`
-# sorts oldest-first lexicographically.
+# which is documented as a standalone local tool.
+#
+# Sorted on the EXTRACTED timestamp, not the whole path: the database name is
+# the prefix, so sorting the path puts it ahead of the timestamp, and after a
+# POSTGRES_DB rename to a lexically earlier name every fresh dump would sort as
+# the oldest and be pruned first. Files whose name carries no timestamp are not
+# ours; they are neither counted nor deleted.
+#
+# Emits "<timestamp>\t<path>" lines, oldest first.
+dump_listing() {
+    local dir="$1"
+    local dump ts
+    find "$dir" -maxdepth 1 -name "*.dump" -type f | while IFS= read -r dump; do
+        ts="$(printf '%s' "${dump##*/}" | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
+        [ -n "$ts" ] || continue
+        printf '%s\t%s\n' "$ts" "$dump"
+    done | sort
+}
+
+# fix(#995): the timestamp of the newest set that is COMPLETE — a dump with the
+# globals dump that pairs with it. prune_old_backups keeps that one out of the
+# retention window.
+#
+# Without the exemption a run of pg_dumpall failures walks every complete set
+# out of retention: each failed cycle still produces a valid dump (discarding it
+# would make the failure strictly worse — data without roles beats nothing), so
+# it counts toward the window and evicts an older complete set, whose globals
+# then goes with it as an orphan. After a full window of failures the operator
+# has been told loudly every cycle (`.last-success` stale, healthcheck
+# unhealthy) and still has dumps, but nothing that restores onto a fresh
+# cluster. Holding one complete set back costs at most one extra dump plus a
+# few KB of SQL and is the difference between a degraded DR path and none.
+newest_complete_ts() {
+    local dir="$1"
+    local globals ts best=""
+    for globals in "$dir"/globals-*.sql; do
+        [ -f "$globals" ] || continue
+        ts="$(printf '%s' "${globals##*/}" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
+        [ -n "$ts" ] || continue
+        find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q . || continue
+        if [ -z "$best" ] || [ "$ts" \> "$best" ]; then
+            best="$ts"
+        fi
+    done
+    printf '%s' "$best"
+}
+
 prune_old_backups() {
     local dir="$1"
     local keep="$2"
 
-    local count
-    count="$(find "$dir" -maxdepth 1 -name "*.dump" -type f | wc -l)"
-    if [ "$count" -gt "$keep" ]; then
-        local to_remove=$((count - keep))
-        log "Pruning ${to_remove} old backup(s) from ${dir}"
-        find "$dir" -maxdepth 1 -name "*.dump" -type f | sort | \
-            head -n "$to_remove" | while IFS= read -r stale; do
-                rm -f "$stale"
-            done
+    local listing
+    listing="$(dump_listing "$dir")"
+    [ -n "$listing" ] || return 0
+
+    # The protected set is held back IN ADDITION to the retention window, not
+    # inside it: letting it occupy a slot would mean a retention of 1 keeps the
+    # complete set and throws away the newest dump, which is the wrong trade.
+    # So a directory holds at most `keep` + 1 dumps.
+    local protect
+    protect="$(newest_complete_ts "$dir")"
+
+    local candidates
+    if [ -n "$protect" ]; then
+        candidates="$(printf '%s\n' "$listing" | grep -v "^${protect}	" || true)"
+    else
+        candidates="$listing"
     fi
+    [ -n "$candidates" ] || return 0
+
+    local count
+    count="$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')"
+    [ "$count" -gt "$keep" ] || return 0
+
+    local to_remove=$((count - keep))
+    log "Pruning ${to_remove} old backup(s) from ${dir}"
+    printf '%s\n' "$candidates" | head -n "$to_remove" | cut -f2- | \
+        while IFS= read -r stale; do
+            rm -f "$stale"
+        done
 }
 
 # BKP-01 / fix(#995): companion artifacts (the object-storage archive and the

@@ -78,12 +78,20 @@ Artifacts land at:
 
 Default retention: 7 daily, 4 weekly (set `BACKUP_RETENTION_DAILY` /
 `BACKUP_RETENTION_WEEKLY` in `.env` to override). The count applies to the
-`.dump` files; the paired `staging-*.tar.gz` and `globals-*.sql` artifacts are
-pruned when the dump they belong with ages out. Retention therefore evicts whole
-backup sets, and a companion artifact never outlives its dump — which matters
-because a cycle can produce a dump without a companion (an empty staging volume,
-or a failed `pg_dumpall`), and counting each kind separately would then prune
-complete sets while leaving orphans behind.
+`.dump` files, ordered by the timestamp in the filename; the paired
+`staging-*.tar.gz` and `globals-*.sql` artifacts are pruned when the dump they
+belong with ages out. Retention therefore evicts whole backup sets, and a
+companion artifact never outlives its dump — which matters because a cycle can
+produce a dump without a companion (an empty staging volume, or a failed
+`pg_dumpall`), and counting each kind separately would prune complete sets while
+leaving orphans behind.
+
+One exception: the **newest complete set** — a dump that still has its globals
+dump — is held back on top of the window, so a directory can hold `keep` + 1
+dumps. A run of `pg_dumpall` failures still produces valid database dumps each
+cycle, and without the exemption those would walk the last restorable-onto-a-
+fresh-cluster set out of retention while the healthcheck was already reporting
+the problem. The cost is one extra dump plus a few KB of SQL.
 
 ### Offsite (S3) upload
 

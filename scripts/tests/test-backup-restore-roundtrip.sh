@@ -366,9 +366,10 @@ if ! env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
     cat "$ORPHAN_LOG" >&2
     fail "retention-1 cycle exited non-zero"
 fi
+# keep=1 plus the held-back complete set = 2 dumps.
 REMAINING_DUMPS="$(find "${CYCLE_BACKUPS}/daily" -name '*.dump' -type f | wc -l | tr -d ' ')"
-[ "$REMAINING_DUMPS" = "1" ] \
-    || fail "expected retention to leave exactly 1 dump, found ${REMAINING_DUMPS}"
+[ "$REMAINING_DUMPS" = "2" ] \
+    || fail "expected retention to leave 2 dumps (1 kept + 1 protected complete set), found ${REMAINING_DUMPS}"
 for g in "${CYCLE_BACKUPS}"/daily/globals-*.sql; do
     [ -f "$g" ] || continue
     g_ts="$(basename "$g" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
@@ -376,6 +377,51 @@ for g in "${CYCLE_BACKUPS}"/daily/globals-*.sql; do
         || fail "globals-${g_ts}.sql outlived its dump — companions are not pruning by pairing"
 done
 echo "      pairing OK — every surviving globals dump still has the dump it pairs with."
+
+# fix(#995) review: a run of pg_dumpall failures must not walk the last
+# complete set out of retention. Each failed cycle still writes a valid dump,
+# so at retention 1 those dumps would otherwise evict the only dump that has a
+# globals file, and the orphan sweep would then take the globals with it —
+# leaving an operator with backups that cannot restore onto a fresh cluster.
+COMPLETE_TS="$(basename "$(find "${CYCLE_BACKUPS}/daily" -name 'globals-*.sql' | head -1)" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
+[ -n "$COMPLETE_TS" ] || fail "no complete set to protect before the failure run"
+for _ in 1 2 3; do
+    sleep 1
+    env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
+        BACKUP_DIR="$CYCLE_BACKUPS" STAGING_DIR="$CYCLE_STAGING" \
+        POSTGRES_HOST="$PGHOST" PGPORT="$PGPORT" \
+        POSTGRES_USER="$PGUSER" POSTGRES_PASSWORD="$PGPASSWORD" \
+        POSTGRES_DB="$SRC_DB" BACKUP_S3_ENABLED=false PATH="${STUB_BIN}:${PATH}" \
+        bash "${REPO_ROOT}/scripts/backup-entrypoint.sh" --run-backup > /dev/null 2>&1 || true
+done
+[ -f "${CYCLE_BACKUPS}/daily/globals-${COMPLETE_TS}.sql" ] \
+    || fail "three failed cycles at retention 1 evicted the last complete set's globals"
+find "${CYCLE_BACKUPS}/daily" -maxdepth 1 -name "*_${COMPLETE_TS}.dump" -type f | grep -q . \
+    || fail "three failed cycles at retention 1 evicted the last complete set's dump"
+echo "      protection OK — the newest complete set survived a run of globals failures."
+
+# fix(#995) review: retention orders by the timestamp EXTRACTED from the name,
+# not by the whole path. The database name is the prefix, so a path sort ranks
+# it ahead of the timestamp: after a POSTGRES_DB rename to a lexically earlier
+# name, every fresh dump sorts as the oldest and is pruned while the obsolete
+# ones are kept. These two fixtures only differ in which order they land under
+# each rule — `aaa_` is NEWER but sorts first by path.
+SORT_BACKUPS="${WORKDIR}/sort-backups"
+mkdir -p "${SORT_BACKUPS}/daily"
+: > "${SORT_BACKUPS}/daily/zzz_20260101_000000.dump"
+: > "${SORT_BACKUPS}/daily/aaa_20260102_000000.dump"
+env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
+    BACKUP_DIR="$SORT_BACKUPS" STAGING_DIR="$CYCLE_STAGING" \
+    POSTGRES_HOST="$PGHOST" PGPORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_PASSWORD="$PGPASSWORD" \
+    POSTGRES_DB="$SRC_DB" BACKUP_S3_ENABLED=false \
+    bash "${REPO_ROOT}/scripts/backup-entrypoint.sh" --run-backup > /dev/null 2>&1 \
+    || fail "sort-order cycle exited non-zero"
+[ -f "${SORT_BACKUPS}/daily/aaa_20260102_000000.dump" ] \
+    || fail "retention pruned the NEWER dump because its database-name prefix sorts first"
+[ ! -f "${SORT_BACKUPS}/daily/zzz_20260101_000000.dump" ] \
+    || fail "retention kept the older dump — pruning is not ordered by the embedded timestamp"
+echo "      ordering OK — retention follows the embedded timestamp, not the database-name prefix."
 echo ""
 
 echo "=== PASS: backup+restore round-trip verified (bundled + managed modes) ==="
