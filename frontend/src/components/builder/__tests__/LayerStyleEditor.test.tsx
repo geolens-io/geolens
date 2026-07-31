@@ -204,6 +204,117 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
   });
 });
 
+// Every builder control writes through updateBuilderConfig, so a patch that empties
+// the builder has to REPLACE: withBuilderConfig drops the builder key and
+// handleStyleConfigChange reads a missing builder as "keep the existing one", which
+// silently undoes the clear. Three controls reached that state.
+describe('LayerStyleEditor - builder clears actually clear', () => {
+  const editorProps = (layer: MapLayerResponse, onStyleConfigChange: () => void) => ({
+    layer,
+    savedLayer: layer,
+    onPaintChange: vi.fn(),
+    onOpacityChange: vi.fn(),
+    onStyleConfigChange,
+    onLayoutChange: vi.fn(),
+  });
+
+  it('switching a gradient line back to Solid replaces, so lineGradient cannot return', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    const stops = [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }];
+    // A fresh line layer has builder: null, so the gradient is the ONLY builder key
+    // and removing it empties the config.
+    const layer = makeLayer({
+      dataset_geometry_type: 'LineString',
+      paint: { 'line-color': '#abcdef', 'line-gradient': stopsToLineGradientExpression(stops) },
+      style_config: { builder: { lineGradient: { stops } } } as unknown as MapLayerResponse['style_config'],
+    });
+
+    render(<LayerStyleEditor {...editorProps(layer, onStyleConfigChange)} />);
+    // "Solid color" is the gradient-mode toggle; the bare "Solid" button is a dash preset.
+    await user.click(screen.getByRole('button', { name: 'Solid color' }));
+
+    const last = onStyleConfigChange.mock.calls[onStyleConfigChange.mock.calls.length - 1];
+    expect(last[1]).toBeNull();
+    expect(last[3]).toEqual({ replace: true });
+  });
+
+  it('an ordinary builder edit still merges — replace is only for clears', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    const layer = makeLayer({
+      dataset_geometry_type: 'LineString',
+      paint: { 'line-color': '#abcdef' },
+      style_config: { builder: { outlineColor: '#112233' } } as unknown as MapLayerResponse['style_config'],
+    });
+
+    render(<LayerStyleEditor {...editorProps(layer, onStyleConfigChange)} />);
+    await user.click(screen.getByRole('button', { name: 'Gradient' }));
+
+    const last = onStyleConfigChange.mock.calls[onStyleConfigChange.mock.calls.length - 1];
+    expect(last[1]?.builder?.lineGradient).toBeTruthy();
+    // 3 args, no opts: the funnel's merge must keep the live layer's builder.
+    expect(last).toHaveLength(3);
+  });
+});
+
+// The fill/stroke visibility switches stash a value in the builder and clear it on
+// the way back, which is how the collapse above was found.
+describe('LayerStyleEditor - visibility toggles clear their own builder stash', () => {
+  const toggleProps = (layer: MapLayerResponse, onStyleConfigChange: () => void) => ({
+    layer,
+    savedLayer: layer,
+    onPaintChange: vi.fn(),
+    onOpacityChange: vi.fn(),
+    onStyleConfigChange,
+    onLayoutChange: vi.fn(),
+  });
+
+  it('re-enabling fill replaces the config so fillDisabled cannot survive', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    // The stash is the ONLY builder content, which is what a layer looks like after
+    // toggling fill off with no other builder-backed edit.
+    const layer = makeLayer({
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0 },
+      style_config: { builder: { fillDisabled: true, fillOpacitySaved: 0.8 } } as MapLayerResponse['style_config'],
+    });
+
+    render(<LayerStyleEditor {...toggleProps(layer, onStyleConfigChange)} />);
+    await user.click(screen.getByLabelText('Toggle fill visibility'));
+
+    expect(onStyleConfigChange).toHaveBeenCalledWith(
+      'layer-1',
+      null,
+      expect.objectContaining({ 'fill-opacity': 0.8 }),
+      { replace: true },
+    );
+  });
+
+  it('re-enabling stroke on a circle layer replaces the config too', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    // Circle is the geometry whose re-enable patch is stash-only: the polygon branch
+    // writes outlineWidth back, which keeps the builder non-empty by accident.
+    const layer = makeLayer({
+      dataset_geometry_type: 'Point',
+      paint: { 'circle-color': '#3b82f6', 'circle-radius': 5, 'circle-stroke-width': 0 },
+      style_config: { builder: { strokeDisabled: true, outlineWidthSaved: 2 } } as MapLayerResponse['style_config'],
+    });
+
+    render(<LayerStyleEditor {...toggleProps(layer, onStyleConfigChange)} />);
+    await user.click(screen.getByLabelText('Toggle stroke visibility'));
+
+    expect(onStyleConfigChange).toHaveBeenCalledWith(
+      'layer-1',
+      null,
+      expect.objectContaining({ 'circle-stroke-width': 2 }),
+      { replace: true },
+    );
+  });
+});
+
 describe('LayerStyleEditor - B-010 Advanced JSON strips builder-private keys', () => {
   it('hides _-prefixed + legacy builder keys from the Advanced Paint JSON textarea', async () => {
     const user = userEvent.setup();
