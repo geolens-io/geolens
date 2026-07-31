@@ -5,6 +5,23 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # fix(#1000): merge-queue runs. All three required contexts (Detect Changes,
+  # Pre-commit, CI OK) come from this workflow, so the queue cannot validate a
+  # candidate merge commit without it.
+  #
+  # Adding this line is the easy half. The job conditionals below are the
+  # reason the queue must NOT be enabled before they are fixed: 12 of them
+  # were gated on `needs.changes.outputs.X == 'true' || github.event_name ==
+  # 'push'`, and a merge_group event matches neither `push` nor
+  # `pull_request`, so every one of them would skip — while `ci-ok` counts a
+  # skip as a pass (correct for a path-filtered PR, catastrophic here). The
+  # queue would have reported green having tested nothing.
+  #
+  # A queue run validates a candidate merge commit against main the same way a
+  # push run validates the merged result, so both want the full matrix rather
+  # than a path-filtered subset. Every gated job below therefore reads
+  # `|| github.event_name == 'merge_group'` alongside its push clause.
+  merge_group:
   # Nightly full-matrix E2E: the e2e-test job below runs ONLY on `schedule`/
   # `workflow_dispatch` (it stays skipped on push/PR). PRs that can affect the
   # stack run the small e2e-smoke job instead (fix #825), so this cron remains
@@ -17,6 +34,14 @@ concurrency:
   # Include the event name so daily dependabot pushes stop cancelling the
   # scheduled run — every nightly for a week was cancelled this way, which is
   # how the e2e suite silently rotted (v1.6.0 audit N2 family).
+  #
+  # fix(#1000), checked rather than changed: this shape is already safe for the
+  # merge queue. Each queue entry runs on its own `gh-readonly-queue/main/pr-N-<sha>`
+  # ref, so `github.ref` alone puts every entry in a distinct group — two
+  # batches in flight cannot cancel each other, and a queue run and the PR run
+  # it came from differ in both ref and event name. `cancel-in-progress` stays
+  # true because the only thing that can now share a group is a re-run of the
+  # same queue entry.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
@@ -44,6 +69,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4
         id: filter
+        # fix(#1000): the filter has nothing to diff against on merge_group and
+        # nothing to say either way. Git-diff detection (see the token note
+        # below) resolves its base from pull-request context or a push's
+        # before-SHA, and a `gh-readonly-queue/*` branch supplies neither. Every
+        # gated job below ORs in `merge_group` and so ignores these outputs
+        # there, which leaves one requirement: this job, a REQUIRED context,
+        # must still succeed. Skipping the step is how it does — the outputs
+        # come out empty, which is exactly as meaningful as anything the filter
+        # could have produced without a base.
+        if: github.event_name != 'merge_group'
         with:
           # fix(#546): empty token switches paths-filter to git-diff detection
           # (base.sha..merge-commit from the checkout), removing the GitHub API
@@ -224,7 +259,7 @@ jobs:
   backend-lint:
     name: Backend Lint
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -316,7 +351,7 @@ jobs:
   installer-test:
     name: Installer Tag Resolution
     needs: changes
-    if: needs.changes.outputs.installer == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.installer == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -375,7 +410,7 @@ jobs:
   backup-roundtrip:
     name: Backup Restore Round-trip
     needs: changes
-    if: needs.changes.outputs.backup == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backup == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       PGHOST: localhost
@@ -634,7 +669,7 @@ jobs:
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -670,7 +705,7 @@ jobs:
   sdks-check:
     name: SDKs Drift Gate
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       # Match the OpenAPI snapshot job's env so dump_openapi.py runs
@@ -770,7 +805,7 @@ jobs:
   cli-test:
     name: CLI Tests
     needs: changes
-    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       # CLI round-trip tests import the FastAPI app and exercise DB-backed
@@ -894,7 +929,7 @@ jobs:
   mcp-test:
     name: MCP Server Tests
     needs: changes
-    if: needs.changes.outputs.mcp == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.mcp == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     # Compose boot + image build for the live tier need headroom on a shared
     # runner; the e2e-smoke job uses the same budget for a larger stack.
@@ -963,7 +998,7 @@ jobs:
     needs: changes
     # Alembic-only changes must run the suite too — this condition absorbed the
     # deleted pytest-parallel-isolation job's trigger when that job folded in.
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1141,7 +1176,7 @@ jobs:
   alembic-clean-db:
     name: Alembic Clean-DB Upgrade
     needs: changes
-    if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1173,7 +1208,7 @@ jobs:
   frontend-lint:
     name: Frontend Lint & Typecheck
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1234,7 +1269,7 @@ jobs:
   frontend-test:
     name: Frontend Tests
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1315,7 +1350,7 @@ jobs:
   security-scan:
     name: Security Scan
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -1348,6 +1383,20 @@ jobs:
   # This job always runs and inspects each needed job's actual result: failure
   # or cancelled fails it; skipped and success pass. Branch protection should
   # require THIS single context instead of the individual skippable jobs.
+  #
+  # fix(#1000): "skipped counts as pass" is right for a path-filtered PR and
+  # would be a hole in the merge queue, where a skip means "never ran against
+  # this candidate merge". It is not fixed HERE — the rule stays as it is —
+  # because the honest fix is upstream: every job in this list now actually
+  # RUNS on merge_group, so there is nothing to mis-credit. If you add a job to
+  # this aggregator, give it a merge_group clause too, or you have quietly
+  # reopened the hole.
+  #
+  # The non-gating jobs (runtime-extension-image-probe, accessibility,
+  # stac-validate, e2e-test, ai-evals) deliberately stay off merge_group. They
+  # are not in this list, so they gate nothing there and would only spend
+  # Actions minutes; the push-triggered ones still run when the batch lands on
+  # main, which is the same coverage they have today.
   ci-ok:
     name: CI OK
     needs:
@@ -1598,7 +1647,15 @@ jobs:
   e2e-smoke:
     name: E2E Smoke (core)
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.e2e == 'true'
+    # fix(#1000): unconditional on merge_group — no path filter, because there
+    # is no reliable one there (see the `changes` job) and because the queue is
+    # the last gate before main. It is also the one job in `ci-ok` whose whole
+    # purpose is catching what a COMBINATION breaks: two PRs can each leave the
+    # core flows green alone and break one together, which is the failure a
+    # merge queue exists to stop.
+    if: >-
+      (github.event_name == 'pull_request' && needs.changes.outputs.e2e == 'true')
+      || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
