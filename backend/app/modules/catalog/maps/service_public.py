@@ -116,16 +116,38 @@ def _reach_rank(
     return rank
 
 
-async def _dataset_has_grants(session: AsyncSession, dataset_id: uuid.UUID) -> bool:
-    """Whether any role holds a grant on this dataset.
+async def _has_affected_grant_holders(
+    session: AsyncSession, dataset_id: uuid.UUID, owner_id: uuid.UUID | None
+) -> bool:
+    """Whether a grant on this dataset reaches anyone who would LOSE access.
+
+    fix(#931 codex r3): a grant row is not an audience. A grant to an empty
+    role reaches nobody, and a grant whose only members are the dataset's owner
+    or an admin reaches nobody who loses anything — the owner keeps access
+    through the creator exemption and an admin bypasses the filter entirely. So
+    the question is not "does a grant exist" but "does a grant reach a user who
+    is neither", and only that user can be stranded by a move to private.
 
     fix(#931 codex r2): queried only when ``restricted`` is one of the two
     visibilities in play, so the ordinary public/internal/private moves cost
     nothing extra.
     """
+    from app.modules.auth.models import Role, UserRole
     from app.modules.catalog.datasets.domain.models import DatasetGrant
 
-    stmt = select(DatasetGrant.dataset_id).where(DatasetGrant.dataset_id == dataset_id)
+    admin_user_ids = (
+        select(UserRole.user_id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(Role.name == "admin")
+    )
+    stmt = (
+        select(UserRole.user_id)
+        .join(DatasetGrant, DatasetGrant.role_id == UserRole.role_id)
+        .where(DatasetGrant.dataset_id == dataset_id)
+        .where(UserRole.user_id.notin_(admin_user_ids))
+    )
+    if owner_id is not None:
+        stmt = stmt.where(UserRole.user_id != owner_id)
     return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
@@ -135,6 +157,8 @@ async def find_maps_broken_by_dataset_visibility(
     *,
     old_visibility: str,
     new_visibility: str,
+    record_status: str,
+    owner_id: uuid.UUID | None,
 ) -> list[str]:
     """Names of shared maps that work at ``old_visibility`` and would not at ``new``.
 
@@ -151,9 +175,19 @@ async def find_maps_broken_by_dataset_visibility(
 
     Empty = safe to apply.
     """
+    # fix(#931 codex r3): an unpublished record is already invisible to every
+    # shared-map audience. `filter_visible`'s status gate is
+    # `published OR created_by == <caller>`, so a draft/ready/internal-status
+    # record reaches only its creator, and admins bypass the filter entirely —
+    # both keep access after any visibility change. Nobody is stranded, so a
+    # rank comparison here would invent a 422 for a move that costs nothing.
+    if record_status != "published":
+        return []
     restricted_has_grants = False
     if "restricted" in (old_visibility, new_visibility):
-        restricted_has_grants = await _dataset_has_grants(session, dataset_id)
+        restricted_has_grants = await _has_affected_grant_holders(
+            session, dataset_id, owner_id
+        )
     audiences = [
         visibility
         for visibility in _SHARED_MAP_AUDIENCES
