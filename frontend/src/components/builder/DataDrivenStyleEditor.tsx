@@ -437,6 +437,28 @@ export function DataDrivenStyleEditor({
     return () => clearTimeout(colorDebounceRef.current);
   }, []);
 
+  // fix(#910, codex P2): the classification lives in THREE places — the paint
+  // expression, `style_config`, and this component's local `column`/`mode` state — and
+  // the third one is the copy nobody reconciled. A classification can now be retired
+  // from outside this editor (the commit boundary retires one whose expression a paint
+  // replacement removed; Reset destroys one outright), and the effects below regenerate
+  // from local state alone, so they immediately re-asserted the classification the layer
+  // had just lost and overwrote the paint the user explicitly replaced.
+  //
+  // Follow the layer instead. Clearing `column` is enough: all three effects bail on it,
+  // and it is what this editor's own clear paths already do. This is React's
+  // adjust-state-during-render pattern rather than an effect ON PURPOSE — React re-runs
+  // the component before running any effect, so effect 1 never gets one pass with a
+  // stale column. An effect here would fire after it and lose the race.
+  const configClaimsClassification = !!styleConfig?.mode;
+  const [claimedLastRender, setClaimedLastRender] = useState(configClaimsClassification);
+  if (configClaimsClassification !== claimedLastRender) {
+    setClaimedLastRender(configClaimsClassification);
+    // Retired, not established: a first-time column choice moves the other way, with
+    // local state legitimately ahead of a config the effects are about to write.
+    if (!configClaimsClassification && column) setColumn('');
+  }
+
   // Effect 1: Categorical styling with value-fetching
   useEffect(() => {
     if (!column || mode !== 'categorical' || !valuesData) return;

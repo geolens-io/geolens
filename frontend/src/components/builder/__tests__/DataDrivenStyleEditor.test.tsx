@@ -189,6 +189,45 @@ describe('DataDrivenStyleEditor', () => {
       expect(Array.isArray((newPaint as Record<string, unknown>)['fill-color'])).toBe(true);
     });
 
+    // fix(#910, codex P2): the mirror of the case above, and the harder one. When the
+    // claim is retired from OUTSIDE this editor — the commit boundary retiring one whose
+    // expression an Advanced JSON paint replacement removed, or Reset destroying one —
+    // regenerating would overwrite the paint the user explicitly asked for. Local
+    // `column`/`mode` are a third copy of the classification and have to follow the
+    // layer, or the editor silently reverts the edit that retired it.
+    it('does not re-assert a classification the layer no longer claims', async () => {
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      const { rerender } = render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: matchingCategoricalConfig(),
+            paint: { 'fill-color': COLOR_EXPR },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+      await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
+
+      // Exactly what the boundary commits after a paint replacement: no `mode`, the
+      // user's column/ramp selections kept, and a flat colour in paint.
+      rerender(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { column: 'typeA', ramp: RAMP } as StyleConfig,
+            paint: { 'fill-color': '#3b82f6' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      // Nothing written back — the replaced paint stands.
+      await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
+    });
+
     it('regenerates colors when categories do not match hook data', async () => {
       const staleConfig: StyleConfig = {
         mode: 'categorical',
