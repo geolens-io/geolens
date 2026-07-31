@@ -535,10 +535,12 @@ describe('DataDrivenStyleEditor', () => {
       await user.click(screen.getAllByRole('combobox')[0]);
       await user.click(await screen.findByRole('option', { name: 'Categorical' }));
 
+      // fix(#918, codex P2): the clear paths now pass `replace` so they can drop the
+      // pattern colour stash; with no builder block the config is still null.
       expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
         'circle-color': MAP_COLORS.default.fill,
         'circle-radius': 5,
-      }));
+      }), { replace: true });
       expect(onStyleConfigChange).not.toHaveBeenCalledWith(
         'layer-1',
         expect.objectContaining({ target: 'radius' }),
@@ -898,6 +900,52 @@ describe('DataDrivenStyleEditor', () => {
       expect(layerId).toBe('layer-1');
       // config should be null after clear
       expect(clearedConfig).toBeNull();
+    });
+
+    // fix(#918, codex P2): a Mode switch on a patterned-but-unclassified layer used
+    // to drop the pattern and expose the default blue, leaving the user's colour in
+    // the stash only — exploring the Mode selector should not repaint the layer a
+    // colour it never had.
+    it('restores the stashed colour and clears the stash when switching mode', async () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3 },
+            style_config: { builder: { fillColorSaved: '#ff0000', outlineWidth: 2 } },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByText('Switch to graduated mode'));
+
+      const [, config, paint, opts] = onStyleConfigChange.mock.calls[0];
+      expect('fill-pattern' in paint).toBe(false);
+      expect(paint['fill-color']).toBe('#ff0000');
+      expect(opts).toEqual({ replace: true });
+      expect(config?.builder?.fillColorSaved).toBeUndefined();
+      expect(config?.builder?.outlineWidth).toBe(2);
+    });
+
+    it('falls back to the default colour when a patterned layer has no stash', async () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            paint: { 'fill-pattern': 'geolens-fill-hatch' },
+            style_config: { mode: 'categorical', column: 'typeA', ramp: 'Set2' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByRole('button', { name: /clear/i }));
+
+      const [, config, paint] = onStyleConfigChange.mock.calls[0];
+      expect('fill-pattern' in paint).toBe(false);
+      expect(paint['fill-color']).toBe(MAP_COLORS.default.fill);
+      expect(config).toBeNull();
     });
 
     // fix(#918): the clear paths write a non-data-driven config, so the exclusion

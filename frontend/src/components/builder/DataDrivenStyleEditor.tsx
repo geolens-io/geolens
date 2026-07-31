@@ -44,6 +44,7 @@ interface DataDrivenStyleEditorProps {
     layerId: string,
     config: StyleConfig | null,
     paint: Record<string, unknown>,
+    opts?: { replace?: boolean },
   ) => void;
   /**
    * ENH-08: Zero-based ordinal of this layer within the map's data-driven
@@ -602,42 +603,63 @@ export function DataDrivenStyleEditor({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed sizePaintProp covers the relevant slice
   }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
+  /**
+   * fix(#918, codex P2): what the clear paths owe a patterned layer.
+   *
+   * Dropping the pattern alone made an exploratory Mode switch destructive: the
+   * layer went from red hatching to default blue, with the red surviving only in
+   * the stash. So restore the stashed colour as the solid fill and clear the stash
+   * — "return this layer to the plain solid colour it had". The pattern still has
+   * to go, because a defaulted fill-color loses to a surviving fill-pattern and the
+   * layer would read as cleared while still rendering the pattern.
+   *
+   * Clearing the stash needs `replace`: these paths write a null config, and
+   * handleStyleConfigChange reads that as "keep the existing builder".
+   */
+  function clearedFillPaint(paint: Record<string, unknown>, colorProp: string) {
+    const next = { ...paint };
+    const stashed = layer.style_config?.builder?.fillColorSaved;
+    const hadPattern = next['fill-pattern'] != null;
+    delete next['fill-pattern'];
+    next[colorProp] = (hadPattern && typeof stashed === 'string' ? stashed : null)
+      ?? MAP_COLORS.default.fill;
+    return next;
+  }
+
+  /** The builder block minus the pattern colour stash, or null when nothing is left. */
+  function clearedConfig(): StyleConfig | null {
+    const builder = layer.style_config?.builder;
+    if (!builder) return null;
+    const rest = Object.fromEntries(
+      Object.entries(builder).filter(([k, v]) => k !== 'fillColorSaved' && v !== undefined),
+    );
+    return Object.keys(rest).length > 0 ? ({ builder: rest } as StyleConfig) : null;
+  }
+
   function handleClear() {
     setColumn('');
     setTarget('color');
     const colorProp = getColorProperty(layer.dataset_geometry_type);
-    const resetPaint: Record<string, unknown> = {
-      ...layer.paint,
-      [colorProp]: MAP_COLORS.default.fill,
-    };
+    const resetPaint = clearedFillPaint(layer.paint, colorProp);
     // Delete custom boolean props that shouldn't persist after clearing
     delete resetPaint['_fill-disabled'];
     delete resetPaint['_stroke-disabled'];
     delete resetPaint['_fill-opacity-saved'];
     delete resetPaint['_outline-width-saved'];
-    // fix(#918): these three clear paths write a non-data-driven config, so the
-    // exclusion in handleStyleConfigChange does not fire for them. A surviving
-    // fill-pattern would win over the freshly defaulted fill-color, leaving a
-    // layer that reads as cleared but still renders the old pattern.
-    delete resetPaint['fill-pattern'];
     // Reset size paint properties to scalar defaults
     const radiusProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
     if (radiusProp) resetPaint[radiusProp] = 5;
     const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
     if (widthProp) resetPaint[widthProp] = 2;
-    onStyleConfigChange(layer.id, null, resetPaint);
+    onStyleConfigChange(layer.id, clearedConfig(), resetPaint, { replace: true });
   }
 
   function handleColumnChange(newColumn: string) {
     if (!newColumn) {
       setColumn('');
       const colorProp = getColorProperty(layer.dataset_geometry_type);
-      const basePaint: Record<string, unknown> = {
-        ...layer.paint,
-        [colorProp]: MAP_COLORS.default.fill,
-      };
-      delete basePaint['fill-pattern']; // fix(#918), see handleClear
-      onStyleConfigChange(layer.id, null, basePaint);
+      const basePaint = clearedFillPaint(layer.paint, colorProp);
+      onStyleConfigChange(layer.id, clearedConfig(), basePaint, { replace: true });
     } else {
       setColumn(newColumn);
     }
@@ -652,8 +674,7 @@ export function DataDrivenStyleEditor({
     setRamp(suggestRampForMode(newMode));
     // Reset color property to flat default to clear stale expressions from previous mode
     const colorProp = getColorProperty(layer.dataset_geometry_type);
-    const nextPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
-    delete nextPaint['fill-pattern']; // fix(#918), see handleClear
+    const nextPaint = clearedFillPaint(layer.paint, colorProp);
     if (newMode === 'categorical') {
       // Categorical does not support size targets — force back to color
       setTarget('color');
@@ -670,7 +691,7 @@ export function DataDrivenStyleEditor({
       setClassCount(5);
       setSizeRange(defaultSizeRange('color'));
     }
-    onStyleConfigChange(layer.id, null, nextPaint);
+    onStyleConfigChange(layer.id, clearedConfig(), nextPaint, { replace: true });
   }
 
   function handleTargetChange(newTarget: 'color' | 'radius' | 'width') {
