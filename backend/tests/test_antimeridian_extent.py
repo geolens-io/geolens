@@ -12,6 +12,7 @@ take an inverted pair.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from geoalchemy2 import WKBElement, WKTElement
@@ -420,6 +421,48 @@ def test_map_layer_response_bbox_stays_monotonic():
     resp = _build_layer_response(layer, {"extent": _extent(SEAM_MULTIPOLYGON)})
     assert resp.dataset_extent_bbox == [-180.0, -20.0, 180.0, -15.0]
     assert resp.dataset_extent_bbox[0] < resp.dataset_extent_bbox[2]
+
+
+def test_dataset_response_bbox_uses_the_spec_form():
+    """fix(#1004): the mirror of the pin above, on the same database column.
+
+    ``DatasetResponse.extent_bbox`` feeds the dataset detail page, whose three
+    camera/extent sites all carry #903 seam guards. The span form flattened a
+    crossing extent to ``[-180, s, 180, n]`` — bit-identical to what a genuinely
+    global dataset produces — so ``isLargeExtent`` fired first and the guards
+    were unreachable. The seam has to survive the wire.
+
+    These two tests sit together deliberately: one column, two consumers with
+    opposite requirements. A refactor that unifies them fails here.
+    """
+    from app.modules.catalog.datasets.domain.helpers import dataset_to_response
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    record = Record(
+        id=uuid.uuid4(),
+        title="Fiji Seam Crosser",
+        visibility="public",
+        record_status="published",
+        record_type="vector_dataset",
+        spatial_extent=_extent(SEAM_MULTIPOLYGON),
+        created_at=now,
+        updated_at=now,
+    )
+    dataset = Dataset(
+        id=uuid.uuid4(),
+        record_id=record.id,
+        table_name="ds_fiji_seam",
+        srid=4326,
+        geometry_type="Point",
+        feature_count=3,
+        current_version=1,
+    )
+    dataset.record = record
+
+    resp = dataset_to_response(dataset)
+    assert resp.extent_bbox == [170.0, -20.0, -170.0, -15.0]
+    assert resp.extent_bbox[0] > resp.extent_bbox[2]
 
 
 def test_standards_record_bbox_keeps_the_spec_form():
