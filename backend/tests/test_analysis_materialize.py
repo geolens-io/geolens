@@ -33,6 +33,7 @@ from app.processing.analysis.tasks import (
     _user_error_message,
 )
 
+from tests.conftest import _create_test_user
 from tests.factories import create_dataset, get_user_id
 from tests.test_analysis_preview import (
     _create_mask_dataset,
@@ -61,6 +62,58 @@ async def _create_job(session: AsyncSession, user_id: uuid.UUID) -> IngestJob:
     await session.commit()
     await session.refresh(job)
     return job
+
+
+async def _create_other_user_id(client: AsyncClient, admin_headers: dict) -> uuid.UUID:
+    """A second user in the same tenant, for the tenant-cap tests."""
+    _headers, user_id = await _create_test_user(client, admin_headers, "viewer")
+    return uuid.UUID(user_id)
+
+
+async def _fill_tenant_analysis_slots(
+    session: AsyncSession, user_id: uuid.UUID, target: int
+) -> list[IngestJob]:
+    """Top the tenant's active-analysis count up to ``target``.
+
+    Counts what is already active rather than assuming zero: the worker
+    database is shared across this file's tests, and a sibling that left a job
+    behind would otherwise make these pass or fail for the wrong reason.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import and_, func, or_
+
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        seconds=router_analysis.MATERIALIZE_LEASE_SECONDS
+    )
+    existing = await session.scalar(
+        select(func.count())
+        .select_from(IngestJob)
+        .where(
+            IngestJob.user_metadata.has_key("analysis"),
+            or_(
+                IngestJob.status == "pending",
+                and_(
+                    IngestJob.status == "running",
+                    func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+                    >= cutoff,
+                ),
+            ),
+        )
+    )
+    created: list[IngestJob] = []
+    for _ in range(max(0, target - (existing or 0))):
+        job = await _create_job(session, user_id)
+        job.user_metadata = {"analysis": {"operation": "buffer"}}
+        created.append(job)
+    await session.commit()
+    return created
+
+
+async def _release_jobs(session: AsyncSession, jobs: list[IngestJob]) -> None:
+    for job in jobs:
+        job.status = "failed"
+    await session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +241,100 @@ class TestMaterializeEndpoint:
         job.status = "failed"
         upload.status = "failed"
         await test_db_session.commit()
+
+    async def test_tenant_cap_refuses_a_second_user_and_names_itself(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1015): the per-user cap let a tenant with N users hold N active
+        CTASes. A tenant ceiling sits above it, and its 429 has to say which
+        cap was hit — the per-user message would be a lie here, since this
+        user has nothing running.
+
+        The filler jobs are left `pending`, which also covers the status-only
+        branch of the shared predicate: a pending job has never been claimed,
+        so heartbeat_at and started_at are both NULL and any cutoff comparison
+        would silently drop it from the count.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        other_id = await _create_other_user_id(client, admin_auth_header)
+        filler = await _fill_tenant_analysis_slots(
+            test_db_session,
+            other_id,
+            router_analysis.MAX_ACTIVE_MATERIALIZES_PER_TENANT,
+        )
+
+        try:
+            with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+                resp = await client.post(
+                    _materialize_url(ds.id),
+                    json={"operation": "centroid", "title": "Over tenant cap"},
+                    headers=admin_auth_header,
+                )
+            # If the cap ever regresses this request succeeds, and the job it
+            # creates would hold THIS user's slot for every sibling test in the
+            # shared worker database — the #933 failure mode. Release it before
+            # asserting.
+            if resp.status_code == 200:
+                leaked = await test_db_session.get(
+                    IngestJob, uuid.UUID(resp.json()["job_id"])
+                )
+                leaked.status = "failed"
+                await test_db_session.commit()
+            assert resp.status_code == 429, resp.text
+            detail = resp.json()["detail"]
+            assert "organization" in detail, detail
+            # Distinguishable from the per-user cap, which this user has not hit.
+            assert "already running; wait for it to finish" not in detail, detail
+        finally:
+            await _release_jobs(test_db_session, filler)
+
+    async def test_tenant_cap_stale_lease_releases_a_slot(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1015): the tenant cap shares the heartbeat lease rather than
+        inventing a liveness rule, so a hard-killed worker (SIGKILL/OOM) gives
+        its slot back here too instead of holding the whole tenant out until
+        the 60-minute JOB_TIMEOUT_SECONDS backstop."""
+        from datetime import datetime, timedelta, timezone
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        other_id = await _create_other_user_id(client, admin_auth_header)
+        filler = await _fill_tenant_analysis_slots(
+            test_db_session,
+            other_id,
+            router_analysis.MAX_ACTIVE_MATERIALIZES_PER_TENANT,
+        )
+        dead = filler[-1]
+        dead.status = "running"
+        dead.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        dead.started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        dead.heartbeat_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        await test_db_session.commit()
+
+        admitted_id = None
+        try:
+            with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+                resp = await client.post(
+                    _materialize_url(ds.id),
+                    json={"operation": "centroid", "title": "Past dead worker"},
+                    headers=admin_auth_header,
+                )
+            assert resp.status_code == 200, resp.text
+            admitted_id = uuid.UUID(resp.json()["job_id"])
+        finally:
+            await _release_jobs(test_db_session, filler)
+            if admitted_id is not None:
+                admitted = await test_db_session.get(IngestJob, admitted_id)
+                admitted.status = "failed"
+                await test_db_session.commit()
 
     async def test_old_pending_job_still_blocks(
         self,
