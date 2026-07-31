@@ -526,6 +526,8 @@
     "manualBreaksInvalid": "Introduce al menos un valor de corte en orden estrictamente ascendente.",
     "classes": "Clases",
     "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores.",
+    "categoriesTruncatedWarning": "{{count}} categorías: se muestran las primeras {{shown}}; considera el modo graduado para muchos valores.",
+    "mixedGeometryColorScope": "Los colores se aplican a los polígonos. Las líneas y los puntos mantienen su color actual.",
     "target": "Objetivo",
     "targetColor": "Color",
     "targetRadius": "Radio",

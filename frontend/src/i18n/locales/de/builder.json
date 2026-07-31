@@ -526,6 +526,8 @@
     "manualBreaksInvalid": "Geben Sie mindestens einen Grenzwert in streng aufsteigender Reihenfolge ein.",
     "classes": "Klassen",
     "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte.",
+    "categoriesTruncatedWarning": "{{count}} Kategorien – die ersten {{shown}} werden angezeigt; für viele Werte empfiehlt sich der abgestufte Modus.",
+    "mixedGeometryColorScope": "Farben gelten für Polygone. Linien und Punkte behalten ihre aktuelle Farbe.",
     "target": "Ziel",
     "targetColor": "Farbe",
     "targetRadius": "Radius",
