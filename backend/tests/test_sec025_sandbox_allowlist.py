@@ -34,22 +34,41 @@ def _recording_validator_logger():
     which turned main red. The same file passes run alone, and two failing
     runs disagreed on how many of the three broke.
 
-    The exact trigger was NOT pinned down, and this docstring deliberately
-    does not claim it was. Two people failed to reproduce it in a single
-    process, including forcing `setup_logging()` ahead of a warmed validator
-    logger and raising the stdlib root level. The leading candidate is
-    `cache_logger_on_first_use=True` in `app/core/logging_config.py` combined
-    with `validator.py` binding its logger at import, which matches the
-    symptom documented at test_tile_signing.py:648-656 — but it did not
-    demonstrate on structlog 25.5.0 even when that order was forced. Treat it
-    as unconfirmed if you are here debugging something similar.
+    fix(#1064 codex r3): the trigger IS now pinned down, and this paragraph
+    used to say it was not. It is a CONJUNCTION, which is why five separate
+    reproduction attempts came back empty — each had one half:
 
-    What IS established is the class of cause: an assertion about validator
-    behaviour should not read through global logging state that any other test
-    in the worker can mutate. Swapping the module global removes that
-    dependency outright, because the call sites resolve `logger` from module
-    globals at call time. That is why this is the right fix whether or not the
-    caching story turns out to be the trigger.
+        `cache_logger_on_first_use=True` is in force
+        AND a module-level logger EMITS during that window.
+
+    The emit is what matters. Enabling caching alone does nothing; the proxy
+    only freezes when it is first used. On that first call a
+    `BoundLoggerLazyProxy` binds itself to the chain in force and caches the
+    result ON THE PROXY OBJECT, so reapplying a config afterwards cannot undo
+    it — that logger is invisible to every later `capture_logs()` in the
+    worker. Measured against a module logger: `capture_logs` saw 1 record
+    before, 0 after something emitted through it while caching was on.
+
+    `setup_logging()` turns caching on, so anything that calls it and then
+    logs seeds this. That is the same symptom documented at
+    test_tile_signing.py:648-656.
+
+    The fix below is unchanged and still right. Removing the dependency
+    outright — the call sites resolve `logger` from module globals at call
+    time, so swapping it is immune regardless — is stronger than avoiding one
+    known trigger, and it was the correct call when the trigger was unknown.
+    Knowing the mechanism does not make a narrower fix preferable.
+
+    Two consequences worth knowing if you are here debugging something
+    similar. A snapshot-and-restore guard CANNOT repair a proxy frozen while
+    it was off-guard, because the cache is on the proxy rather than in the
+    config; preventing the freeze is the only thing that closes the class
+    (#1066). And a helper that calls `setup_logging()` will seed this unless it
+    turns caching back off AFTER that call — order matters, since
+    `setup_logging()` turns it on. Use `configured_logging()` from
+    `tests/_logging_state.py`, which owns both steps; its sibling
+    `preserved_logging_state()` only snapshots and restores, so composing that
+    one with `setup_logging()` by hand leaves the freeze armed (#1064 codex r4).
     """
     events: list[dict] = []
 
