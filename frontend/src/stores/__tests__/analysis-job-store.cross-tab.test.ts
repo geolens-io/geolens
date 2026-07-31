@@ -261,3 +261,45 @@ describe('analysis-job-store guarded clear', () => {
     expect(useAnalysisJobStore.getState().job).toBeNull();
   });
 });
+
+// fix(#1008 codex P1): every write to this store persists the WHOLE snapshot,
+// so a write meaning to change one field silently republishes this tab's copy
+// of the other. Harmless in one tab; corrupting across several.
+describe('analysis-job-store write merging', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    localStorage.clear();
+  });
+
+  it('does not resurrect a job another tab has already replaced', async () => {
+    const newer = { jobId: 'job-2', title: 'Next run', mapId: 'map-1' };
+    // This tab was throttled and still holds job-1...
+    useAnalysisJobStore.setState({ job });
+    // ...while another tab finished it, started job-2, and persisted that.
+    seedStorage({ job: newer, completedAt: null });
+
+    await useAnalysisJobStore.getState().claimCompletion(job.jobId);
+
+    // Claiming must carry storage's job through rather than republish job-1.
+    expect(storedState().job).toEqual(newer);
+
+    // Which is what leaves the guarded clear able to see job-2 and stand down;
+    // before the merge it read back its own job-1 and cleared it.
+    useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
+    expect(storedState().job).toEqual(newer);
+  });
+
+  it('starting a run keeps a claim another tab wrote', () => {
+    seedStorage({
+      job: null,
+      completedAt: { jobId: 'job-0', tabId: 'some-other-tab', at: 1 },
+    });
+
+    useAnalysisJobStore.getState().setJob(job);
+
+    expect(storedState().job).toEqual(job);
+    // Dropping the claim would re-arm a completion another tab already
+    // reported, so the next tab to look would toast it a second time.
+    expect(storedState().completedAt).toMatchObject({ jobId: 'job-0' });
+  });
+});

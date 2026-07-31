@@ -24,9 +24,13 @@ export interface AnalysisCompletionClaim {
   at: number;
 }
 
-interface AnalysisJobState {
+/** The fields that reach storage; the actions below are not serializable. */
+interface PersistedAnalysisJobState {
   job: TrackedAnalysisJob | null;
   completedAt: AnalysisCompletionClaim | null;
+}
+
+interface AnalysisJobState extends PersistedAnalysisJobState {
   setJob: (job: TrackedAnalysisJob | null) => void;
   /**
    * Try to become the one tab that reports this job's completion.
@@ -85,6 +89,25 @@ function readPersisted(): {
 }
 
 /**
+ * Choose between the persisted value and the in-memory one, preferring the
+ * in-memory OBJECT whenever the two describe the same thing.
+ *
+ * `readPersisted` parses fresh objects out of JSON every call, so returning
+ * them unconditionally would hand React a new identity on every write and
+ * re-run every effect subscribed to this store — including the watcher's, for
+ * a value that did not change. `undefined` means storage had nothing to say.
+ */
+function pick<T extends object>(
+  persisted: T | null | undefined,
+  current: T | null,
+  same: (a: T, b: T) => boolean,
+): T | null {
+  if (persisted === undefined) return current;
+  if (persisted && current && same(persisted, current)) return current;
+  return persisted;
+}
+
+/**
  * The one in-flight materialize job being tracked for notification.
  *
  * Persisted because the whole point is surviving what a long job outlives:
@@ -97,48 +120,75 @@ function readPersisted(): {
  */
 export const useAnalysisJobStore = create<AnalysisJobState>()(
   persist(
-    (set) => ({
-      job: null,
-      completedAt: null,
-      setJob: (job) => set({ job }),
-      claimCompletion: async (jobId) => {
-        const attempt = () => {
-          const existing = readPersisted().completedAt;
-          if (existing?.jobId === jobId) {
-            // Already reported. Ours only if we were the one who did it.
-            return existing.tabId === TAB_ID;
-          }
-          set({ completedAt: { jobId, tabId: TAB_ID, at: Date.now() } });
-          const settled = readPersisted().completedAt;
-          return settled?.jobId === jobId && settled.tabId === TAB_ID;
+    (set, get) => {
+      /**
+       * fix(#1008 codex P1): every `set` here persists the WHOLE snapshot,
+       * so a write that means to change one field silently republishes this
+       * tab's copy of the other. That is harmless in one tab and corrupting
+       * across several: a throttled tab still holding `job1` would restore it
+       * over another tab's newer `job2` just by claiming a completion. So
+       * refresh whatever a write is not changing from storage first.
+       *
+       * Falls back to in-memory when storage has no entry to offer (first
+       * write of the session, or storage unreadable) — the alternative is
+       * nulling a field on the strength of a failed read.
+       */
+      const merged = (patch: Partial<PersistedAnalysisJobState>) => {
+        const persisted = readPersisted();
+        const current = get();
+        return {
+          job: pick(persisted.job, current.job, (a, b) => a.jobId === b.jobId),
+          completedAt: pick(
+            persisted.completedAt,
+            current.completedAt,
+            (a, b) => a.jobId === b.jobId && a.tabId === b.tabId,
+          ),
+          ...patch,
         };
-        // fix(#1008 codex P2): the read/write/read above is NOT atomic on its
-        // own, and the tempting argument that it is does not survive contact
-        // with an interleaving. localStorage serializes individual operations,
-        // not a sequence of them, so `A reads empty, B reads empty, A writes,
-        // A reads back A, B writes, B reads back B` leaves both tabs holding
-        // what looks like a winning claim — which is exactly the simultaneous
-        // completion this exists to dedup. Web Locks is the primitive that
-        // actually makes the sequence mutually exclusive across same-origin
-        // documents, so run it under one.
-        const locks = globalThis.navigator?.locks;
-        if (!locks) {
-          // No Web Locks (older browser, or a non-DOM environment). The
-          // sequence is still right in every staggered case, which is the
-          // common one; the residual loss is a duplicate toast on a genuine
-          // tie, i.e. the behaviour before any of this existed.
-          return attempt();
-        }
-        return await locks.request(COMPLETION_LOCK, attempt);
-      },
-      clearJobIfCurrent: (jobId) => {
-        const persistedJob = readPersisted().job;
-        // Only bail when storage names a DIFFERENT run: a null there means
-        // nothing is tracked, and this tab's in-memory copy still has to go.
-        if (persistedJob && persistedJob.jobId !== jobId) return;
-        set({ job: null });
-      },
-    }),
+      };
+      return {
+        job: null,
+        completedAt: null,
+        setJob: (job) => set(merged({ job })),
+        claimCompletion: async (jobId) => {
+          const attempt = () => {
+            const existing = readPersisted().completedAt;
+            if (existing?.jobId === jobId) {
+              // Already reported. Ours only if we were the one who did it.
+              return existing.tabId === TAB_ID;
+            }
+            set(merged({ completedAt: { jobId, tabId: TAB_ID, at: Date.now() } }));
+            const settled = readPersisted().completedAt;
+            return settled?.jobId === jobId && settled.tabId === TAB_ID;
+          };
+          // fix(#1008 codex P2): the read/write/read above is NOT atomic on its
+          // own, and the tempting argument that it is does not survive contact
+          // with an interleaving. localStorage serializes individual operations,
+          // not a sequence of them, so `A reads empty, B reads empty, A writes,
+          // A reads back A, B writes, B reads back B` leaves both tabs holding
+          // what looks like a winning claim — which is exactly the simultaneous
+          // completion this exists to dedup. Web Locks is the primitive that
+          // actually makes the sequence mutually exclusive across same-origin
+          // documents, so run it under one.
+          const locks = globalThis.navigator?.locks;
+          if (!locks) {
+            // No Web Locks (older browser, or a non-DOM environment). The
+            // sequence is still right in every staggered case, which is the
+            // common one; the residual loss is a duplicate toast on a genuine
+            // tie, i.e. the behaviour before any of this existed.
+            return attempt();
+          }
+          return await locks.request(COMPLETION_LOCK, attempt);
+        },
+        clearJobIfCurrent: (jobId) => {
+          const persistedJob = readPersisted().job;
+          // Only bail when storage names a DIFFERENT run: a null there means
+          // nothing is tracked, and this tab's in-memory copy still has to go.
+          if (persistedJob && persistedJob.jobId !== jobId) return;
+          set(merged({ job: null }));
+        },
+      };
+    },
     {
       name: ANALYSIS_JOB_STORAGE_KEY,
       // Deliberately NOT bumped for `completedAt`: the default shallow merge
