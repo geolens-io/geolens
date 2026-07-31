@@ -1438,31 +1438,6 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     return best
 
 
-def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
-    """True when ``used`` is the scope's binding rather than a nested shadow.
-
-    fix(#996 review): the escape search walks the whole scope, so a nested
-    ``def inner(cmd): consume(cmd)`` counted as a use of an outer ``cmd`` and
-    turned an inert constant into a security failure. Any lexical scope between
-    the use and the binding that binds the same name breaks the link -- the
-    same rule ``_classify_name`` applies to rasterio names.
-
-    ``bound`` is not the whole binding table: a canonical import
-    (``from rasterio import open as cmd``) is recorded in ``canonical``
-    instead, and reading only ``bound`` missed that shadow.
-    """
-    current: ast.AST | None = getattr(used, "_rule2_parent", None)
-    while current is not None and current is not scope:
-        if isinstance(current, _LEXICAL_SCOPES):
-            info = _scope_info(current, rel)
-            if used.id in info.bound or any(
-                used.id in names for names in info.canonical.values()
-            ):
-                return False
-        current = getattr(current, "_rule2_parent", None)
-    return True
-
-
 def _collect_gdal_cli_violations(
     modules: list[tuple[str, ast.Module]],
     allowlist: dict[tuple[str, str, str], tuple[int, str]],
