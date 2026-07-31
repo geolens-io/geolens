@@ -24,19 +24,21 @@ from ._sdk_helpers import call_sdk, unwrap
 #: unit picker (AnalysisPanel converts feet/miles before it POSTs).
 DISTANCE_UNIT = "metres"
 
-#: fix(#685 review): publish's 120s poll default is far too short here, and so
-#: was the 600s that replaced it. The queue is the reason: #703 deliberately
-#: ranks analysis BELOW uploads, so on a busy instance a perfectly healthy job
-#: can sit pending for as long as the upload backlog lasts, and any fixed
-#: wall-clock guess turns that into a false failure for automation.
+#: fix(#685 review): there is no defensible fixed wait, so the default is not
+#: one. publish's 120s, then 600s, then an hour were each a guess about how
+#: long the work takes, and the queue makes that unanswerable. #703 ranks
+#: analysis below uploads, and the server states the consequence outright in
+#: no_live_procrastinate_job() (backend/app/platform/jobs/router.py): a job
+#: Procrastinate still holds is "simply waiting ... with no upper bound", and
+#: failing it at the one-hour mark would be "both a lie and a loss". A CLI
+#: that gives up first tells automation the analysis produced nothing while
+#: the server is still going to produce it.
 #:
-#: So the ceiling is not a guess about how long work takes — it is the point
-#: past which waiting cannot help. The server's own stale-job sweep fails a
-#: job whose lease has expired after an hour (see the sweep notes in
-#: backend/app/processing/analysis/tasks.py), so an hour is the longest a job
-#: can be alive-but-unresolved. Ctrl+C remains the way out of a wait the user
-#: no longer wants.
-POLL_TIMEOUT_SECONDS: float = 3600.0
+#: So --wait waits for a terminal state. Ctrl+C is the way out of a wait the
+#: user no longer wants; --timeout is the way out for automation that needs a
+#: bound of its own, and hitting it reports honestly that the job is unfinished
+#: rather than failed.
+POLL_FOREVER: float = float("inf")
 
 
 def _mask_dataset_arg(mask_dataset_id: Optional[str]) -> Any:

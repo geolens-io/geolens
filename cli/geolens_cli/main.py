@@ -893,12 +893,23 @@ def analysis_materialize(
         bool,
         typer.Option("--wait/--no-wait", help="Poll the job until the dataset exists"),
     ] = True,
+    timeout: Annotated[
+        Optional[float],
+        typer.Option(
+            "--timeout",
+            help=(
+                "Seconds to wait before giving up (default: until the job "
+                "finishes, however long it queues)"
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run an analysis operation over the whole dataset and save the result.
 
-    The work is queued: the server runs one analysis job per user at a time,
-    so this returns a job id. With ``--wait`` (default) it polls until the new
-    dataset resolves, exactly as ``geolens publish`` does.
+    The work is queued, and analysis is queued BELOW uploads on purpose, so a
+    healthy job can wait behind a busy instance's backlog with no upper bound.
+    ``--wait`` (the default) therefore waits for the job to finish rather than
+    for a fixed number of seconds; pass ``--timeout`` to bound it, or Ctrl+C.
     """
     state: AppState = ctx.obj
     instance = state.active_instance()
@@ -932,7 +943,7 @@ def analysis_materialize(
         return
 
     resolved = _publish.resolve_dataset_id(
-        sdk.client, job_id, timeout=_analysis.POLL_TIMEOUT_SECONDS
+        sdk.client, job_id, timeout=timeout or _analysis.POLL_FOREVER
     )
     if resolved is None:
         # resolve_dataset_id returns None for BOTH a failed job and a poll
@@ -955,9 +966,12 @@ def analysis_materialize(
                 f"is unknown. Check GET /jobs/{job_id}."
             )
         else:
+            # Only reachable with an explicit --timeout: the default waits for
+            # a terminal state. Unfinished is not failed, and the wording says
+            # so (fix(#685 review)).
             state.output.error(
-                f"Analysis job {job_id} was still {status} after "
-                f"{int(_analysis.POLL_TIMEOUT_SECONDS)}s. Check GET /jobs/{job_id}."
+                f"Analysis job {job_id} was still {status} after {int(timeout or 0)}s "
+                f"and has not finished. Check GET /jobs/{job_id}."
             )
         raise typer.Exit(EXIT_GENERIC)
 

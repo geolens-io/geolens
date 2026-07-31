@@ -19,7 +19,7 @@ geolens apply --dry-run geolens.yaml
 geolens apply geolens.yaml
 geolens publish ./data/cities.geojson
 geolens analysis preview <dataset-id> --operation buffer --distance 500 > ring.geojson
-geolens analysis materialize <dataset-id> --operation buffer --distance 500 --title "500 m ring"
+geolens analysis materialize <dataset-id> --operation buffer --distance 500 --title "500 m ring"  # waits for the job; --timeout to bound it
 geolens export stac <dataset-id> -o cities.stac.json
 ```
 

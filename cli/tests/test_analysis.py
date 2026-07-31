@@ -330,10 +330,13 @@ class TestAnalysisMaterializeCli:
                 "centroid",
                 "--title",
                 "Centroids",
+                "--timeout",
+                "30",
             ],
         )
         assert result.exit_code == 1, result.output
         assert "still running" in result.output
+        assert "has not finished" in result.output
         assert "failed" not in result.output
 
     def test_an_unreadable_status_is_not_reported_as_a_timeout(
@@ -368,15 +371,14 @@ class TestAnalysisMaterializeCli:
         assert result.exit_code == 1, result.output
         assert "outcome is unknown" in result.output
 
-    def test_the_poll_waits_longer_than_the_server_side_budget(
+    def test_the_default_wait_has_no_deadline(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """The wait is bounded by the server's stale-job sweep, not by a guess
-        at how long the work takes: the queue #703 imposes is unbounded."""
-        from geolens_cli.analysis import POLL_TIMEOUT_SECONDS
+        """The queue #703 imposes is unbounded, and the server refuses to fail
+        a job that is merely waiting in it, so any fixed deadline here would
+        report a job the server is still going to finish as producing
+        nothing."""
         from geolens_cli.main import app
-
-        assert POLL_TIMEOUT_SECONDS >= 3600
 
         seen: dict = {}
 
@@ -403,7 +405,41 @@ class TestAnalysisMaterializeCli:
             ],
         )
         assert result.exit_code == 0, result.output
-        assert seen["timeout"] == POLL_TIMEOUT_SECONDS
+        assert seen["timeout"] == float("inf")
+
+    def test_an_explicit_timeout_bounds_the_wait(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        seen: dict = {}
+
+        def _capture(client, job_id, **kwargs):
+            seen.update(kwargs)
+            return "ds-new"
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr("geolens_cli.publish.resolve_dataset_id", _capture)
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "30",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert seen["timeout"] == 30.0
 
     def test_json_mode_emits_the_job_and_dataset_ids(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
