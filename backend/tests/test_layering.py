@@ -1019,7 +1019,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # because MapLibre skips a missing pattern and exposes styleimagemissing to
     # repair it, while stripping a working expression is unrecoverable (#1069).
     # Ratchet stays exact.
-    "backend/app/modules/catalog/maps/style_json.py": 1517,
+    # fix(#910): +37 — the extrusion companion resolves its colour from the
+    # fillColorSaved stash, and the export seeds that stash into `fill-color`
+    # BEFORE #917's strip runs, so a builder-patterned polygon exports the colour
+    # the user chose instead of brand blue (EDIT-05 means paint never carries one).
+    "backend/app/modules/catalog/maps/style_json.py": 1554,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     "backend/app/modules/catalog/maps/router_assets.py": 126,
