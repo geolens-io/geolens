@@ -268,16 +268,25 @@ class TestPreviewGlobalBound:
             )
             for _ in range(bound * 2)
         ]
-        # Wait until the bound is saturated, then let the loop run a few more
-        # turns so the tasks that will be refused reach their check. Nothing
-        # can drain a slot before the gate opens, so this cannot race.
-        for _ in range(500):
-            if inside >= bound:
+        # Wait until EVERY request has reached the bound, then open the gate.
+        # A request that got a slot is parked (counted by `inside`); one that
+        # was refused has already returned its 429 and its task is done. Any
+        # weaker wait is flaky: each request first authenticates, loads the
+        # dataset and checks quota, and those are DB round-trips of unbounded
+        # duration, so a fixed number of event-loop turns released the gate
+        # early and late arrivals were refused by the per-user lock instead of
+        # by the bound. Nothing can drain a slot before the gate opens, so once
+        # this holds the split is fixed.
+        for _ in range(2000):
+            settled = inside + sum(1 for t in tasks if t.done())
+            if settled >= len(tasks):
                 break
             await asyncio.sleep(0.01)
-        assert inside == bound, f"only {inside} previews reached the sandbox"
-        for _ in range(10):
-            await asyncio.sleep(0)
+        assert inside + sum(1 for t in tasks if t.done()) == len(tasks), (
+            f"only {inside} parked and "
+            f"{sum(1 for t in tasks if t.done())} returned, of {len(tasks)}"
+        )
+        assert inside == bound, f"{inside} previews hold slots, expected {bound}"
         gate.set()
         responses = await asyncio.gather(*tasks)
 
