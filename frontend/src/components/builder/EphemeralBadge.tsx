@@ -44,8 +44,11 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount,
     return () => cancelAnimationFrame(frame);
   }, [statusLabel]);
 
+  // fix(#787 item 1): z-20, above the z-10 PluginHost slots. The bottom-left slot
+  // is offset to clear this badge, but a panel taller than that offset overlaps it
+  // and the z-index decided — the badge lost.
   return (
-    <div className={cn('absolute bottom-8 start-4 z-[8] flex items-center gap-2 rounded-md bg-background/95 backdrop-blur-sm border shadow-sm px-3 py-1.5 text-xs', className)}>
+    <div className={cn('absolute bottom-8 start-4 z-20 flex items-center gap-2 rounded-md bg-background/95 backdrop-blur-sm border shadow-sm px-3 py-1.5 text-xs', className)}>
       <span className="h-2 w-2 rounded-full bg-warning shrink-0" />
       <span role="status" className="sr-only">{announcedLabel}</span>
       {/* fix(#784): aria-hidden so browse mode doesn't read the badge text

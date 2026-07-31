@@ -10,16 +10,23 @@ vi.mock('@/api/datasets', async (importOriginal) => {
     getDataset: vi.fn(),
     getDatasetRows: vi.fn(),
     reuploadCommit: vi.fn(),
+    deleteDataset: vi.fn(),
   };
 });
 
-import { getDataset, getDatasetRows, reuploadCommit } from '@/api/datasets';
-import { useDataset, useDatasetRows, useReuploadCommit } from '@/components/dataset/hooks/use-dataset';
+import { getDataset, getDatasetRows, reuploadCommit, deleteDataset } from '@/api/datasets';
+import {
+  useDataset,
+  useDatasetRows,
+  useReuploadCommit,
+  useDeleteDataset,
+} from '@/components/dataset/hooks/use-dataset';
 import { queryKeys } from '@/lib/query-keys';
 
 const mockGetDataset = vi.mocked(getDataset);
 const mockGetDatasetRows = vi.mocked(getDatasetRows);
 const mockReuploadCommit = vi.mocked(reuploadCommit);
+const mockDeleteDataset = vi.mocked(deleteDataset);
 
 describe('useDataset', () => {
   beforeEach(() => {
@@ -160,5 +167,71 @@ describe('useReuploadCommit', () => {
     expect(spy).not.toHaveBeenCalledWith({
       queryKey: queryKeys.ingest.jobStatusByDataset('ds-1'),
     });
+  });
+});
+
+/**
+ * fix(#787 item 5): deleting a dataset fired three refetches at the resource that
+ * had just been deleted — `/datasets/:id`, plus `/related/` and `/maps/`, which sit
+ * under the ['datasets'] prefix the list invalidation matches. All three 404'd.
+ */
+describe('useDeleteDataset', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function renderWithClient() {
+    let captured: QueryClient | null = null;
+    const { result } = renderHook(() => {
+      const qc = useQueryClient();
+      const ref = useRef<QueryClient | null>(null);
+      if (ref.current === null) ref.current = qc;
+      captured = ref.current;
+      return useDeleteDataset();
+    });
+    if (!captured) throw new Error('QueryClient capture failed');
+    return { result, qc: captured as QueryClient };
+  }
+
+  it('marks the deleted dataset own queries stale without fetching them', async () => {
+    mockDeleteDataset.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient();
+    const cancel = vi.spyOn(qc, 'cancelQueries');
+    const remove = vi.spyOn(qc, 'removeQueries');
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', confirmName: 'Test' });
+
+    for (const queryKey of [
+      queryKeys.datasets.detail('ds-1'),
+      queryKeys.datasets.related('ds-1'),
+      queryKeys.datasets.maps('ds-1'),
+    ]) {
+      expect(cancel).toHaveBeenCalledWith({ queryKey });
+      // Stale, but explicitly not refetched: the observers are still mounted here.
+      expect(invalidate).toHaveBeenCalledWith({ queryKey, refetchType: 'none' });
+      expect(invalidate).not.toHaveBeenCalledWith({ queryKey });
+    }
+    // Removing an ACTIVE query makes its observer rebuild and fetch — a live run
+    // measured that as one more 404 than marking it stale.
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('keeps the dataset-list invalidation off the deleted id', async () => {
+    mockDeleteDataset.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', confirmName: 'Test' });
+
+    const listCall = invalidate.mock.calls.find(
+      ([filters]) => filters?.queryKey === queryKeys.datasets.all,
+    );
+    expect(listCall).toBeDefined();
+    const predicate = listCall![0]!.predicate!;
+    // related/ and maps/ for the deleted dataset match the ['datasets'] prefix.
+    expect(predicate({ queryKey: queryKeys.datasets.related('ds-1') } as never)).toBe(false);
+    expect(predicate({ queryKey: queryKeys.datasets.maps('ds-1') } as never)).toBe(false);
+    // Everything else under the prefix still refetches.
+    expect(predicate({ queryKey: queryKeys.datasets.all } as never)).toBe(true);
+    expect(predicate({ queryKey: queryKeys.datasets.related('ds-2') } as never)).toBe(true);
   });
 });
