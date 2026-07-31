@@ -60,6 +60,29 @@ _MAX_TOTAL_ROWS = 5_000_000
 _MAX_TOTAL_CELLS = 100_000_000
 
 
+def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
+    """Reject a parquet file whose footer already says it is too big.
+
+    fix(#948). Raises ``IngestionError`` naming the limit and the observed
+    value, the same way the geometry-only guard fails.
+    """
+    from app.processing.ingest.ogr import IngestionError
+
+    if num_rows > _MAX_TOTAL_ROWS:
+        raise IngestionError(
+            f"Parquet file has {num_rows:,} rows, above the "
+            f"{_MAX_TOTAL_ROWS:,}-row ingest limit. Split the file or load a "
+            "subset."
+        )
+    cells = num_rows * num_columns
+    if cells > _MAX_TOTAL_CELLS:
+        raise IngestionError(
+            f"Parquet file has {cells:,} cells ({num_rows:,} rows x "
+            f"{num_columns:,} columns), above the {_MAX_TOTAL_CELLS:,}-cell "
+            "ingest limit. Split the file or drop columns you do not need."
+        )
+
+
 def _read_geo_metadata(pf: pq.ParquetFile) -> dict | None:
     """Parse the file-level ``geo`` key (GeoParquet), or None for plain parquet."""
     kv = pf.schema_arrow.metadata
@@ -261,6 +284,24 @@ def _open_and_inspect(file_path: str) -> tuple[pq.ParquetFile, dict]:
     geom_col, col_meta = _geometry_column(geo)
     skip = {geom_col, _covering_column(geo, geom_col)} - {None}
 
+    # fix(#948): the same footer gate the loader applies, here too — this
+    # function runs BEFORE it (tasks_vector calls run_ogrinfo ahead of
+    # run_ogr2ogr), and the geometry probe below iterates batches until it finds
+    # the first non-NULL WKB. On a file with millions of leading NULL
+    # geometries that is an unbounded scan, so gating only in the loader would
+    # leave the worker exposed on the path that actually runs first. It also
+    # means an over-limit upload is rejected at preview rather than after.
+    #
+    # The column count matches the loader's: _column_plan keeps exactly the
+    # non-skipped fields, plus geometry when it is inserted. The preview does
+    # not know include_geometry, so it assumes the geometry column is there,
+    # which is the conservative direction for a gate.
+    _check_ingest_budget(
+        pf.metadata.num_rows,
+        sum(1 for f in pf.schema_arrow if f.name not in skip)
+        + (1 if geom_col is not None else 0),
+    )
+
     srid = None
     geometry_type = None
     if geom_col is not None:
@@ -351,29 +392,6 @@ def _column_plan(
         used.add(pg_name)
         plan.append((f.name, pg_name, _pg_type(f.type), _value_converter(f.type)))
     return plan
-
-
-def _check_ingest_budget(num_rows: int, num_columns: int) -> None:
-    """Reject a parquet file whose footer already says it is too big.
-
-    fix(#948). Raises ``IngestionError`` naming the limit and the observed
-    value, the same way the geometry-only guard fails.
-    """
-    from app.processing.ingest.ogr import IngestionError
-
-    if num_rows > _MAX_TOTAL_ROWS:
-        raise IngestionError(
-            f"Parquet file has {num_rows:,} rows, above the "
-            f"{_MAX_TOTAL_ROWS:,}-row ingest limit. Split the file or load a "
-            "subset."
-        )
-    cells = num_rows * num_columns
-    if cells > _MAX_TOTAL_CELLS:
-        raise IngestionError(
-            f"Parquet file has {cells:,} cells ({num_rows:,} rows x "
-            f"{num_columns:,} columns), above the {_MAX_TOTAL_CELLS:,}-cell "
-            "ingest limit. Split the file or drop columns you do not need."
-        )
 
 
 async def load_parquet_to_postgis(

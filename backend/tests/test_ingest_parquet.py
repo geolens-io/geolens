@@ -197,6 +197,33 @@ class TestParquetIngestBudget:
             )
 
     @pytest.mark.anyio
+    async def test_preview_rejects_before_probing_geometry(self, tmp_path, monkeypatch):
+        """The gate belongs on the preview path too, and ahead of ITS probe.
+
+        tasks_vector calls run_ogrinfo before run_ogr2ogr, and
+        _open_and_inspect's geometry probe iterates batches until it finds the
+        first non-NULL WKB — an unbounded scan on a file with millions of
+        leading NULLs. Gating only in the loader would leave the worker exposed
+        on the path that actually runs first.
+        """
+        from shapely.geometry import Point
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 2)
+        p = tmp_path / "preview_over.parquet"
+        # Leading NULL geometry: the probe has to walk past it, so a probe that
+        # ran first would touch row data before the file was rejected.
+        pq.write_table(
+            build_geoparquet_table(
+                [None, Point(0, 0).wkb, Point(1, 1).wkb],
+                {"a": [1, 2, 3]},
+                ["a"],
+            ),
+            p,
+        )
+        with pytest.raises(IngestionError, match="3 rows, above the 2-row"):
+            await parquet_info(str(p))
+
+    @pytest.mark.anyio
     async def test_just_under_both_caps_still_loads(
         self, tmp_path, monkeypatch, test_db_session
     ):
