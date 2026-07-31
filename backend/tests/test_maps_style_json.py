@@ -1,6 +1,7 @@
 """Tests for saved map MapLibre style JSON import/export helpers."""
 
 import uuid
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -2217,6 +2218,14 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
         ),
         ({"stops": [["x", ["image", "geolens-fill-hatch"]]]}, True),
         ({"type": "exponential", "base": 2}, False),
+        # fix(#917 codex r5): ["let", name, value, ..., result]. Binding values
+        # sit at the same 2-step offset the branching forms use and the result
+        # is last, so reading the binding answers the question without resolving
+        # the `var` reference. Binding NAMES land on the skipped odd indices.
+        (["let", "p", "geolens-fill-grid", ["var", "p"]], True),
+        (["let", "p", "uploaded-a", "geolens-fill-dots"], True),
+        (["let", "p", "uploaded-a", ["var", "p"]], False),
+        (["let", "geolens-fill-grid", "uploaded-a", "uploaded-b"], False),
     ],
 )
 def test_data_driven_fill_pattern_is_read_at_its_output_positions(pattern, stripped):
@@ -2257,3 +2266,61 @@ def test_a_non_builtin_fill_pattern_is_left_alone(pattern):
     style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
 
     assert _fill_paint(style)["fill-pattern"] == pattern
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        # fix(#917 codex r5): `_validate_style_dict` bounds only the serialized
+        # SIZE of a paint dict, so the open-dict API stores these today. Before
+        # the type guard, exporting one raised from the shared style endpoint —
+        # turning tolerated-but-malformed stored data into a 500. A string is
+        # the nastiest of them: it iterates silently, one character at a time.
+        {"stops": 1},
+        {"stops": "geolens-fill-grid"},
+        {"stops": {"a": 1}},
+        {"stops": [1, 2, 3]},
+        {"stops": [["only-one-element"]]},
+    ],
+)
+def test_a_malformed_legacy_function_exports_instead_of_raising(pattern):
+    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
+
+    # Left as authored — not a function object, so not something to strip.
+    assert _fill_paint(style)["fill-pattern"] == pattern
+
+
+def test_a_pathologically_nested_expression_does_not_blow_the_stack():
+    """fix(#917 codex r5): the detector stops descending rather than raising.
+
+    `_validate_style_dict` bounds only the serialized size of a paint dict, and
+    64KB of `["coalesce", ...]` nests far past Python's recursion limit, so
+    without a depth bound this function would be the thing that 500s the shared
+    style endpoint.
+
+    Asserted against the detector, not `build_maplibre_style`, because the
+    export pipeline has its own recursion limit further down — a `copy.deepcopy`
+    that raises on the same input with or without this change. That is
+    pre-existing and out of scope here; what this pins is that the fill-pattern
+    guard does not ADD a crash path. The pipeline-level case below uses a depth
+    a real style could plausibly reach.
+    """
+    deep: Any = "geolens-fill-grid"
+    for _ in range(5000):
+        deep = ["coalesce", deep]
+
+    assert style_json._references_builtin_fill_pattern(deep) is False
+
+
+def test_a_deeply_but_plausibly_nested_pattern_still_exports():
+    """Nesting well past anything an author would write, but inside the
+    pipeline's own limits, so this exercises the whole export path."""
+    deep: Any = "geolens-fill-grid"
+    for _ in range(100):
+        deep = ["coalesce", deep]
+
+    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(deep)])
+
+    # Past the detector's depth bound, so it is left alone rather than stripped
+    # — the safe direction for a value nobody can have authored by hand.
+    assert _fill_paint(style)["fill-pattern"] == deep

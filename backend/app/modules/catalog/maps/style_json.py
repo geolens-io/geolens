@@ -1312,10 +1312,28 @@ _EXPRESSION_OUTPUT_POSITIONS: dict[str, tuple[int, int]] = {
     # produced the same disappearing polygon as a bare string.
     "image": (1, 1),
     "literal": (1, 1),
+    # fix(#917 codex r5): ["let", name, value, ..., result]. The binding VALUES
+    # sit at the same 2-step offset the branching forms use and the result is
+    # last, so `let` needs no special handling beyond the table — a `["var", n]`
+    # in the result reaches its binding, and reading the binding directly
+    # answers the question without resolving the reference. Binding NAMES land
+    # on the odd indices the stride skips, exactly like `match` labels.
+    "let": (2, 2),
 }
 
+# The forms whose LAST operand is also an output: a `case`/`match` fallback, and
+# a `let` result. `step` and `coalesce` are fully covered by their stride.
+_EXPRESSION_TRAILING_OUTPUT = frozenset({"case", "match", "let"})
 
-def _references_builtin_fill_pattern(value: Any) -> bool:
+# fix(#917 codex r5): a bound on how deep an authored expression is followed.
+# `_validate_style_dict` caps a paint dict at 64KB serialized, which still
+# allows nesting far past Python's recursion limit, and a RecursionError here
+# would be a 500 from the shared style endpoint. Anything this deep is not a
+# real pattern; stop descending and leave the value alone.
+_MAX_EXPRESSION_DEPTH = 32
+
+
+def _references_builtin_fill_pattern(value: Any, depth: int = 0) -> bool:
     """Whether a fill-pattern value can resolve to a builtin id.
 
     A plain string is checked directly. A branching expression is checked at its
@@ -1326,6 +1344,8 @@ def _references_builtin_fill_pattern(value: Any) -> bool:
     the builder's pattern control writes a single value, so anything else is
     hand-authored, and guessing wrong here silently flattens a working layer.
     """
+    if depth > _MAX_EXPRESSION_DEPTH:
+        return False
     if isinstance(value, str):
         return value in _BUILTIN_FILL_PATTERN_IDS
     if isinstance(value, dict):
@@ -1337,14 +1357,25 @@ def _references_builtin_fill_pattern(value: Any) -> bool:
         # Its outputs are the second element of each stop, plus `default`. The
         # first element is the input value being matched — data, like a `match`
         # label — so it is read at the same positions the array forms are.
-        outputs = [
-            stop[-1]
-            for stop in (value.get("stops") or [])
-            if isinstance(stop, (list, tuple)) and len(stop) >= 2
-        ]
+        # fix(#917 codex r5): `stops` is whatever the open-dict `paint` API was
+        # handed — `_validate_style_dict` only bounds its serialized size, so
+        # `{"stops": 1}` is stored today and iterating it would raise. A string
+        # is worse than an int here: it iterates silently, one character at a
+        # time. Anything that is not a list of pairs is not a function object,
+        # so treat it as non-matching and let the existing validator degrade it.
+        stops = value.get("stops")
+        outputs = (
+            [
+                stop[-1]
+                for stop in stops
+                if isinstance(stop, (list, tuple)) and len(stop) >= 2
+            ]
+            if isinstance(stops, (list, tuple))
+            else []
+        )
         if "default" in value:
             outputs.append(value["default"])
-        return any(_references_builtin_fill_pattern(out) for out in outputs)
+        return any(_references_builtin_fill_pattern(out, depth + 1) for out in outputs)
     if not (isinstance(value, list) and value and isinstance(value[0], str)):
         return False
     positions = _EXPRESSION_OUTPUT_POSITIONS.get(value[0])
@@ -1352,11 +1383,9 @@ def _references_builtin_fill_pattern(value: Any) -> bool:
         return False
     start, step = positions
     outputs = list(value[start::step])
-    # `case` and `match` end with a fallback that is also an output; `step` and
-    # `coalesce` have no trailing element the stride misses.
-    if value[0] in ("case", "match") and len(value) > start:
+    if value[0] in _EXPRESSION_TRAILING_OUTPUT and len(value) > start:
         outputs.append(value[-1])
-    return any(_references_builtin_fill_pattern(item) for item in outputs)
+    return any(_references_builtin_fill_pattern(item, depth + 1) for item in outputs)
 
 
 def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:

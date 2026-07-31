@@ -1180,10 +1180,10 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
         # companion so exported ramps match the builder's Reverse toggle.
         # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import.
-        # fix(#917): +127 — builtin `geolens-fill-*` patterns are stripped at export
+        # fix(#917): +156 — builtin `geolens-fill-*` patterns are stripped at export
         # and fall back to a solid colour, since the served sprite is indexed from
         # `map_icons` alone and never contained them. Ratchet stays exact.
-        "backend/app/modules/catalog/maps/style_json.py": 1559,
+        "backend/app/modules/catalog/maps/style_json.py": 1588,
         "backend/app/modules/catalog/maps/style_import.py": 450,
         "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
         "backend/app/modules/catalog/maps/router_assets.py": 126,
