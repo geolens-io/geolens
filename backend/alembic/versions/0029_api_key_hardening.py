@@ -102,7 +102,15 @@ def downgrade() -> None:
     # than SHARE because the drops below need it anyway — taking it up front
     # avoids a lock upgrade, and env.py wraps the whole run in one transaction,
     # so it is held until the downgrade ends.
-    op.execute("LOCK TABLE catalog.api_keys, catalog.users IN ACCESS EXCLUSIVE MODE")
+    #
+    # users BEFORE api_keys, matching the order every writer already takes:
+    # create_api_key_for_user reads catalog.users and then inserts into
+    # catalog.api_keys (app/modules/auth/service.py). Locking the other way
+    # round lets a concurrent mint hold users while it waits for api_keys while
+    # this holds api_keys and waits for users — which PostgreSQL resolves by
+    # aborting one of them, rather than by making the mint queue behind the
+    # migration.
+    op.execute("LOCK TABLE catalog.users, catalog.api_keys IN ACCESS EXCLUSIVE MODE")
     expiring, bumped, affected = bind.execute(text(_COUNT_KEY_STATE)).one()
     if expiring or bumped:
         raise RuntimeError(
