@@ -1050,4 +1050,81 @@ describe('DataDrivenStyleEditor', () => {
       expect(picker.textContent).toContain(SAVED_RAMP);
     });
   });
+
+  // fix(#960): the values endpoint pages at 100 (500 max), so its length is a page
+  // size. The warning used to report it as the category count, and the swatch list
+  // stopped there with nothing saying it was a prefix.
+  describe('#960 honest category counts', () => {
+    const PAGE = Array.from({ length: 100 }, (_, i) => `cat${i}`);
+
+    function renderCategorical(distinctCount: number | null) {
+      mockUseColumnValues.mockReturnValue(hookData({ values: PAGE, count: PAGE.length }));
+      mockUseColumnStats.mockReturnValue(
+        (distinctCount == null
+          ? noData()
+          : hookData({ distinct_count: distinctCount, data_type: 'categorical' })
+        ) as unknown as ReturnType<typeof useColumnStats>,
+      );
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: { mode: 'categorical', column: 'typeA', ramp: 'Set2' } })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+    }
+
+    it('reports the true distinct count and says the list is a prefix', () => {
+      renderCategorical(4000);
+      const warning = screen.getByText(/4,?000 categories/);
+      expect(warning).toBeInTheDocument();
+      expect(warning.textContent).toMatch(/first 100/);
+      expect(screen.queryByText(/^100 categories/)).toBeNull();
+    });
+
+    it('keeps the plain warning when the page holds every category', () => {
+      renderCategorical(100);
+      const warning = screen.getByText(/100 categories/);
+      expect(warning.textContent).not.toMatch(/first/);
+    });
+
+    it('falls back to the page length when no stats are available', () => {
+      renderCategorical(null);
+      expect(screen.getByText(/100 categories/)).toBeInTheDocument();
+    });
+
+    it('calls useColumnStats for the categorical column, not only the graduated one', () => {
+      renderCategorical(4000);
+      expect(mockUseColumnStats).toHaveBeenCalledWith('ds-1', 'typeA');
+    });
+  });
+
+  // fix(#952): a ramp on a mixed-geometry layer only colours the polygons, because
+  // getColorProperty resolves 'other' to fill-color and the mixed adapter filters
+  // that key out of the line and circle sublayers.
+  describe('#952 mixed-geometry colour scope hint', () => {
+    function renderWithGeometry(geometryType: string) {
+      mockUseColumnValues.mockReturnValue(hookData({ values: ['a', 'b'], count: 2 }));
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: geometryType,
+            style_config: { mode: 'categorical', column: 'typeA', ramp: 'Set2' },
+          })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+    }
+
+    it.each(['GEOMETRY', 'GEOMETRYCOLLECTION'])('shows the hint for %s', (gt) => {
+      renderWithGeometry(gt);
+      expect(screen.getByText(/Colors apply to polygon features/)).toBeInTheDocument();
+    });
+
+    // Only the two generic sentinels route to the mixed adapter; an exotic or absent
+    // type keeps the plain fill fallback and has no line/point sublayers to describe.
+    it.each(['Polygon', 'MultiLineString', 'Point', 'CURVE', ''])('does NOT show the hint for %s', (gt) => {
+      renderWithGeometry(gt);
+      expect(screen.queryByText(/Colors apply to polygon features/)).toBeNull();
+    });
+  });
 });
