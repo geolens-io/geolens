@@ -67,6 +67,28 @@ jobs:
       backup: ${{ steps.filter.outputs.backup }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # fix(#1094): resolve the PR diff base ourselves. paths-filter's no-token
+      # path diffs `pull_request.base.sha .. merge-commit`, and base.sha is
+      # frozen at PR-open time while GitHub recomputes the merge ref every time
+      # main moves. So the diff grew to include everything that landed since:
+      # #1027 changed 4 files and the filter reported 117, turning Backend Tests
+      # on for other people's backend/** work. Coverage got WIDER the staler a
+      # branch was, which is backwards.
+      #
+      # checkout leaves us on refs/pull/N/merge, whose FIRST parent is the base
+      # branch tip as of when that ref was built. Diffing against it yields the
+      # PR's own changes and nothing else. rev-parse reads the parent out of the
+      # merge commit itself, so this needs no extra fetch depth, and
+      # paths-filter's ensureRefAvailable does `fetch --depth=1 origin <sha>`
+      # for the base it is handed.
+      - name: Resolve the PR diff base
+        id: diffbase
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          echo "Diffing against first parent of the merge ref: $base"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4
         id: filter
         # fix(#1000): the filter has nothing to diff against on merge_group and
@@ -80,10 +102,19 @@ jobs:
         # could have produced without a base.
         if: github.event_name != 'merge_group'
         with:
-          # fix(#546): empty token switches paths-filter to git-diff detection
-          # (base.sha..merge-commit from the checkout), removing the GitHub API
-          # call whose transient 503s failed this required check hard.
+          # fix(#546): empty token switches paths-filter to git-diff detection,
+          # removing the GitHub API call whose transient 503s failed this
+          # required check hard. fix(#1094) supplies the base that detection
+          # diffs from; without it the action falls back to the stale
+          # pull_request.base.sha.
           token: ''
+          # fix(#1094): empty on push and merge_group, where the action's own
+          # defaults (before-SHA / merge_group.base_sha) are already right.
+          # The action logs "'base' input parameter is ignored when action is
+          # triggered by pull request event" — that warning is wrong on this
+          # path: main.ts resolves `base || baseSha || defaultBranch`, so an
+          # explicit base takes precedence. Only the API path ignores it.
+          base: ${{ steps.diffbase.outputs.sha }}
           filters: |
             backend:
               - 'backend/**'
