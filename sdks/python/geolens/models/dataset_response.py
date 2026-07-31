@@ -48,7 +48,8 @@ class DatasetResponse:
         current_version (int | Unset): Monotonic version counter Default: 1.
         data_vintage_end (datetime.date | None | Unset): End of temporal coverage
         data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
-        extent_bbox (list[float] | None | Unset): Bounding box [minx, miny, maxx, maxy]
+        extent_bbox (list[float] | None | Unset): Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east
+            on an antimeridian-crossing extent.
         geometry_type (None | str | Unset): OGC geometry type, e.g. MultiPolygon
         has_generic_geometry (bool | Unset): True when the underlying column is generic GEOMETRY (created sketch
             datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above.

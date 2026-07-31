@@ -3014,7 +3014,7 @@ export type DatasetResponse = {
     /**
      * Extent Bbox
      *
-     * Bounding box [minx, miny, maxx, maxy]
+     * Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
      */
     extent_bbox?: Array<number> | null;
     /**
