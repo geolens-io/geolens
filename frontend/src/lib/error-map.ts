@@ -202,8 +202,14 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // fix(#931): the backend names the offending maps precisely so a human can go
   // and fix them, and unmapped that list fell through to the generic 422 —
   // which drops exactly the part that makes the refusal actionable.
+  // fix(#931 codex r5): `s` (dotAll) because a map name may legally contain a
+  // newline — `MapCreate.name` is length-bounded and NFC-normalized, nothing
+  // more — and without it `.` stops at the line terminator, the match fails,
+  // and the actionable map list collapses to the generic 422. `$` is dropped
+  // for the same reason: with `m` absent it anchors at the end of input, but
+  // the trailing-newline allowance would still truncate.
   const strandedMaps = message.match(
-    /^Cannot restrict visibility: dataset is used in shared maps:\s*(.+)$/i,
+    /^Cannot restrict visibility: dataset is used in shared maps:\s*([\s\S]+)/i,
   );
   if (strandedMaps) {
     return {

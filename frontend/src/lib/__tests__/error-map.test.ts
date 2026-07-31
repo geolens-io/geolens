@@ -181,6 +181,22 @@ describe('API error localization boundary', () => {
     ).toContain('Flood Risk');
   });
 
+  // fix(#931 codex r5): `MapCreate.name` is length-bounded and NFC-normalized,
+  // nothing more, so a newline in a map name is valid input. Without the `s`
+  // flag `.` stopped at it and the whole list fell back to the generic 422 —
+  // losing exactly the part that makes the refusal actionable.
+  it('surfaces map names that legally contain a newline', () => {
+    expect(
+      classifyApiError(
+        'Cannot restrict visibility: dataset is used in shared maps: Flood\nRisk, Parcels',
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: 'Flood\nRisk, Parcels' },
+    });
+  });
+
   it('retains unknown layer names through localized structured validation', () => {
     expect(
       translateApiErrorDetail(
