@@ -1288,20 +1288,50 @@ _BUILTIN_FILL_PATTERN_IDS = frozenset(
 )
 
 
-def _references_builtin_fill_pattern(value: Any) -> bool:
-    """Whether a fill-pattern value is a builtin id.
+# fix(#917 codex r2/r3): where each branching expression puts its OUTPUTS, as
+# (start, step) over the operand list after the operator. Everything else in an
+# expression — property names, comparison operands, `match` labels — is data,
+# and a builtin id appearing there says nothing about what the expression
+# returns. Scanning every nested string flattened working layers to a solid
+# fill; ignoring lists entirely missed a builtin in a real output branch. Only
+# these four forms can yield an image id in MapLibre, and each has a documented
+# operand layout, so the positions are read rather than guessed.
+_EXPRESSION_OUTPUT_POSITIONS: dict[str, tuple[int, int]] = {
+    # ["case", cond, out, cond, out, ..., fallback]
+    "case": (2, 2),
+    # ["match", input, label, out, ..., fallback]
+    "match": (3, 2),
+    # ["step", input, out, stop, out, ...]
+    "step": (2, 2),
+    # ["coalesce", out, out, ...]
+    "coalesce": (1, 1),
+}
 
-    fix(#917 codex r2): a plain string only. Scanning a data-driven expression
-    for the ids treats every nested string as a possible output image, including
-    property names, comparison operands and ``match`` labels — so
-    ``["case", ["==", ["get", "kind"], "geolens-fill-grid"], "uploaded-a",
-    "uploaded-b"]`` can only ever return real sprite ids, and stripping it would
-    flatten a working layer to a solid fill. Telling an output branch from an
-    operand needs an expression evaluator, and the builder's pattern control
-    writes a single value, so there is nothing to gain by guessing: a
-    hand-authored expression is left exactly as authored.
+
+def _references_builtin_fill_pattern(value: Any) -> bool:
+    """Whether a fill-pattern value can resolve to a builtin id.
+
+    A plain string is checked directly. A branching expression is checked at its
+    output positions only, recursively, so a nested expression in a branch is
+    followed and an id used as an operand or a `match` label is not. Any other
+    expression shape is treated as not referencing a builtin: the builder's
+    pattern control writes a single value, so anything else is hand-authored,
+    and guessing wrong here silently flattens a working layer.
     """
-    return isinstance(value, str) and value in _BUILTIN_FILL_PATTERN_IDS
+    if isinstance(value, str):
+        return value in _BUILTIN_FILL_PATTERN_IDS
+    if not (isinstance(value, list) and value and isinstance(value[0], str)):
+        return False
+    positions = _EXPRESSION_OUTPUT_POSITIONS.get(value[0])
+    if positions is None:
+        return False
+    start, step = positions
+    outputs = list(value[start::step])
+    # `case` and `match` end with a fallback that is also an output; `step` and
+    # `coalesce` have no trailing element the stride misses.
+    if value[0] in ("case", "match") and len(value) > start:
+        outputs.append(value[-1])
+    return any(_references_builtin_fill_pattern(item) for item in outputs)
 
 
 def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:

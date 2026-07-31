@@ -2145,25 +2145,59 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
     assert paint["fill-color"] == "#94a3b8"
 
 
-def test_a_data_driven_fill_pattern_is_left_as_authored():
-    """fix(#917 codex r2): a builtin id inside an expression is not necessarily
-    an output image.
+@pytest.mark.parametrize(
+    ("pattern", "stripped"),
+    [
+        # fix(#917 codex r2): an id in an OPERAND or a `match` label says
+        # nothing about what the expression returns. Every branch here resolves
+        # to a real uploaded sprite id, so stripping would flatten a working
+        # layer to a solid fill.
+        (
+            ["case", ["==", ["get", "kind"], "geolens-fill-grid"], "up-a", "up-b"],
+            False,
+        ),
+        (["match", ["get", "kind"], "geolens-fill-grid", "up-a", "up-b"], False),
+        # fix(#917 codex r3): ...and an id in an OUTPUT branch really does
+        # resolve to an image the sprite does not contain, so ignoring lists
+        # wholesale left those layers broken for external clients.
+        (["case", ["==", ["get", "kind"], "a"], "geolens-fill-grid", "up-b"], True),
+        (["case", ["==", ["get", "kind"], "a"], "up-a", "geolens-fill-dots"], True),
+        (["match", ["get", "kind"], "x", "geolens-fill-hatch", "up-b"], True),
+        (["match", ["get", "kind"], "x", "up-a", "geolens-fill-dots"], True),
+        (["step", ["zoom"], "geolens-fill-grid", 10, "up-a"], True),
+        (["coalesce", "up-a", "geolens-fill-dots"], True),
+        # Nested expressions are followed through the output positions.
+        (
+            [
+                "match",
+                ["get", "k"],
+                "x",
+                ["case", [">", 1, 0], "geolens-fill-grid", "u"],
+                "u2",
+            ],
+            True,
+        ),
+        # An expression shape that cannot yield an image id is left alone.
+        (["literal", "geolens-fill-grid"], False),
+    ],
+)
+def test_data_driven_fill_pattern_is_read_at_its_output_positions(pattern, stripped):
+    """Only the four branching forms that can return an image id are inspected,
+    and only at their documented output operands.
 
-    Here it is a comparison operand, and every branch the expression can
-    actually return is a real uploaded sprite id — scanning nested strings would
-    strip a working layer down to a solid fill. Telling an output branch from an
-    operand needs an expression evaluator, and the builder's pattern control
-    writes a single value, so there is nothing to gain by guessing.
+    The builder's pattern control writes a single value, so any expression here
+    is hand-authored; guessing in either direction has a cost, and both were
+    paid before this shape: scanning every nested string flattened working
+    layers, and ignoring lists left genuinely broken ones broken.
     """
-    pattern = [
-        "case",
-        ["==", ["get", "kind"], "geolens-fill-grid"],
-        "uploaded-a",
-        "uploaded-b",
-    ]
     style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
 
-    assert _fill_paint(style)["fill-pattern"] == pattern
+    paint = _fill_paint(style)
+    if stripped:
+        assert "fill-pattern" not in paint
+        assert paint["fill-color"] == style_json.DEFAULT_FILL_COLOR
+    else:
+        assert paint["fill-pattern"] == pattern
 
 
 @pytest.mark.parametrize(
