@@ -12891,6 +12891,7 @@
         "type": "object"
       },
       "RasterTileToken": {
+        "description": "A raster tile template, signed like its vector sibling.\n\nfix(#688): the raster shape used to carry no signature at all, so a client\nfollowing the API contract literally received an *unauthenticated* template\nfor a private raster. MapLibre issues the tile image requests itself and\nattaches no `X-Api-Key`, so an API-key-only client could not render one \u2014\nthe workarounds were `setTransformRequest` (not available to every consumer)\nor `?api_key=` in the tile URL, which puts a non-expiring unscoped\ncredential into tile URLs, server logs, and saved client project files.\n\n`tile_url` now arrives with `sig`/`exp`/`scope` already in its query string,\nso the template is self-sufficient and expires. The three are also returned\nas fields, mirroring `VectorTileToken`, for clients that rebuild the URL.",
         "properties": {
           "bounds": {
             "anyOf": [
@@ -12905,6 +12906,14 @@
               }
             ],
             "title": "Bounds"
+          },
+          "exp": {
+            "title": "Exp",
+            "type": "integer"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
           },
           "format": {
             "title": "Format",
@@ -12923,6 +12932,14 @@
             "title": "Minzoom",
             "type": "integer"
           },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "sig": {
+            "title": "Sig",
+            "type": "string"
+          },
           "tile_size": {
             "title": "Tile Size",
             "type": "integer"
@@ -12935,6 +12952,10 @@
         "required": [
           "kind",
           "tile_url",
+          "sig",
+          "exp",
+          "scope",
+          "expires_in",
           "bounds",
           "minzoom",
           "maxzoom",

@@ -12,7 +12,17 @@ export type VectorTileToken = {
 
 export type RasterTileToken = {
   kind: 'raster';
+  /** fix(#688): arrives with `?sig=&exp=&scope=` already in it. MapLibre issues
+   * the tile image requests itself and attaches no header, so the template has
+   * to be self-sufficient for a client that cannot use `setTransformRequest`. */
   tile_url: string;
+  /** Optional only because `rasterTokenFromLayer` (map-sync.ts) builds this
+   * shape locally from a saved layer row, which has no signature — the in-app
+   * map authenticates with a bearer token instead. The API always sends them. */
+  sig?: string;
+  exp?: number;
+  scope?: string;
+  expires_in?: number;
   bounds: number[] | null;
   minzoom: number;
   maxzoom: number;

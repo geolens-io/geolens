@@ -7477,12 +7477,34 @@ export type RasterPreviewResponse = {
 
 /**
  * RasterTileToken
+ *
+ * A raster tile template, signed like its vector sibling.
+ *
+ * fix(#688): the raster shape used to carry no signature at all, so a client
+ * following the API contract literally received an *unauthenticated* template
+ * for a private raster. MapLibre issues the tile image requests itself and
+ * attaches no `X-Api-Key`, so an API-key-only client could not render one —
+ * the workarounds were `setTransformRequest` (not available to every consumer)
+ * or `?api_key=` in the tile URL, which puts a non-expiring unscoped
+ * credential into tile URLs, server logs, and saved client project files.
+ *
+ * `tile_url` now arrives with `sig`/`exp`/`scope` already in its query string,
+ * so the template is self-sufficient and expires. The three are also returned
+ * as fields, mirroring `VectorTileToken`, for clients that rebuild the URL.
  */
 export type RasterTileToken = {
     /**
      * Bounds
      */
     bounds: Array<number> | null;
+    /**
+     * Exp
+     */
+    exp: number;
+    /**
+     * Expires In
+     */
+    expires_in: number;
     /**
      * Format
      */
@@ -7499,6 +7521,14 @@ export type RasterTileToken = {
      * Minzoom
      */
     minzoom: number;
+    /**
+     * Scope
+     */
+    scope: string;
+    /**
+     * Sig
+     */
+    sig: string;
     /**
      * Tile Size
      */

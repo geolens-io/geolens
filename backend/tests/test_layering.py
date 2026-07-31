@@ -1107,7 +1107,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
     # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
     # documented at the site. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2069,
+    # fix(#688): +73 — the raster tile template is signed like its vector
+    # sibling (mint in _build_tile_token_for_dataset, verify in
+    # _resolve_raster_access via _has_tile_signature/_verify_raster_tile_signature).
+    # Before this a client following the contract literally received an
+    # unauthenticated template for a private raster. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2142,
 }
 
 

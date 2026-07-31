@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from typing import Any, Literal, NamedTuple
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 import httpx
 import structlog
@@ -750,6 +750,51 @@ async def _resolve_raster_meta(
     return meta
 
 
+def _has_tile_signature(request: Request) -> bool:
+    """Whether the caller presented a full signed-template triple."""
+    params = request.query_params
+    return all(params.get(name) for name in ("sig", "exp", "scope"))
+
+
+def _verify_raster_tile_signature(request: Request, dataset_id: uuid.UUID) -> None:
+    """Authorize a raster tile request by its signed template, or raise 403.
+
+    fix(#688): the mirror of the vector verify path. The expected scope is
+    recomputed here with the SAME ``tenant_bound_scope(str(dataset.id))``
+    expression the mint site uses — the two must never be allowed to drift,
+    because a divergence is a silent authorization bypass rather than a test
+    failure. A raster dataset has no ``table_name``, so the dataset id is the
+    resource string; it is already unique per tenant and is what the tile URL
+    keys on.
+
+    ``tenant_bound_scope`` raises when multi-tenant is active with no tenant in
+    context, so the import stays inside the function exactly as it does on the
+    vector path.
+    """
+    from app.core.tenancy import tenant_bound_scope
+
+    sig = request.query_params.get("sig")
+    exp_raw = request.query_params.get("exp")
+    scope = request.query_params.get("scope")
+
+    if scope != tenant_bound_scope(str(dataset_id)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
+        )
+    try:
+        exp = int(exp_raw or "")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired signature",
+        )
+    if not verify_tile_signature(scope, exp, sig or ""):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired signature",
+        )
+
+
 async def _resolve_raster_access(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -783,8 +828,16 @@ async def _resolve_raster_access(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired embed token",
             )
+    elif visibility != "public" and _has_tile_signature(request):
+        # fix(#688) auth priority 2: a signed template, mirroring the vector
+        # path. MapLibre issues tile image requests itself and attaches no
+        # header, so without this an API-key-only client could not render a
+        # private raster at all — the contract handed it a template that could
+        # never authenticate. nginx forwards `$is_args$args` to this proxy, so
+        # the query string arrives intact (`frontend/nginx.conf`).
+        _verify_raster_tile_signature(request, dataset_id)
     elif visibility != "public":
-        # Auth priority 2: require authenticated user for non-public datasets
+        # Auth priority 3: require authenticated user for non-public datasets
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1223,9 +1276,29 @@ def _build_tile_token_for_dataset(
                     dataset_id=str(dataset.id),
                 )
 
+        # fix(#688): sign the raster template too. A raster dataset has no
+        # table_name to bind the scope to, so the resource string is the dataset
+        # id — already unique per tenant, and what the tile URL keys on. The
+        # tenant binding is WR-03, exactly as on the vector branch below: without
+        # it a token minted for tenant A is replayable in tenant B's context.
+        # This expression is mirrored byte-for-byte at the verify site in
+        # `_resolve_raster_access`; a divergence there is a silent authorization
+        # bypass rather than a test failure, so both go through this one helper.
+        from app.core.tenancy import tenant_bound_scope
+
+        raster_exp = round_expiry()
+        raster_scope = tenant_bound_scope(str(dataset.id))
+        raster_sig = generate_tile_signature(raster_scope, raster_exp)
+        tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
+        query = urlencode({"sig": raster_sig, "exp": raster_exp, "scope": raster_scope})
+
         return RasterTileToken(
             kind="raster",
-            tile_url=f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+            tile_url=f"{tile_path}?{query}",
+            sig=raster_sig,
+            exp=raster_exp,
+            scope=raster_scope,
+            expires_in=raster_exp - int(time.time()),
             bounds=bounds,
             minzoom=0,
             maxzoom=_raster_maxzoom_from_metadata(

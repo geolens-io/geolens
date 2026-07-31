@@ -9,6 +9,7 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -901,3 +902,174 @@ async def test_band_stats_cache_negative(monkeypatch):
     assert mock_get.call_count == 1, (
         "None is cached — second call must not retry Titiler"
     )
+
+
+# ---------------------------------------------------------------------------
+# fix(#688): signed raster tile templates
+# ---------------------------------------------------------------------------
+
+
+class TestSignedRasterTileTemplate:
+    """The raster token used to carry no signature at all.
+
+    A client following the API contract literally received an *unauthenticated*
+    template for a private raster: MapLibre issues the tile image requests and
+    attaches no ``X-Api-Key``, so an API-key-only client could not render one.
+    """
+
+    @staticmethod
+    def _signed_params(token: dict) -> dict:
+        return {"sig": token["sig"], "exp": token["exp"], "scope": token["scope"]}
+
+    async def test_raster_token_mints_a_self_sufficient_signed_template(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The template carries its own credentials and expires."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+
+        resp = await client.get(
+            f"/tiles/token/{dataset.id}/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        token = resp.json()
+
+        assert token["kind"] == "raster"
+        assert token["scope"].endswith(str(dataset.id))
+        assert token["expires_in"] > 0
+        # The signature travels in the URL, because MapLibre never sends headers.
+        assert f"sig={token['sig']}" in token["tile_url"]
+        assert f"exp={token['exp']}" in token["tile_url"]
+        # ...and the placeholders survive the query string.
+        assert "{z}" in token["tile_url"] and "{y}" in token["tile_url"]
+
+    async def test_a_signed_template_renders_a_private_raster_without_a_header(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The whole point: no Authorization, no X-Api-Key, still authorized."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        token = (
+            await client.get(f"/tiles/token/{dataset.id}/", headers=admin_auth_header)
+        ).json()
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), **self._signed_params(token)},
+        )
+
+        assert resp.status_code == 200
+        assert asset.asset_uri in resp.headers["x-geolens-asset-openpath"]
+
+    async def test_an_unsigned_request_for_a_private_raster_still_401s(
+        self, client: AsyncClient, test_db_session
+    ):
+        """The signed branch is additive; it does not open the unsigned path."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
+        )
+
+        assert resp.status_code == 401
+
+    async def test_a_tampered_signature_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        token = (
+            await client.get(f"/tiles/token/{dataset.id}/", headers=admin_auth_header)
+        ).json()
+        params = self._signed_params(token)
+        params["sig"] = "0" * len(params["sig"])
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id), **params},
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Invalid or expired signature"
+
+    async def test_a_signature_minted_for_another_dataset_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The scope binds the token to one dataset, so it cannot be replayed.
+
+        This is the check that makes the id-based scope meaningful: without it a
+        token for any raster the caller can read would open every other one.
+        """
+        admin_id = await _get_admin_id(test_db_session)
+        _r1, mine, _a1 = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        _r2, other, _a2 = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        token = (
+            await client.get(f"/tiles/token/{mine.id}/", headers=admin_auth_header)
+        ).json()
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(other.id), **self._signed_params(token)},
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Scope mismatch"
+
+    async def test_an_expired_signature_is_refused(
+        self, client: AsyncClient, test_db_session
+    ):
+        from app.core.tenancy import tenant_bound_scope
+        from app.processing.tiles.signing import generate_tile_signature
+
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+        scope = tenant_bound_scope(str(dataset.id))
+        expired = int(time.time()) - 60
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={
+                "dataset_id": str(dataset.id),
+                "sig": generate_tile_signature(scope, expired),
+                "exp": expired,
+                "scope": scope,
+            },
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Invalid or expired signature"
+
+    async def test_a_non_numeric_exp_is_refused_rather_than_500ing(
+        self, client: AsyncClient, test_db_session
+    ):
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={
+                "dataset_id": str(dataset.id),
+                "sig": "abc",
+                "exp": "not-a-number",
+                "scope": "whatever",
+            },
+        )
+
+        assert resp.status_code == 403
