@@ -43,6 +43,64 @@ _EVENT_EQ = re.compile(r"github\.event_name\s*==\s*['\"]([^'\"]+)['\"]")
 _EVENT_NE = re.compile(r"github\.event_name\s*!=\s*['\"]([^'\"]+)['\"]")
 
 
+def _top_level_or_split(cond: str) -> list[str]:
+    """Split on ``||`` at paren depth zero. Nested groups stay intact."""
+    parts, depth, buf, i = [], 0, [], 0
+    while i < len(cond):
+        c = cond[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and cond.startswith("||", i):
+            parts.append("".join(buf))
+            buf, i = [], i + 2
+            continue
+        buf.append(c)
+        i += 1
+    parts.append("".join(buf))
+    return [pp.strip() for pp in parts if pp.strip()]
+
+
+def _wraps_whole(part: str) -> bool:
+    """True when the outer parens enclose the WHOLE expression.
+
+    `(a || b)` does; `(a) && (b)` does not, and stripping its outer characters
+    would produce `a) && (b`.
+    """
+    if not (part.startswith("(") and part.endswith(")")):
+        return False
+    depth = 0
+    for i, c in enumerate(part):
+        depth += (c == "(") - (c == ")")
+        if depth == 0 and i < len(part) - 1:
+            return False
+    return depth == 0
+
+
+def _satisfied_by_merge_group_alone(part: str) -> bool:
+    """True when this branch is satisfied by ``merge_group`` and nothing else.
+
+    fix(#1074 review), a second P1. Asking "does `merge_group` appear among the
+    equality comparisons" accepted it wherever it sat, including inside a
+    conjunction: ``github.event_name == 'merge_group' && needs.changes.outputs
+    .backend == 'true'`` returned True, while the `changes` job leaves that
+    output empty in the queue so the gate really skips. The equality appearing
+    is not the equality deciding.
+
+    So: unwrap enclosing parens, recurse through ``||``, and accept a leaf only
+    when it is exactly the merge_group equality. Anything conjoined with it
+    might be false and this cannot evaluate it.
+    """
+    part = part.strip()
+    while _wraps_whole(part):
+        part = part[1:-1].strip()
+    branches = _top_level_or_split(part)
+    if len(branches) > 1:
+        return any(_satisfied_by_merge_group_alone(b) for b in branches)
+    return bool(re.fullmatch(r"github\.event_name\s*==\s*['\"]merge_group['\"]", part))
+
+
 def _runs_on_merge_group(job: dict) -> bool:
     """Whether ``job``'s ``if:`` lets it run on a ``merge_group`` event.
 
@@ -53,38 +111,37 @@ def _runs_on_merge_group(job: dict) -> bool:
     everywhere" would report ``e2e-test`` and ``accessibility`` as running in
     the queue when their event allowlists provably exclude it.
 
-    After stripping: nothing left means no gate at all, so the job runs. A
-    ``github.event_name`` comparison means the job runs only if ``merge_group``
-    is among the permitted ones.
+    After stripping: nothing left means no gate at all, so the job runs.
+    Otherwise the condition is split into top-level ``||`` disjuncts, and the
+    job is reported as running only when **some disjunct is satisfied by
+    merge_group alone** — the shape every gated job in ``ci.yml`` actually
+    uses. A disjunct that conjoins the equality with anything else does not
+    count, because the other conjunct may be false and this cannot evaluate it.
 
-    **Anything else is reported as NOT running** (fix(#1074 review), a P1). The
-    tempting reading — "no event comparison, therefore no event gate, therefore
-    it runs" — is wrong for the shape this repo actually uses. A bare
-    ``needs.changes.outputs.backend == 'true'`` has no event clause, but the
-    ``changes`` job deliberately SKIPS its paths-filter step on ``merge_group``
-    (it has no base ref to diff), so those outputs are empty there and the job
-    skips. Reading that as "runs" is precisely the false all-clear this guard
-    exists to prevent, in the guard itself.
+    **Everything else is reported as NOT running.** Two P1s came from the
+    opposite default. A bare ``needs.changes.outputs.backend == 'true'`` has no
+    event clause at all, but ``changes`` skips its paths-filter step in the
+    queue so those outputs are empty and the job skips. And the equality
+    appearing inside a conjunction is not the equality deciding. Both read as
+    "runs" under a permissive rule, which is the green-CI-OK-over-skipped-gates
+    failure this file exists to detect.
 
-    So the default is conservative: a condition this cannot prove runs is
-    reported as skipping. That direction is deliberate. A false alarm costs
-    someone ten minutes of looking; a false all-clear costs an untested merge
-    and nobody looks at all. If a legitimate new shape trips it, the answer is
-    to teach this function that shape — or evaluate the expression properly —
-    not to widen the fallback.
+    The direction is deliberate: a false alarm costs someone ten minutes; a
+    false all-clear costs an untested merge and nobody looks. If a legitimate
+    new shape trips it, teach this function that shape or evaluate the
+    expression — do not widen the fallback.
     """
     condition = job.get("if")
     if condition is None:
         return True  # no gate
     cond = " ".join(str(condition).split()).replace("always()", "").strip()
-    if not cond or cond == "&&":
+    while cond.startswith("&&"):
+        cond = cond[2:].strip()
+    if not cond:
         return True  # bare always()
     if "merge_group" in _EVENT_NE.findall(cond):
         return False  # explicitly excluded
-    permitted = _EVENT_EQ.findall(cond)
-    if permitted:
-        return "merge_group" in permitted
-    return False  # unrecognised: cannot prove it runs, so report it
+    return any(_satisfied_by_merge_group_alone(p) for p in _top_level_or_split(cond))
 
 
 def test_ci_reacts_to_merge_group():
@@ -248,3 +305,33 @@ def test_predicate_unrecognised_condition_reports_as_skipping():
         _runs_on_merge_group({"if": "github.repository == 'geolens-io/geolens'"})
         is False
     )
+
+
+def test_predicate_merge_group_inside_a_conjunction_reports_as_skipping():
+    """fix(#1074 review), the second P1. The equality APPEARING is not the
+    equality DECIDING. `changes` leaves its outputs empty in the queue, so this
+    gate really skips — and a membership test called it running."""
+    condition = (
+        "github.event_name == 'merge_group' && needs.changes.outputs.backend == 'true'"
+    )
+    assert _runs_on_merge_group({"if": condition}) is False
+
+
+def test_predicate_merge_group_in_a_parenthesised_disjunct_runs():
+    """The control: a real disjunct satisfied by merge_group alone still runs,
+    including when the whole allowlist is wrapped in parens."""
+    condition = (
+        "always() && (github.event_name == 'push' "
+        "|| github.event_name == 'merge_group')"
+    )
+    assert _runs_on_merge_group({"if": condition}) is True
+
+
+def test_predicate_nested_conjunction_beside_a_clean_disjunct_runs():
+    """A conjunctive branch does not poison a sibling that stands alone —
+    e2e-smoke is exactly this shape."""
+    condition = (
+        "(github.event_name == 'pull_request' && needs.changes.outputs.e2e == 'true') "
+        "|| github.event_name == 'merge_group'"
+    )
+    assert _runs_on_merge_group({"if": condition}) is True
