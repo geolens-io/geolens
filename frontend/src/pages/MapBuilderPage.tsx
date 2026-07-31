@@ -488,9 +488,11 @@ export function MapBuilderPage() {
     onRevertToSaved: layers.requestCleanRecheck,
   }), [dispatchLayerAction, handleRenderModeChange, handleTabChange, layers.requestCleanRecheck]);
 
-  // fix(#913): route page-owned dirt through markDirty so the clean-state
-  // recheck knows it cannot re-derive this from server state.
-  const handleMarkDirty = layers.markDirty;
+  // fix(#913 review): the dock's notes live in page state the layers hook cannot
+  // compare against server data, so this is the OPAQUE marker. Controls whose
+  // fields the hook does compare (map name/description via MapTitleBar, basemap
+  // swap/remove) use the plain markDirty instead.
+  const handleMarkDirty = layers.markOpaqueDirty;
 
   // Plugin toggles live in a store outside the layer state that drives
   // hasUnsavedChanges, so wrap the toggle to mark the map dirty — otherwise the
@@ -499,7 +501,8 @@ export function MapBuilderPage() {
   const handleTogglePlugin = useCallback(
     (pluginId: string) => {
       togglePlugin(pluginId);
-      layers.markDirty();
+      // Plugin state lives in its own store — not re-derivable here.
+      layers.markOpaqueDirty();
     },
     [togglePlugin, layers],
   );
