@@ -420,6 +420,11 @@ class TestSettingsConstraints:
             ("analysis_registration_timeout_seconds", 0),
             ("analysis_registration_timeout_seconds", -1),
             ("analysis_registration_timeout_seconds", "not-a-number"),
+
+            # fix(#1012): a zero or negative work_mem budget would render an
+            # invalid SET LOCAL and fail every materialize at run time.
+            ("analysis_materialize_work_mem_mb", 0),
+            ("analysis_materialize_work_mem_mb", -1),
             ("ingest_jobs_retention_days", -1),
             ("smtp_port", 0),
             ("smtp_port", 65536),

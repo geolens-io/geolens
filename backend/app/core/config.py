@@ -257,6 +257,31 @@ class Settings(BaseSettings):
     # someone an afternoon.
     analysis_registration_timeout_seconds: int = Field(default=600, gt=0)
 
+    # fix(#1012): per-slot work_mem budget for the materialize CTAS, in MB.
+    #
+    # Configurable because the safe value depends on two things this process
+    # cannot see. DB_MEM_LIMIT is a compose `mem_limit` and is never passed into
+    # the api or worker environment, so the backend cannot read the database's
+    # actual ceiling — and it is operator-tunable (docker-compose.prod.yml
+    # documents 1.5g, and an external PostgreSQL may be smaller still). Nor can
+    # a per-process divisor bound a deployment that runs more than one worker
+    # service against the `ingest` queue: each replica would claim this budget
+    # independently.
+    #
+    # The default is deliberately conservative rather than optimal. work_mem is
+    # per operation AND per backend, so one materialize can allocate this value
+    # times the memory-hungry nodes in its plan (at most 2 for these shapes)
+    # times the backends running it (2, since max_parallel_workers_per_gather is
+    # 1). At 64MB that is 256MB per worker replica, so even two replicas stay
+    # inside the default 2 GB alongside shared_buffers (512MB) and
+    # maintenance_work_mem (128MB).
+    #
+    # RAISE IT only with headroom you have checked: a larger DB_MEM_LIMIT, or a
+    # single worker service. LOWER IT for a smaller database container or more
+    # worker replicas. Setting it at or below the cluster default (8MB) leaves
+    # analysis on the cluster-wide value, which is the pre-#1012 behaviour.
+    analysis_materialize_work_mem_mb: int = Field(default=64, gt=0)
+
     # fix(#434): finished ingest_jobs rows previously lived forever, so the
     # admin Jobs page accumulated stale test junk with no cleanup affordance.
     # Terminal jobs (complete/failed/cancelled/fanned_out) older than this many

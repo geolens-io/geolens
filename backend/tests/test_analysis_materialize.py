@@ -2669,13 +2669,36 @@ class TestMaterializeWorker:
         db container's exposure."""
         from app.core.config import settings
 
+        # Set the baseline rather than asserting the shipped default: settings
+        # is a module-level singleton, so ANALYSIS_MATERIALIZE_WORK_MEM_MB in
+        # the environment would otherwise decide this test's outcome.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 64)
         monkeypatch.setattr(settings, "worker_concurrency", 1)
-        assert _materialize_work_mem() == "128MB"
+        assert _materialize_work_mem() == "64MB"
         monkeypatch.setattr(settings, "worker_concurrency", 4)
-        assert _materialize_work_mem() == "32MB"
+        assert _materialize_work_mem() == "16MB"
         # Never below the cluster default — a division that landed under 8MB
         # would make analysis slower than leaving work_mem alone.
         monkeypatch.setattr(settings, "worker_concurrency", 64)
+        assert _materialize_work_mem() == "8MB"
+
+    def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
+        """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
+        many worker services consume the ingest queue, neither of which this
+        process can see — DB_MEM_LIMIT is a compose mem_limit and is never in
+        this container's environment. A hardcoded ceiling was therefore only
+        valid for the default 2 GB single-worker deployment, and could OOM a
+        smaller database or a scaled-out one."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "worker_concurrency", 1)
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 16)
+        assert _materialize_work_mem() == "16MB"
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 256)
+        assert _materialize_work_mem() == "256MB"
+        # Below the cluster default it stays on the cluster-wide value, which
+        # is the pre-#1012 behaviour rather than a slower one.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 2)
         assert _materialize_work_mem() == "8MB"
 
     async def test_worker_rechecks_size_caps_before_ctas(
