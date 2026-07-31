@@ -466,6 +466,50 @@ class TestAnalysisMaterializeCli:
         assert result.exit_code == 0, result.output
         assert seen["timeout"] == 30.0
 
+    def test_an_explicit_timeout_also_bounds_each_request(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#685 review): the poll deadline is only checked between
+        iterations, and the SDK builds its httpx client with no request
+        timeout at all, so a stalled response would outlive --timeout."""
+        from geolens_cli.main import app
+
+        bounded: dict = {}
+
+        class _Bounded:
+            def with_timeout(self, value):  # pragma: no cover - trivial
+                bounded["value"] = value
+                return self
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.main.AppState.sdk",
+            lambda self: type("S", (), {"client": _Bounded()})(),
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: "ds-new"
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "30",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert bounded["value"] == 30.0
+
     def test_a_non_finite_timeout_is_a_usage_error(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:

@@ -960,8 +960,15 @@ def analysis_materialize(
             state.output.success(f"Analysis job queued: {job_id}")
         return
 
+    # fix(#685 review): the deadline below is only checked BETWEEN polls, so a
+    # request that stalls after connecting would outlive the bound the caller
+    # asked for. The SDK builds its httpx client with timeout=None (no limit at
+    # all, not httpx's 5s default), so give the polling client the same bound.
+    # A float rather than an httpx.Timeout because OCCLI-06 forbids importing
+    # httpx here; httpx accepts either.
+    poll_client = sdk.client if timeout is None else sdk.client.with_timeout(timeout)
     resolved = _publish.resolve_dataset_id(
-        sdk.client,
+        poll_client,
         job_id,
         timeout=_analysis.POLL_FOREVER if timeout is None else timeout,
     )
@@ -971,7 +978,7 @@ def analysis_materialize(
         # either as success. Read the status back so the two get different
         # sentences; both still exit non-zero, because neither produced the
         # dataset the caller waited for.
-        status = _analysis.job_status(sdk.client, job_id)
+        status = _analysis.job_status(poll_client, job_id)
         if status == "failed":
             state.output.error(
                 f"Analysis job {job_id} failed. Its error is on the job record: "
