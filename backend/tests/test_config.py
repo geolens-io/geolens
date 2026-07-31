@@ -432,6 +432,34 @@ class TestSettingsConstraints:
         with pytest.raises(Exception):
             _make_settings(**{field: value})
 
+    def test_undividable_work_mem_budget_is_refused_at_boot(self):
+        """fix(#1012 review): a budget too small to split into legal shares has
+        no honest run-time outcome.
+
+        Issuing PostgreSQL's 64kB minimum exceeds the budget; skipping the
+        override leaves the cluster's own work_mem — usually LARGER — in force
+        for every slot, overshooting by more. So it fails at boot.
+        """
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(analysis_materialize_work_mem_mb=1, worker_concurrency=32)
+        message = str(exc_info.value)
+        assert "32kB per slot" in message, message
+        assert "64kB minimum" in message, message
+
+        # The documented escape hatches both boot.
+        assert (
+            _make_settings(
+                analysis_materialize_work_mem_mb=0, worker_concurrency=32
+            ).analysis_materialize_work_mem_mb
+            == 0
+        )
+        assert (
+            _make_settings(
+                analysis_materialize_work_mem_mb=64, worker_concurrency=32
+            ).worker_concurrency
+            == 32
+        )
+
     def test_documented_zero_and_negative_sentinels_remain_supported(self):
         s = _make_settings(
             tile_cache_ttl=0,

@@ -142,10 +142,9 @@ def registration_timeout() -> str:
 # work_mem" — it skips the SET LOCAL entirely.
 #
 # The division is done in kB, not MB, so the budget is never exceeded by
-# rounding: a 1MB budget across 128 slots is 8kB each, not 1MB each. Below
-# PostgreSQL's own 64kB minimum the budget cannot be honoured at all, so the
-# override is skipped rather than silently overshot.
-_MIN_WORK_MEM_KB = 64
+# rounding: a 64MB budget across 128 slots is 512kB each, not 1MB each. A
+# budget too small to divide into legal shares is rejected at boot rather than
+# resolved at run time — see validate_materialize_work_mem_budget.
 
 
 async def _apply_materialize_work_mem(session: AsyncSession) -> None:
@@ -179,12 +178,11 @@ def _materialize_work_mem() -> str | None:
     budget_kb = settings.analysis_materialize_work_mem_mb * 1024
     if budget_kb <= 0:
         return None
+    # A share below PostgreSQL's 64kB minimum cannot happen: config.py's
+    # validate_materialize_work_mem_budget refuses to boot on it, because
+    # neither issuing the minimum (over budget) nor skipping the override
+    # (cluster's larger value, further over budget) honours the ceiling.
     per_slot_kb = budget_kb // max(1, settings.worker_concurrency)
-    if per_slot_kb < _MIN_WORK_MEM_KB:
-        # Honouring the budget would need a work_mem below what PostgreSQL
-        # accepts, so raising it at all would break the ceiling this setting
-        # exists to hold. Leave the cluster's value alone instead.
-        return None
     if per_slot_kb % 1024 == 0:
         return f"{per_slot_kb // 1024}MB"
     return f"{per_slot_kb}kB"

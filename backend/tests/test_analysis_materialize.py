@@ -2739,13 +2739,13 @@ class TestMaterializeWorker:
         # cannot know whether such a floor preserves that value or raises it.
         monkeypatch.setattr(settings, "worker_concurrency", 128)
         assert _materialize_work_mem() == "512kB"
-        # Below PostgreSQL's 64kB minimum the budget cannot be honoured, so the
-        # override is skipped rather than silently overshot.
+        # Sub-megabyte shares are expressed in kB rather than rounded.
         monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 1)
         monkeypatch.setattr(settings, "worker_concurrency", 8)
         assert _materialize_work_mem() == "128kB"
-        monkeypatch.setattr(settings, "worker_concurrency", 1024)
-        assert _materialize_work_mem() is None
+        # A share below PostgreSQL's 64kB minimum cannot reach here: it is
+        # refused at boot (test_config.py), because neither the minimum nor
+        # falling back to the cluster's value honours the budget.
 
     def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
         """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how

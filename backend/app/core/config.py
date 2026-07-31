@@ -555,6 +555,35 @@ class Settings(BaseSettings):
         return ",".join(queues)
 
     @model_validator(mode="after")
+    def validate_materialize_work_mem_budget(self) -> "Settings":
+        """fix(#1012): refuse a budget that cannot be divided into legal shares.
+
+        The budget is split across WORKER_CONCURRENCY slots. If a share falls
+        below PostgreSQL's 64kB minimum for work_mem there is no honest
+        outcome at run time: issuing the minimum exceeds the budget, and
+        skipping the override leaves the cluster's own work_mem — usually
+        LARGER — in force for every slot, which overshoots by more still. A
+        1MB budget across 32 slots wants 32kB each; falling back to a bundled
+        8MB default would expose 256MB. Neither is what the operator asked
+        for, so the configuration is rejected at boot instead.
+        """
+        budget_kb = self.analysis_materialize_work_mem_mb * 1024
+        if budget_kb <= 0:
+            return self
+        per_slot_kb = budget_kb // max(1, self.worker_concurrency)
+        if per_slot_kb < 64:
+            raise ValueError(
+                f"ANALYSIS_MATERIALIZE_WORK_MEM_MB="
+                f"{self.analysis_materialize_work_mem_mb} divided across "
+                f"WORKER_CONCURRENCY={self.worker_concurrency} is "
+                f"{per_slot_kb}kB per slot, below PostgreSQL's 64kB minimum "
+                "for work_mem. Raise the budget, lower WORKER_CONCURRENCY, or "
+                "set ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 to leave work_mem at "
+                "the cluster's own value."
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_provider_settings(self) -> "Settings":
         if self.storage_provider == "s3":
             missing: list[str] = []
