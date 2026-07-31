@@ -13,6 +13,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.modules.catalog.maps.models import Map, MapLayer
 from tests.factories import (
@@ -505,6 +506,47 @@ class TestUpdateMetadata:
         await test_db_session.commit()
         return ds
 
+    async def test_a_granted_restricted_dataset_still_blocks_the_drop_to_private(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r1/r2): `restricted` is a partial audience when, and
+        only when, someone actually holds a grant.
+
+        With a grant row the layer really does render for those viewers, and
+        dropping to private takes it from them — the stranding this guard is
+        for. Without one the same move reaches nobody new, which is the
+        parametrised `restricted -> private` row above.
+        """
+        from app.modules.auth.models import Role
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = "Granted Restricted Map"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+        role = (
+            await test_db_session.execute(select(Role).where(Role.name == "viewer"))
+        ).scalar_one()
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert map_name in resp.json()["detail"]
+
     @pytest.mark.parametrize(
         ("dataset_visibility", "map_visibility", "new_visibility", "blocked"),
         [
@@ -520,11 +562,12 @@ class TestUpdateMetadata:
             ("public", "internal", "internal", False),
             # A private map has no audience beyond its owner and grantees.
             ("public", "private", "private", False),
-            # fix(#931 codex r1): `restricted` is a PARTIAL audience, not an
-            # absent one. Grant holders could render this layer, and dropping to
-            # private takes it from them — the exact stranding this guard is for.
-            ("restricted", "internal", "private", True),
-            ("restricted", "public", "private", True),
+            # fix(#931 codex r2): a restricted dataset with NO grants reaches
+            # nobody beyond its owner and admins, who keep access either way —
+            # blocking that move would be a refusal that lies. The granted case
+            # is covered separately below, since it needs a grant row.
+            ("restricted", "internal", "private", False),
+            ("restricted", "public", "private", False),
             # Widening never strands anyone.
             ("restricted", "internal", "public", False),
             ("private", "internal", "internal", False),

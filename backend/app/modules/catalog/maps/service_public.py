@@ -92,17 +92,41 @@ _SHARED_MAP_AUDIENCES = ("public", "internal")
 _DATASET_AUDIENCE_RANK = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
 
 
-def _reach_rank(map_visibility: str, dataset_visibility: str) -> int:
+def _reach_rank(
+    map_visibility: str, dataset_visibility: str, *, restricted_has_grants: bool
+) -> int:
     """How much of ``map_visibility``'s audience the dataset reaches.
 
     An internal map's audience is every signed-in user, and both ``internal``
     and ``public`` reach all of them — so the two tie there, which is what makes
     the public-to-internal move safe on an internal map and not on a public one.
+
+    fix(#931 codex r2): ``restricted`` only outranks ``private`` when grants
+    actually exist. A restricted dataset with no ``DatasetGrant`` rows — the
+    state you land in by flipping an ungranted dataset to restricted — reaches
+    nobody beyond its owner and admins, who keep access afterwards either way.
+    Ranking it 1 unconditionally blocked ``restricted -> private`` on a map
+    nothing was stranded on, which is a refusal that lies to the user.
     """
     rank = _DATASET_AUDIENCE_RANK.get(dataset_visibility, 0)
+    if dataset_visibility == "restricted" and not restricted_has_grants:
+        rank = _DATASET_AUDIENCE_RANK["private"]
     if map_visibility == "internal":
         return min(rank, _DATASET_AUDIENCE_RANK["internal"])
     return rank
+
+
+async def _dataset_has_grants(session: AsyncSession, dataset_id: uuid.UUID) -> bool:
+    """Whether any role holds a grant on this dataset.
+
+    fix(#931 codex r2): queried only when ``restricted`` is one of the two
+    visibilities in play, so the ordinary public/internal/private moves cost
+    nothing extra.
+    """
+    from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+    stmt = select(DatasetGrant.dataset_id).where(DatasetGrant.dataset_id == dataset_id)
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
 async def find_maps_broken_by_dataset_visibility(
@@ -127,11 +151,18 @@ async def find_maps_broken_by_dataset_visibility(
 
     Empty = safe to apply.
     """
+    restricted_has_grants = False
+    if "restricted" in (old_visibility, new_visibility):
+        restricted_has_grants = await _dataset_has_grants(session, dataset_id)
     audiences = [
         visibility
         for visibility in _SHARED_MAP_AUDIENCES
-        if _reach_rank(visibility, new_visibility)
-        < _reach_rank(visibility, old_visibility)
+        if _reach_rank(
+            visibility, new_visibility, restricted_has_grants=restricted_has_grants
+        )
+        < _reach_rank(
+            visibility, old_visibility, restricted_has_grants=restricted_has_grants
+        )
     ]
     if not audiences:
         return []
