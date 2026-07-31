@@ -202,6 +202,32 @@ class TestMaterializedProvenance:
         ids = {feature["id"] for feature in resp.json()["features"]}
         assert str(out.id) in ids
 
+    def test_the_buffer_distance_survives_the_sentence(self):
+        """fix(#765 review): the lineage sentence must record the distance the
+        geometry was actually built with.
+
+        `:g` defaults to SIX significant digits, so it rounded silently. These
+        are the measured cases: an ordinary 8-digit distance, a repeating
+        decimal, and a value just under MAX_BUFFER_METERS that rounded UP past
+        the ceiling it was checked against.
+        """
+        for distance, expected in (
+            (500.0, "500 m"),
+            (1609.34, "1609.34 m"),
+            (12345.678, "12345.678 m"),
+            (33.333333333, "33.333333333 m"),
+            (99999.99, "99999.99 m"),
+            (100000.0, "100000 m"),
+        ):
+            sentence = build_lineage_sentence(
+                operation="buffer",
+                source_title="Parcels",
+                params={"distance_meters": distance},
+                actor="admin",
+                created_at=datetime(2026, 7, 31),
+            )
+            assert expected in sentence, f"{distance!r} rendered as {sentence!r}"
+
     async def test_clip_lineage_names_the_mask_layer(
         self, test_db_session: AsyncSession
     ):

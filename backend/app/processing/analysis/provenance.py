@@ -33,13 +33,28 @@ PARAM_KEYS = ("distance_meters", "by_field", "mask_source", "mask_dataset_id")
 
 
 def _format_metres(value: Any) -> str:
-    """Metres as a person would write them: 500 m, 1609.34 m, 2.5 m."""
+    """Metres as a person would write them: 500 m, 1609.34 m, 12345.678 m.
+
+    fix(#765 review): this used ``f"{number:g}"``, whose DEFAULT PRECISION IS
+    SIX SIGNIFICANT DIGITS — so it silently rounded, and the comment claiming
+    it did not was simply wrong. Measured: 12345.678 became "12345.7",
+    33.333333333 became "33.3333", and 99999.99 (a valid distance, just under
+    MAX_BUFFER_METERS) became "100000". The sentence is the human-readable
+    provenance shown to users and exported through DCAT, so it was recording a
+    distance the geometry had not been built with.
+
+    ``repr`` of a float is the SHORTEST string that round-trips to the same
+    double, so it reproduces whatever the caller submitted exactly, by
+    construction rather than by choosing a precision that looks big enough.
+    Only the trailing ".0" on whole metres is trimmed, which is the one thing
+    the old formatting was actually wanted for.
+    """
     try:
         number = float(value)
     except (TypeError, ValueError):
         return f"{value} m"
-    # %g drops the trailing .0 on whole metres without rounding real decimals.
-    return f"{number:g} m"
+    text = repr(number)
+    return f"{text.removesuffix('.0')} m"
 
 
 def _quoted(title: str | None) -> str:
