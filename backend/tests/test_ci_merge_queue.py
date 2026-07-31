@@ -80,6 +80,40 @@ def _top_level_or_split(cond: str) -> list[str]:
     return [pp.strip() for pp in parts if pp.strip()]
 
 
+def _top_level_and_split(cond: str) -> list[str]:
+    """Split on ``&&`` at paren depth zero. Mirror of the ``||`` splitter."""
+    parts, depth, buf, i = [], 0, [], 0
+    while i < len(cond):
+        c = cond[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and cond.startswith("&&", i):
+            parts.append("".join(buf))
+            buf, i = [], i + 2
+            continue
+        buf.append(c)
+        i += 1
+    parts.append("".join(buf))
+    return [pp.strip() for pp in parts if pp.strip()]
+
+
+# fix(#1096): an upstream-health guard, not an event gate. These conjuncts ask
+# whether the jobs this one `needs` succeeded; they say nothing about which
+# event triggered the run.
+_UPSTREAM_STATUS_GUARD = re.compile(
+    r"^!?\s*contains\(\s*needs\.\*\.result\s*,\s*['\"][a-z]+['\"]\s*\)$"
+)
+
+
+def _is_upstream_status_guard(part: str) -> bool:
+    part = part.strip()
+    while _wraps_whole(part):
+        part = part[1:-1].strip()
+    return bool(_UPSTREAM_STATUS_GUARD.fullmatch(part))
+
+
 def _wraps_whole(part: str) -> bool:
     """True when the outer parens enclose the WHOLE expression.
 
@@ -109,6 +143,24 @@ def _satisfied_by_merge_group_alone(part: str) -> bool:
     So: unwrap enclosing parens, recurse through ``||``, and accept a leaf only
     when it is exactly the merge_group equality. Anything conjoined with it
     might be false and this cannot evaluate it.
+
+    **One conjunction is accepted (fix(#1096)):** an event allowlist AND'ed with
+    nothing but ``needs.*.result`` status guards, the shape ``accessibility``
+    and ``stac-validate`` use::
+
+        (push || schedule || workflow_dispatch || merge_group)
+        && !contains(needs.*.result, 'failure')
+        && !contains(needs.*.result, 'cancelled')
+
+    This is taught rather than waved through, per the note in
+    ``_runs_on_merge_group``. The safety argument is specific: a status guard
+    is not an event gate. It can only be false when a job in this one's
+    ``needs`` failed or was cancelled, and every such job (backend-lint,
+    backend-test, frontend-lint, frontend-test, security-scan) is itself a
+    ci-ok dependency. So the case where this conjunct suppresses the job is
+    exactly the case where ci-ok is already failing for another reason, and the
+    skip cannot manufacture a false all-clear. That is the property this file
+    protects; anything else conjoined in still returns False.
     """
     part = part.strip()
     while _wraps_whole(part):
@@ -116,6 +168,11 @@ def _satisfied_by_merge_group_alone(part: str) -> bool:
     branches = _top_level_or_split(part)
     if len(branches) > 1:
         return any(_satisfied_by_merge_group_alone(b) for b in branches)
+    conjuncts = _top_level_and_split(part)
+    if len(conjuncts) > 1:
+        others = [c for c in conjuncts if not _is_upstream_status_guard(c)]
+        # Exactly one non-guard conjunct, and merge_group alone satisfies it.
+        return len(others) == 1 and _satisfied_by_merge_group_alone(others[0])
     return bool(re.fullmatch(r"github\.event_name\s*==\s*['\"]merge_group['\"]", part))
 
 
@@ -290,6 +347,41 @@ def test_predicate_path_filtered_shape_runs():
     assert _runs_on_merge_group({"if": condition}) is True
 
 
+@pytest.mark.parametrize(
+    ("condition", "expected", "why"),
+    [
+        (
+            "(github.event_name == 'push' || github.event_name == 'merge_group')"
+            " && !contains(needs.*.result, 'failure')",
+            True,
+            "event allowlist AND upstream status guards — the #1096 shape",
+        ),
+        (
+            "github.event_name == 'merge_group'"
+            " && needs.changes.outputs.backend == 'true'",
+            False,
+            "the #1074 P1: a path-filter output is empty in the queue",
+        ),
+        (
+            "(github.event_name == 'push' || github.event_name == 'merge_group')"
+            " && needs.changes.outputs.e2e == 'true'",
+            False,
+            "allowlist AND a conjunct that is NOT an upstream status guard",
+        ),
+    ],
+)
+def test_predicate_accepts_only_the_taught_conjunction(condition, expected, why):
+    """fix(#1096) widened the predicate by exactly one shape. Pin the edges.
+
+    The accepted conjunction is safe only because a ``needs.*.result`` guard
+    can be false solely when a ci-ok dependency already failed. Swap that
+    conjunct for anything the predicate cannot evaluate and it must go back to
+    reporting False, or this has become the permissive rule the file exists to
+    prevent.
+    """
+    assert _runs_on_merge_group({"if": condition}) is expected, why
+
+
 def test_predicate_explicit_exclusion_skips():
     """`!=` is an exclusion, and a substring match reads it as permission —
     the same class of error as the `always()` one. The `paths-filter` STEP is
@@ -300,11 +392,21 @@ def test_predicate_explicit_exclusion_skips():
 def test_predicate_agrees_with_the_real_workflow():
     """Cross-check against ci.yml rather than only synthetic conditions: every
     job whose condition names merge_group must read as running, and the
-    push/schedule-only jobs must read as skipping."""
+    push/schedule-only jobs must read as skipping.
+
+    fix(#1096): accessibility and stac-validate moved OUT of the second list
+    and into ci-ok's needs, so they are now covered by the first loop. The
+    #1000 decision to keep them off merge_group was correct while the queue was
+    off, because they gated nothing there and would only have spent minutes.
+    With the queue on, "runs on main's push after the merge" meant they could
+    not block the commit that broke them. What remains off is genuinely
+    expensive or externally billed: the nightly e2e suite and the live-provider
+    evals.
+    """
     jobs = _workflow()["jobs"]
     for name in jobs["ci-ok"]["needs"]:
         assert _runs_on_merge_group(jobs[name]), f"{name} must run in the queue"
-    for name in ("e2e-test", "accessibility", "stac-validate"):
+    for name in ("e2e-test", "ai-evals"):
         assert not _runs_on_merge_group(jobs[name]), (
             f"{name} is deliberately off merge_group; if that changed, the "
             "non-gating-jobs decision in #1000 needs revisiting"
