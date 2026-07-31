@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen } from '@/test/test-utils';
 import { useMapHistory } from '@/hooks/use-maps';
 import { HistoryPanel } from '../HistoryPanel';
 import type { MapHistoryEntryResponse, MapHistoryListResponse } from '@/types/api';
@@ -9,6 +9,8 @@ vi.mock('@/hooks/use-maps', () => ({
 
 const mockedUseMapHistory = vi.mocked(useMapHistory);
 
+const refetch = vi.fn();
+
 function mockHistoryQuery(overrides: {
   data?: MapHistoryListResponse;
   isLoading?: boolean;
@@ -18,6 +20,7 @@ function mockHistoryQuery(overrides: {
     data: overrides.data,
     isLoading: overrides.isLoading ?? false,
     isError: overrides.isError ?? false,
+    refetch,
   } as never);
 }
 
@@ -75,6 +78,19 @@ describe('HistoryPanel', () => {
     render(<HistoryPanel mapId="map-1" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('History could not be loaded');
+  });
+
+  // fix(#787 item 9): the error state told people to close and reopen the panel
+  // instead of offering the retry the panel could do itself.
+  it('offers a Try again button in the error state that refetches', () => {
+    mockHistoryQuery({ isError: true });
+
+    render(<HistoryPanel mapId="map-1" />);
+
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    expect(screen.getByRole('alert')).not.toHaveTextContent('closing and reopening');
+    fireEvent.click(retry);
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 
   it('renders populated history entries with relative time and summary text', () => {
