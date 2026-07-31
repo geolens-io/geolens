@@ -276,6 +276,10 @@ _ALLOWED_POSTGIS_FUNCTIONS: frozenset[str] = frozenset(
         "st_centroid",
         "st_collect",
         "st_contains",
+        # fix(#1001): #990's banding branches on ST_Dimension to segmentize
+        # lines and areas differently. It reads one geometry's topological
+        # dimension and returns a small int — no rows, no amplification.
+        "st_dimension",
         "st_distance",
         "st_dwithin",
         "st_intersects",
@@ -380,11 +384,22 @@ def _select_subtree_scans_a_table(func: exp.Func) -> bool:
     already reads. A collect whose enclosing SELECT (including nested derived
     tables) scans a real table aggregates unbounded rows and stays rejected,
     however it is aliased.
+
+    fix(#1001): a set-returning function in FROM position parses as an
+    ``exp.Table`` whose ``this`` is the function, so counting every
+    ``exp.Table`` read ``FROM ST_DumpSegments(...)`` and ``FROM
+    generate_series(...)`` as table scans. #990's sub-zone banding put both in
+    the aggregate's own scope, which made the canonical buffer reject itself.
+    A function call is not a relation, and its own amplification is policed by
+    the generate_series shape check and the ST_Dump guard below. Only a named
+    relation counts here; anything unrecognized still does, to fail closed.
     """
     sel = func.find_ancestor(exp.Select)
     if sel is None:
         return True  # fail closed: no recognizable scope
-    return any(True for _ in sel.find_all(exp.Table))
+    return any(
+        True for tbl in sel.find_all(exp.Table) if not isinstance(tbl.this, exp.Func)
+    )
 
 
 def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
@@ -400,14 +415,28 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
     # fix(#935 codex r2): ST_Segmentize's max-edge argument controls vertex
     # amplification — a tiny or dynamic length manufactures an enormous
     # vertex count before any outer LIMIT applies. Require a numeric literal
-    # of at least 1000 (the canonical buffer uses 20 000 metres; 1000 in any
-    # unit the sandbox serves cannot amplify).
+    # no finer than the floor for its unit.
+    #
+    # fix(#1001): that floor was a flat 1000 on the assumption that the sandbox
+    # only ever segmentized in metres. #990's banding added a degree-unit call
+    # for areal input (ST_Segmentize(geom, 0.1), ~11 km) alongside the existing
+    # geography one (ST_Segmentize(geom::geography, 20000)), and 0.1 tripped a
+    # metres floor. The cast picks the unit: geography is metres, bare geometry
+    # is SRID units, i.e. degrees for the 4326 the sandbox serves. 0.01° keeps
+    # the two overloads bounded to comparable vertex budgets over a global
+    # extent — 40 075 km / 1000 m is ~40k vertices, 360° / 0.01° is 36k — so
+    # neither unit is the cheap way past the guard.
     if fn_name == "st_segmentize":
         length = func.expressions[1] if len(func.expressions) > 1 else None
+        target = func.expressions[0] if func.expressions else None
+        in_metres = (
+            isinstance(target, exp.Cast) and "geography" in target.to.sql().lower()
+        )
+        floor = 1000.0 if in_metres else 0.01
         segmentize_ok = (
             isinstance(length, exp.Literal)
             and length.is_number
-            and float(length.this) >= 1000
+            and float(length.this) >= floor
         )
         if not segmentize_ok:
             logger.info("sandbox.unbounded_segmentize", sql=sql)
@@ -482,6 +511,14 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
         # their operands regardless, so a disallowed function inside either
         # side of an AND/OR is still caught below.
         if isinstance(func, exp.Connector):
+            continue
+        # fix(#1001): sqlglot models EXISTS as a Func subclass too, so #990's
+        # banding predicate (EXISTS (SELECT 1 FROM ST_DumpSegments(...)))
+        # parsed as an unlisted function named "exists". EXISTS is a
+        # short-circuiting predicate that yields one boolean, not a callable,
+        # and find_all still walks its subquery — every function and table in
+        # there is checked on its own merits below.
+        if isinstance(func, exp.Exists):
             continue
         if isinstance(func, exp.Anonymous):
             fn_name = func.name.lower() if hasattr(func, "name") else ""

@@ -539,11 +539,79 @@ class TestResourceAmplificationRejected:
             "(SELECT geom_4326 AS p FROM data.cities) AS _pb_p) AS blob"
         )
 
+    def test_from_position_function_is_not_a_table_scan(self):
+        """fix(#1001): a set-returning function in FROM position parses as an
+        exp.Table wrapping the function, which the scope check used to count as
+        a relation. #990's banding put ST_DumpSegments and generate_series in
+        the aggregate's own scope and the canonical buffer began rejecting
+        itself. Neither reads a relation, so neither may trip the guard."""
+        validate_sql(
+            "SELECT ST_Collect(s.geom) FROM "
+            "ST_DumpSegments(ST_MakeEnvelope(0, 0, 1, 1, 4326)) AS s"
+        )
+
+    def test_exists_subquery_contents_are_still_validated(self):
+        """fix(#1001): EXISTS is skipped as a callable, so prove the walk still
+        reaches inside it. A blocked function and an unbounded aggregate hidden
+        in the subquery must both still reject."""
+        _assert_rejects(
+            "SELECT name FROM data.cities c WHERE EXISTS "
+            "(SELECT 1 FROM data.roads r WHERE r.tag = pg_read_file('/etc/passwd'))"
+        )
+        _assert_rejects(
+            "SELECT name FROM data.cities c WHERE EXISTS "
+            "(SELECT ST_Union(geom_4326) FROM data.roads)"
+        )
+
+    def test_from_position_function_does_not_mask_a_real_table_scan(self):
+        """The paired negative control: a genuine relation in the same scope
+        still rejects, so #1001 narrowed the check without opening a hole. The
+        function-source exemption must not generalise, including when a real
+        relation sits beside a function in the same FROM."""
+        _assert_rejects(
+            "SELECT ST_Collect(d.geom) FROM data.cities c, "
+            "LATERAL ST_DumpSegments(c.geom_4326) AS d"
+        )
+        _assert_rejects(
+            "SELECT (SELECT ST_Collect(x.p) FROM "
+            "(SELECT c.geom_4326 AS p FROM data.cities c, "
+            "generate_series(0, 5) AS g(i)) AS x) AS blob"
+        )
+
+    def test_exists_over_a_relation_still_counts_as_a_scan(self):
+        """fix(#1001): EXISTS is skipped as a callable, not as a scope. A table
+        read inside one still counts for the scan check, so the unary
+        ST_Collect exception stays closed."""
+        _assert_rejects(
+            "SELECT (SELECT ST_Collect(p.g) FROM (SELECT geom_4326 AS g "
+            "FROM data.cities WHERE EXISTS (SELECT 1 FROM data.roads)) AS p)"
+        )
+
     def test_rejects_tiny_or_dynamic_segmentize_length(self):
         """fix(#935 codex r2): ST_Segmentize's max-edge argument controls
         vertex amplification; only large numeric literals pass."""
         _assert_rejects("SELECT ST_Segmentize(geom_4326, 1e-100) FROM data.cities")
         _assert_rejects("SELECT ST_Segmentize(geom_4326, population) FROM data.cities")
+
+    def test_segmentize_floor_follows_the_unit(self):
+        """fix(#1001): the floor was a flat 1000 on a metres assumption. #990
+        segmentizes areal input in degrees, so the geography cast picks the
+        unit. A degree length still has a floor, and metres still needs 1000 —
+        a bare-geometry pass must not become the way to smuggle 1e-9 in."""
+        # Degrees (bare geometry): a floor, not the absence of one. #990's
+        # canonical 0.1 passes; amplifying and dynamic lengths do not.
+        validate_sql("SELECT ST_Segmentize(geom_4326, 0.1) FROM data.cities LIMIT 5")
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, 0.0001) FROM data.cities")
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, 1e-100) FROM data.cities")
+        _assert_rejects("SELECT ST_Segmentize(geom_4326, population) FROM data.cities")
+        # Metres (geography cast): unchanged, and the degrees floor must not
+        # leak onto it — 0.1 would be 10 cm there.
+        _assert_rejects(
+            "SELECT ST_Segmentize(geom_4326::geography, 0.1) FROM data.cities"
+        )
+        _assert_rejects(
+            "SELECT ST_Segmentize(geom_4326::geography, 999) FROM data.cities"
+        )
 
     def test_allows_canonical_scale_segmentize(self):
         validate_sql(
