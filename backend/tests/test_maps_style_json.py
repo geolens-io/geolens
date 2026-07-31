@@ -2098,3 +2098,74 @@ def test_symbol_export_icon_allow_overlap_follows_label_toggle():
     exported_default = style_json._style_layer_for_map_layer(default, "src-1")
     primary_default = next(e for e in exported_default if e["type"] == "symbol")
     assert primary_default["layout"]["icon-allow-overlap"] is True
+
+
+# ---------------------------------------------------------------------------
+# fix(#917): builtin fill patterns are not in the served sprite
+# ---------------------------------------------------------------------------
+
+
+def _polygon_layer_with_pattern(pattern, **paint_extras):
+    return _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-pattern": pattern, **paint_extras},
+        label_config=None,
+        style_config=None,
+    )
+
+
+def _fill_paint(style):
+    return next(e for e in style["layers"] if e["type"] == "fill")["paint"]
+
+
+def test_builtin_fill_pattern_is_exported_as_a_solid_fill():
+    """The sprite is indexed from `map_icons` alone, so `geolens-fill-*` is not
+    in it — an external MapLibre client got a missing-image warning and rendered
+    no fill at all. In-app surfaces only work because the client-side adapter
+    registry generates the images in the browser.
+    """
+    style = build_maplibre_style(
+        _map(), [_polygon_layer_with_pattern("geolens-fill-hatch")]
+    )
+
+    paint = _fill_paint(style)
+    assert "fill-pattern" not in paint
+    assert paint["fill-color"] == style_json.DEFAULT_FILL_COLOR
+
+
+def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
+    """The fallback colour is a default, not an override."""
+    style = build_maplibre_style(
+        _map(),
+        [_polygon_layer_with_pattern("geolens-fill-dots", **{"fill-color": "#94a3b8"})],
+    )
+
+    paint = _fill_paint(style)
+    assert "fill-pattern" not in paint
+    assert paint["fill-color"] == "#94a3b8"
+
+
+def test_a_builtin_pattern_inside_an_expression_is_stripped_too():
+    """A data-driven fill-pattern resolves to the same absent sprite ids."""
+    style = build_maplibre_style(
+        _map(),
+        [
+            _polygon_layer_with_pattern(
+                ["case", ["==", ["get", "kind"], "a"], "geolens-fill-grid", "other"]
+            )
+        ],
+    )
+
+    assert "fill-pattern" not in _fill_paint(style)
+
+
+def test_a_non_builtin_fill_pattern_is_left_alone():
+    """Only the closed `geolens-fill-*` set is known to be absent from the
+    sprite. Any other value may name a real `map_icons` entry, and dropping it
+    would break a style that works.
+    """
+    style = build_maplibre_style(
+        _map(), [_polygon_layer_with_pattern("some-uploaded-icon")]
+    )
+
+    assert _fill_paint(style)["fill-pattern"] == "some-uploaded-icon"
