@@ -81,9 +81,13 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     a stream that is not the one being captured and every write fails with
     ``--- Logging error ---`` instead of landing anywhere assertable.
 
-    Root handlers and the structlog config are restored on exit, because
-    leaking global logging state into later tests is the same failure class
-    this construction exists to close.
+    On exit the root handlers and level are restored, and structlog is reset
+    to LIBRARY defaults rather than to whatever was configured before. That is
+    deliberate and it is not the same thing: `reset_defaults()` leaves
+    `cache_logger_on_first_use` False, which is the safe end of the range,
+    whereas faithfully restoring a prior True would hand the next test the
+    exact global that makes capture go blind. Leaking that state onward is the
+    failure class this construction exists to close.
     """
     root = logging.getLogger()
     saved_handlers = root.handlers[:]

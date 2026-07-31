@@ -5,6 +5,8 @@ Pins the v13.13 closure of M-65. Even if a developer accidentally logs
 reaching stdout / log aggregators.
 """
 
+import logging
+
 import pytest
 import structlog
 
@@ -94,7 +96,33 @@ def test_processor_handles_empty_dict():
 # ---------------------------------------------------------------------------
 
 
-def test_integration_token_redacted_in_log_output(capsys):
+@pytest.fixture
+def restore_logging_state():
+    """Undo the global logging state the test below leaves behind.
+
+    fix(#1064): `setup_logging()` replaces the root handlers and sets
+    `cache_logger_on_first_use=True`, and nothing here put either back — so
+    every test after this one in the same worker inherited both. That is the
+    leaked-global class this file's own subject matter is about, and the
+    caching half is what makes a later `capture_logs()` see nothing.
+
+    The call itself has to stay in the test body: pytest swaps
+    `sys.stdout`/`stderr` for the call phase only, so a handler created during
+    fixture setup binds to a stream capsys is not capturing. Saving here and
+    restoring on teardown is the part that can live in a fixture.
+    """
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    try:
+        yield
+    finally:
+        structlog.reset_defaults()
+        root.handlers[:] = saved_handlers
+        root.setLevel(saved_level)
+
+
+def test_integration_token_redacted_in_log_output(capsys, restore_logging_state):
     """End-to-end: configure structlog via setup_logging, log a token,
     verify the raw token does NOT appear and [REDACTED] DOES."""
     setup_logging(json_logs=True, log_level="INFO")
