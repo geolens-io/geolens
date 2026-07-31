@@ -1095,7 +1095,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # image-upload endpoints. Its docstring carries the part that is easy to
     # get wrong: Map.updated_at has onupdate=func.now(), so dropping the
     # explicit assignment does not stop the bump. Ratchet stays exact.
-    "backend/app/modules/catalog/maps/router.py": 1417,
+    # fix(#941): +8 — the reworded add-layer history summary carries the reason
+    # the immediate-POST and save-diff writers say different things, so a later
+    # refactor does not collapse them. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/router.py": 1425,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
