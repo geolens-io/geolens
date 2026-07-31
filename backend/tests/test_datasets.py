@@ -11,6 +11,7 @@ Requirements:
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 
 from app.modules.catalog.maps.models import Map, MapLayer
@@ -481,6 +482,91 @@ class TestUpdateMetadata:
         )
         assert resp.status_code == 200
         assert resp.json()["visibility"] == "restricted"
+
+    async def _dataset_on_map(
+        self,
+        test_db_session,
+        admin_id,
+        *,
+        dataset_visibility: str,
+        map_visibility: str,
+        map_name: str,
+    ):
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility=dataset_visibility,
+            name=f"{map_name} DS",
+        )
+        map_obj = Map(name=map_name, visibility=map_visibility, created_by=admin_id)
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+        test_db_session.add(MapLayer(map_id=map_obj.id, dataset_id=ds.id, sort_order=0))
+        await test_db_session.commit()
+        return ds
+
+    @pytest.mark.parametrize(
+        ("dataset_visibility", "map_visibility", "new_visibility", "blocked"),
+        [
+            # fix(#931): the case the old query missed entirely. An internal map
+            # reaches every signed-in user, so a dataset dropping to private
+            # strands it — silently, before this.
+            ("public", "internal", "private", True),
+            ("internal", "internal", "private", True),
+            ("internal", "internal", "restricted", True),
+            # ...and the move that only looks like it strands one. #930 made
+            # internal a real dataset rung, so an internal map keeps working.
+            # A rule written against the target value alone would block this.
+            ("public", "internal", "internal", False),
+            # A private map has no audience beyond its owner and grantees.
+            ("public", "private", "private", False),
+            # Already unreachable for that audience: nothing new breaks.
+            ("restricted", "internal", "private", False),
+            # The public-map rule is unchanged — any move off public strands it.
+            ("public", "public", "internal", True),
+            ("public", "public", "private", True),
+        ],
+    )
+    async def test_visibility_change_blocks_exactly_the_maps_it_strands(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        dataset_visibility: str,
+        map_visibility: str,
+        new_visibility: str,
+        blocked: bool,
+    ):
+        """fix(#931): the block is a before/after comparison, not a list of
+        forbidden target values.
+
+        ``find_public_maps_using_dataset`` matched ``Map.visibility == "public"``
+        only, and its caller gated on ``old == public``, so an internal map was
+        invisible to both halves. Once #930 made ``internal`` a real dataset
+        rung the rule became a matrix, and each row here is one cell of it.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Strand {map_visibility} {dataset_visibility} {new_visibility}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility=dataset_visibility,
+            map_visibility=map_visibility,
+            map_name=map_name,
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": new_visibility},
+            headers=admin_auth_header,
+        )
+
+        if blocked:
+            assert resp.status_code == 422
+            assert map_name in resp.json()["detail"]
+        else:
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["visibility"] == new_visibility
 
 
 # ---------------------------------------------------------------------------

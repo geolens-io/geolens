@@ -127,7 +127,7 @@ def test_maps_service_facade_exports_public_api() -> None:
         "add_layer",
         "remove_layer",
         "validate_public_visibility",
-        "find_public_maps_using_dataset",
+        "find_maps_broken_by_dataset_visibility",
         "create_share_token",
         "update_share_token",
         "get_active_share_token",

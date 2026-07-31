@@ -159,15 +159,30 @@ async def _apply_visibility_change(
     dataset_id: uuid.UUID,
     new_visibility: str,
 ) -> bool:
-    """Set record.visibility, blocking public→restricted when public maps depend on it."""
-    if new_visibility != "public" and record.visibility == "public":
-        from app.modules.catalog.maps.service import find_public_maps_using_dataset
+    """Set record.visibility, blocking a change that would strand a shared map.
 
-        public_maps = await find_public_maps_using_dataset(session, dataset_id)
-        if public_maps:
-            raise ValueError(
-                f"Cannot restrict visibility: dataset is used in public maps: {', '.join(public_maps)}"
-            )
+    fix(#931): the gate used to be ``new != public and old == public``, matching
+    a query that only knew about public maps. An internal map using the dataset
+    was invisible to both, so the flip succeeded and every signed-in viewer of
+    that map silently lost the layer. The helper now compares the before and
+    after audiences itself and returns nothing when the change strands nothing,
+    so no gate is needed here.
+    """
+    from app.modules.catalog.maps.service import (
+        find_maps_broken_by_dataset_visibility,
+    )
+
+    broken_maps = await find_maps_broken_by_dataset_visibility(
+        session,
+        dataset_id,
+        old_visibility=record.visibility,
+        new_visibility=new_visibility,
+    )
+    if broken_maps:
+        raise ValueError(
+            "Cannot restrict visibility: dataset is used in shared maps: "
+            f"{', '.join(broken_maps)}"
+        )
     record.visibility = new_visibility
     return True
 

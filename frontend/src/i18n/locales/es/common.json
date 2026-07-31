@@ -133,6 +133,7 @@
     "analysisJobAlreadyRunning": "Tu análisis anterior sigue en curso. Espera a que termine antes de iniciar otro.",
     "analysisVectorRequired": "El análisis necesita un conjunto de datos vectorial; esta capa no lo es.",
     "analysisMaskPolygonRequired": "La máscara de recorte debe ser una capa de polígonos.",
+    "datasetVisibilityBlockedByMaps": "Estos mapas comparten el conjunto de datos con un público que lo perdería: {{maps}}. Quita la capa allí o restringe primero esos mapas.",
     "analysisUnknownDissolveColumn": "La columna «{{column}}» no existe en este conjunto de datos. Elige otro campo de agrupación.",
     "corsWildcardNotAllowed": "No se aceptan orígenes comodín. Las solicitudes con credenciales requieren cada origen indicado por completo, por ejemplo https://example.com.",
     "duplicateSource": "Ya hay un conjunto de datos registrado desde esta fuente ({{title}}).",

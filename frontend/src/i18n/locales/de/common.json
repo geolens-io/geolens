@@ -133,6 +133,7 @@
     "analysisJobAlreadyRunning": "Deine vorherige Analyse läuft noch. Warte, bis sie abgeschlossen ist, bevor du eine neue startest.",
     "analysisVectorRequired": "Die Analyse benötigt einen Vektordatensatz – diese Ebene ist keiner.",
     "analysisMaskPolygonRequired": "Die Zuschneidemaske muss eine Polygon-Ebene sein.",
+    "datasetVisibilityBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",
     "analysisUnknownDissolveColumn": "Die Spalte „{{column}}“ existiert in diesem Datensatz nicht. Wähle ein anderes Gruppierungsfeld.",
     "corsWildcardNotAllowed": "Platzhalter-Ursprünge werden nicht akzeptiert. Anfragen mit Anmeldedaten erfordern jeden Ursprung vollständig, zum Beispiel https://example.com.",
     "duplicateSource": "Ein Datensatz aus dieser Quelle ist bereits registriert ({{title}}).",
