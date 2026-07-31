@@ -64,7 +64,7 @@ The staging archive is omitted silently when the `upload_staging` volume is abse
 or empty (fresh install with no uploaded datasets).
 
 The globals dump is the piece a database-only `pg_dump` can never give back, and
-it is what makes the fresh-cluster restore in [§ 2](#multi-tenant-role-reconstruction-after-a-fresh-cluster-restore)
+it is what makes the fresh-cluster role reconstruction in [§ 2](#2-restore--bundled-postgres-mode)
 work. It contains **role password verifiers**, so it is written mode `0600` and
 must keep the same protection as the dump itself wherever it is copied. A
 `pg_dumpall` failure fails the whole cycle: a backup set that cannot restore its
@@ -456,8 +456,8 @@ directory as the dump — here `./restore`). For the staging archive it prints t
 `docker run` line above with the real paths filled in; copy the printed command
 from the restore output rather than hand-editing it. For the globals dump it
 reports, **before** anything destructive runs, which roles the target cluster is
-missing — replay it first if that list is non-empty (see
-[§ multi-tenant role reconstruction](#multi-tenant-role-reconstruction-after-a-fresh-cluster-restore)).
+missing — replay it first if that list is non-empty, following the role
+reconstruction procedure earlier in this section.
 
 ### Finding the dump to restore
 
