@@ -145,7 +145,11 @@ export const fillAdapter: LayerAdapter = {
       if (heightColumn) {
         const extrusionId = `${layerId}-extrusion`;
         const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-        const fillColor = (rawPaint['fill-color'] as string | undefined) ?? MAP_COLORS.default.fill;
+        // fix(#910): the extrusion has no pattern of its own (SPEC-11) and colors
+        // from fill-color, which is absent while a pattern owns the fill — fall
+        // back to the stash or the extrusion silently reverts to default blue.
+        const fillColor = (rawPaint['fill-color'] as string | undefined)
+          ?? builder.fillColorSaved ?? MAP_COLORS.default.fill;
         map.addLayer({
           id: extrusionId,
           type: 'fill-extrusion',
@@ -208,7 +212,9 @@ export const fillAdapter: LayerAdapter = {
         return;
       }
       const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-      const fillColor = (rawPaint['fill-color'] as string | undefined) ?? MAP_COLORS.default.fill;
+      // fix(#910): see addLayers — fall back to the pattern's color stash.
+      const fillColor = (rawPaint['fill-color'] as string | undefined)
+        ?? builder.fillColorSaved ?? MAP_COLORS.default.fill;
       syncOwnedPaintProperties(map, extrusionId, {
         'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
         'fill-extrusion-base': 0,

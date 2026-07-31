@@ -1531,6 +1531,31 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect('fill-pattern' in paint).toBe(false);
     expect(config?.builder?.fillColorSaved).toBeUndefined();
   });
+
+  // fix(#910, codex P2): pattern-to-pattern finds no fill-color to stash, so the
+  // handler must carry the existing stash forward instead of dropping it.
+  it('keeps the stash when switching from one pattern straight to another', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
+          style_config: { builder: { fillColorSaved: '#ff0000' } },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dots' }));
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-pattern']).toBe('geolens-fill-dots');
+    expect(config?.builder?.fillColorSaved).toBe('#ff0000');
+  });
 });
 
 describe('LayerStyleEditor — POLISH-01 single render-as control', () => {

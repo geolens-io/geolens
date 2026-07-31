@@ -356,7 +356,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // out of reach in that state (#918 owns dropping the pattern there instead).
   const handleFillPatternChange = useCallback((id: string | undefined) => {
     const next = { ...paint };
-    let fillColorSaved: string | undefined;
+    // Seed from the existing stash: pattern-to-pattern (Hatch then Dots) finds no
+    // fill-color to stash, and an undefined here would drop the stash from the
+    // builder config and lose the original color on the eventual None.
+    let fillColorSaved = builderConfig.fillColorSaved;
     if (id) {
       // switching to pattern: remove fill-color, set fill-pattern
       if (typeof next['fill-color'] === 'string') fillColorSaved = next['fill-color'];
@@ -367,8 +370,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       delete next['fill-pattern'];
       // Restore the stashed color, or the default when there was none to stash
       if (!next['fill-color']) {
-        next['fill-color'] = builderConfig.fillColorSaved ?? FILL_DEFAULTS['fill-color'];
+        next['fill-color'] = fillColorSaved ?? FILL_DEFAULTS['fill-color'];
       }
+      fillColorSaved = undefined;
     }
     updateBuilderConfig({ fillColorSaved }, next);
   }, [paint, builderConfig.fillColorSaved, updateBuilderConfig]);

@@ -495,6 +495,24 @@ describe('FillEditor', () => {
     expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
   });
 
+  // fix(#910, codex P2): selecting a height column with a pattern already applied
+  // must not strand the layer — the clearing control has to stay reachable.
+  it('DOES render Fill Pattern section in 3D-extrusion mode when a pattern is active', () => {
+    const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          currentHeightCol: 'height',
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
+  });
+
   it('hides the fill color picker while a pattern is active, and explains why', () => {
     const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
     render(

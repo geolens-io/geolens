@@ -47,9 +47,11 @@ export function FillEditor({
   // exactly one of the two controls is reachable at a time. The pattern picker
   // is also out in 3D-extrusion mode, where the extrusion companion reads
   // fill-color and a pattern click would reset the whole layer to the default.
-  // It stays visible while a pattern IS set, because it is the only way to clear one.
+  // It stays visible while a pattern IS set, because it is the only way to clear
+  // one — selecting a height column with a pattern already applied would
+  // otherwise strand the layer with a pattern and no control to remove it.
   const hasFillPattern = typeof paint['fill-pattern'] === 'string';
-  const showPatternPicker = isPolygon && !isDataDriven && !currentHeightCol;
+  const showPatternPicker = isPolygon && !isDataDriven && (!currentHeightCol || hasFillPattern);
   return (
     <>
       <div className="flex items-center justify-between">
