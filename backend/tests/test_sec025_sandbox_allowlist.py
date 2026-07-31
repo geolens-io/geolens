@@ -925,12 +925,6 @@ class TestCanonicalBufferExemptionIsScoped:
                 + _canonical_buffer("x.g", 1000)
                 + ") FROM (SELECT geom_4326 AS g FROM data.cities) AS x",
             ),
-            (
-                "unqualified column, one table in scope",
-                "SELECT ST_AsGeoJSON("
-                + _canonical_buffer("geom_4326", 10000)
-                + ") FROM data.stations",
-            ),
         ],
     )
     def test_admits_an_input_whose_lineage_reaches_a_base_table(self, label, sql):
@@ -944,6 +938,53 @@ class TestCanonicalBufferExemptionIsScoped:
             "SELECT ST_AsGeoJSON("
             + _canonical_buffer("geom_4326", 10000)
             + ") FROM data.stations, data.cities"
+        )
+
+    def test_rejects_a_bare_top_level_column(self):
+        """fix(#1001 codex r4): documented limit. The scaffold interposes its
+        own `(SELECT ... OFFSET 0) AS _pb` scope between the column and the
+        real FROM, so deciding whether a bare name belongs to `_pb` or to the
+        outer table needs the table's column list. The prompt teaches the
+        qualified form, and the bare name inside its OWN subquery still
+        resolves, because that subquery binds the base table itself."""
+        _assert_rejects(
+            "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("geom_4326", 10000)
+            + ") FROM data.stations"
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "prefix", "source"),
+        [
+            ("base table", "", "FROM data.cities AS s(gid, name, geom_4326)"),
+            (
+                "CTE reference",
+                "WITH x AS (SELECT geom_4326 FROM data.cities) ",
+                "FROM x AS s(geom_4326)",
+            ),
+        ],
+    )
+    def test_rejects_a_positional_column_alias_list(self, label, prefix, source):
+        """fix(#1001 codex r4): `AS s(gid, name, geom_4326)` binds the NAME
+        geom_4326 to whatever the third physical column is, which may be a
+        projected geom. Deciding that needs the table's real column order,
+        which the validator does not have."""
+        _assert_rejects(
+            prefix
+            + "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("s.geom_4326", 1000)
+            + f") {source}"
+        )
+
+    def test_an_unrelated_nested_alias_does_not_refuse_the_buffer(self):
+        """fix(#1001 codex r4): binding resolution is lexical. A nested query
+        that happens to reuse an alias must not make the outer binding look
+        ambiguous — before this, adding `(SELECT count(*) FROM data.cities s)`
+        as a sibling projection refused a buffer that was fine."""
+        _assert_allows(
+            "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("s.geom_4326", 1000)
+            + "), (SELECT count(*) FROM data.cities s) AS n FROM data.stations s"
         )
 
     def test_rejects_an_alias_shadowing_a_safe_cte(self):
@@ -1004,14 +1045,34 @@ class TestCanonicalBufferExemptionIsScoped:
             + ") FROM data.stations s"
         )
 
-    def test_a_two_hop_pass_through_is_refused(self):
-        """Documented limit rather than a goal. Sibling CTEs are not in each
-        other's scope for this resolver, so lineage stops at one hop and
-        stopping is a refusal. The prompt teaches zero hops or one."""
-        _assert_rejects(
+    def test_follows_a_two_hop_pass_through(self):
+        """Sibling CTEs are in scope for each other, so lineage crosses them.
+
+        fix(#1001 codex r4): the earlier resolver stopped at one hop and
+        refused this; walking WITH clauses outward from the scope that binds
+        the reference is what makes it resolve.
+        """
+        _assert_allows(
             "WITH a AS (SELECT geom_4326 AS g FROM data.cities), "
             "b AS (SELECT a.g AS g FROM a) "
             "SELECT ST_AsGeoJSON(" + _canonical_buffer("b.g", 1000) + ") FROM b"
+        )
+
+    def test_rejects_a_two_hop_laundered_input(self):
+        """The same two hops with a reprojection at the far end stay refused."""
+        _assert_rejects(
+            "WITH a AS (SELECT ST_Transform(geom_4326, 3857) AS g "
+            "FROM data.cities), b AS (SELECT a.g AS g FROM a) "
+            "SELECT ST_AsGeoJSON(" + _canonical_buffer("b.g", 1000) + ") FROM b"
+        )
+
+    def test_refuses_a_lineage_deeper_than_the_hop_cap(self):
+        """Stopping is a refusal, not an admission."""
+        _assert_rejects(
+            "WITH a AS (SELECT geom_4326 AS g FROM data.cities), "
+            "b AS (SELECT a.g AS g FROM a), c AS (SELECT b.g AS g FROM b), "
+            "d AS (SELECT c.g AS g FROM c), e AS (SELECT d.g AS g FROM d) "
+            "SELECT ST_AsGeoJSON(" + _canonical_buffer("e.g", 1000) + ") FROM e"
         )
 
     def test_rejects_a_wrapped_column_input(self):

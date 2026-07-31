@@ -458,95 +458,201 @@ _MAX_LINEAGE_HOPS = 4
 _MANAGED_GEOMETRY_COLUMN = "geom_4326"
 
 
-def _named_sources(scope: exp.Expression, name: str) -> list[exp.Expression]:
-    """Sources in `scope` bound to `name` — a base table, CTE, or subquery.
+def _own_sources(select: exp.Select) -> list[exp.Expression]:
+    """The from/join sources this SELECT itself binds.
 
-    Bindings only, never definitions. A CTE is reachable solely through a
-    from/join reference to it, and that reference is what carries the binding
-    name: `FROM bad AS x` binds `x` to `bad`, whatever a CTE literally named
-    `x` may also define. Scanning CTE definitions directly missed that
-    shadowing (fix(#1001 codex r3)) and double-counted the plain `FROM x` case
-    against its own definition.
+    Direct children only. `find_all` here would cross into every nested
+    scope, and the buffer scaffold is itself a stack of aliased derived
+    tables, so a subtree walk never sees a single source (fix(#1001 codex
+    r4)).
     """
-    matches: list[exp.Expression] = []
-    for table in scope.find_all(exp.Table):
-        if (table.alias or table.name) != name:
-            continue
-        if table.db:
-            matches.append(table)  # a real table in a real schema
-            continue
-        # Schema-less: a reference to a CTE, resolved by the CTE's own name
-        # rather than by the binding name.
-        definitions = [
-            cte.this for cte in scope.find_all(exp.CTE) if cte.alias == table.name
-        ]
-        if len(definitions) != 1:
-            return []  # unresolvable -> caller fails closed
-        matches.append(definitions[0])
-    for sub in scope.find_all(exp.Subquery):
-        if sub.alias == name:
-            matches.append(sub.this)
-    return matches
+    return [
+        child.this
+        for child in select.iter_expressions()
+        if isinstance(child, (exp.From, exp.Join))
+    ]
 
 
-def _sole_base_table(scope: exp.Expression) -> exp.Table | None:
-    """The one base table this scope's OWN from/join clause binds.
+def _binding_name(source: exp.Expression) -> str:
+    """The name a from/join source is bound to in its scope."""
+    if isinstance(source, exp.Table):
+        return source.alias or source.name
+    if isinstance(source, exp.Subquery):
+        return source.alias
+    return ""
 
-    Direct sources only. The buffer scaffold is itself a stack of aliased
-    derived tables, so a `find_all` here would never see a single source.
+
+def _cte_definition(select: exp.Select, name: str) -> exp.Expression | None:
+    """Resolve a CTE `name` against the WITH clauses in scope.
+
+    Walks outward, because a CTE declared on an enclosing SELECT is visible to
+    every SELECT beneath it. Returns None when the name is unknown or declared
+    more than once, so the caller fails closed.
     """
-    if not isinstance(scope, exp.Select):
+    node: exp.Expression | None = select
+    while node is not None:
+        if isinstance(node, exp.Select):
+            with_clause = next(
+                (
+                    child
+                    for child in node.iter_expressions()
+                    if isinstance(child, exp.With)
+                ),
+                None,
+            )
+            if with_clause is not None:
+                matches = [
+                    cte.this for cte in with_clause.expressions if cte.alias == name
+                ]
+                if len(matches) == 1:
+                    return matches[0]
+                if matches:
+                    return None
+        node = node.parent
+    return None
+
+
+def _resolve_binding(
+    select: exp.Select, name: str
+) -> tuple[exp.Expression, exp.Select] | None:
+    """Find what `name` is bound to, searching outward from `select`.
+
+    Lexical scoping, not a whole-statement search. An unrelated nested query
+    that happens to reuse an alias must not make an outer binding look
+    ambiguous (fix(#1001 codex r4)); walking outward is also what resolves the
+    correlated reference the buffer's own input fence relies on, since
+    `(SELECT s.geom_4326 AS g OFFSET 0) AS _pb` has no FROM of its own.
+
+    Returns the bound source and the scope that bound it, or None when the
+    name is unknown or bound more than once in one scope.
+    """
+    node: exp.Expression | None = select
+    while node is not None:
+        if isinstance(node, exp.Select):
+            matches = [src for src in _own_sources(node) if _binding_name(src) == name]
+            if len(matches) > 1:
+                return None
+            if matches:
+                return matches[0], node
+        node = node.parent
+    return None
+
+
+def _sole_base_table(select: exp.Select) -> exp.Table | None:
+    """The one base table the nearest binding scope declares.
+
+    Walks outward past scopes that bind nothing and stops at the first that
+    binds anything, which is how PostgreSQL resolves an unqualified name.
+
+    Known limit, and a deliberate one. A bare `geom_4326` handed to the buffer
+    at the top level is REFUSED, because the scaffold interposes its own
+    `(SELECT ... OFFSET 0) AS _pb` scope between the column and the real FROM,
+    and deciding whether the name belongs to `_pb` or to the outer table needs
+    the table's column list. The prompt teaches the qualified form
+    (`s.geom_4326`) for exactly this reason, and the same bare name INSIDE its
+    own subquery — the prompt's other worked shape — resolves normally,
+    because that subquery binds the base table itself.
+    """
+    node: exp.Expression | None = select
+    while node is not None:
+        if isinstance(node, exp.Select):
+            sources = _own_sources(node)
+            if sources:
+                if len(sources) != 1:
+                    return None
+                source = sources[0]
+                return source if isinstance(source, exp.Table) and source.db else None
+        node = node.parent
+    return None
+
+
+def _declares_column_aliases(source: exp.Expression) -> bool:
+    """Whether a source renames its columns positionally.
+
+    fix(#1001 codex r4): `FROM data.cities AS s(gid, name, geom_4326)` binds
+    the name `geom_4326` to whatever the THIRD physical column happens to be,
+    which may well be a projected `geom`. Deciding that needs the table's real
+    column order, which the validator does not have, so a positional alias
+    list fails closed.
+    """
+    alias = source.args.get("alias")
+    return bool(alias is not None and getattr(alias, "columns", None))
+
+
+def _terminal_column_is_bounded(source: exp.Table, name: str) -> bool:
+    """Whether `name` on base table `source` is the managed 4326 column."""
+    if _declares_column_aliases(source):
+        return False
+    return name == _MANAGED_GEOMETRY_COLUMN
+
+
+def _derived_select(source: exp.Expression, owner: exp.Select) -> exp.Select | None:
+    """The SELECT behind a non-base-table source, or None when undecidable."""
+    if _declares_column_aliases(source):
         return None
-    sources: list[exp.Expression] = []
-    for child in scope.iter_expressions():
-        if isinstance(child, (exp.From, exp.Join)):
-            sources.append(child.this)
-    if len(sources) != 1:
-        return None
-    source = sources[0]
-    return source if isinstance(source, exp.Table) and source.db else None
+    if isinstance(source, exp.Table):
+        # Schema-less: a reference to a CTE, resolved by the CTE's OWN name
+        # rather than by the binding name — `FROM bad AS x` binds x to bad
+        # (fix(#1001 codex r3)).
+        definition = _cte_definition(owner, source.name)
+        return definition if isinstance(definition, exp.Select) else None
+    if isinstance(source, exp.Subquery) and isinstance(source.this, exp.Select):
+        return source.this
+    return None
+
+
+def _projected_column(select: exp.Select, name: str) -> exp.Column | None:
+    """The column `select` projects as `name`, or None when it is not one."""
+    projection = next(
+        (
+            expr
+            for expr in select.expressions
+            if (expr.alias if isinstance(expr, exp.Alias) else expr.name) == name
+        ),
+        None,
+    )
+    if isinstance(projection, exp.Alias):
+        projection = projection.this
+    return projection if isinstance(projection, exp.Column) else None
 
 
 def _resolves_to_stored_column(scope: exp.Expression, column: exp.Column) -> bool:
-    """Whether `column` traces back to a column of a base table.
+    """Whether `column` traces back to the managed geometry column of a table.
 
     Fails closed on everything it cannot decide: an unknown qualifier, a name
-    bound in more than one place, a projection that is an expression rather
-    than a column, or a lineage deeper than `_MAX_LINEAGE_HOPS`.
+    bound more than once in one scope, a positional column-alias list, a
+    projection that is an expression rather than a column, or a lineage deeper
+    than `_MAX_LINEAGE_HOPS`.
     """
+    select = column.find_ancestor(exp.Select)
+    if select is None:
+        select = scope if isinstance(scope, exp.Select) else None
+    if select is None:
+        return False
+
     for _ in range(_MAX_LINEAGE_HOPS):
         qualifier, name = column.table, column.name
         if not qualifier:
-            # Unqualified: only safe when the scope has exactly one base table
-            # and no alias indirection that could bind the name elsewhere.
-            return (
-                _sole_base_table(scope) is not None and name == _MANAGED_GEOMETRY_COLUMN
-            )
-        sources = _named_sources(scope, qualifier)
-        if len(sources) != 1:
+            # Unqualified: only safe when the nearest binding scope declares
+            # exactly one base table, so there is nothing else it could be.
+            table = _sole_base_table(select)
+            return table is not None and _terminal_column_is_bounded(table, name)
+
+        bound = _resolve_binding(select, qualifier)
+        if bound is None:
             return False
-        source = sources[0]
-        if isinstance(source, exp.Table):
-            # Terminal: a base-table column only counts as bounded when it is
-            # the managed 4326 column.
-            return name == _MANAGED_GEOMETRY_COLUMN
-        if not isinstance(source, exp.Select):
+        source, owner = bound
+
+        if isinstance(source, exp.Table) and source.db:
+            return _terminal_column_is_bounded(source, name)
+
+        inner = _derived_select(source, owner)
+        if inner is None:
             return False
-        projection = next(
-            (
-                expr
-                for expr in source.expressions
-                if (expr.alias if isinstance(expr, exp.Alias) else expr.name) == name
-            ),
-            None,
-        )
+        projection = _projected_column(inner, name)
         if projection is None:
             return False
-        if isinstance(projection, exp.Alias):
-            projection = projection.this
-        if not isinstance(projection, exp.Column):
-            return False
-        column, scope = projection, source
+        column, select = projection, inner
     return False
 
 

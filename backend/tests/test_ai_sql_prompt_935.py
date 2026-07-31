@@ -149,6 +149,9 @@ def test_prompt_states_the_bounded_input_rule():
     the same prompt-vs-validator disagreement this whole chain is about.
     """
     assert "<GEOM> must be the managed geom_4326 column" in SQL_SYSTEM_PROMPT
+    # fix(#1001 codex r4): the scaffold interposes its own scope, so a bare
+    # top-level column is undecidable and refused. The prompt has to say so.
+    assert "it must be QUALIFIED" in SQL_SYSTEM_PROMPT
     assert "s.geom_4326" in SQL_SYSTEM_PROMPT
     assert "A reprojection, a nested buffer, a constructed geometry" in (
         SQL_SYSTEM_PROMPT
