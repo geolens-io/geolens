@@ -103,6 +103,17 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     """
     with preserved_logging_state():
         setup_logging(json_logs=True, log_level="DEBUG")
+        # fix(#1064 codex r3): setup_logging turns cache_logger_on_first_use
+        # ON. Any module-level logger that emits while it is on FREEZES its
+        # BoundLoggerLazyProxy against the then-current chain, and restoring
+        # the config on exit cannot undo a proxy-local bind — that logger is
+        # then invisible to every later capture_logs() in the worker.
+        # Measured: a proxy capture_logs could see before this helper ran was
+        # invisible afterwards. That is the #1063 mechanism, so leaving it
+        # would have this test manufacture the very hazard it exists to catch.
+        # Turning caching back off keeps the chain and the routing; only the
+        # freezing goes.
+        structlog.configure(cache_logger_on_first_use=False)
         records: list[str] = []
         live = _LiveLogs(records)
         try:
