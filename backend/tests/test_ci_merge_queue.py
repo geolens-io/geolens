@@ -51,30 +51,40 @@ def _runs_on_merge_group(job: dict) -> bool:
     the run, and ``always() && <clause>`` still evaluates ``<clause>``. So it is
     stripped before looking at event context — treating its presence as "runs
     everywhere" would report ``e2e-test`` and ``accessibility`` as running in
-    the queue when their event allowlists provably exclude it, and a guard that
-    is wrong toward "all clear" is worse than no guard because you stop looking.
+    the queue when their event allowlists provably exclude it.
 
-    After that: no ``github.event_name`` comparison at all means no event gate,
-    so the job runs. Comparisons present mean the job runs only if
-    ``merge_group`` is among the permitted ones.
+    After stripping: nothing left means no gate at all, so the job runs. A
+    ``github.event_name`` comparison means the job runs only if ``merge_group``
+    is among the permitted ones.
 
-    Known limit, stated rather than papered over: this reads the SET of event
-    comparisons, not the boolean structure around them. A condition that
-    permits `merge_group` inside one branch of an `||` while a sibling `&&`
-    excludes it would be read as running. No such condition exists in
-    ``ci.yml``, and the honest fix if one appears is to evaluate the
-    expression, not to add another special case here.
+    **Anything else is reported as NOT running** (fix(#1074 review), a P1). The
+    tempting reading — "no event comparison, therefore no event gate, therefore
+    it runs" — is wrong for the shape this repo actually uses. A bare
+    ``needs.changes.outputs.backend == 'true'`` has no event clause, but the
+    ``changes`` job deliberately SKIPS its paths-filter step on ``merge_group``
+    (it has no base ref to diff), so those outputs are empty there and the job
+    skips. Reading that as "runs" is precisely the false all-clear this guard
+    exists to prevent, in the guard itself.
+
+    So the default is conservative: a condition this cannot prove runs is
+    reported as skipping. That direction is deliberate. A false alarm costs
+    someone ten minutes of looking; a false all-clear costs an untested merge
+    and nobody looks at all. If a legitimate new shape trips it, the answer is
+    to teach this function that shape — or evaluate the expression properly —
+    not to widen the fallback.
     """
     condition = job.get("if")
     if condition is None:
-        return True  # unconditional job
-    cond = " ".join(str(condition).split()).replace("always()", "")
+        return True  # no gate
+    cond = " ".join(str(condition).split()).replace("always()", "").strip()
+    if not cond or cond == "&&":
+        return True  # bare always()
     if "merge_group" in _EVENT_NE.findall(cond):
         return False  # explicitly excluded
     permitted = _EVENT_EQ.findall(cond)
-    if not permitted:
-        return True  # no event gate
-    return "merge_group" in permitted
+    if permitted:
+        return "merge_group" in permitted
+    return False  # unrecognised: cannot prove it runs, so report it
 
 
 def test_ci_reacts_to_merge_group():
@@ -215,3 +225,26 @@ def test_predicate_agrees_with_the_real_workflow():
             f"{name} is deliberately off merge_group; if that changed, the "
             "non-gating-jobs decision in #1000 needs revisiting"
         )
+
+
+def test_predicate_bare_output_condition_reports_as_skipping():
+    """fix(#1074 review), P1. The shape that made "no event comparison means
+    no event gate" wrong.
+
+    `changes` skips its paths-filter step on merge_group — it has no base ref
+    to diff — so `needs.changes.outputs.*` are EMPTY there and a job gated only
+    on one of them really does skip. Reading it as running is the false
+    all-clear this whole file exists to prevent, reproduced inside the guard.
+    """
+    condition = "needs.changes.outputs.backend == 'true'"
+    assert _runs_on_merge_group({"if": condition}) is False
+
+
+def test_predicate_unrecognised_condition_reports_as_skipping():
+    """The general form of the same rule: what cannot be proven to run is
+    reported. A false alarm costs ten minutes; a false all-clear costs an
+    untested merge and nobody looks."""
+    assert (
+        _runs_on_merge_group({"if": "github.repository == 'geolens-io/geolens'"})
+        is False
+    )
