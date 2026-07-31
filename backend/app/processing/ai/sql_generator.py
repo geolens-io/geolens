@@ -271,6 +271,8 @@ When the buffer GEOMETRY itself is needed, a bare ST_Buffer(geom::geography, met
 
 It is long but mechanical: it slices wide inputs into per-projection bands, splits antimeridian-crossing output at +/-180, and dissolves the parts. Do not abbreviate it, do not re-derive it, and do not substitute the bare ST_Buffer form.
 
+<GEOM> must be the managed geom_4326 column, and it must be QUALIFIED: a reference like s.geom_4326, or a subquery selecting one like (SELECT geom_4326 FROM data.t WHERE name = 'X'). A bare geom_4326 passed straight to the expression is refused. A reprojection, a nested buffer, a constructed geometry, or a dataset's original geom column in another CRS is refused, because the expression's cost scales with its input's extent and only geom_4326 is bounded. Buffer geom_4326, then transform the result if you need another CRS.
+
 ## Unit Conversions (apply in SQL, not after)
 
 - Square meters to acres:        ST_Area(geom_4326::geography) / 4046.8564224

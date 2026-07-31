@@ -238,6 +238,17 @@ def render_dateline_safe(geom_expr: str, *, alias: str = "_dl") -> str:
     )
 
 
+# fix(#1001): this function has a SECOND consumer that most edits here will
+# not have in mind. The NL->SQL prompt embeds its output verbatim
+# (``processing/ai/sql_generator.py`` renders it at import time), and the SQL
+# sandbox admits the sixteen amplification-prone functions below ONLY inside a
+# subtree that is exactly what this renderer emits — ``_matches_canonical_buffer``
+# in ``platform/sandbox/validator.py`` re-renders the template and compares.
+# The match follows a shape change automatically, because both sides call this
+# function; what it cannot follow is a NEW function name that is itself unsafe
+# outside the template, since the exemption would then cover it. Weigh that
+# before adding one, and keep the default ``alias`` — a buffer rendered under
+# any other alias fails the match and the sandbox refuses it.
 def render_geodesic_buffer(
     geom_expr: str, distance: float, *, alias: str = "_pb"
 ) -> str:

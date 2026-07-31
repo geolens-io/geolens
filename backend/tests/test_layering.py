@@ -820,7 +820,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # via _build_chat_actions (re-exported here for streaming.py) so one
         # invalid action drops with a note instead of failing the whole turn.
         # Cap raised 440 -> 446 (~4 LOC headroom).
-        "backend/app/processing/ai/chat_service.py": 446,
+        # fix(#549): +9 LOC — the system prompt now owns verb classification
+        # outright, reading the request's OBJECT (catalog / layer / data / map
+        # appearance) before its verb, so the tool descriptions stop
+        # re-litigating which phrasing wins. Cap raised 446 -> 456.
+        "backend/app/processing/ai/chat_service.py": 456,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
@@ -934,8 +938,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_processing_port.py": 406,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
-        # rationale comments. Cap exact, zero headroom.
-        "backend/app/platform/extensions/defaults_extensions.py": 352,
+        # rationale comments. fix(#930): +20 — the internal branch on the same
+        # two functions, whose comments carry why the obvious stricter variant
+        # is wrong (it hides an owner's own draft from the owner). Cap exact,
+        # zero headroom.
+        "backend/app/platform/extensions/defaults_extensions.py": 372,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -1027,7 +1034,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
     "backend/app/api/main.py": 1292,
-    "backend/app/modules/catalog/maps/schemas.py": 1312,
+    # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
+    # thumbnail cache version split out of updated_at. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1316,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
     # source, and it reduced valid polar geometry to EMPTY without telling
@@ -1050,7 +1059,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # where the shifted domain can win, so the common path skips the second
     # aggregate) and the crossing override wiring in `get_extent` and the
     # extract_metadata CTE. Ratchet stays exact.
-    "backend/app/processing/ingest/metadata.py": 2002,
+    # fix(#961 review): +29 — the anchor on `_GEOGRAPHIC_SRTEXT_RE` is now
+    # documented as load-bearing rather than incidental. Un-anchoring it (so it
+    # would agree with `core.geo.wkt_is_geographic` and with the floor below on
+    # wrapped CRSs) was tried and reverted: the companion degree test is a flat
+    # substring scan, so a grads BOUNDCRS would have matched an unrelated
+    # `degree` on its target and been translated by 360 with a 400-unit turn.
+    # This is the shift that moves geometry, so the reasoning lives at the code
+    # rather than only in the issue. Ratchet stays exact.
+    "backend/app/processing/ingest/metadata.py": 2031,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
@@ -1059,11 +1076,26 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
     # complexity ceiling, so the branch cannot live inline). Ratchet stays exact.
-    "backend/app/processing/ingest/tasks_common.py": 1631,
+    # fix(#1018): +40 — `_ingest_vector_into_staging` has no caller in `app/`;
+    # every call site is a test. The added lines say so at the definition and
+    # map what it mirrors, because silent drift is what makes a test-only copy
+    # dangerous rather than merely unused. fix(#1018 review) corrected that
+    # map and cost most of the lines: the staging steps are NOT forked here,
+    # they are the real `_run_staging_pipeline` — but production reaches that
+    # only on re-upload, while new vector ingest reruns the same eight steps
+    # inline in `_finalize_ingest`, so the sequence has three sites. The same
+    # correction fixes `_run_staging_pipeline`'s own docstring, which claimed
+    # `_ingest_vector_into_staging` was the "new ingests" caller.
+    # Ratchet stays exact.
+    "backend/app/processing/ingest/tasks_common.py": 1671,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
-    "backend/app/modules/catalog/maps/router.py": 1385,
+    # fix(#1005): +32 — _record_image_capture, the shared write for both
+    # image-upload endpoints. Its docstring carries the part that is easy to
+    # get wrong: Map.updated_at has onupdate=func.now(), so dropping the
+    # explicit assignment does not stop the bump. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/router.py": 1417,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
@@ -1107,7 +1139,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
     # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
     # documented at the site. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2069,
+    # fix(#957): +12 — raster_auth_check dropped out of the OpenAPI schema, and
+    # the note recording that the ROUTE is vestigial while the HANDLER is on the
+    # live raster tile path sits at the decorator so nobody deletes the wrong
+    # half. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2081,
 }
 
 
@@ -1182,7 +1218,9 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         "backend/app/modules/catalog/search/router_saved.py": 100,
         # fix(#821): +14 lines — admin key mint accepts expires_at (audit
         # detail + response) and maps the inactive-owner mint refusal to 409.
-        "backend/app/modules/admin/router_operations.py": 289,
+        # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
+        # in the audit detail, the create response, and the list item.
+        "backend/app/modules/admin/router_operations.py": 296,
         "backend/app/modules/settings/router_public.py": 150,
     }
     oversized = []

@@ -503,9 +503,10 @@ def make_bbox_filter(
         return and_(geom_col.op("&&")(envelope), spatial_fn(geom_col, envelope))
 
 
-# fix(#939): the same radians-per-degree constant `_is_degree_based`
-# (processing/raster/vrt.py) compares against. Unit semantics live in the
-# conversion factor, never the unit's name.
+# Unit semantics live in the conversion factor, never the unit's name.
+# fix(#961): this constant had a twin in processing/raster/vrt.py, compared the
+# same way against the same tolerance. Both sites now go through
+# `crs_has_degree_unit` below, so there is one implementation to keep right.
 _RADIANS_PER_DEGREE = math.pi / 180.0
 
 
@@ -598,6 +599,37 @@ def wkt_is_geographic(crs_wkt: str | None) -> bool | None:
     return None
 
 
+def crs_has_degree_unit(crs: object | None) -> bool | None:
+    """Whether a PARSED CRS's coordinate axes are measured in degrees.
+
+    fix(#961): the one implementation of the radians-per-unit test.
+    :func:`wkt_has_degree_unit` is this plus the WKT parse; ``_is_degree_based``
+    (``processing/raster/vrt.py``) is this plus an ``is_geographic``
+    precondition. They used to be two copies of the same comparison against two
+    copies of the same constant, kept in step by cross-referencing comments,
+    which is the arrangement #961 was filed to end. The CRS-object entry point
+    is what makes one implementation possible: ``vrt.py`` holds a live
+    ``rasterio.crs.CRS`` and must not be pushed through a WKT round trip to
+    reach a shared helper.
+
+    ``rel_tol`` is correct here: this compares two fixed physical constants of
+    the same tiny magnitude (0.01745 radians per degree against whatever PROJ
+    reports), where proportional agreement is the meaningful test and the
+    nearest wrong answer, grads at 0.01571, is 10% away.
+
+    Returns None when there is no CRS or PROJ cannot report a unit factor.
+    Callers must read that as "unknown" and decide for themselves — the two
+    call sites deliberately differ, see each one.
+    """
+    if crs is None:
+        return None
+    try:
+        _, radians_per_unit = crs.units_factor
+    except Exception:  # broad: units_factor raises CRSError on exotic/!undefined CRSs, which are exactly the ones we cannot answer for
+        return None
+    return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
+
+
 def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     """Whether a CRS WKT's coordinate axes are measured in degrees.
 
@@ -605,11 +637,11 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     and admits grads CRSs. Only meaningful for a WKT already classified as
     geographic, so call that first.
 
-    The answer comes from PROJ's ``units_factor`` on the parsed CRS -- the
-    same radians-per-unit comparison ``_is_degree_based``
-    (processing/raster/vrt.py) makes, against the same constant, so the two
-    unit tests in this codebase cannot drift apart. Reading the factor rather
-    than the unit's name means a valid custom spelling
+    The answer comes from :func:`crs_has_degree_unit`, which is also what
+    ``_is_degree_based`` (processing/raster/vrt.py) calls, so the two unit
+    tests in this codebase are one implementation rather than two that must be
+    kept in step (fix(#961)). Reading PROJ's ``units_factor`` rather than the
+    unit's name means a valid custom spelling
     (``UNIT["arc-degree",0.01745...]``) still reads as degrees, while grads
     sit 10% away and stay excluded.
 
@@ -621,11 +653,4 @@ def wkt_has_degree_unit(crs_wkt: str | None) -> bool | None:
     """
     if not isinstance(crs_wkt, str) or not crs_wkt:
         return None
-    crs = _parse_crs(crs_wkt)
-    if crs is None:
-        return None
-    try:
-        _, radians_per_unit = crs.units_factor
-    except Exception:  # broad: units_factor raises CRSError on exotic/!undefined CRSs, which are exactly the ones we cannot answer for
-        return None
-    return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
+    return crs_has_degree_unit(_parse_crs(crs_wkt))

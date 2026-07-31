@@ -8,7 +8,9 @@
     "opacityModified": "Opacity adjusted"
   },
   "map": {
-    "ariaLabel": "Map builder"
+    "ariaLabel": "Map builder",
+    "autoFitMoved": "The view moved to fit the visible layers",
+    "returnToPreviousView": "Return to previous view"
   },
   "mapNameLabel": "Map name",
   "descriptionLabel": "Map description",
@@ -524,6 +526,8 @@
     "manualBreaksInvalid": "Enter at least one break value in strictly ascending order.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
+    "categoriesTruncatedWarning": "{{count}} categories -- showing the first {{shown}}; consider using graduated mode for many values.",
+    "mixedGeometryColorScope": "Colors apply to polygon features. Lines and points keep their current color.",
     "target": "Target",
     "targetColor": "Color",
     "targetRadius": "Radius",
@@ -635,7 +639,7 @@
     "cannotPublish": "Cannot publish: datasets {{datasets}} are not public",
     "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
     "unsavedWarning": "Unsaved changes are only in the builder preview. Save before copying links or embeds.",
-    "audienceHiddenWarning": "Hidden from viewers: {{layers}}. These layers' datasets are private or unpublished, so they will not appear for anyone but you.",
+    "audienceHiddenWarning": "Hidden from viewers: {{layers}}. These layers' datasets are not visible to this map's audience, so they will not appear for anyone but you.",
     "savingWarning": "Saving changes. Share links and embeds update after this save finishes.",
     "saveFailedWarning": "Save failed. Share links and embeds still show the last saved map until you retry successfully.",
     "expirationLabel": "Expiration",
@@ -1097,12 +1101,13 @@
     "emptyTitle": "No edit history yet",
     "emptyDescription": "History starts after saved edits are recorded for this map.",
     "errorTitle": "History could not be loaded",
-    "errorDescription": "Try closing and reopening this panel.",
+    "errorDescription": "Check your connection, then try again.",
     "notAvailableTitle": "Save this map to see history",
     "notAvailableDescription": "Edit history is available after the map exists.",
     "unknownTime": "Unknown time",
     "unknownActor": "Unknown user",
-    "actorTarget": "{{actor}} - {{target}}"
+    "actorTarget": "{{actor}} - {{target}}",
+    "retry": "Try again"
   },
   "dock": {
     "askAi": "Ask AI",
@@ -1139,6 +1144,8 @@
       "reorderMove": "Move layer up / down (reorder mode)",
       "escape": "Close panel / clear selection / exit reorder",
       "multiSelect": "Toggle layer in selection",
+      "multiSelectKey": "Toggle layer in selection (focused row)",
+      "rename": "Rename layer (double-click its name)",
       "rangeSelect": "Select a range of layers",
       "extendSelect": "Extend selection (stack focused)"
     },

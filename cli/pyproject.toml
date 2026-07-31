@@ -33,7 +33,11 @@ dependencies = [
   "tomli_w>=1.0.0,<2.0.0",
   "platformdirs>=4.0.0,<5.0.0",
   "structlog>=25.0.0,<26.0.0",
-  "geolens>=1.2.0,<2.0.0",
+  # fix(#685 review): 1.5.0 is the first SDK carrying
+  # geolens.api.datasets_analysis; `geolens analysis` raises
+  # ModuleNotFoundError against anything older, and 1.2.0 satisfied the old
+  # floor.
+  "geolens>=1.5.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

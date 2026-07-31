@@ -429,6 +429,7 @@ async def create_api_key_for_user(
     user_id: uuid.UUID,
     name: str,
     expires_at: datetime | None = None,
+    scope: str = "full",
 ) -> tuple[ApiKey, str]:
     """Create an API key for a user. Returns (api_key, raw_key).
 
@@ -439,6 +440,11 @@ async def create_api_key_for_user(
     the key also snapshots the owner's current key_epoch so a later security
     event (password change, role change, SAML-to-local conversion — NOT
     logout) invalidates it. Minting requires an active owner.
+
+    fix(#875): ``scope="read_only"`` mints a key that authenticates only
+    GET/HEAD/OPTIONS. The default matches the column default, so a caller that
+    does not care keeps the pre-existing behavior. Values are constrained by
+    the request schemas above this and by ``chk_api_keys_scope`` below it.
     """
     owner = (
         await db.execute(
@@ -462,6 +468,7 @@ async def create_api_key_for_user(
         name=name,
         expires_at=expires_at,
         key_epoch=owner.key_epoch,
+        scope=scope,
     )
     db.add(api_key)
     await db.flush()

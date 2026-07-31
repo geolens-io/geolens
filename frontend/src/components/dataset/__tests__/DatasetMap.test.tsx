@@ -1,6 +1,39 @@
 import { render, screen, fireEvent } from '@/test/test-utils';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
 
+// fix(#1004): what the map was actually told to draw and where to point. The
+// three camera/extent sites derive from the bbox prop alone, so recording the
+// props MapGL and Source receive is enough to pin all three.
+const mapSpy = vi.hoisted(() => ({
+  initialViewState: null as Record<string, unknown> | null,
+  sourceData: null as { features: { geometry: { coordinates: number[][][][] } }[] } | null,
+  fitBounds: vi.fn(),
+  flyTo: vi.fn(),
+  // Opt-in: driving onLoad instantiates the whole tile/recovery wiring, which
+  // the other blocks in this file neither need nor mock.
+  attachMapInstance: false,
+  reset() {
+    this.initialViewState = null;
+    this.sourceData = null;
+    this.fitBounds.mockReset();
+    this.flyTo.mockReset();
+    this.attachMapInstance = false;
+  },
+}));
+
+// Any method DatasetMap's onLoad reaches for resolves to a no-op; only the
+// camera calls are asserted.
+const fakeMap = vi.hoisted(
+  () =>
+    new Proxy({} as Record<string, unknown>, {
+      get(target, prop: string) {
+        if (prop === 'fitBounds' || prop === 'flyTo') return mapSpy[prop];
+        if (!(prop in target)) target[prop] = vi.fn();
+        return target[prop];
+      },
+    }),
+);
+
 const drawingState = vi.hoisted(() => ({
   isDrawing: false,
   activeMode: null as string | null,
@@ -14,22 +47,38 @@ const drawingState = vi.hoisted(() => ({
   isEditDirty: false,
 }));
 
-vi.mock('@vis.gl/react-maplibre', () => ({
-  Map: ({
-    children,
-    interactive,
-  }: {
-    children?: React.ReactNode;
-    interactive?: boolean;
-  }) => (
-    <div data-testid="mapgl" data-interactive={String(interactive)}>
-      {children}
-    </div>
-  ),
-  Source: ({ children }: { children?: React.ReactNode }) => children ?? null,
-  Layer: () => null,
-  NavigationControl: () => <div data-testid="nav-control" />,
-}));
+vi.mock('@vis.gl/react-maplibre', async () => {
+  const { useEffect } = await import('react');
+  return {
+    Map: ({
+      children,
+      interactive,
+      initialViewState,
+      onLoad,
+    }: {
+      children?: React.ReactNode;
+      interactive?: boolean;
+      initialViewState?: Record<string, unknown>;
+      onLoad?: (e: { target: unknown }) => void;
+    }) => {
+      mapSpy.initialViewState = initialViewState ?? null;
+      useEffect(() => {
+        if (mapSpy.attachMapInstance) onLoad?.({ target: fakeMap });
+      }, [onLoad]);
+      return (
+        <div data-testid="mapgl" data-interactive={String(interactive)}>
+          {children}
+        </div>
+      );
+    },
+    Source: ({ children, data }: { children?: React.ReactNode; data?: unknown }) => {
+      if (data !== undefined) mapSpy.sourceData = data as typeof mapSpy.sourceData;
+      return children ?? null;
+    },
+    Layer: () => null,
+    NavigationControl: () => <div data-testid="nav-control" />,
+  };
+});
 
 vi.mock('@/components/theme-provider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
@@ -463,5 +512,86 @@ describe('DatasetMap generic-geometry draw gating (fix #430 codex r18/r19)', () 
     );
     expect(vi.mocked(getAvailableModes)).toHaveBeenCalledWith('Point');
     expect(vi.mocked(getAvailableModes)).not.toHaveBeenCalledWith('GEOMETRY');
+  });
+});
+
+// fix(#1004): the dataset payload now carries the RFC 7946 §5.2 spec bbox, so a
+// seam-crossing extent arrives as west > east instead of flattened to
+// [-180, s, 180, n]. All three consumers here carry #903 seam handling that the
+// flattened pair made unreachable — isLargeExtent measured a 360° span and took
+// the large-extent branch every time.
+describe('DatasetMap antimeridian extent (fix #1004)', () => {
+  // The reproduction fixture: points at 179.5, -179.5 and 178.44 near Fiji.
+  const FIJI_BBOX: [number, number, number, number] = [178.44, -18.14, -179.5, -16.5];
+  const GLOBAL_BBOX: [number, number, number, number] = [-180, -18.14, 180, -16.5];
+
+  beforeEach(() => {
+    drawingState.isDrawing = false;
+    drawingState.activeMode = null;
+    mapSpy.reset();
+  });
+
+  function renderMap(bbox: [number, number, number, number]) {
+    return render(
+      <DatasetMap
+        bbox={bbox}
+        tableName="fiji_points"
+        geometryType="Point"
+        datasetId="dataset-fiji"
+      />,
+    );
+  }
+
+  it('fits the initial camera to the seam extent instead of the whole world', () => {
+    renderMap(FIJI_BBOX);
+
+    // The seam branch: bounds with east run past 180 for MapLibre to normalize.
+    expect(mapSpy.initialViewState).toMatchObject({ fitBoundsOptions: { padding: 60 } });
+    const bounds = (mapSpy.initialViewState as { bounds: number[][] }).bounds;
+    expect(bounds).toEqual([
+      [178.44, -18.14],
+      [180.5, -16.5],
+    ]);
+  });
+
+  it('still takes the large-extent branch for a genuinely global bbox', () => {
+    renderMap(GLOBAL_BBOX);
+
+    expect(mapSpy.initialViewState).not.toHaveProperty('bounds');
+    expect(mapSpy.initialViewState).toMatchObject({ zoom: expect.any(Number) });
+  });
+
+  it('draws the extent band as two rings split at the seam', () => {
+    renderMap(FIJI_BBOX);
+
+    const rings = mapSpy.sourceData!.features[0].geometry.coordinates;
+    expect(rings).toHaveLength(2);
+    const spans = rings.map((ring) => [ring[0][0][0], ring[0][2][0]]);
+    expect(spans).toEqual([
+      [178.44, 180],
+      [-180, -179.5],
+    ]);
+  });
+
+  it('draws one global rectangle for a genuinely global bbox', () => {
+    renderMap(GLOBAL_BBOX);
+
+    expect(mapSpy.sourceData!.features[0].geometry.coordinates).toHaveLength(1);
+  });
+
+  it('zooms to the seam extent rather than flying to a world view', () => {
+    mapSpy.attachMapInstance = true;
+    renderMap(FIJI_BBOX);
+
+    fireEvent.click(screen.getByTitle('Zoom to dataset extent'));
+
+    expect(mapSpy.flyTo).not.toHaveBeenCalled();
+    expect(mapSpy.fitBounds).toHaveBeenCalledWith(
+      [
+        [178.44, -18.14],
+        [180.5, -16.5],
+      ],
+      expect.objectContaining({ padding: 60 }),
+    );
   });
 });

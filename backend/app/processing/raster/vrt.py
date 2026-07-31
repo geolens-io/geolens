@@ -6,7 +6,11 @@ import subprocess
 from contextlib import ExitStack
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
-from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
+from app.core.geo import (
+    LON_EPSILON_DEGREES,
+    crs_has_degree_unit,
+    wrap_longitude,
+)
 
 
 # IA-P1-03 (Phase 1068): clamp the GDAL VSI surface that VRT processing
@@ -248,26 +252,32 @@ def _resolve_target_resolution(values: list[float], resolution_strategy: str) ->
 # eastern tile to the wrong place entirely -- a 195..200 / -200..-195 pair comes
 # out as a 40-grad hull instead of the intended 10. Compare the CRS's own
 # radians-per-unit factor rather than a unit name, which varies by PROJ build.
-_RADIANS_PER_DEGREE = math.pi / 180.0
 
 
 def _is_degree_based(crs) -> bool:
     """True only for a geographic CRS whose angular unit is degrees.
 
-    fix(#887): ``rel_tol`` is correct HERE and wrong in :func:`_offset_text`, so
-    do not "fix" this one by symmetry. This compares two fixed physical
-    constants of the same tiny magnitude (0.01745 radians per degree against
-    whatever PROJ reports), where proportional agreement is the meaningful test
-    and the nearest wrong answer -- grads, at 0.01571 -- is 10% away. An offset
-    is an unbounded pixel count whose noise floor does not scale with it.
+    fix(#961): the unit comparison itself is :func:`core.geo.crs_has_degree_unit`
+    -- this file used to carry its own copy of the constant and the
+    ``math.isclose`` call, kept in step with ``wkt_has_degree_unit`` by
+    cross-referencing comments. The shared helper takes a CRS OBJECT precisely
+    so this site keeps the live ``rasterio.crs.CRS`` it already holds instead of
+    round-tripping through WKT.
+
+    What stays here is the part that is local to re-framing: the
+    ``is_geographic`` precondition, and reading "unknown" as False. A CRS whose
+    units PROJ will not report must NOT be shifted by 360 -- the tile path makes
+    the opposite call (``wkt_has_degree_unit(...) is not False``) because there
+    an unknown CRS keeps the historical degrees assumption rather than losing
+    its resolution. Same question, opposite safe answer.
+
+    fix(#887): the shared helper's ``rel_tol`` is correct THERE and wrong in
+    :func:`_offset_text`, so do not "fix" that one by symmetry: an offset is an
+    unbounded pixel count whose noise floor does not scale with it.
     """
     if crs is None or not crs.is_geographic:
         return False
-    try:
-        _, radians_per_unit = crs.units_factor
-    except Exception:  # broad: units_factor raises CRSError on exotic/!undefined CRSs, which are exactly the ones to exclude
-        return False
-    return math.isclose(radians_per_unit, _RADIANS_PER_DEGREE, rel_tol=1e-9)
+    return crs_has_degree_unit(crs) is True
 
 
 def normalize_lon_span(left: float, right: float) -> tuple[float, float]:

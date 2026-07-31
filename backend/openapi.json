@@ -213,6 +213,16 @@
             "title": "Name",
             "type": "string"
           },
+          "scope": {
+            "default": "full",
+            "description": "Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.",
+            "enum": [
+              "full",
+              "read_only"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
           "user_id": {
             "description": "ID of the user the new API key will belong to.",
             "format": "uuid",
@@ -289,6 +299,11 @@
             "title": "Name",
             "type": "string"
           },
+          "scope": {
+            "description": "Privilege scope: 'full' or 'read_only' (#875).",
+            "title": "Scope",
+            "type": "string"
+          },
           "user_id": {
             "description": "Owning user's ID.",
             "format": "uuid",
@@ -302,6 +317,7 @@
           "name",
           "fingerprint",
           "is_active",
+          "scope",
           "created_at",
           "last_used_at"
         ],
@@ -1051,6 +1067,16 @@
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "scope": {
+            "default": "full",
+            "description": "Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.",
+            "enum": [
+              "full",
+              "read_only"
+            ],
+            "title": "Scope",
+            "type": "string"
           }
         },
         "required": [
@@ -1097,6 +1123,11 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "scope": {
+            "description": "Privilege scope: 'full' or 'read_only' (#875)",
+            "title": "Scope",
+            "type": "string"
           }
         },
         "required": [
@@ -1104,6 +1135,7 @@
           "key",
           "fingerprint",
           "name",
+          "scope",
           "created_at"
         ],
         "title": "ApiKeyCreateResponse",
@@ -1165,6 +1197,11 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "scope": {
+            "description": "Privilege scope: 'full' or 'read_only' (#875)",
+            "title": "Scope",
+            "type": "string"
           }
         },
         "required": [
@@ -1172,6 +1209,7 @@
           "name",
           "fingerprint",
           "is_active",
+          "scope",
           "created_at",
           "last_used_at"
         ],
@@ -5081,7 +5119,7 @@
                 "type": "null"
               }
             ],
-            "description": "Bounding box [minx, miny, maxx, maxy]",
+            "description": "Bounding box [west, south, east, north] per RFC 7946 \u00a75.2. west > east on an antimeridian-crossing extent.",
             "title": "Extent Bbox"
           },
           "feature_count": {
@@ -9999,6 +10037,18 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "thumbnail_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Updated At"
           },
           "thumbnail_url": {
             "anyOf": [
@@ -54702,100 +54752,6 @@
           }
         ],
         "summary": "Cluster Tile Endpoint",
-        "tags": [
-          "Tiles"
-        ]
-      }
-    },
-    "/tiles/raster-auth-check/": {
-      "get": {
-        "description": "Auth-check endpoint called by nginx auth_request for raster tile serving.\n\nValidates RBAC access to a raster dataset and returns the COG open-path\nin response headers (which nginx passes to Titiler, never the browser).\n\nReturns:\n    200 with X-GeoLens-Asset-OpenPath and X-GeoLens-Cache-Status headers\n    401 if authentication is required but missing\n    403 if embed token is invalid\n    404 if dataset not found, not a raster, or has no raster asset",
-        "operationId": "raster_auth_check_tiles_raster_auth_check__get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "dataset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Dataset Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Bad request \u2014 invalid query parameters or payload"
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Validation error"
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Internal server error"
-          },
-          "503": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Service unavailable \u2014 the database could not serve the request"
-          }
-        },
-        "security": [
-          {},
-          {
-            "OAuth2PasswordBearer": []
-          },
-          {
-            "ApiKeyHeader": []
-          },
-          {
-            "ApiKeyQuery": []
-          }
-        ],
-        "summary": "Raster Auth Check",
         "tags": [
           "Tiles"
         ]
