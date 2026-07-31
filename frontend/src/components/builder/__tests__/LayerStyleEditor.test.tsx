@@ -1677,50 +1677,12 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(typeof paint['fill-color']).toBe('string');
   });
 
-  // fix(#910, codex P2): None means a plain solid fill, so an orphaned colour
-  // classification must not survive it. Reachable when Advanced JSON or the AI
-  // replace_paint action swaps a categorical fill-color expression for a pattern-only
-  // paint object: the config outlives its expression, and None then left the layer
-  // drawing solid while the editor and legend still claimed attribute styling.
-  it('clears an orphaned colour classification when None restores a solid fill', () => {
-    const onStyleConfigChange = vi.fn();
-    render(
-      <LayerStyleEditor
-        layer={makeLayer({
-          dataset_geometry_type: 'Polygon',
-          // The replace_paint aftermath: pattern only, no fill-color expression left.
-          paint: { 'fill-pattern': 'geolens-fill-hatch' },
-          style_config: {
-            mode: 'categorical',
-            column: 'zone',
-            ramp: 'Set2',
-            categories: [{ value: 'a', color: '#e41a1c' }],
-          } as StyleConfig,
-        })}
-        onPaintChange={vi.fn()}
-        onOpacityChange={vi.fn()}
-        onStyleConfigChange={onStyleConfigChange}
-        onLayoutChange={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
-
-    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
-    expect('fill-pattern' in paint).toBe(false);
-    expect(typeof paint['fill-color']).toBe('string');
-    // The classification is gone, so the legend and the editor agree with the map.
-    expect(config?.mode).toBeUndefined();
-    expect(config?.column).toBeUndefined();
-    expect(config?.categories).toBeUndefined();
-  });
-
-  // fix(#910, codex P2): the mirror hazard of the orphan clear. A layer can legitimately
-  // hold an expression `fill-color` AND a `fill-pattern` — the picker itself produces
-  // that state deliberately, since deleting an expression is unrecoverable. None removes
-  // only the pattern there, the expression keeps drawing, and clearing the classification
-  // anyway strips the metadata the editor and legend read while the map renders on.
-  it('keeps the classification when an expression survives the pattern removal', () => {
+  // fix(#910, codex P2): None only removes the pattern when an expression is already
+  // painting the fill — no solid colour is installed over it, because deleting an
+  // expression is unrecoverable. Whether the CLASSIFICATION survives is decided at the
+  // commit boundary off the resolved paint, not here: see the reconciliation tests in
+  // hooks/__tests__/use-layer-map-sync.test.ts. This editor passes style_config through.
+  it('leaves an expression-valued fill-color in place when None removes the pattern', () => {
     const ramp = ['match', ['get', 'zone'], 'a', '#e41a1c', '#377eb8'];
     const onStyleConfigChange = vi.fn();
     render(
@@ -1744,42 +1706,9 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
 
     fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
 
-    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
-    // The expression was never displaced, so no solid fill was installed...
+    const { paint } = lastStyleConfigCall(onStyleConfigChange);
     expect(paint['fill-color']).toEqual(ramp);
     expect('fill-pattern' in paint).toBe(false);
-    // ...and the classification still describes exactly what the map draws.
-    expect(config?.mode).toBe('categorical');
-    expect(config?.column).toBe('zone');
-  });
-
-  // The mirror: a classification the fill picker has no business touching survives.
-  it('leaves a non-colour classification alone when None restores a solid fill', () => {
-    const onStyleConfigChange = vi.fn();
-    render(
-      <LayerStyleEditor
-        layer={makeLayer({
-          dataset_geometry_type: 'Polygon',
-          paint: { 'fill-pattern': 'geolens-fill-hatch' },
-          style_config: {
-            mode: 'graduated',
-            column: 'height',
-            ramp: 'Blues',
-            target: 'width',
-          } as StyleConfig,
-        })}
-        onPaintChange={vi.fn()}
-        onOpacityChange={vi.fn()}
-        onStyleConfigChange={onStyleConfigChange}
-        onLayoutChange={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
-
-    const { config } = lastStyleConfigCall(onStyleConfigChange);
-    expect(config?.mode).toBe('graduated');
-    expect(config?.target).toBe('width');
   });
 
   it('keeps the stash when switching from one pattern straight to another', () => {

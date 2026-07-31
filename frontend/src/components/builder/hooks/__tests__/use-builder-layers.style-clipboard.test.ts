@@ -65,6 +65,12 @@ async function waitForInit() {
   await act(async () => {});
 }
 
+// fix(#910, codex P2): the paint expression that a real categorical source carries — the
+// config and the expression are written together and copied together. A source paired
+// with a FLAT colour is an orphaned layer, and the paste now declines to propagate that
+// claim to the target, so these fixtures need the pair to be testing the paste at all.
+const POLY_RAMP = ['match', ['get', 'zone'], 'a', '#e41a1c', '#377eb8'];
+
 const POLY_STYLE: StyleConfig = {
   mode: 'categorical',
   column: 'zone',
@@ -93,7 +99,7 @@ describe('useBuilderLayers — handleCopyStyle / copiedStyleGeometryClass (ENH-0
 
 describe('useBuilderLayers — handlePasteStyle (ENH-02)', () => {
   it('copy → paste round-trips style_config to a compatible target', async () => {
-    const src = makeMockLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#abc' }, style_config: POLY_STYLE, sort_order: 0 });
+    const src = makeMockLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': POLY_RAMP }, style_config: POLY_STYLE, sort_order: 0 });
     const tgt = makeMockLayer({ id: 'tgt', dataset_geometry_type: 'MultiPolygon', paint: { 'fill-opacity': 0.2 }, style_config: null, sort_order: 1 });
     const { result } = renderBuilderLayers(makeMapData([src, tgt]));
     await waitForInit();
@@ -107,7 +113,7 @@ describe('useBuilderLayers — handlePasteStyle (ENH-02)', () => {
 
     const updated = result.current.localLayers.find((l) => l.id === 'tgt')!;
     expect(updated.style_config).toEqual(POLY_STYLE);
-    expect(updated.paint['fill-color']).toBe('#abc');
+    expect(updated.paint['fill-color']).toEqual(POLY_RAMP);
     expect(updated.paint['fill-opacity']).toBe(0.2); // target's own paint key preserved
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
@@ -147,7 +153,7 @@ describe('useBuilderLayers — handlePasteStyle (ENH-02)', () => {
 
 describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
   it('applies the first selected layer style to compatible peers, skipping incompatible ones', async () => {
-    const src = makeMockLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#abc' }, style_config: POLY_STYLE, sort_order: 0 });
+    const src = makeMockLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': POLY_RAMP }, style_config: POLY_STYLE, sort_order: 0 });
     const peer = makeMockLayer({ id: 'peer', dataset_geometry_type: 'Polygon', paint: {}, style_config: null, sort_order: 1 });
     const incompatible = makeMockLayer({ id: 'line', dataset_geometry_type: 'LineString', paint: {}, style_config: null, sort_order: 2 });
     const { result } = renderBuilderLayers(makeMapData([src, peer, incompatible]));
@@ -160,7 +166,7 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
     const layers = result.current.localLayers;
     // compatible peer gets the source style
     expect(layers.find((l) => l.id === 'peer')!.style_config).toEqual(POLY_STYLE);
-    expect(layers.find((l) => l.id === 'peer')!.paint['fill-color']).toBe('#abc');
+    expect(layers.find((l) => l.id === 'peer')!.paint['fill-color']).toEqual(POLY_RAMP);
     // incompatible line is skipped
     expect(layers.find((l) => l.id === 'line')!.style_config).toBeNull();
     // source itself unchanged in identity (still has its own style)
@@ -169,7 +175,7 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
   });
 
   it('applies all compatible peers within a SINGLE render (one setState pass)', async () => {
-    const src = makeMockLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#abc' }, style_config: POLY_STYLE, sort_order: 0 });
+    const src = makeMockLayer({ id: 'src', dataset_geometry_type: 'Polygon', paint: { 'fill-color': POLY_RAMP }, style_config: POLY_STYLE, sort_order: 0 });
     const p1 = makeMockLayer({ id: 'p1', dataset_geometry_type: 'Polygon', sort_order: 1 });
     const p2 = makeMockLayer({ id: 'p2', dataset_geometry_type: 'MultiPolygon', sort_order: 2 });
     const { result } = renderBuilderLayers(makeMapData([src, p1, p2]));
@@ -260,7 +266,7 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
     it('drops the target pattern when a data-driven colour style is applied over it', async () => {
       const src = makeMockLayer({
         id: 'src', dataset_geometry_type: 'Polygon',
-        paint: { 'fill-color': '#abc' }, style_config: POLY_STYLE, sort_order: 0,
+        paint: { 'fill-color': POLY_RAMP }, style_config: POLY_STYLE, sort_order: 0,
       });
       const patterned = makeMockLayer({
         id: 'patterned', dataset_geometry_type: 'Polygon',
@@ -278,7 +284,7 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
       // The ramp is the explicit request, so it owns the fill and the pattern goes —
       // otherwise MapLibre keeps drawing hatch while the legend claims the ramp.
       expect('fill-pattern' in updated.paint).toBe(false);
-      expect(updated.paint['fill-color']).toBe('#abc');
+      expect(updated.paint['fill-color']).toEqual(POLY_RAMP);
       // The old stash would restore a colour from before the ramp on a later None.
       expect(updated.style_config?.builder?.fillColorSaved).toBeUndefined();
     });

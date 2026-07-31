@@ -1454,3 +1454,194 @@ describe('useLayerMapSync — a replacement paint still stashes the colour it di
     expect(builderOf(layers().find((l) => l.id === LID)!)?.fillColorSaved).toBe('#0000ff');
   });
 });
+
+// fix(#910, codex P2): style_config and paint are two records of one fact, and the
+// surfaces split between them — the map draws the expression, the legend and the style
+// editor read the config. A paint replacement (Advanced JSON, an AI `replace_paint`) can
+// drop the expression and leave the config behind, and every reader downstream then
+// reports styling the map is not doing. The reconciliation is at this boundary, keyed
+// off the RESOLVED paint, because the writers are an open set and the None click was
+// merely the first control to trip over the disagreement.
+describe('useLayerMapSync — an orphaned colour classification is reconciled at the boundary', () => {
+  const LID = 'layer-uuid-123';
+  const RAMP_CLS = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+  const CATEGORICAL = {
+    mode: 'categorical',
+    column: 'era',
+    ramp: 'Set2',
+    categories: [{ value: 'pre-war', color: '#ff0000' }],
+  } as StyleConfig;
+
+  function renderBoundary(initialLayer: MapLayerResponse) {
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub([`layer-${LID}`]) } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, layers: () => finalLayers };
+  }
+
+  const configOf = (layer: MapLayerResponse) =>
+    layer.style_config as Record<string, unknown> | null;
+
+  it('drops the claim when a paint replacement leaves no expression behind', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': RAMP_CLS },
+        style_config: CATEGORICAL,
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'fill-color': '#3b82f6' });
+    });
+
+    const config = configOf(layers().find((l) => l.id === LID)!);
+    expect(config?.mode).toBeUndefined();
+    expect(config?.categories).toBeUndefined();
+    // The user's column and ramp selections are not the claim, so they survive — and
+    // reopening the editor re-asserts the classification rather than forgetting it.
+    expect(config?.column).toBe('era');
+  });
+
+  // The same shape a pattern write produces: no fill-color in the resolved paint at all.
+  it('drops the claim when the resolved paint has no colour key at all', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': RAMP_CLS },
+        style_config: CATEGORICAL,
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'fill-pattern': 'geolens-fill-hatch' });
+    });
+
+    expect(configOf(layers().find((l) => l.id === LID)!)?.mode).toBeUndefined();
+  });
+
+  it('keeps the claim when the expression survives the write', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': RAMP_CLS },
+        style_config: CATEGORICAL,
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'fill-color': RAMP_CLS, 'fill-opacity': 0.7 });
+    });
+
+    const config = configOf(layers().find((l) => l.id === LID)!);
+    expect(config?.mode).toBe('categorical');
+    expect(config?.categories).toHaveLength(1);
+  });
+
+  // A point layer's classification lives in circle-color. Reading fill-color for every
+  // geometry would delete every point and line classification on any paint edit.
+  it('reads the colour key this geometry actually uses', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'MultiPoint',
+        paint: { 'circle-color': RAMP_CLS },
+        style_config: CATEGORICAL,
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'circle-color': RAMP_CLS, 'circle-radius': 8 });
+    });
+
+    expect(configOf(layers().find((l) => l.id === LID)!)?.mode).toBe('categorical');
+  });
+
+  // A size classification describes circle-radius; a colour write is none of its
+  // business. The `colors` here are the stale leftovers of an earlier colour session,
+  // which StyleConfig's open bag makes routine (#392) — without the target check they
+  // read as a colour claim and a colour edit would delete the size styling.
+  it('leaves a size-target classification alone', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'MultiPoint',
+        paint: { 'circle-color': '#3b82f6', 'circle-radius': ['step', ['get', 'pop'], 2, 20, 8] },
+        style_config: {
+          mode: 'graduated',
+          column: 'pop',
+          target: 'radius',
+          sizes: [2, 8],
+          colors: ['#fee8c8', '#fdbb84'],
+          breaks: [20],
+        } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'circle-color': '#ff0000',
+        'circle-radius': ['step', ['get', 'pop'], 2, 20, 8],
+      });
+    });
+
+    const config = configOf(layers().find((l) => l.id === LID)!);
+    expect(config?.mode).toBe('graduated');
+    expect(config?.target).toBe('radius');
+  });
+
+  // Everything that is not the claim survives the strip. render_mode selects the
+  // RENDERER, so folding an orphaned classification into a builder-only config would
+  // silently un-cluster the layer.
+  it('preserves render_mode and the builder block when it drops the claim', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'MultiPoint',
+        paint: { 'circle-color': RAMP_CLS },
+        style_config: {
+          ...CATEGORICAL,
+          render_mode: 'cluster',
+          builder: { outlineWidth: 3 },
+        } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'circle-color': '#3b82f6' });
+    });
+
+    const config = configOf(layers().find((l) => l.id === LID)!);
+    expect(config?.mode).toBeUndefined();
+    expect(config?.render_mode).toBe('cluster');
+    expect((config?.builder as { outlineWidth?: number } | undefined)?.outlineWidth).toBe(3);
+  });
+
+  // Revert restores the saved baseline verbatim; reconciling it would leave the layer
+  // permanently dirty against the very baseline it just restored.
+  it('does not reconcile a verbatim restore', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': RAMP_CLS },
+        style_config: null,
+      }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LID,
+        CATEGORICAL,
+        { 'fill-color': '#3b82f6' },
+        { replace: true, restore: true },
+      );
+    });
+
+    expect(configOf(layers().find((l) => l.id === LID)!)?.mode).toBe('categorical');
+  });
+});

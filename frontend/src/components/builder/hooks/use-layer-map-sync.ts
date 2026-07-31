@@ -7,6 +7,7 @@ import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-ada
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
+import { reconcileColorClassification } from '@/lib/color-ramps';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
@@ -406,7 +407,15 @@ export function useLayerMapSync(
           layer: {
             ...nextLayer,
             paint: exclusions.paint,
-            style_config: stashExcludedFillColor(nextLayer.style_config ?? null, exclusions),
+            // Same boundary, same reason: a classification the resolved paint does not
+            // carry is a claim no surface can honour. The write that breaks it is a
+            // paint replacement (Advanced JSON, an AI `replace_paint`), so it is caught
+            // here rather than wherever a downstream control first trips over it.
+            style_config: reconcileColorClassification(
+              stashExcludedFillColor(nextLayer.style_config ?? null, exclusions),
+              exclusions.paint,
+              nextLayer.dataset_geometry_type,
+            ),
           },
           exclusions,
         };

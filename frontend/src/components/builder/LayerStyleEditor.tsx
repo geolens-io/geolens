@@ -360,11 +360,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // fill-color to stash, and an undefined here would drop the stash from the
     // builder config and lose the original color on the eventual None.
     let fillColorSaved = builderConfig.fillColorSaved;
-    // Whether None had to INSTALL a solid colour, which is what makes a colour
-    // classification orphaned. If paint already carried a colour — an expression that
-    // survived the pattern removal — the classification still describes what the map
-    // draws and must be kept.
-    let installedSolidFill = false;
     if (id) {
       // switching to pattern: stash and remove a SOLID fill-color, set fill-pattern.
       // An expression is left alone — deleting it is the #910 defect itself, and the
@@ -387,36 +382,16 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       if (!next['fill-color']) {
         next['fill-color'] =
           typeof fillColorSaved === 'string' ? fillColorSaved : FILL_DEFAULTS['fill-color'];
-        installedSolidFill = true;
       }
       fillColorSaved = undefined;
     }
-    // fix(#910, codex P2): None means "plain solid fill", so a colour classification
-    // that no longer has an expression in paint has to go with it. Reachable because
-    // Advanced JSON and the AI `replace_paint` action can swap a categorical fill-color
-    // expression for a pattern-only paint object while leaving `style_config` behind:
-    // the classification is already orphaned at that point, and None then installed a
-    // solid colour beside it. DataDrivenStyleEditor saw a persisted config matching its
-    // own state, skipped regenerating the expression, and the layer drew solid while the
-    // editor and legend both still claimed it was styled by the attribute.
+    // fix(#910, codex P2): a colour classification orphaned by this change (None
+    // installed a solid fill where an expression used to be) is NOT reconciled here.
+    // The picker is one of several writers that can strand a classification and the
+    // first that happened to trip over it; the rule lives at the commit boundary in
+    // use-layer-map-sync.ts, keyed off the resolved paint. Two attempts at gating it
+    // here were both wrong in one direction or the other.
     //
-    // Scoped to a config that targets COLOUR — a graduated `target: 'radius'` or
-    // 'width' classification is untouched by anything the fill picker just did. Only
-    // the builder block survives, which is the same shape DataDrivenStyleEditor's own
-    // clear paths produce.
-    const configOwnsFillColor =
-      !!layer.style_config &&
-      (layer.style_config.mode === 'categorical' || layer.style_config.mode === 'graduated') &&
-      (layer.style_config.target === undefined || layer.style_config.target === 'color');
-    // fix(#910, codex P2): gated on installedSolidFill, not merely on None. An
-    // imported, API-authored or reverted layer can legitimately hold BOTH an expression
-    // `fill-color` and a `fill-pattern`; None removes only the pattern there, the
-    // expression keeps drawing, and clearing the classification anyway stripped the
-    // metadata the editor and legend read while the map carried on rendering it — the
-    // same lie as the orphan case, pointing the other way.
-    const baseConfig = installedSolidFill && configOwnsFillColor
-      ? ({ builder: layer.style_config?.builder } as StyleConfig)
-      : layer.style_config;
     // Not updateBuilderConfig: this one needs `replace`. withBuilderConfig collapses
     // to null once fillColorSaved was the only builder field, and
     // handleStyleConfigChange reads a null config as "keep the existing builder",
@@ -426,7 +401,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // and are left alone.)
     onStyleConfigChange(
       layer.id,
-      withBuilderConfig(baseConfig, { fillColorSaved }),
+      withBuilderConfig(layer.style_config, { fillColorSaved }),
       stripLegacyBuilderPaint(next),
       { replace: true },
     );

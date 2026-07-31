@@ -21,6 +21,7 @@ import {
   clearPersistedFolderGroup,
   pruneEmptyFolderGroups,
 } from '@/components/builder/folder-groups';
+import { reconcileColorClassification } from '@/lib/color-ramps';
 import { bulkDeleteLayersApi } from '@/api/maps';
 import {
   extractCopyableStyle,
@@ -63,7 +64,11 @@ function applyStyleExcludingFillCollisions(
     layer: {
       ...merged,
       paint: exclusions.paint,
-      style_config: stashExcludedFillColor(merged.style_config ?? null, exclusions),
+      style_config: reconcileColorClassification(
+        stashExcludedFillColor(merged.style_config ?? null, exclusions),
+        exclusions.paint,
+        merged.dataset_geometry_type,
+      ),
     },
     exclusions,
   };

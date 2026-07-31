@@ -22,6 +22,7 @@ import {
   buildGraduatedSizeExpression,
   getColorProperty,
   getSizeProperty,
+  colorClassificationIsOrphaned,
   nextRotatingRamp,
   suggestRampForMode,
 } from '@/lib/color-ramps';
@@ -445,7 +446,18 @@ export function DataDrivenStyleEditor({
 
     // Preserve existing per-category colors when column and ramp haven't changed.
     // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
-    if (styleConfigAlreadyMatches({
+    //
+    // fix(#910, codex P2): that guard compares the saved config against this effect's
+    // own state, which assumes paint agrees with config — and an orphaned classification
+    // is precisely that assumption failing, so the guard cannot be trusted to detect one.
+    // It matters here rather than only at the write boundary because a layer arrives
+    // orphaned from STORAGE (saved before the boundary rule existed, or written straight
+    // through the API/SDK/AI), where no in-session write ever happened: the editor then
+    // skipped regenerating the expression and reported attribute styling on a layer
+    // drawing a flat colour. Regenerating is also the repair — it re-asserts the
+    // expression the config describes.
+    if (!colorClassificationIsOrphaned(styleConfig, layer.paint ?? {}, geomType) &&
+      styleConfigAlreadyMatches({
       existing: styleConfig,
       mode: 'categorical',
       target: 'color',
@@ -457,7 +469,8 @@ export function DataDrivenStyleEditor({
       breaks: [],
       sizeRange,
       categoryValues: values,
-    })) {
+      })
+    ) {
       return;
     }
 
@@ -501,18 +514,21 @@ export function DataDrivenStyleEditor({
 
     // Preserve existing graduated colors when config hasn't changed.
     // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
-    if (styleConfigAlreadyMatches({
-      existing: styleConfig,
-      mode: 'graduated',
-      target: 'color',
-      column,
-      ramp,
-      reversed,
-      method,
-      classCount,
-      breaks,
-      sizeRange,
-    })) {
+    // fix(#910, codex P2): and never skip on an orphaned config — see effect 1.
+    if (!colorClassificationIsOrphaned(styleConfig, layer.paint ?? {}, geomType) &&
+      styleConfigAlreadyMatches({
+        existing: styleConfig,
+        mode: 'graduated',
+        target: 'color',
+        column,
+        ramp,
+        reversed,
+        method,
+        classCount,
+        breaks,
+        sizeRange,
+      })
+    ) {
       return;
     }
 
