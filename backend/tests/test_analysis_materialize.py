@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as core_db
@@ -35,9 +35,11 @@ from app.processing.analysis.tasks import (
 
 from tests.factories import create_dataset, get_user_id
 from tests.test_analysis_preview import (
+    _create_empty_dataset,
     _create_mask_dataset,
     _create_point_dataset_at,
     _create_polygon_dataset,
+    _create_raster_dataset,
     _create_wkt_dataset,
 )
 from tests.test_export_hardening import (
@@ -3340,6 +3342,306 @@ class TestWideSingleComponentBuffer:
             )
         ).one()
         assert same.identical is True
+
+
+# ---------------------------------------------------------------------------
+# Adversarial dissolve by_field and source-shape edges (fix(#699))
+# ---------------------------------------------------------------------------
+
+
+async def _count_analysis_jobs(session: AsyncSession, user_id: uuid.UUID) -> int:
+    return await session.scalar(
+        select(func.count())
+        .select_from(IngestJob)
+        .where(
+            IngestJob.created_by == user_id,
+            IngestJob.user_metadata.has_key("analysis"),
+        )
+    )
+
+
+class TestDissolveByFieldAdversarial:
+    """`_validate_dissolve_by_field` is the only thing between a caller-chosen
+    identifier and a GROUP BY, so the cases that matter are the ones designed
+    to slip past it."""
+
+    async def test_injection_payload_is_refused_at_enqueue(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The payload is planted in `column_info` so the membership half of
+        the check passes: what has to reject it is the identifier regex. The
+        refusal happens at enqueue, so no job is created and the CTAS is never
+        reached — a later failure would already have cost the queue wait and
+        the caller's one analysis slot.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        payload = 'name"; DROP TABLE data.victim; --'
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="POLYGON",
+            feature_count=2,
+            column_info=[{"name": payload, "type": "text"}],
+        )
+        jobs_before = await _count_analysis_jobs(test_db_session, admin_id)
+
+        with patch.object(
+            router_analysis, "defer_async_with_tenant", AsyncMock()
+        ) as mock_defer:
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={
+                    "operation": "dissolve",
+                    "by_field": payload,
+                    "title": "Injected",
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert "dissolve column" in resp.json()["detail"]
+        mock_defer.assert_not_awaited()
+        assert await _count_analysis_jobs(test_db_session, admin_id) == jobs_before
+
+    async def test_reserved_word_column_survives_the_whole_path(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A column named `order` is a legal PostgreSQL identifier, just one
+        that has to be quoted everywhere. It must NOT be rejected as a
+        precaution, and the quoting has to hold from the enqueue validator
+        through the CTAS's SELECT list and GROUP BY.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data.{ds.table_name} ADD COLUMN "order" TEXT')
+        )
+        await test_db_session.execute(
+            text(f"UPDATE data.{ds.table_name} SET \"order\" = 'first'")  # noqa: S608
+        )
+        ds.column_info = [{"name": "order", "type": "text"}]
+        await test_db_session.commit()
+
+        with patch.object(
+            router_analysis, "defer_async_with_tenant", AsyncMock()
+        ) as mock_defer:
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={
+                    "operation": "dissolve",
+                    "by_field": "order",
+                    "title": f"By order {uuid.uuid4().hex[:6]}",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        kwargs = mock_defer.await_args.kwargs
+        assert kwargs["by_field"] == "order"
+
+        # Run the worker the enqueue would have queued, so the job reaches a
+        # terminal state and the assertion covers the rendered SQL.
+        await _materialize(
+            job_id=kwargs["job_id"],
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="dissolve",
+            title=f"By order {uuid.uuid4().hex[:6]}",
+            by_field="order",
+        )
+        job = await test_db_session.get(IngestJob, uuid.UUID(kwargs["job_id"]))
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f'SELECT "order", source_count '  # noqa: S608
+                    f"FROM data.{new_ds.table_name}"
+                )
+            )
+        ).all()
+        assert [(row[0], row[1]) for row in rows] == [("first", 2)]
+
+    async def test_null_group_values_become_their_own_group(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """PostgreSQL groups NULLs together rather than dropping them, so a
+        partially populated column yields a NULL-keyed output row. Worth
+        pinning because the alternative (silently losing those features) looks
+        identical from the job status.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        # 'a' keeps its name; 'b' loses it.
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{ds.table_name} "  # noqa: S608
+                f"SET name = NULL WHERE name = 'b'"
+            )
+        )
+        ds.column_info = [{"name": "name", "type": "text"}]
+        await test_db_session.commit()
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="dissolve",
+            title=f"Grouped {uuid.uuid4().hex[:6]}",
+            by_field="name",
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT name, source_count FROM data.{new_ds.table_name} "  # noqa: S608
+                    f"ORDER BY name NULLS LAST"
+                )
+            )
+        ).all()
+        assert [(row[0], row[1]) for row in rows] == [("a", 1), (None, 1)]
+
+
+class TestMaterializeSourceShapeEdges:
+    async def test_empty_source_fails_the_job(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """A 0-row source is legal input with nothing to save. Buffer maps no
+        rows to no rows, so the EXISTS probe fails the job with the same
+        message an empty result gets — never a registered empty dataset.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_empty_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="buffer",
+            title=f"Empty source {uuid.uuid4().hex[:6]}",
+            distance_meters=100,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "no features" in (job.error_message or "")
+        assert job.dataset_id is None
+
+    async def test_empty_source_dissolve_fails_rather_than_saving_a_null_row(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Dissolve without a GROUP BY is an aggregate, so an empty source
+        still yields exactly one row — with a NULL geometry. The in-CTAS
+        filter plus the post-CTAS DELETE are what keep that row from being
+        registered as a dataset.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_empty_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="dissolve",
+            title=f"Empty dissolve {uuid.uuid4().hex[:6]}",
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "no features" in (job.error_message or "")
+        assert job.dataset_id is None
+
+    async def test_real_raster_record_is_rejected_at_enqueue(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The write path's non-vector gate, exercised against the row shape
+        raster ingest actually writes rather than a synthetic
+        `geometry_type=None` dataset."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        raster = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        jobs_before = await _count_analysis_jobs(test_db_session, admin_id)
+        resp = await client.post(
+            _materialize_url(raster.id),
+            json={"operation": "centroid", "title": "From a DEM"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "vector" in resp.json()["detail"].lower()
+        assert await _count_analysis_jobs(test_db_session, admin_id) == jobs_before
+
+    @pytest.mark.parametrize(
+        ("title", "why"),
+        [("", "empty"), ("x" * 501, "over the 500-character cap")],
+    )
+    async def test_title_length_bound_is_enforced_over_http(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        title: str,
+        why: str,
+    ):
+        """AnalysisMaterializeRequest.title carries min_length=1/max_length=500.
+        There is a second 500 downstream on the worker's RegisterRequest.title;
+        the two agree only by convention, and this bound is the one a client
+        can actually reach, so it is the one worth pinning.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        jobs_before = await _count_analysis_jobs(test_db_session, admin_id)
+        resp = await client.post(
+            _materialize_url(ds.id),
+            json={"operation": "centroid", "title": title},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, f"a {why} title was accepted: {resp.text}"
+        assert "title" in resp.json()["detail"]
+        assert await _count_analysis_jobs(test_db_session, admin_id) == jobs_before
+
+    async def test_title_at_the_cap_is_accepted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The boundary itself is valid — 500 is the cap, not the first
+        rejected length."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        with patch.object(router_analysis, "defer_async_with_tenant", AsyncMock()):
+            resp = await client.post(
+                _materialize_url(ds.id),
+                json={"operation": "centroid", "title": "x" * 500},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
+        job.status = "failed"
+        await test_db_session.commit()
 
 
 # ---------------------------------------------------------------------------

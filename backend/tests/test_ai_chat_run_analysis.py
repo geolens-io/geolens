@@ -13,7 +13,9 @@ Requirements:
   - Docker database must be running (docker compose up db)
 """
 
+import ast
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select, text
@@ -462,3 +464,84 @@ class TestModelSafeToolResult:
     def test_result_without_geojson_is_passed_through_unchanged(self) -> None:
         result = {"columns": ["n"], "rows": [[1]], "row_count": 1}
         assert model_safe_tool_result(result) is result
+
+
+class TestToolResultSerializationSites:
+    """The pure function above is not the guarantee that matters.
+
+    fix(#699): what protects the model's context is that EVERY provider call
+    site routes its tool result through ``model_safe_tool_result`` before
+    ``json.dumps``. A site that drops the wrapper passes every test in the
+    class above, and ``test_extensions.py`` only asserts the extension
+    *binding name* exists, which is a different claim again. So assert the
+    property structurally, over the AST of each module that builds a
+    tool-result message.
+
+    The rule: any dict literal carrying a provider tool-result id
+    (``tool_use_id`` for Anthropic, ``tool_call_id`` for OpenAI) alongside a
+    ``content`` key must set that content to
+    ``json.dumps(model_safe_tool_result(...), ...)``. A new provider path
+    added without the wrapper fails here rather than shipping a 1.3 MB
+    GeoJSON payload to the model.
+    """
+
+    MODULES = (
+        "processing/ai/streaming.py",
+        "platform/extensions/defaults_ai_anthropic.py",
+        "platform/extensions/defaults_ai_openai.py",
+    )
+    EXPECTED_SITES = 4
+
+    @staticmethod
+    def _content_value(node: ast.Dict) -> ast.expr | None:
+        """Return the ``content`` value of a tool-result message dict."""
+        keys = {k.value for k in node.keys if isinstance(k, ast.Constant)}
+        if not keys & {"tool_use_id", "tool_call_id"} or "content" not in keys:
+            return None
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and key.value == "content":
+                return value
+        return None
+
+    @staticmethod
+    def _is_trimmed_dumps(value: ast.expr) -> bool:
+        if not isinstance(value, ast.Call):
+            return False
+        func = value.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "dumps"):
+            return False
+        if not value.args:
+            return False
+        inner = value.args[0]
+        return (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Name)
+            and inner.func.id == "model_safe_tool_result"
+        )
+
+    def test_every_provider_tool_result_is_trimmed_before_serialization(self) -> None:
+        app_root = Path(__file__).resolve().parent.parent / "app"
+        sites: list[tuple[str, int, ast.expr]] = []
+        for rel in self.MODULES:
+            path = app_root / rel
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Dict):
+                    continue
+                value = self._content_value(node)
+                if value is not None:
+                    sites.append((rel, node.lineno, value))
+
+        assert len(sites) == self.EXPECTED_SITES, (
+            f"expected {self.EXPECTED_SITES} tool-result message sites, found "
+            f"{[(rel, line) for rel, line, _ in sites]}. A new provider path "
+            "needs the wrapper too; a removed one needs this count updated."
+        )
+        unwrapped = [
+            f"{rel}:{line}"
+            for rel, line, value in sites
+            if not self._is_trimmed_dumps(value)
+        ]
+        assert not unwrapped, (
+            "these tool-result sites serialize the raw result, so the whole "
+            f"GeoJSON payload reaches the model: {unwrapped}"
+        )

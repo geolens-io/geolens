@@ -59,10 +59,19 @@ Element.prototype.hasPointerCapture = vi.fn(() => false);
 Element.prototype.releasePointerCapture = vi.fn();
 Element.prototype.scrollIntoView = vi.fn();
 
+// A spy rather than a bare arrow, with the SAME return contract (defaultValue
+// or the key), so tests can assert which key a branch chose and what it
+// interpolated. Interpolation itself stays unapplied — several assertions in
+// this file match the raw `{{...}}` templates.
+const mockT = vi.hoisted(() =>
+  vi.fn(
+    (key: string, options?: { defaultValue?: string }) =>
+      options?.defaultValue ?? key,
+  ),
+);
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, options?: { defaultValue?: string }) =>
-      options?.defaultValue ?? _key,
+    t: mockT,
     i18n: { language: 'en' },
   }),
 }));
@@ -417,6 +426,84 @@ describe('AnalysisPanel', () => {
         { truncated: true, totalCount: 10651, source: 'analysis-panel' },
       ),
     );
+  });
+
+  // fix(#699): the two tests above set `truncated: true` and then assert only
+  // on the overlay handoff — nothing pinned which notice the user actually
+  // reads, so the count-only fallback and the "of N source features" branch
+  // were interchangeable.
+  it('names the source total in the truncation notice when the API reports one', async () => {
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: 10651,
+    });
+    renderPanel([datasetLayer]);
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    expect(mockToast.info).toHaveBeenCalledWith(
+      'Showing the first {{count, number}} of {{total, number}} source features',
+      // ux(#686): the capped preview names its own remedy, and the user here
+      // has the Create dataset button to follow it to.
+      {
+        description: 'Use Create dataset to run the operation over every feature.',
+      },
+    );
+    // fix(#788): both numbers go through raw so `count` still drives plural
+    // selection while the locale string groups them. Passing a preformatted
+    // string would render correctly in English and break plurals elsewhere.
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeTotal',
+      expect.objectContaining({ count: 500, total: 10651 }),
+    );
+  });
+
+  it('falls back to the count-only truncation notice when there is no source total', async () => {
+    // source_feature_count is null for row-filtering operations (clip), where
+    // the source total says nothing about how much output was withheld.
+    vi.mocked(previewAnalysis).mockResolvedValueOnce({
+      geojson: { type: 'FeatureCollection', features: [] },
+      feature_count: 500,
+      truncated: true,
+      bbox: [0, 0, 1, 1],
+      source_feature_count: null,
+    });
+    renderPanel([datasetLayer]);
+    mockT.mockClear();
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalled());
+
+    expect(mockToast.info).toHaveBeenCalledWith(
+      'Preview capped at {{count, number}} features',
+      expect.anything(),
+    );
+    expect(mockT).toHaveBeenCalledWith(
+      'analysisTools.truncatedNotice',
+      expect.objectContaining({ count: 500 }),
+    );
+    expect(mockT).not.toHaveBeenCalledWith(
+      'analysisTools.truncatedNoticeTotal',
+      expect.anything(),
+    );
+  });
+
+  it('raises no truncation notice for a complete preview', async () => {
+    renderPanel([datasetLayer]);
+    mockToast.info.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() =>
+      expect(vi.mocked(previewAnalysis)).toHaveBeenCalled(),
+    );
+    expect(mockToast.info).not.toHaveBeenCalled();
   });
 
   it('notifies the watcher of the materialize job id and title', async () => {

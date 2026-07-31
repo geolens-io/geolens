@@ -14,6 +14,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
 from app.modules.catalog.datasets.domain.service import build_preview_sql
 
@@ -159,6 +160,86 @@ async def _create_point_dataset_at(
         column_type="Point",
         geometry_type="POINT",
     )
+
+
+async def _create_empty_dataset(session: AsyncSession, *, created_by: uuid.UUID):
+    """Create a real, correctly shaped data table holding zero rows.
+
+    fix(#699): distinct from an empty *result* — the table and its catalog rows
+    exist and the operation is legal, there is simply nothing to operate on.
+    """
+    table_name = f"ds_{uuid.uuid4().hex[:12]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            f"  gid SERIAL PRIMARY KEY,"
+            f"  name TEXT,"
+            f"  geom geometry(Polygon, 4326),"
+            f"  geom_4326 geometry(Polygon, 4326)"
+            f")"
+        )
+    )
+    await session.commit()
+    return await create_dataset(
+        session,
+        created_by=created_by,
+        table_name=table_name,
+        geometry_type="POLYGON",
+        feature_count=0,
+    )
+
+
+async def _create_raster_dataset(
+    session: AsyncSession,
+    *,
+    created_by: uuid.UUID,
+    is_dem: bool = True,
+    visibility: str = "public",
+):
+    """Create a real raster record: Record + Dataset + RasterAsset.
+
+    fix(#699): the analysis suite rejected non-vector sources only through a
+    synthetic ``geometry_type=None`` dataset, which is a shape no ingest path
+    produces. This is the row shape ``tasks_raster._register_raster`` actually
+    writes — ``record_type='raster_dataset'``, a ``raster_``-prefixed
+    ``table_name`` backed by no physical table, ``source_format='geotiff'``,
+    and a RasterAsset carrying ``is_dem``.
+    """
+    from app.processing.raster.models import RasterAsset
+
+    record = Record(
+        title=f"Raster {uuid.uuid4().hex[:6]}",
+        record_type="raster_dataset",
+        visibility=visibility,
+        record_status="published",
+        created_by=created_by,
+        theme_category=["test"],
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=f"raster_{record.id.hex[:16]}",
+        source_format="geotiff",
+        source_filename="elevation.tif",
+        srid=3857,
+    )
+    session.add(dataset)
+    await session.flush()
+    session.add(
+        RasterAsset(
+            dataset_id=dataset.id,
+            asset_uri=f"rasters/{dataset.id}/cog.tif",
+            storage_backend="local",
+            driver="GTiff",
+            band_count=1,
+            dtype="float32",
+            is_dem=is_dem,
+        )
+    )
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
 
 
 async def _create_mask_dataset(
@@ -916,6 +997,165 @@ class TestAnalysisPreviewEndpoint:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Source-shape and parameter-bound edges (fix(#699))
+# ---------------------------------------------------------------------------
+
+
+class TestSourceShapeEdges:
+    """Sources the analysis rails have to survive: a real raster record, a
+    table with no rows, and a point source that keeps survivors through a
+    layer mask."""
+
+    async def test_real_raster_record_is_rejected_by_preview(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The suite's only non-vector rejection ran through a synthetic
+        ``geometry_type=None`` dataset. This is the row shape raster ingest
+        actually writes, DEM flag and all."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        raster = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(raster.id),
+            json={"operation": "centroid"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "vector" in resp.json()["detail"].lower()
+
+    async def test_real_raster_record_is_rejected_as_a_clip_mask(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The mask loader runs the same vector gate before the polygon one,
+        so a DEM chosen as a mask must never reach the geometry-type check
+        against a table that does not exist."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        raster = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "clip", "mask_dataset_id": str(raster.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "vector" in resp.json()["detail"].lower()
+
+    async def test_empty_source_previews_as_zero_features(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """A 0-row source is not an error on the read path — the operation is
+        legal and the answer is empty. Distinct from an empty *result*, which
+        fails the materialize job."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_empty_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "buffer", "distance_meters": 100},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["feature_count"] == 0
+        assert data["truncated"] is False
+        assert data["geojson"]["features"] == []
+        # No rows means no extent to report; a [null, null, null, null] bbox
+        # would render as a jump to the origin.
+        assert data["bbox"] is None
+
+    async def test_clip_by_layer_keeps_points_inside_the_mask(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """The line equivalents assert survivors; the point one only ever
+        asserted the zero-survivor degenerate-mask case. Points are the
+        dimension where ST_CollectionExtract takes its narrowest branch
+        (ST_Dimension = 0), so a survivor case has to exist."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        # Points sit at 0.001..0.005 along the equator.
+        points = await _create_point_dataset(test_db_session, created_by=admin_id, n=5)
+        mask = await _create_mask_dataset(
+            test_db_session,
+            created_by=admin_id,
+            # Covers the first three points only.
+            wkt="POLYGON((0 -1, 0 1, 0.0035 1, 0.0035 -1, 0 -1))",
+        )
+        resp = await client.post(
+            _preview_url(points.id),
+            json={"operation": "clip", "mask_dataset_id": str(mask.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["feature_count"] == 3
+        assert {f["geometry"]["type"] for f in data["geojson"]["features"]} == {"Point"}
+        xs = sorted(
+            f["geometry"]["coordinates"][0] for f in data["geojson"]["features"]
+        )
+        assert xs == pytest.approx([0.001, 0.002, 0.003])
+
+
+class TestPreviewParameterBounds:
+    """The distance bounds are pinned at the SQL-builder and chat layers; this
+    is the HTTP contract, where a client actually sends them."""
+
+    @pytest.mark.parametrize("distance", [-1, 0, -0.0001])
+    async def test_non_positive_distance_rejected_over_http(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        distance: float,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            json={"operation": "buffer", "distance_meters": distance},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+
+    @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+    async def test_non_finite_distance_rejected_over_http(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        token: str,
+    ):
+        """Pydantic's `allow_inf_nan` defaults to True, so NaN and the
+        infinities parse as perfectly good floats; what stops them is that
+        every comparison against NaN is False, which fails `le` (not `gt`,
+        the bound the finite cases fail). Sent as bare JSON tokens, which is
+        what a JS client serializing a NaN emits.
+
+        Pinning the message keeps this honest: if `allow_inf_nan` were ever
+        set False the rejection would come from parsing instead, and the
+        builder's own isfinite check would stop being the second line."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        resp = await client.post(
+            _preview_url(ds.id),
+            content=f'{{"operation": "buffer", "distance_meters": {token}}}',
+            headers={**admin_auth_header, "content-type": "application/json"},
+        )
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert "distance_meters" in detail
+        assert ("less than or equal" in detail) or ("greater than" in detail)
 
 
 # ---------------------------------------------------------------------------
