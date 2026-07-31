@@ -265,10 +265,20 @@ export function resolveFillExclusions(
  */
 export function stashExcludedFillColor(
   config: StyleConfig | null,
-  flags: { isDataDrivenColor: boolean; patternOwnsFill: boolean; strandedFillColor: string | undefined },
+  flags: {
+    paint: Record<string, unknown>;
+    patternOwnsFill: boolean;
+    strandedFillColor: string | undefined;
+  },
 ): StyleConfig | null {
   let next = config;
-  if (flags.isDataDrivenColor && next?.builder?.fillColorSaved !== undefined) {
+  // fix(#910, codex P2): the stash is stale the moment a pattern stops owning the fill,
+  // whatever took over — a ramp, or a solid colour written straight to paint. Keyed off
+  // the RESOLVED paint rather than the reason, because enumerating reasons is what let
+  // a solid-colour win keep a stale stash: the next pattern write then found the slot
+  // occupied, and None restored a colour from two edits ago while the extrusion
+  // companion painted it too.
+  if (!('fill-pattern' in flags.paint) && next?.builder?.fillColorSaved !== undefined) {
     const { fillColorSaved: _dropped, ...restBuilder } = next.builder;
     next = { ...next, builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined };
   }

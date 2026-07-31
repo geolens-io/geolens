@@ -1214,3 +1214,97 @@ describe('useLayerMapSync — EDIT-05 at the commit boundary', () => {
     expect(updated.paint?.['fill-color']).toBe('#abc');
   });
 });
+
+// fix(#910, codex P2): the stash has to track WHO owns the fill across a sequence of
+// writes, not just the write in front of it. A solid colour taking the fill leaves any
+// previous stash stale; keeping it meant the next pattern write found the slot occupied
+// and None restored a colour from two edits back.
+describe('useLayerMapSync — the fill-colour stash across successive writes', () => {
+  const LID = 'layer-uuid-123';
+
+  function renderSeq(initialLayer: MapLayerResponse) {
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub([`layer-${LID}`]) } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, layers: () => finalLayers };
+  }
+
+  const builderOf = (l: MapLayerResponse) =>
+    (l.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+
+  it('a solid colour taking the fill clears the stale stash', () => {
+    const { result, layers } = renderSeq(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder: { fillColorSaved: '#111111' } } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-pattern': 'geolens-fill-hatch',
+        'fill-color': '#222222',
+      });
+    });
+
+    expect(builderOf(layers().find((l) => l.id === LID)!)?.fillColorSaved).toBeUndefined();
+  });
+
+  it('so a later pattern write stashes the CURRENT colour, not the two-edits-ago one', () => {
+    const { result, layers } = renderSeq(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder: { fillColorSaved: '#111111' } } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    // 1: a solid colour takes the fill (AI set_style / Advanced JSON).
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-pattern': 'geolens-fill-hatch',
+        'fill-color': '#222222',
+      });
+    });
+    // 2: a pattern takes it back. The colour it displaces is #222222.
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-color': '#222222',
+        'fill-pattern': 'geolens-fill-dots',
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-dots');
+    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+    expect(builderOf(updated)?.fillColorSaved).toBe('#222222');
+  });
+
+  it('keeps the stash while the pattern still owns the fill', () => {
+    const { result, layers } = renderSeq(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.5 },
+        style_config: { builder: { fillColorSaved: '#111111' } } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-pattern': 'geolens-fill-hatch',
+        'fill-opacity': 0.9,
+      });
+    });
+
+    expect(builderOf(layers().find((l) => l.id === LID)!)?.fillColorSaved).toBe('#111111');
+  });
+});
