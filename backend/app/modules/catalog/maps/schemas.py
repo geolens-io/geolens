@@ -1080,6 +1080,10 @@ class MapSummaryResponse(BaseModel):
     description: str | None
     visibility: MapVisibility
     thumbnail_url: str | None = None
+    # fix(#1005): the thumbnail's cache version, separate from the map's edit
+    # timestamp. Null for maps whose thumbnail predates the column; the card
+    # falls back to `updated_at` so it keeps a stable version either way.
+    thumbnail_updated_at: datetime | None = None
     layer_count: int
     created_by_username: str | None = None
     created_at: datetime

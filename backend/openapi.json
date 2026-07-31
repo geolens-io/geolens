@@ -10000,6 +10000,18 @@
             "title": "Name",
             "type": "string"
           },
+          "thumbnail_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Updated At"
+          },
           "thumbnail_url": {
             "anyOf": [
               {
