@@ -635,7 +635,7 @@
     "cannotPublish": "Veröffentlichung nicht möglich: Datensätze {{datasets}} sind nicht öffentlich",
     "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
     "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
-    "audienceHiddenWarning": "Für Betrachter ausgeblendet: {{layers}}. Die Datensätze dieser Layer sind privat oder unveröffentlicht und daher nur für dich sichtbar.",
+    "audienceHiddenWarning": "Für Betrachter ausgeblendet: {{layers}}. Die Datensätze dieser Layer sind für das Publikum dieser Karte nicht sichtbar und daher nur für dich sichtbar.",
     "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
     "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist.",
     "expirationLabel": "Ablaufdatum",

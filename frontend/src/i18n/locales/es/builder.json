@@ -635,7 +635,7 @@
     "cannotPublish": "No se puede publicar: los conjuntos de datos {{datasets}} no son públicos",
     "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
     "unsavedWarning": "Los cambios sin guardar solo están en la vista previa del constructor. Guarda antes de copiar enlaces o inserciones.",
-    "audienceHiddenWarning": "Ocultas para los visitantes: {{layers}}. Los conjuntos de datos de estas capas son privados o no están publicados, por lo que solo tú podrás verlas.",
+    "audienceHiddenWarning": "Ocultas para los visitantes: {{layers}}. Los conjuntos de datos de estas capas no son visibles para el público de este mapa, por lo que solo tú podrás verlas.",
     "savingWarning": "Guardando cambios. Los enlaces e inserciones se actualizan cuando termine este guardado.",
     "saveFailedWarning": "Error al guardar. Los enlaces e inserciones siguen mostrando el último mapa guardado hasta que reintentes correctamente.",
     "expirationLabel": "Caducidad",

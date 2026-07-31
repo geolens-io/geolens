@@ -635,7 +635,7 @@
     "cannotPublish": "Impossible de publier : les jeux de données {{datasets}} ne sont pas publics",
     "embedTokenInfo": "Des couches non publiques sont incluses. Un jeton d'intégration gère l'accès automatiquement.",
     "unsavedWarning": "Les modifications non enregistrées sont uniquement dans l'aperçu du constructeur. Enregistrez avant de copier des liens ou des intégrations.",
-    "audienceHiddenWarning": "Masquées pour les visiteurs : {{layers}}. Les jeux de données de ces couches sont privés ou non publiés, donc seul vous pourrez les voir.",
+    "audienceHiddenWarning": "Masquées pour les visiteurs : {{layers}}. Les jeux de données de ces couches ne sont pas visibles pour le public de cette carte, donc seul vous pourrez les voir.",
     "savingWarning": "Enregistrement des modifications. Les liens et intégrations se mettent à jour après cet enregistrement.",
     "saveFailedWarning": "Échec de l'enregistrement. Les liens et intégrations affichent encore la dernière carte enregistrée jusqu'à une nouvelle tentative réussie.",
     "expirationLabel": "Expiration",
