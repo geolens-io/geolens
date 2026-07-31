@@ -49,9 +49,14 @@ _READ_ONLY_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 # characters cannot reach it; an unresolvable template is
 # ``<unmatched-route>``, which is in no pair and so is refused.
 #
+# Both spellings, because ROUTE-01's dual-shape decorator registers the
+# trailing-slash form and a hidden bare form for the same handler, and
+# redirect_slashes is off — exempting only one would 403 half the callers of
+# the same endpoint for no reason anyone could find.
+#
 # The route is not mounted yet. Whoever lands #565 owns re-reading this.
 _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {("POST", "/api/query/")}
+    {("POST", "/api/query/"), ("POST", "/api/query")}
 )
 
 

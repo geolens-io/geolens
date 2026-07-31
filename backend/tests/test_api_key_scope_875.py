@@ -198,21 +198,43 @@ async def test_read_only_key_is_refused_on_delete(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_read_only_key_is_refused_on_an_optional_auth_write(
+async def test_read_only_key_is_refused_on_an_optional_auth_post(
     client: AsyncClient,
 ):
     """A scope violation must not degrade to anonymous on optional-auth routes
-    either — that would silently downgrade the caller instead of telling them
-    why the request failed."""
+    either — that would silently downgrade the caller to the public view
+    instead of telling them why the request failed.
+
+    POST /tiles/tokens/ resolves via get_optional_user and answers anonymous
+    callers with 200, so it is the sharpest case: without the raise, a
+    read_only key would get a quietly narrower result instead of a refusal.
+    """
     headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
     raw_key = (await _mint(client, headers, scope="read_only"))["key"]
 
     resp = await client.post(
-        "/collections/datasets/items",
-        json={},
+        "/tiles/tokens/",
+        json={"dataset_ids": [str(uuid.uuid4())]},
         headers={"X-Api-Key": raw_key},
     )
-    assert resp.status_code != 401
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "This API key is read-only"
+
+
+@pytest.mark.anyio
+async def test_full_key_still_reaches_the_optional_auth_post(client: AsyncClient):
+    """The paired control: the refusal above is the scope, not the route."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+
+    resp = await client.post(
+        "/tiles/tokens/",
+        json={"dataset_ids": [str(uuid.uuid4())]},
+        headers={"X-Api-Key": raw_key},
+    )
+    # The batch never fails on a per-dataset error, so an unknown id still
+    # answers 200 — what matters is that the credential was not refused.
+    assert resp.status_code == 200
 
 
 @pytest.mark.anyio
@@ -311,15 +333,20 @@ def test_the_carve_out_is_a_named_method_and_route():
     """Decided in #875 and #565: a read_only key MAY call the SELECT-only
     sandbox endpoint, because it is a read. The exemption is an exact
     (method, route template) pair so nothing inherits it by resembling one."""
-    assert _READ_ONLY_KEY_EXEMPT_ROUTES == frozenset({("POST", "/api/query/")})
+    assert _READ_ONLY_KEY_EXEMPT_ROUTES == frozenset(
+        {("POST", "/api/query/"), ("POST", "/api/query")}
+    )
     assert _read_only_key_may_call("POST", "/api/query/") is True
-    # Neighbours that merely look like it inherit nothing.
-    assert _read_only_key_may_call("POST", "/api/query") is False
+    # ROUTE-01's dual-shape decorator registers both spellings of the same
+    # handler, so both are exempt.
+    assert _read_only_key_may_call("POST", "/api/query") is True
+    # A neighbour that merely looks like it inherits nothing.
     assert _read_only_key_may_call("POST", "/api/query/run") is False
     # Exempting the PATH would have carried a future destructive method with
     # it; the pair is what stops that.
     assert _read_only_key_may_call("DELETE", "/api/query/") is False
     assert _read_only_key_may_call("PUT", "/api/query/") is False
+    assert _read_only_key_may_call("DELETE", "/api/query") is False
 
 
 def test_an_unresolvable_route_fails_closed():
