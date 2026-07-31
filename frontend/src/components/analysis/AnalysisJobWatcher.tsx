@@ -31,8 +31,11 @@ export function AnalysisJobWatcher() {
   // Runs whose terminal status this tab has already acted on, so neither the
   // effect below nor the propagated-clear cleanup repeats itself.
   const handledRef = useRef<Set<string>>(new Set());
-  // The job as of the previous render, so a disappearance is detectable.
+  // The job as of the previous render, so a departure is detectable.
   const lastSeenRef = useRef<TrackedAnalysisJob | null>(null);
+  // A departed job still owed its document-local cleanup, waiting for the
+  // claim that says how it ended.
+  const pendingCleanupRef = useRef<TrackedAnalysisJob | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   // Shares its query key with the Analysis panel, so both watching costs one poll.
@@ -230,25 +233,42 @@ export function AnalysisJobWatcher() {
   ]);
 
   // fix(#1008 codex P2): the clear propagates, so a tab that was throttled
-  // through the terminal poll simply watches its tracked job vanish. Its
+  // through the terminal poll simply watches its tracked job go away. The
   // effect above then returns at `if (!job)` and it never runs the cleanup
   // that is document-local: its own QueryClient (focus refetching is off, so
   // nothing else refreshes it) and its own remembered form title. The claim
   // carries the status precisely so a tab that did not observe the run's end
   // still knows what kind of end it was.
+  //
+  // fix(#1008 codex P2, second pass): "went away" is not "became null". A tab
+  // that resumes after another cleared job1 and started job2 rehydrates from
+  // the latest payload and can go straight from job1 to job2, never rendering
+  // null in between. And the claim need not arrive on the same render, so the
+  // departed job waits in a ref until one names it.
   useEffect(() => {
     const previous = lastSeenRef.current;
     lastSeenRef.current = job;
-    if (job || !previous) return;
-    // This tab reported the run itself, so it already did all of this.
-    if (handledRef.current.has(previous.jobId)) return;
-    // A clear with no claim behind it is a logout or an identity change, not
-    // a completion — nothing was created and nothing needs refreshing.
-    if (completedAt?.jobId !== previous.jobId) return;
+    if (
+      previous &&
+      previous.jobId !== job?.jobId &&
+      // This tab reported the run itself, so it already did all of this.
+      !handledRef.current.has(previous.jobId)
+    ) {
+      // At most one: the store tracks a single run, so an older pending job
+      // has had its claim slot overwritten and can never be matched again.
+      pendingCleanupRef.current = previous;
+    }
+    const pending = pendingCleanupRef.current;
+    // No claim naming it means a logout or an identity change rather than a
+    // completion — nothing was created, so nothing needs refreshing. Keep it
+    // pending in case the claim is still on its way.
+    if (!pending || completedAt?.jobId !== pending.jobId) return;
+    pendingCleanupRef.current = null;
+    handledRef.current.add(pending.jobId);
     if (completedAt.status !== 'complete') return;
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
-    useAnalysisFormStore.getState().clearTitleForMap(previous.mapId);
+    useAnalysisFormStore.getState().clearTitleForMap(pending.mapId);
   }, [job, completedAt, queryClient]);
 
   return null;

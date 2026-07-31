@@ -266,6 +266,66 @@ describe('AnalysisJobWatcher', () => {
     invalidate.mockRestore();
   });
 
+  // fix(#1008 codex P2, second pass): a resuming tab rehydrates from the
+  // latest payload, so it can go straight from job1 to job2 without ever
+  // rendering null. job1's cleanup is owed all the same.
+  it('runs the cleanup when a completed job is replaced by the next one', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: { jobId: 'j2', title: 'Next run', mapId: 'm1' },
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    // ...and the replacement run is still being tracked.
+    expect(useAnalysisJobStore.getState().job?.jobId).toBe('j2');
+    invalidate.mockRestore();
+  });
+
+  it('waits for the claim when it arrives after the job is replaced', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    // The two storage writes need not land on one render.
+    act(() => {
+      useAnalysisJobStore.setState({ job: { jobId: 'j2', title: 'Next', mapId: 'm1' } });
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    invalidate.mockRestore();
+  });
+
   it('does not refresh when the job is cleared without a completion claim', async () => {
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'running', dataset_id: null });
