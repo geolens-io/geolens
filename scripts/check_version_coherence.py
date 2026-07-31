@@ -207,16 +207,30 @@ def main() -> int:
     # Canonical = backend distribution version (what the app derives at runtime).
     canonical = sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"]
 
-    offenders = {site: v for site, v in sites.items() if v != canonical}
+    # fix(#1019): print every site BEFORE any check can return. Both CHANGELOG
+    # failure paths used to sit above this listing, so a `make version-check`
+    # that failed on the CHANGELOG never said whether the lockfiles and
+    # manifests had stamped — which is the whole reason you run it mid-bump.
+    # For the same reason both halves are now collected and reported together
+    # instead of returning on the first.
+    print(
+        f"Version sites ({len(sites)}), "
+        f"canonical (backend/pyproject.toml) = {canonical}:"
+    )
+    for site, v in sites.items():
+        print(f"  [{'ok' if v == canonical else 'DRIFT'}] {site}: {v}")
 
+    failed = False
+
+    offenders = {site: v for site, v in sites.items() if v != canonical}
     if offenders:
+        failed = True
         sys.stderr.write(
             f"FAIL: version drift detected. Canonical (backend/pyproject.toml) = {canonical!r}.\n"
             f"Run `make bump VERSION={canonical}` to resync, or correct the offending site:\n"
         )
         for site, v in offenders.items():
             sys.stderr.write(f"  - {site}: {v!r} != {canonical!r}\n")
-        return 1
 
     # Mirror release.yml's awk: take the lines between this version's header and
     # the next `## [` one. Matching the header alone is not enough — an empty
@@ -224,6 +238,7 @@ def main() -> int:
     # takes the same git-log fallback as a missing one.
     body = _changelog_section(canonical)
     if body is None:
+        failed = True
         sys.stderr.write(
             f"FAIL: {_rel(CHANGELOG)} has no '## [{canonical}]' section.\n"
             f"release.yml extracts the release body by matching that exact header and\n"
@@ -231,21 +246,24 @@ def main() -> int:
             f"'## [Unreleased]' header to '## [{canonical}] - <date>' (keeping a fresh\n"
             f"empty Unreleased above it) and add the matching link reference.\n"
         )
-        return 1
-    if not body.strip():
+    elif not body.strip():
+        failed = True
         sys.stderr.write(
             f"FAIL: {_rel(CHANGELOG)}'s '## [{canonical}]' section is empty.\n"
             f"release.yml treats an empty section exactly like a missing one and\n"
             f"falls back to the raw git-log list. Write the release notes under that\n"
             f"header before tagging.\n"
         )
+    else:
+        lines = len([ln for ln in body.strip().splitlines() if ln.strip()])
+        print(
+            f"  [ok] {_rel(CHANGELOG)}: '## [{canonical}]' section present ({lines} lines)."
+        )
+
+    if failed:
         return 1
 
     print(f"OK: all {len(sites)} version sites agree on {canonical}.")
-    for site, v in sites.items():
-        print(f"  {site}: {v}")
-    lines = len([ln for ln in body.strip().splitlines() if ln.strip()])
-    print(f"  {_rel(CHANGELOG)}: '## [{canonical}]' section present ({lines} lines).")
     return 0
 
 
