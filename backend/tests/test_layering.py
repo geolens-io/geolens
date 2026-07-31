@@ -865,8 +865,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # so the flip succeeded and every signed-in viewer of that map lost
         # the layer in silence. #930 made the rule a matrix, so the helper
         # compares the before and after audiences instead of listing
-        # forbidden target values. Cap 735 -> 877, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 877,
+        # forbidden target values. Cap 735 -> 876, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 876,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
