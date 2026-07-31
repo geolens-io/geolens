@@ -8,6 +8,11 @@ export interface TrackedAnalysisJob {
   title: string;
   /** Map the job was started from; enables the "Add to map" action. */
   mapId: string | null;
+  /** fix(#1008 codex P2): who started it. The identity-change clear
+   *  propagates now, so a dormant tab processing a stale auth event would
+   *  otherwise delete the account that replaced it — including a run that is
+   *  still going server-side. Stamped by `setJob`, not by callers. */
+  userId?: string | null;
 }
 
 /**
@@ -36,6 +41,14 @@ interface PersistedAnalysisJobState {
 
 interface AnalysisJobState extends PersistedAnalysisJobState {
   setJob: (job: TrackedAnalysisJob | null) => Promise<void>;
+  /**
+   * Drop the tracked job, but only if it belongs to ``userId``.
+   *
+   * fix(#1008 codex P2): the identity-change clear used to be this tab's own
+   * business. Now it propagates, so a delayed handler must not reach past the
+   * account it is cleaning up after.
+   */
+  clearJobForUser: (userId: string | null) => Promise<void>;
   /**
    * Try to become the one tab that reports this job's completion.
    *
@@ -192,7 +205,24 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
           // too, or a clear that read "no newer job" moments earlier overwrites
           // this one with null.
           withLock(() => {
-            set(mergeWith(readPersisted(), { job }));
+            // Stamped here rather than by callers: every caller would have to
+            // remember, and forgetting reads as "belongs to nobody".
+            const owned = job
+              ? { ...job, userId: useAuthStore.getState().user?.id ?? null }
+              : null;
+            set(mergeWith(readPersisted(), { job: owned }));
+          }, undefined),
+        clearJobForUser: (userId) =>
+          withLock(() => {
+            const persisted = readPersisted();
+            const tracked = persisted.job;
+            // A job with no owner predates the stamp, so its provenance is
+            // unknown — clearing is the safe reading, since the alternative
+            // leaves the previous account's run tracked under a new one.
+            if (tracked && tracked.userId !== undefined && tracked.userId !== userId) {
+              return;
+            }
+            set(mergeWith(persisted, { job: null }));
           }, undefined),
         claimCompletion: (jobId, status) =>
           // fix(#1008 codex P2): the read/write/read below is NOT atomic on its
@@ -280,7 +310,7 @@ if (typeof window !== 'undefined') {
 // a job mid-run.
 useAuthStore.subscribe((s, prev) => {
   if (s.user?.id !== prev.user?.id) {
-    void useAnalysisJobStore.getState().setJob(null);
+    void useAnalysisJobStore.getState().clearJobForUser(prev.user?.id ?? null);
   }
 });
 

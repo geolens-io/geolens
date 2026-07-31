@@ -326,6 +326,33 @@ describe('AnalysisJobWatcher', () => {
     invalidate.mockRestore();
   });
 
+  // fix(#1008 codex P2, third pass): a tab suspended across two whole runs
+  // resumes to a claim naming the second while it still remembers the first.
+  // Refreshing is not job-specific — one invalidation re-reads the whole
+  // catalog — so it has to fire on the claim it can see, not on an id match.
+  it('refreshes on a claim for a run it never tracked', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    // It slept through j1 finishing, j2 starting, and j2 finishing.
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j2',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    invalidate.mockRestore();
+  });
+
   it('does not refresh when the job is cleared without a completion claim', async () => {
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'running', dataset_id: null });

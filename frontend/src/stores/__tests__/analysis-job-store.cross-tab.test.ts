@@ -5,6 +5,8 @@ import {
   useAnalysisJobStore,
   type TrackedAnalysisJob,
 } from '@/stores/analysis-job-store';
+import { useAuthStore } from '@/stores/auth-store';
+import type { UserResponse } from '@/types/api';
 
 // feat(#1008): two mechanisms that are easy to conflate.
 //
@@ -331,7 +333,8 @@ describe('analysis-job-store write merging', () => {
 
     await useAnalysisJobStore.getState().setJob(job);
 
-    expect(storedState().job).toEqual(job);
+    // setJob stamps the owning identity; nobody is signed in here.
+    expect(storedState().job).toEqual({ ...job, userId: null });
     // Dropping the claim would re-arm a completion another tab already
     // reported, so the next tab to look would toast it a second time.
     expect(storedState().completedAt).toMatchObject({ jobId: 'job-0' });
@@ -370,5 +373,46 @@ describe('analysis-job-store storage failure', () => {
     await expect(
       useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId),
     ).resolves.toBeUndefined();
+  });
+});
+
+// fix(#1008 codex P2): the identity-change clear propagates now, so a dormant
+// tab processing a stale auth event must not reach past the account it is
+// cleaning up after and delete the one that replaced it.
+describe('analysis-job-store identity-scoped clear', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    useAuthStore.setState({ token: null, refreshToken: null, user: null });
+    localStorage.clear();
+  });
+
+  it('clears the run belonging to the account that signed out', async () => {
+    useAuthStore.setState({ user: { id: 'u1' } as UserResponse });
+    await useAnalysisJobStore.getState().setJob(job);
+
+    await useAnalysisJobStore.getState().clearJobForUser('u1');
+
+    expect(storedState().job).toBeNull();
+  });
+
+  it('leaves the next account’s run alone', async () => {
+    // u2 signed in and started a run; a dormant tab only now processes u1's
+    // sign-out. Clearing here would stop tracking a job still running.
+    useAuthStore.setState({ user: { id: 'u2' } as UserResponse });
+    await useAnalysisJobStore.getState().setJob(job);
+
+    await useAnalysisJobStore.getState().clearJobForUser('u1');
+
+    expect(storedState().job).toMatchObject({ jobId: 'job-1', userId: 'u2' });
+  });
+
+  it('clears an unstamped run, whose owner cannot be established', async () => {
+    // Written before the stamp existed: leaving it tracked under whoever signs
+    // in next is the worse reading of an unknown.
+    seedStorage({ job: { ...job }, completedAt: null });
+
+    await useAnalysisJobStore.getState().clearJobForUser('u1');
+
+    expect(storedState().job).toBeNull();
   });
 });

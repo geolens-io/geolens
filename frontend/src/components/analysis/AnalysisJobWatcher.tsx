@@ -254,21 +254,30 @@ export function AnalysisJobWatcher() {
       // This tab reported the run itself, so it already did all of this.
       !handledRef.current.has(previous.jobId)
     ) {
-      // At most one: the store tracks a single run, so an older pending job
-      // has had its claim slot overwritten and can never be matched again.
+      // At most one: the store tracks a single run, so an older departed job
+      // has had its claim slot overwritten and can never be matched by id.
       pendingCleanupRef.current = previous;
     }
-    const pending = pendingCleanupRef.current;
-    // No claim naming it means a logout or an identity change rather than a
-    // completion — nothing was created, so nothing needs refreshing. Keep it
-    // pending in case the claim is still on its way.
-    if (!pending || completedAt?.jobId !== pending.jobId) return;
-    pendingCleanupRef.current = null;
-    handledRef.current.add(pending.jobId);
+    // fix(#1008 codex P2, third pass): keyed on the CLAIM, not on which job
+    // departed. A tab suspended across two whole runs resumes to a claim
+    // naming the second while it remembers the first, and matching ids would
+    // then refresh for neither — leaving it a catalog missing both outputs,
+    // with focus refetching disabled and nothing else to correct it.
+    //
+    // Refreshing is not job-specific anyway: an invalidation re-reads the
+    // whole catalog, so one is enough however many runs it slept through.
+    if (!completedAt || handledRef.current.has(completedAt.jobId)) return;
+    handledRef.current.add(completedAt.jobId);
     if (completedAt.status !== 'complete') return;
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
-    useAnalysisFormStore.getState().clearTitleForMap(pending.mapId);
+    // The remembered title IS job-specific — it belongs to the run this tab
+    // was showing, and only that run's completion retires it.
+    const pending = pendingCleanupRef.current;
+    if (pending && pending.jobId === completedAt.jobId) {
+      pendingCleanupRef.current = null;
+      useAnalysisFormStore.getState().clearTitleForMap(pending.mapId);
+    }
   }, [job, completedAt, queryClient]);
 
   return null;
