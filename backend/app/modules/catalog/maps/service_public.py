@@ -86,22 +86,21 @@ _SHARED_MAP_AUDIENCES = ("public", "internal")
 # this is a total order, and "does this change strand someone" is a comparison
 # rather than a table of allowed moves.
 #
-# fix(#931 codex r5): this encodes the COMMUNITY ladder, matching
+# fix(#1068): this encodes the COMMUNITY ladder, matching
 # `DefaultPermissionExtension`. An overlay that narrows a rung — ABAC excluding
 # some active non-owner users from `internal`, say — makes the real audience
 # smaller than the rank assumes, and this guard cannot see that: the seam's
 # `filter_visible`/`can_access_dataset` both take a CONCRETE user, and a map's
 # audience is a set with no representative member to pass them. Answering it
-# properly needs a new protocol method and an EXTENSION_API_VERSION bump, which
-# is a larger change than this guard.
+# properly needs a new protocol method and an EXTENSION_API_VERSION bump, so it
+# is tracked separately rather than folded into a visibility fix.
 #
-# The failure direction is what makes that acceptable. Narrowing the real
-# audience only ever makes this guard MORE conservative: it can refuse a move
-# that strands nobody, never permit one that strands someone. So an overlay
-# inherits a refusal that lies, not a silent break — the same class as the
-# grant and publication-status cases above, and the reason those were worth
-# fixing rather than urgent. An overlay that reshapes the ladder should extend
-# this the way #930 notes a cloud overlay must scope internal per-tenant.
+# The failure direction is why deferring it is safe. Narrowing the real audience
+# only ever makes this guard MORE conservative: it can refuse a move that
+# strands nobody, never permit one that strands someone. So an overlay inherits
+# a refusal that lies, not a silent break — the same class as the grant and
+# publication-status cases above, and the reason those were worth fixing rather
+# than urgent. See #1068 for the shape of the seam change.
 #
 # fix(#931 codex r1): `restricted` is a PARTIAL audience, not an absent one.
 # Treating it as unreachable made `restricted -> private` look like it stranded
