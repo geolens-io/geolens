@@ -1441,11 +1441,16 @@ jobs:
   # this aggregator, give it a merge_group clause too, or you have quietly
   # reopened the hole.
   #
-  # The non-gating jobs (runtime-extension-image-probe, accessibility,
-  # stac-validate, e2e-test, ai-evals) deliberately stay off merge_group. They
-  # are not in this list, so they gate nothing there and would only spend
-  # Actions minutes; the push-triggered ones still run when the batch lands on
-  # main, which is the same coverage they have today.
+  # fix(#1096): accessibility and stac-validate USED TO be listed here as
+  # deliberately off merge_group. That reasoning held only while the queue was
+  # off. With it on, "still runs when the batch lands on main" meant they could
+  # not block the commit that broke them, and neither was in this list, so a
+  # failure gated nothing anywhere and just painted main red with no owner.
+  # Both now run on merge_group and appear below.
+  #
+  # Still deliberately off merge_group: runtime-extension-image-probe (builds
+  # images), e2e-test (the full nightly suite) and ai-evals (spends provider
+  # tokens). They are not in this list and gate nothing here.
   ci-ok:
     name: CI OK
     needs:
@@ -1478,6 +1483,11 @@ jobs:
       # fix(#825): PR-only browser gate; skipped (non-stack PRs, push, cron)
       # counts as pass below, failed blocks the merge.
       - e2e-smoke
+      # fix(#1096): skipped on PRs (both stay off pull_request), which the step
+      # below counts as pass, so per-PR cost stays zero. They RUN on
+      # merge_group and on push, and there a failure blocks.
+      - accessibility
+      - stac-validate
     # always() alone would rubber-stamp: it only guarantees this job RUNS.
     # The step below does the real gating on needs.*.result.
     if: always()
@@ -1887,9 +1897,16 @@ jobs:
     # auto-skips a job whose needs were skipped. The failure/cancelled guard
     # preserves the push gate: don't run the expensive a11y suite if an upstream
     # lint/test failed.
+    #
+    # fix(#1096): merge_group added, and this job joined ci-ok's needs. Before,
+    # axe ran ONLY on a push that had already happened, and gated nothing even
+    # then, because it was absent from the aggregator. An a11y regression landed
+    # on main and painted it red with no owner. In the queue it now runs against
+    # the candidate merge and a failure keeps it out. Costs ~4.7 min on the
+    # critical path, measured, and only after backend-test's 27.5.
     if: >-
       always()
-      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
@@ -1958,9 +1975,14 @@ jobs:
     # Same trigger/guard shape as the accessibility job above: force-run on
     # push(main), evaluate on schedule/dispatch despite skipped needs, and stay
     # off PRs (per-PR Actions budget = 0).
+    #
+    # fix(#1096): merge_group added here too, same reasoning. STAC conformance
+    # is a public API contract, and it previously could not block the commit
+    # that broke it. ~2.7 min, in parallel with axe, so it adds nothing to the
+    # critical path beyond what axe already costs.
     if: >-
       always()
-      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
