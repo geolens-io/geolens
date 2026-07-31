@@ -14,11 +14,56 @@ RED → GREEN history:
 
 from __future__ import annotations
 
-import pytest
-from structlog.testing import capture_logs
+import contextlib
 
+import pytest
+
+from app.platform.sandbox import validator as _validator
 from app.platform.sandbox.schemas import SandboxError
 from app.platform.sandbox.validator import validate_sql
+
+
+@contextlib.contextmanager
+def _recording_validator_logger():
+    """Collect the validator's structured rejection events, immune to caching.
+
+    fix(#1024): `structlog.testing.capture_logs()` cannot see these events.
+    `app/core/logging_config.py` configures structlog with
+    `cache_logger_on_first_use=True`, and `validator.py` binds its logger at
+    module import, so the first call that logs freezes the processor chain onto
+    that logger. Every later `capture_logs()` swaps the GLOBAL chain, which the
+    frozen logger no longer consults, and yields `[]` — the rejection still
+    happens, but the assertion reading the log sees nothing.
+
+    That makes the failure purely a function of xdist worker assignment: these
+    tests passed when they landed and started failing once another test that
+    exercises `validate_sql` was scheduled ahead of them in the same worker.
+
+    Replacing the module global is caching-immune, because the call sites
+    resolve `logger` from module globals at call time. Same approach and same
+    reasoning as the tile_access assertion in test_tile_signing.py.
+    """
+    events: list[dict] = []
+
+    class _Recorder:
+        def _record(self, event=None, **kwargs):
+            events.append({"event": event, **kwargs})
+
+        debug = info = warning = error = critical = _record
+
+        def __getattr__(self, _name):
+            # bind() and friends: no-op that supports chaining.
+            def _noop(*args, **kwargs):
+                return self
+
+            return _noop
+
+    original = _validator.logger
+    _validator.logger = _Recorder()
+    try:
+        yield events
+    finally:
+        _validator.logger = original
 
 
 # ---------------------------------------------------------------------------
@@ -50,14 +95,14 @@ def _assert_rejects_function(sql: str, expected_function: str) -> None:
     function", which is exactly the confusion #538/#1017 are about. Reading the
     structured log's `function` field pins the reason.
     """
-    with capture_logs() as logs:
+    with _recording_validator_logger() as logs:
         with pytest.raises(SandboxError) as exc_info:
             validate_sql(sql)
     assert exc_info.value.category == "invalid_query"
     rejected = [
         entry.get("function")
         for entry in logs
-        if entry.get("event", "").startswith("sandbox.")
+        if str(entry.get("event") or "").startswith("sandbox.")
         and entry.get("function") is not None
     ]
     assert rejected == [expected_function], (
