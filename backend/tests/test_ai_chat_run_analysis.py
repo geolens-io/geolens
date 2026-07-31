@@ -474,23 +474,29 @@ class TestToolResultSerializationSites:
     ``json.dumps``. A site that drops the wrapper passes every test in the
     class above, and ``test_extensions.py`` only asserts the extension
     *binding name* exists, which is a different claim again. So assert the
-    property structurally, over the AST of each module that builds a
-    tool-result message.
+    property structurally, over the AST.
 
     The rule: any dict literal carrying a provider tool-result id
     (``tool_use_id`` for Anthropic, ``tool_call_id`` for OpenAI) alongside a
     ``content`` key must set that content to
-    ``json.dumps(model_safe_tool_result(...), ...)``. A new provider path
-    added without the wrapper fails here rather than shipping a 1.3 MB
-    GeoJSON payload to the model.
+    ``json.dumps(model_safe_tool_result(...), ...)``.
+
+    fix(#699 codex P2): the walk covers all of ``backend/app/``, not a fixed
+    list of the modules that happen to build these messages today, following
+    ``test_rule2_structural.py``. A fourth provider adapter added in a new
+    module is exactly the case this is for, and an allowlist would have let it
+    through while the assertion still read as if it were covered.
+
+    The known sites below are an anti-vacuity anchor, not the scan's scope:
+    without them, renaming the id keys would make the walk find nothing at all
+    and pass for the wrong reason.
     """
 
-    MODULES = (
+    KNOWN_SITE_MODULES = (
         "processing/ai/streaming.py",
         "platform/extensions/defaults_ai_anthropic.py",
         "platform/extensions/defaults_ai_openai.py",
     )
-    EXPECTED_SITES = 4
 
     @staticmethod
     def _content_value(node: ast.Dict) -> ast.expr | None:
@@ -522,8 +528,8 @@ class TestToolResultSerializationSites:
     def test_every_provider_tool_result_is_trimmed_before_serialization(self) -> None:
         app_root = Path(__file__).resolve().parent.parent / "app"
         sites: list[tuple[str, int, ast.expr]] = []
-        for rel in self.MODULES:
-            path = app_root / rel
+        for path in sorted(app_root.rglob("*.py")):
+            rel = path.relative_to(app_root).as_posix()
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(node, ast.Dict):
                     continue
@@ -531,11 +537,14 @@ class TestToolResultSerializationSites:
                 if value is not None:
                     sites.append((rel, node.lineno, value))
 
-        assert len(sites) == self.EXPECTED_SITES, (
-            f"expected {self.EXPECTED_SITES} tool-result message sites, found "
-            f"{[(rel, line) for rel, line, _ in sites]}. A new provider path "
-            "needs the wrapper too; a removed one needs this count updated."
+        found_in = {rel for rel, _, _ in sites}
+        missing = [rel for rel in self.KNOWN_SITE_MODULES if rel not in found_in]
+        assert not missing, (
+            "the walk no longer recognizes the tool-result messages in "
+            f"{missing} — the key names it matches on must have changed, so "
+            "this gate is passing without checking anything."
         )
+
         unwrapped = [
             f"{rel}:{line}"
             for rel, line, value in sites
