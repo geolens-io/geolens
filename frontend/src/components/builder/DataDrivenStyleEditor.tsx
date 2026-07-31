@@ -34,7 +34,7 @@ import {
   manualBreaks,
 } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
+import { isGenericGeometryType } from '@/components/builder/layer-adapters/shared';
 import { isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
@@ -728,9 +728,12 @@ export function DataDrivenStyleEditor({
   const categoriesTruncated = distinctCategories != null && distinctCategories > shownCategories;
   const hasTooManyCategories =
     mode === 'categorical' && !!valuesData && totalCategories > 20;
-  // fix(#952): the same `classifyGeometry(...) === 'other'` test getColorProperty
-  // already makes — GEOMETRY / GEOMETRYCOLLECTION, i.e. created and sketch datasets.
-  const isMixedGeometry = classifyGeometry(layer.dataset_geometry_type) === 'other';
+  // fix(#952): the mixed-ADAPTER predicate, not classifyGeometry(...) === 'other'.
+  // Both catch GEOMETRY / GEOMETRYCOLLECTION (created and sketch datasets), but
+  // 'other' also swallows null and exotic types like CURVE, which resolveAdapterType
+  // routes to the plain fill adapter — telling those layers that their line and point
+  // sublayers keep their colours would describe sublayers that do not exist.
+  const isMixedGeometry = isGenericGeometryType(layer.dataset_geometry_type);
   const noCompatibleColumns = filteredColumns.length === 0;
   const selectedColumnMissing = Boolean(column) && !columns.some((c) => c.name === column);
   const graduatedStatsUnavailable =

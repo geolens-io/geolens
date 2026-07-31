@@ -1120,7 +1120,9 @@ describe('DataDrivenStyleEditor', () => {
       expect(screen.getByText(/Colors apply to polygon features/)).toBeInTheDocument();
     });
 
-    it.each(['Polygon', 'MultiLineString', 'Point'])('does NOT show the hint for %s', (gt) => {
+    // Only the two generic sentinels route to the mixed adapter; an exotic or absent
+    // type keeps the plain fill fallback and has no line/point sublayers to describe.
+    it.each(['Polygon', 'MultiLineString', 'Point', 'CURVE', ''])('does NOT show the hint for %s', (gt) => {
       renderWithGeometry(gt);
       expect(screen.queryByText(/Colors apply to polygon features/)).toBeNull();
     });
