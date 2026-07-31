@@ -1289,12 +1289,19 @@ _BUILTIN_FILL_PATTERN_IDS = frozenset(
 
 
 def _references_builtin_fill_pattern(value: Any) -> bool:
-    """Whether a fill-pattern value names a builtin, directly or in an expression."""
-    if isinstance(value, str):
-        return value in _BUILTIN_FILL_PATTERN_IDS
-    if isinstance(value, list):
-        return any(_references_builtin_fill_pattern(item) for item in value)
-    return False
+    """Whether a fill-pattern value is a builtin id.
+
+    fix(#917 codex r2): a plain string only. Scanning a data-driven expression
+    for the ids treats every nested string as a possible output image, including
+    property names, comparison operands and ``match`` labels — so
+    ``["case", ["==", ["get", "kind"], "geolens-fill-grid"], "uploaded-a",
+    "uploaded-b"]`` can only ever return real sprite ids, and stripping it would
+    flatten a working layer to a solid fill. Telling an output branch from an
+    operand needs an expression evaluator, and the builder's pattern control
+    writes a single value, so there is nothing to gain by guessing: a
+    hand-authored expression is left exactly as authored.
+    """
+    return isinstance(value, str) and value in _BUILTIN_FILL_PATTERN_IDS
 
 
 def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:

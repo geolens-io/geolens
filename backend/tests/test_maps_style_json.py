@@ -2145,18 +2145,25 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
     assert paint["fill-color"] == "#94a3b8"
 
 
-def test_a_builtin_pattern_inside_an_expression_is_stripped_too():
-    """A data-driven fill-pattern resolves to the same absent sprite ids."""
-    style = build_maplibre_style(
-        _map(),
-        [
-            _polygon_layer_with_pattern(
-                ["case", ["==", ["get", "kind"], "a"], "geolens-fill-grid", "other"]
-            )
-        ],
-    )
+def test_a_data_driven_fill_pattern_is_left_as_authored():
+    """fix(#917 codex r2): a builtin id inside an expression is not necessarily
+    an output image.
 
-    assert "fill-pattern" not in _fill_paint(style)
+    Here it is a comparison operand, and every branch the expression can
+    actually return is a real uploaded sprite id — scanning nested strings would
+    strip a working layer down to a solid fill. Telling an output branch from an
+    operand needs an expression evaluator, and the builder's pattern control
+    writes a single value, so there is nothing to gain by guessing.
+    """
+    pattern = [
+        "case",
+        ["==", ["get", "kind"], "geolens-fill-grid"],
+        "uploaded-a",
+        "uploaded-b",
+    ]
+    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
+
+    assert _fill_paint(style)["fill-pattern"] == pattern
 
 
 @pytest.mark.parametrize(
