@@ -18,6 +18,7 @@ from typing import Annotated, Optional
 import typer
 from rich.table import Table
 
+from . import analysis as _analysis
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
@@ -30,6 +31,8 @@ from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
 export_app = typer.Typer(no_args_is_help=True, help="Export commands")
 app.add_typer(export_app, name="export")
+analysis_app = typer.Typer(no_args_is_help=True, help="Analysis commands")
+app.add_typer(analysis_app, name="analysis")
 
 
 @dataclass
@@ -797,3 +800,143 @@ def export_stac(
             _export_stac.render_stac_json(stac_item, compact=compact),
             nl=False,
         )
+
+
+@analysis_app.command("preview")
+def analysis_preview(
+    ctx: typer.Context,
+    dataset_id: Annotated[str, typer.Argument(help="Source dataset id")],
+    operation: Annotated[
+        str,
+        typer.Option(
+            "--operation",
+            help="buffer, centroid or clip (the server rejects anything else)",
+        ),
+    ],
+    distance: Annotated[
+        Optional[float],
+        typer.Option("--distance", help="Buffer distance in METRES (buffer only)"),
+    ] = None,
+    mask_dataset: Annotated[
+        Optional[str],
+        typer.Option(
+            "--mask-dataset",
+            help="Polygon dataset id whose features form the clip mask (clip only)",
+        ),
+    ] = None,
+    compact: Annotated[
+        bool,
+        typer.Option("--compact", help="Single-line JSON for piping to jq"),
+    ] = False,
+) -> None:
+    """Run an analysis operation and print the resulting GeoJSON.
+
+    Nothing is created: the preview is computed and returned, capped at the
+    server's preview limit. The cap is announced on stderr so stdout stays a
+    valid GeoJSON document you can redirect straight into a file.
+    """
+    state: AppState = ctx.obj
+    sdk = state.sdk()
+
+    try:
+        request = _analysis.build_preview_request(
+            operation,
+            distance_meters=distance,
+            mask_dataset_id=mask_dataset,
+        )
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    response = _analysis.run_preview(sdk.client, dataset_id, request)
+
+    warning = _analysis.truncation_warning(response)
+    if warning:
+        state.output.warn(warning)
+
+    typer.echo(
+        _analysis.render_geojson(_analysis.preview_geojson(response), compact=compact),
+        nl=False,
+    )
+
+
+@analysis_app.command("materialize")
+def analysis_materialize(
+    ctx: typer.Context,
+    dataset_id: Annotated[str, typer.Argument(help="Source dataset id")],
+    operation: Annotated[
+        str,
+        typer.Option(
+            "--operation",
+            help="buffer, centroid, clip or dissolve (the server rejects anything else)",
+        ),
+    ],
+    title: Annotated[
+        str, typer.Option("--title", help="Title for the dataset that will be created")
+    ],
+    distance: Annotated[
+        Optional[float],
+        typer.Option("--distance", help="Buffer distance in METRES (buffer only)"),
+    ] = None,
+    mask_dataset: Annotated[
+        Optional[str],
+        typer.Option(
+            "--mask-dataset",
+            help="Polygon dataset id whose features form the clip mask (clip only)",
+        ),
+    ] = None,
+    by_field: Annotated[
+        Optional[str],
+        typer.Option("--by-field", help="Group-by column (dissolve only)"),
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Poll the job until the dataset exists"),
+    ] = True,
+) -> None:
+    """Run an analysis operation over the whole dataset and save the result.
+
+    The work is queued: the server runs one analysis job per user at a time,
+    so this returns a job id. With ``--wait`` (default) it polls until the new
+    dataset resolves, exactly as ``geolens publish`` does.
+    """
+    state: AppState = ctx.obj
+    instance = state.active_instance()
+    if not instance:
+        state.output.error("No instance configured. Run `geolens login <url>` first.")
+        raise typer.Exit(EXIT_AUTH)
+    sdk = state.sdk()
+
+    try:
+        request = _analysis.build_materialize_request(
+            operation,
+            title,
+            distance_meters=distance,
+            mask_dataset_id=mask_dataset,
+            by_field=by_field,
+        )
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    response = _analysis.run_materialize(sdk.client, dataset_id, request)
+    job_id = str(getattr(response, "job_id", "") or "")
+
+    resolved: Optional[str] = None
+    if wait:
+        resolved = _publish.resolve_dataset_id(sdk.client, job_id)
+        if resolved is None:
+            # The job outlived the poll window or failed outright; the URL
+            # falls back to the job-search form so the user can follow it up.
+            state.output.warn(
+                "The job did not resolve a dataset before the poll timed out. "
+                f"Check its status with `geolens jobs` or GET /jobs/{job_id}."
+            )
+
+    url = _publish.construct_dataset_url(
+        instance, dataset_id=resolved, job_id=job_id
+    )
+    if state.output.json_mode:
+        state.output.json({"job_id": job_id, "dataset_id": resolved, "url": url})
+        return
+    state.output.success(url)
