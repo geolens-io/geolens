@@ -116,6 +116,39 @@ async def _release_jobs(session: AsyncSession, jobs: list[IngestJob]) -> None:
     await session.commit()
 
 
+# The two statuses the materialize endpoint's per-user cap counts.
+_SLOT_HOLDING_STATUSES = ("pending", "running")
+
+
+@pytest.fixture(autouse=True)
+async def _release_analysis_job_slots(test_db_session: AsyncSession):
+    """fix(#789): fail whatever analysis jobs a test leaves behind.
+
+    The materialize endpoint admits one non-terminal analysis job per user, and
+    the tests here share a database, so a test that enqueues a job and leaves it
+    pending 429s whatever runs next — under `pytest -n 4`, some unrelated
+    victim in another file. Releasing the slot by hand at the end of each test
+    worked right up until someone forgot, which is why this is autouse rather
+    than opt-in: forgetting is the whole failure mode. A single UPDATE, a no-op
+    when there is nothing to release.
+
+    Analysis jobs only, keyed on the same ``user_metadata`` marker the endpoint
+    counts, so an upload job a test is still asserting on is left alone. Not
+    scoped to one user: the cap is per user but the tests here run as admin,
+    editor and viewer, and no test wants another user's leftovers to survive.
+    """
+    yield
+    await test_db_session.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.user_metadata.has_key("analysis"),
+            IngestJob.status.in_(_SLOT_HOLDING_STATUSES),
+        )
+        .values(status="failed")
+    )
+    await test_db_session.commit()
+
+
 # ---------------------------------------------------------------------------
 # Endpoint tests
 # ---------------------------------------------------------------------------
@@ -166,9 +199,6 @@ class TestMaterializeEndpoint:
         assert meta["distance_meters"] == 100
         assert meta["source_dataset_id"] == str(ds.id)
         assert "mask" not in meta
-        # Release the per-user active-job slot for later tests (shared DB).
-        job.status = "failed"
-        await test_db_session.commit()
 
     async def test_second_materialize_while_active_is_rejected(
         self,
@@ -205,12 +235,6 @@ class TestMaterializeEndpoint:
                 headers=admin_auth_header,
             )
             assert third.status_code == 200, third.text
-            # Release the slot for later tests (shared DB).
-            third_job = await test_db_session.get(
-                IngestJob, uuid.UUID(third.json()["job_id"])
-            )
-            third_job.status = "failed"
-            await test_db_session.commit()
 
     async def test_upload_named_like_an_analysis_job_does_not_block(
         self,
@@ -787,10 +811,6 @@ class TestMaterializeEndpoint:
                 headers=admin_auth_header,
             )
         assert resp.status_code == 200, resp.text
-        # Release the per-user active-job slot for later tests (shared DB).
-        job = await test_db_session.get(IngestJob, uuid.UUID(resp.json()["job_id"]))
-        job.status = "failed"
-        await test_db_session.commit()
 
     async def test_source_size_gates_dissolve_and_buffer(
         self,
@@ -1012,6 +1032,58 @@ class TestMaterializeWorker:
             )
         ).scalar_one()
         assert name_count == 2
+
+    async def test_centroid_materialize_creates_dataset(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#789): centroid is this suite's cheap lifecycle op — every other
+        occurrence of it is job-slot or permission scaffolding that never looks
+        at what got written. Preview does assert the output geometry, which is
+        what makes the write path easy to misread as covered. Mirrors the
+        buffer test above.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+        title = f"Centroids {uuid.uuid4().hex[:6]}"
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="centroid",
+            title=title,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        assert job.dataset_id is not None
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        new_ds = await test_db_session.get(Dataset, job.dataset_id)
+        assert new_ds is not None
+        # Centroid is 1:1 — two source polygons in, two points out.
+        assert new_ds.feature_count == 2
+        assert (new_ds.geometry_type or "").upper() == "POINT"
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f"SELECT name, ST_GeometryType(geom_4326) AS gtype, "  # noqa: S608
+                    f"ST_X(geom_4326) AS x, ST_Y(geom_4326) AS y "
+                    f"FROM data.{new_ds.table_name} ORDER BY name"
+                )
+            )
+        ).all()
+        # The source's attribute column rides along on a 1:1 op, one row each.
+        assert [row.name for row in rows] == ["a", "b"]
+        assert {row.gtype for row in rows} == {"ST_Point"}
+        # Centroids of the unit square at the origin and of the 1x1 square at
+        # (10, 10) — the values test_centroid_preview pins on the read path,
+        # so preview and the saved dataset agree.
+        assert (rows[0].x, rows[0].y) == pytest.approx((0.5, 0.5))
+        assert (rows[1].x, rows[1].y) == pytest.approx((10.5, 10.5))
 
     async def test_non_identifier_columns_survive_materialize(
         self,
@@ -3611,6 +3683,16 @@ class TestWideSingleComponentBuffer:
 
 
 class TestUserErrorMessage:
+    @pytest.fixture(autouse=True)
+    def _release_analysis_job_slots(self):
+        """Override the module's async teardown for this class.
+
+        These are pure-function tests: sync, no database, no job to release.
+        Inheriting the async fixture would hand a sync test an async generator
+        and error out during setup.
+        """
+        yield
+
     def test_db_error_hides_generated_sql(self):
         """fix(#692): SQLAlchemy appends `[SQL: …]` to DB errors — schema and
         table names must never reach GET /jobs/{id}."""
