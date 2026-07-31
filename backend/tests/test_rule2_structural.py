@@ -74,22 +74,26 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
-  handed to a call, returned, or yielded — or through the local it is bound
-  to (fix(#996)). Inert data (``SUPPORTED_TOOLS = ["gdalinfo", "ogrinfo"]``,
-  a constant only subscripted or compared) is not a command vector, and a
-  literal whose every element names a GDAL utility is a name list rather
-  than a command. Deliberately "escapes", not "reaches ``subprocess.*``":
-  most argvs here are built in one function and spawned in another
-  (``run_gdal(cmd, env=...)``), so a literal ``subprocess.*`` requirement
-  would blind the gate to the sites it exists for. Two or more elements are
-  required for the name-list rule, since ``("gdalinfo",)`` is
+  handed to a call, returned, or yielded — directly, out of a container
+  literal, or through a name (``=``, annotated ``=``, walrus) it is bound to
+  (fix(#996)). Inert data (``SUPPORTED_TOOLS = ["gdalinfo", "ogrinfo"]``, a
+  constant only subscripted or compared) is not a command vector. A literal
+  whose every element names a GDAL utility is a name list rather than a
+  command, but only while it stays out of a call: a dataset or output path
+  may legitimately be named ``ogrinfo``, so ``subprocess.run(["gdalinfo",
+  "ogrinfo"])`` is an argv. Deliberately "escapes", not "reaches
+  ``subprocess.*``": most argvs here are built in one function and spawned in
+  another (``run_gdal(cmd, env=...)``), so a literal ``subprocess.*``
+  requirement would blind the gate to the sites it exists for. Two or more
+  elements are required for the name-list rule, since ``("gdalinfo",)`` is
   indistinguishable from a bare invocation.
 - Comprehensions and generator expressions are binding scopes (fix(#996)),
   so their targets cannot shadow a name used elsewhere in the enclosing
-  function. The outermost iterable is excluded from that scope, matching
-  Python: it is evaluated before the comprehension's scope exists. They
-  remain transparent to CLI call-credit, where the question is whether the
-  scope's immediate body runs the helper and only def/lambda defer.
+  function. Two carve-outs match Python: the outermost iterable is evaluated
+  before the comprehension's scope exists, and a walrus inside a
+  comprehension binds in the CONTAINING scope (PEP 572). They remain
+  transparent to CLI call-credit, where the question is whether the scope's
+  immediate body runs the helper and only def/lambda defer.
 - Wrapping is judged lexically, with two execution-order rules (codex round
   6): credit stops at def/lambda boundaries (a callable defined inside a
   wrapped block runs after the context exits), and within one ``with``
@@ -460,6 +464,22 @@ def _record_import(info: _ScopeInfo, node: ast.AST) -> None:
         _record_plain_import(info, node)
 
 
+def _comprehension_walrus_targets(comp: ast.AST):
+    """The ``Name`` targets of walrus operators inside a comprehension.
+
+    PEP 572: ``[(y := f(x)) for x in xs]`` binds ``y`` in the scope CONTAINING
+    the comprehension. Nested comprehensions pass their walruses outward the
+    same way, so the search descends through them; a nested def or lambda
+    owns its own, so it stops there.
+    """
+    for child in ast.iter_child_nodes(comp):
+        if isinstance(child, (*_SCOPE_NODES, ast.ClassDef)):
+            continue
+        if isinstance(child, ast.NamedExpr) and isinstance(child.target, ast.Name):
+            yield child.target
+        yield from _comprehension_walrus_targets(child)
+
+
 def _iter_immediate(node: ast.AST, *, stop_at_comprehensions: bool = True):
     """Yield descendants of ``node`` without entering nested scopes; nested
     scope NODES themselves are yielded (their names bind in this scope).
@@ -485,10 +505,17 @@ def _iter_immediate(node: ast.AST, *, stop_at_comprehensions: bool = True):
     )
     for child in ast.iter_child_nodes(node):
         yield child
-        if not isinstance(child, stop):
-            yield from _iter_immediate(
-                child, stop_at_comprehensions=stop_at_comprehensions
-            )
+        if isinstance(child, stop):
+            if isinstance(child, _COMPREHENSION_NODES):
+                # fix(#996 review): PEP 572 — a walrus inside a comprehension
+                # binds in the CONTAINING scope, not the comprehension's. So
+                # the walk stops here for ordinary targets but still hands the
+                # enclosing scope its walrus bindings, or
+                # `[(rasterio := x) for _ in items]` would leave a genuine
+                # rebinding unrecorded.
+                yield from _comprehension_walrus_targets(child)
+            continue
+        yield from _iter_immediate(child, stop_at_comprehensions=stop_at_comprehensions)
 
 
 def _record_params(info: _ScopeInfo, scope: ast.AST) -> None:
@@ -1159,78 +1186,95 @@ def _scope_root(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def _value_escapes(node: ast.AST) -> bool:
-    """True when ``node``'s value flows somewhere this gate cannot follow.
+# How far a literal's value travels out of the expression it sits in. Ordered:
+# a call subsumes a return, because a call is the one that can end at an exec.
+_ESCAPE_NONE = 0
+_ESCAPE_RETURN = 1
+_ESCAPE_CALL = 2
 
-    Three exits, all of which can end at an exec: handed to a call
-    (``subprocess.run([...])``, ``run_gdal(cmd)``, ``out.append(cmd)``),
-    returned, or yielded. A helper that BUILDS an argv and returns it for
-    someone else to spawn is a normal shape here, so returning has to count.
+
+def _escape_kind(node: ast.AST) -> int:
+    """How ``node``'s value leaves the expression it is written in.
+
+    ``_ESCAPE_CALL`` — handed to a call (``subprocess.run([...])``,
+    ``run_gdal(cmd)``, ``out.append(cmd)``). ``_ESCAPE_RETURN`` — returned or
+    yielded, which still reaches a caller that may spawn it, so a helper that
+    BUILDS an argv and hands it back is covered. ``_ESCAPE_NONE`` — the value
+    stays inside this scope.
     """
+    best = _ESCAPE_NONE
     prev: ast.AST = node
     current: ast.AST | None = getattr(node, "_rule2_parent", None)
     while current is not None:
         # The callee itself is not an argument: `cmd.index(x)` reads the list,
         # it does not hand it anywhere. Anything else inside a Call counts.
         if isinstance(current, ast.Call) and prev is not current.func:
-            return True
+            return _ESCAPE_CALL
         if isinstance(current, (ast.Return, ast.Yield, ast.YieldFrom)):
-            return True
+            best = max(best, _ESCAPE_RETURN)
         if isinstance(current, (*_SCOPE_NODES, ast.Module)):
-            return False
+            return best
         prev = current
         current = getattr(current, "_rule2_parent", None)
-    return False
+    return best
 
 
-def _bound_names(node: ast.AST) -> set[str]:
-    """Names a literal is assigned to by a simple ``cmd = [...]`` statement."""
-    parent = getattr(node, "_rule2_parent", None)
-    if isinstance(parent, ast.Assign) and parent.value is node:
+def _binding_targets(node: ast.AST) -> set[str]:
+    """Names this literal's value is reachable through in its own scope.
+
+    Climbs out of enclosing container literals first (fix(#996 review)), so
+    ``commands = {"inspect": ["gdalinfo", path]}`` binds through ``commands``
+    and a later ``subprocess.run(commands["inspect"])`` still counts. Covers
+    ``=``, annotated ``=``, and the walrus.
+    """
+    current: ast.AST = node
+    parent = getattr(current, "_rule2_parent", None)
+    while isinstance(parent, (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Starred)):
+        current = parent
+        parent = getattr(current, "_rule2_parent", None)
+    if isinstance(parent, ast.Assign) and parent.value is current:
         return {t.id for t in parent.targets if isinstance(t, ast.Name)}
     if (
-        isinstance(parent, ast.AnnAssign)
-        and parent.value is node
+        isinstance(parent, (ast.AnnAssign, ast.NamedExpr))
+        and parent.value is current
         and isinstance(parent.target, ast.Name)
     ):
         return {parent.target.id}
     return set()
 
 
-def _reaches_a_subprocess(node: ast.List | ast.Tuple) -> bool:
-    """True when a GDAL-headed literal plausibly reaches an exec.
+def _argv_escape_kind(node: ast.List | ast.Tuple) -> int:
+    """The strongest escape a GDAL-headed literal reaches, its bindings included.
 
     fix(#996): the gate used to treat ANY GDAL-headed sequence as a command
-    vector, so plain data tripped it. A literal is a command when it is handed
-    to something — directly (``subprocess.run([...])``, ``run_gdal([...])``) or
-    through the local it is bound to (``cmd = ["ogrinfo", ...]`` ...
-    ``create_subprocess_exec(*cmd, ...)``, which is the shape most of this
-    codebase uses).
+    vector, so plain data tripped a security gate. A literal is a command when
+    its value goes somewhere — directly, or through a name it is bound to
+    (``cmd = ["ogrinfo", ...]`` ... ``create_subprocess_exec(*cmd, ...)``,
+    which is the shape most of this codebase uses).
 
-    Deliberately "reaches a call", not "reaches ``subprocess.*``". Half the
-    real argvs in ``app/`` are built at one level and spawned at another —
+    Deliberately "escapes", not "reaches ``subprocess.*``". Half the real
+    argvs in ``app/`` are built at one level and spawned at another —
     ``run_gdal(cmd, env=...)`` wraps ``subprocess.run`` in
     ``processing/raster/vrt.py`` — so a literal ``subprocess.*`` requirement
-    would blind the gate to exactly the sites it exists for. Data that is
-    never passed anywhere cannot be executed; that is the whole exemption.
+    would blind the gate to exactly the sites it exists for.
     """
-    if _value_escapes(node):
-        return True
-    names = _bound_names(node)
-    if not names:
-        return False
+    best = _escape_kind(node)
+    if best == _ESCAPE_CALL:
+        return best
+    names = _binding_targets(node)
     scope = _scope_root(node)
-    if scope is None:
-        return False
+    if not names or scope is None:
+        return best
     for used in ast.walk(scope):
         if (
             isinstance(used, ast.Name)
             and used.id in names
             and isinstance(used.ctx, ast.Load)
-            and _value_escapes(used)
         ):
-            return True
-    return False
+            best = max(best, _escape_kind(used))
+            if best == _ESCAPE_CALL:
+                return best
+    return best
 
 
 def _collect_gdal_cli_violations(
@@ -1267,11 +1311,18 @@ def _collect_gdal_cli_violations(
             )
             if tool_name is None:
                 continue
-            # fix(#996): a GDAL-looking sequence is only a command vector if it
-            # is one. A tool-name list, or a literal that is never handed to a
-            # call, is data — flagging it was a false positive that blocked
+            # fix(#996): a GDAL-looking sequence is only a command vector if
+            # it is one. Flagging plain data was a false positive that blocked
             # correct code and offered only misleading ways out.
-            if _tool_name_list(node) or not _reaches_a_subprocess(node):
+            escape = _argv_escape_kind(node)
+            if escape == _ESCAPE_NONE:
+                continue  # inert: the value never leaves, so it cannot execute
+            if escape != _ESCAPE_CALL and _tool_name_list(node):
+                # A tool-NAME list that is only returned is a choices helper.
+                # fix(#996 review): the exemption stops at _ESCAPE_CALL. A
+                # literal handed into a call is a plausible argv whatever it
+                # contains — a dataset or output path may legitimately be
+                # named `ogrinfo` — and shape alone cannot tell the two apart.
                 continue
             total_argv_sites += 1
             func_node = _enclosing_function_node(node)
@@ -1989,13 +2040,56 @@ def test_guard_gdal_named_constant_that_never_runs_is_not_an_argv():
             'SUPPORTED_TOOLS = ["gdalinfo", "ogrinfo"]\n'
             "def choices():\n"
             '    return ("gdalwarp", "gdal_translate")\n'
-            "def label():\n"
-            '    return ", ".join(SUPPORTED_TOOLS)\n'
         ),
         {},
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_tool_name_list_handed_to_a_call_is_still_an_argv():
+    """fix(#996 review): the tool-name-list exemption stops at a call.
+
+    A dataset or output path may legitimately be named ``ogrinfo``, so
+    ``subprocess.run(["gdalinfo", "ogrinfo"])`` is a real invocation and shape
+    alone cannot tell it from a choices constant. Returning one is still
+    exempt (the test above); passing one into a call is not.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn():\n"
+            "    subprocess.run(['gdalinfo', 'ogrinfo'])\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_argv_inside_a_container_or_walrus_is_still_detected():
+    """fix(#996 review): escape analysis follows a literal out of the
+    container it is nested in, and through a walrus binding. Both shapes
+    reach an exec while being bound to nothing directly."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def via_container(path):\n"
+            "    commands = {'inspect': ['gdalinfo', path]}\n"
+            "    subprocess.run(commands['inspect'])\n"
+            "def via_walrus(path):\n"
+            "    subprocess.run(cmd := ['ogrinfo', path])\n"
+            "def via_walrus_then_used(path):\n"
+            "    if (cmd2 := ['gdalwarp', path]):\n"
+            "        subprocess.run(cmd2)\n"
+        ),
+        {},
+    )
+    assert total == 3, (total, violations)
+    assert len(violations) == 3, violations
+    assert any("(via_container)" in v for v in violations)
+    assert any("(via_walrus)" in v for v in violations)
+    assert any("(via_walrus_then_used)" in v for v in violations)
 
 
 def test_guard_inert_gdal_headed_literal_is_not_an_argv():
@@ -2122,3 +2216,43 @@ def test_guard_comprehension_target_still_shadows_inside_the_comprehension():
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_comprehension_walrus_binds_in_the_containing_scope():
+    """fix(#996 review): PEP 572 — a walrus inside a comprehension binds
+    OUTSIDE it. Making comprehensions scopes must not swallow that, or a
+    rebinding of `rasterio` in the containing function goes unrecorded.
+
+    The rebound name resolves to _OTHER, so the `rasterio.open` written after
+    it is NOT credited as a rasterio open — which is the correct reading of
+    code where `rasterio` no longer refers to the module.
+    """
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def fn(path, items):\n"
+            "    seen = [(rasterio := i) for i in items]\n"
+            "    return rasterio.open(path), seen\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_comprehension_walrus_does_not_leak_the_loop_target_too():
+    """The control for the test above: the walrus target crosses out, the
+    ordinary comprehension target does not."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def fn(path, items):\n"
+            "    seen = [(keep := i) for rasterio in items]\n"
+            "    return rasterio.open(path), seen, keep\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
