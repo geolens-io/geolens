@@ -5750,6 +5750,10 @@ export type MapSummaryResponse = {
      */
     name: string;
     /**
+     * Thumbnail Updated At
+     */
+    thumbnail_updated_at?: string | null;
+    /**
      * Thumbnail Url
      */
     thumbnail_url?: string | null;

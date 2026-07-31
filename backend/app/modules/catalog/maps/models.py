@@ -112,6 +112,18 @@ class Map(Base):
     # Preview thumbnail — storage key (e.g. "maps/thumbnails/{id}.jpg")
     thumbnail_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # fix(#1005): the thumbnail's own cache version. `updated_at` used to do
+    # double duty here, which meant the lazy backfill on first builder open —
+    # a read, editing nothing — bumped the map's edit timestamp and reordered
+    # the "Last updated" gallery. Splitting the two meanings is the only fix
+    # that keeps both correct: the card still busts its cache when the image is
+    # re-captured after an edit, without the capture claiming the map changed.
+    # Nullable, and the frontend falls back to `updated_at`, so maps written
+    # before this column keep a stable version rather than losing one.
+    thumbnail_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # OG/social-card image — storage key (e.g. "maps/og-images/{id}.jpg")
     # Added in migration 0001_baseline (SHARE-08 Path A). Separate from thumbnail_uri
     # because the OG image is 1200x630 and exceeds the 100KB thumbnail cap.

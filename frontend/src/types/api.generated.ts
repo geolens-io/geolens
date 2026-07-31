@@ -9171,6 +9171,8 @@ export interface components {
             layer_count: number;
             /** Name */
             name: string;
+            /** Thumbnail Updated At */
+            thumbnail_updated_at?: string | null;
             /** Thumbnail Url */
             thumbnail_url?: string | null;
             /**
