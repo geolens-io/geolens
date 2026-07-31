@@ -55,6 +55,57 @@ echo ""
 # Configuration with defaults
 POSTGRES_USER="${POSTGRES_USER:-geolens}"
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
+
+# Sibling-artifact lookup. Both the object-storage archive and the globals dump
+# are written by backup-entrypoint.sh next to the dump with the SAME timestamp,
+# so one parse serves both (the staging block near the end of this script reuses
+# these). dump name is <db>_<YYYYmmdd_HHMMSS>.dump.
+_dump_dir="$(cd "$(dirname "$BACKUP_FILE")" && pwd)"
+_dump_base="$(basename "$BACKUP_FILE")"
+# Anchored at the END of the name. The old leftmost `grep -oE ... | head -n1`
+# matched inside $POSTGRES_DB whenever the database name carried its own
+# 8-digit_6-digit run, silently sending every sibling lookup down the
+# unpaired-fallback path.
+_ts="$(printf '%s' "$_dump_base" | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})(\..*)?$/\1/p' || true)"
+
+# fix(#995): roles are cluster objects and travel in globals-<ts>.sql, never in
+# the dump. Report BEFORE the destructive --clean rather than after: replaying
+# globals is a pre-restore step, and on a fresh cluster a restore that runs
+# without it lands every object owned by the restoring user with no tenant
+# grants. Non-fatal — a same-cluster restore (the common case) already has its
+# roles, and only the roles the globals dump would actually create are checked.
+_globals_dump=""
+if [ -n "$_ts" ] && [ -f "${_dump_dir}/globals-${_ts}.sql" ]; then
+    _globals_dump="${_dump_dir}/globals-${_ts}.sql"
+fi
+if [ -n "$_globals_dump" ]; then
+    # Unquoted identifiers only: pg_dumpall quotes names that need it, and the
+    # GeoLens roles never do. Restricting to [A-Za-z0-9_] also keeps the names
+    # safe to inline in the query below.
+    _globals_roles="$(grep -oE '^CREATE ROLE [A-Za-z0-9_]+' "$_globals_dump" | awk '{print $3}' | sort -u || true)"
+    if [ -n "$_globals_roles" ]; then
+        _role_array="$(printf '%s\n' "$_globals_roles" | sed "s/.*/'&'/" | paste -sd, -)"
+        _missing_roles="$("${COMPOSE[@]}" exec -T db \
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+            "SELECT r FROM unnest(ARRAY[${_role_array}]::text[]) r
+             WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r);" \
+            2>/dev/null | tr -d '\r' | paste -sd' ' - || true)"
+        if [ -n "${_missing_roles// /}" ]; then
+            echo "WARNING: this cluster is missing roles that the paired globals dump defines:"
+            echo "           ${_missing_roles}"
+            echo "         Replay them BEFORE continuing, or restored objects will carry"
+            echo "         neither their owners nor their grants (RUNBOOK.md"
+            echo "         §\"Multi-tenant role reconstruction after a fresh-cluster restore\"):"
+            echo ""
+            echo "           docker compose exec -T db psql -U \"\$POSTGRES_USER\" -d postgres \\"
+            echo "             < ${_globals_dump}"
+            echo ""
+        else
+            echo "Paired globals dump found (${_globals_dump##*/}); every role it defines already exists."
+        fi
+    fi
+fi
+
 echo "Running pre-restore setup..."
 
 # ON_ERROR_STOP: this DDL is the last gate before --clean drops the live
@@ -188,10 +239,7 @@ echo "Restore complete."
 # If we can spot
 # the matching archive, point the operator at it rather than silently dropping
 # the staged objects.
-_dump_dir="$(cd "$(dirname "$BACKUP_FILE")" && pwd)"
-_dump_base="$(basename "$BACKUP_FILE")"
-# dump name is <db>_<YYYYmmdd_HHMMSS>.dump → extract the timestamp if present.
-_ts="$(printf '%s' "$_dump_base" | grep -oE '[0-9]{8}_[0-9]{6}' | head -n1 || true)"
+# _dump_dir / _ts are parsed once before the restore (see the globals block).
 _staging_archive=""
 _staging_match="exact"
 if [ -n "$_ts" ] && [ -f "${_dump_dir}/staging-${_ts}.tar.gz" ]; then

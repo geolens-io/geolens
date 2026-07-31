@@ -10,6 +10,10 @@
 #      restored row counts match the source EXACTLY.
 #   2. Object-storage round-trip — tar a staging dir (as backup-entrypoint.sh
 #      does), extract it elsewhere, assert the file tree + contents survive.
+#   3. Real backup cycle (#995) — RUN backup-entrypoint.sh --run-backup against a
+#      temp BACKUP_DIR and assert the globals artifact: paired timestamp, mode
+#      0600 (it holds role password verifiers), and that a failing pg_dumpall
+#      fails the cycle without touching .last-success.
 #
 # Both THROWAWAY databases are ALWAYS dropped on exit (trap), success or fail.
 # This connects to the already-running test Postgres (localhost:5434 via
@@ -51,7 +55,7 @@ PGUSER="${POSTGRES_USER:-geolens}"
 export PGPASSWORD="${POSTGRES_PASSWORD:-geolens}"
 ADMIN_DB="${POSTGRES_DB:-geolens}"
 
-for bin in pg_dump pg_restore psql createdb dropdb; do
+for bin in pg_dump pg_dumpall pg_restore psql createdb dropdb; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not found on PATH"; exit 0; }
 done
 
@@ -94,7 +98,7 @@ echo ""
 # ------------------------------------------------------------------------------
 # 1. BUNDLED MODE — DB round-trip via pg_dump/pg_restore (restore.sh flags)
 # ------------------------------------------------------------------------------
-echo "[1/4] Creating source DB and seeding known rows (bundled mode)..."
+echo "[1/5] Creating source DB and seeding known rows (bundled mode)..."
 createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC_DB"
 
 # Mirror the app's catalog schema shape just enough to be representative.
@@ -112,7 +116,7 @@ SRC_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SE
 SRC_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
 echo "      source counts: records=${SRC_RECORDS} datasets=${SRC_DATASETS}"
 
-echo "[2/4] pg_dump -Fc, then pg_restore into a fresh DB (restore.sh flags)..."
+echo "[2/5] pg_dump -Fc, then pg_restore into a fresh DB (restore.sh flags)..."
 pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" \
     -Fc --no-owner --no-acl -f "$DUMP_FILE"
 [ -s "$DUMP_FILE" ] || fail "dump file is empty"
@@ -173,7 +177,7 @@ echo ""
 # ------------------------------------------------------------------------------
 # 2. Object-storage (staging) round-trip — mirrors backup-entrypoint.sh tar step
 # ------------------------------------------------------------------------------
-echo "[3/4] Object-storage (staging) tar round-trip..."
+echo "[3/5] Object-storage (staging) tar round-trip..."
 STAGING_SRC="${WORKDIR}/staging-src"
 STAGING_DST="${WORKDIR}/staging-dst"
 mkdir -p "$STAGING_SRC/nested" "$STAGING_DST"
@@ -199,10 +203,10 @@ echo ""
 #       pg_restore flags (NOT via restore.sh's docker-compose-exec path, which
 #       does not apply to an external DB). Simulates a provider-native restore.
 #   (b) Object-storage recovery — extract the staging archive produced in
-#       step [3/4] into a fresh location.
+#       step [3/5] into a fresh location.
 #   (c) Functional-pairing assert — DB rows match source; objects are present.
 
-echo "[4/4] MANAGED MODE — provider-snapshot DB + object-storage recovery..."
+echo "[4/5] MANAGED MODE — provider-snapshot DB + object-storage recovery..."
 STAGING_MANAGED="${WORKDIR}/staging-managed"
 mkdir -p "$STAGING_MANAGED"
 
@@ -234,7 +238,7 @@ echo "      snapshot DB counts: records=${SNAP_RECORDS} datasets=${SNAP_DATASETS
 echo "      managed-mode DB recovery OK (provider-snapshot rows match source)."
 
 # (b) Restore the object-storage archive into a fresh staging location.
-#     Reuses the archive produced in step [3/4] — same archive the backup
+#     Reuses the archive produced in step [3/5] — same archive the backup
 #     entrypoint uploads to S3 for an operator to retrieve during DR.
 tar xzf "$ARCHIVE" -C "$STAGING_MANAGED"
 diff -r "$STAGING_SRC" "$STAGING_MANAGED" >/dev/null \
@@ -246,7 +250,98 @@ echo "      managed-mode object-storage recovery OK — staging files present an
 echo "PASS [MANAGED MODE]: provider-snapshot DB (records=${SNAP_RECORDS} datasets=${SNAP_DATASETS}) + object-storage archive verified."
 echo ""
 
+# ------------------------------------------------------------------------------
+# 4. fix(#995): REAL backup cycle — globals artifact, its mode, and its pairing
+# ------------------------------------------------------------------------------
+# The legs above mirror what backup-entrypoint.sh does. This one RUNS it
+# (`--run-backup`, BACKUP_DIR pointed at a temp dir), because the property being
+# guarded is a property of that script and not of pg_dumpall: the globals dump
+# carries role password verifiers, so a lost `umask 077` publishes them
+# world-readable into the backup volume and, with offsite upload on, into the
+# bucket. A mirrored copy here would assert the umask of the copy.
+echo "[5/5] Real backup cycle — globals artifact (pairing, mode, failure path)..."
+CYCLE_BACKUPS="${WORKDIR}/cycle-backups"
+CYCLE_STAGING="${WORKDIR}/cycle-staging"
+mkdir -p "$CYCLE_BACKUPS" "$CYCLE_STAGING/nested"
+echo "cog-bytes" > "$CYCLE_STAGING/a.tif"
+
+# Deliberately permissive so a dropped `umask 077` in the script would show up
+# as a 0644 artifact rather than being masked by a strict ambient umask.
+umask 022
+
+run_cycle() {
+    env BACKUP_DIR="$CYCLE_BACKUPS" STAGING_DIR="$CYCLE_STAGING" \
+        POSTGRES_HOST="$PGHOST" PGPORT="$PGPORT" \
+        POSTGRES_USER="$PGUSER" POSTGRES_PASSWORD="$PGPASSWORD" \
+        POSTGRES_DB="$SRC_DB" BACKUP_S3_ENABLED=false \
+        PATH="$1" \
+        bash "${REPO_ROOT}/scripts/backup-entrypoint.sh" --run-backup
+}
+
+CYCLE_LOG="${WORKDIR}/cycle.log"
+if ! run_cycle "$PATH" > "$CYCLE_LOG" 2>&1; then
+    cat "$CYCLE_LOG" >&2
+    fail "backup cycle exited non-zero"
+fi
+
+CYCLE_DUMP="$(find "${CYCLE_BACKUPS}/daily" -name '*.dump' -type f | head -1)"
+[ -n "$CYCLE_DUMP" ] || fail "cycle produced no dump"
+# Anchored at the END of the name, the way restore.sh parses it: the database
+# name is the prefix and may itself contain digit runs (this test's throwaway
+# names do), so a leftmost match can land inside the db name instead.
+CYCLE_TS="$(basename "$CYCLE_DUMP" .dump | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})$/\1/p')"
+[ -n "$CYCLE_TS" ] || fail "could not parse a timestamp out of $(basename "$CYCLE_DUMP")"
+
+# Pairing: the globals artifact must carry the DUMP's timestamp, not its own
+# `date` call — restore.sh matches them by exact filename.
+GLOBALS_FILE="${CYCLE_BACKUPS}/daily/globals-${CYCLE_TS}.sql"
+[ -f "$GLOBALS_FILE" ] \
+    || fail "no globals dump paired with the dump's timestamp (expected $(basename "$GLOBALS_FILE"))"
+[ -s "$GLOBALS_FILE" ] || fail "globals dump is empty"
+grep -q "^CREATE ROLE" "$GLOBALS_FILE" \
+    || fail "globals dump contains no CREATE ROLE — it is not a real --globals-only dump"
+
+# Mode: `ls -l` rather than stat, whose flags differ between BSD and GNU.
+GLOBALS_MODE="$(ls -l "$GLOBALS_FILE" | cut -c1-10)"
+[ "$GLOBALS_MODE" = "-rw-------" ] \
+    || fail "globals dump is ${GLOBALS_MODE}, expected -rw------- (umask 077 lost — role password verifiers are world-readable)"
+echo "      globals artifact OK — $(basename "$GLOBALS_FILE"), mode ${GLOBALS_MODE}, paired timestamp."
+
+[ -f "${CYCLE_BACKUPS}/.last-success" ] || fail "successful cycle did not write .last-success"
+LAST_SUCCESS_BEFORE="$(ls -l "${CYCLE_BACKUPS}/.last-success")"
+
+# Failure path: a pg_dumpall that fails must fail the CYCLE (an unrestorable-
+# roles backup is not a good backup), leaving .last-success at its old value so
+# the freshness healthcheck goes unhealthy. Shadow pg_dumpall on PATH — the stub
+# name does not shadow pg_dump, so the dump itself still succeeds and this
+# isolates the globals step.
+STUB_BIN="${WORKDIR}/stub-bin"
+mkdir -p "$STUB_BIN"
+printf '#!/bin/sh\necho "simulated pg_dumpall failure" >&2\nexit 1\n' > "${STUB_BIN}/pg_dumpall"
+chmod +x "${STUB_BIN}/pg_dumpall"
+
+FAIL_LOG="${WORKDIR}/cycle-fail.log"
+set +e
+run_cycle "${STUB_BIN}:${PATH}" > "$FAIL_LOG" 2>&1
+FAIL_RC=$?
+set -e
+[ "$FAIL_RC" -ne 0 ] || {
+    cat "$FAIL_LOG" >&2
+    fail "cycle returned 0 despite pg_dumpall failing — an unrestorable-roles backup was reported as good"
+}
+grep -q "pg_dumpall --globals-only failed" "$FAIL_LOG" \
+    || fail "cycle failed but never logged why the globals dump could not be captured"
+[ "$(ls -l "${CYCLE_BACKUPS}/.last-success")" = "$LAST_SUCCESS_BEFORE" ] \
+    || fail ".last-success was touched by a cycle whose globals dump failed"
+# The partial file must not be left behind: a truncated globals dump replays as
+# a partial set of roles, which is worse than having none.
+[ -z "$(find "${CYCLE_BACKUPS}/daily" -name 'globals-*.sql' -size 0 2>/dev/null)" ] \
+    || fail "a failed globals dump left an empty artifact behind"
+echo "      failure path OK — cycle non-zero, .last-success untouched, no partial artifact."
+echo ""
+
 echo "=== PASS: backup+restore round-trip verified (bundled + managed modes) ==="
 echo "    bundled DB: records=${SRC_RECORDS}==${DST_RECORDS}, datasets=${SRC_DATASETS}==${DST_DATASETS}"
 echo "    managed snapshot: records=${SRC_RECORDS}==${SNAP_RECORDS}, datasets=${SRC_DATASETS}==${SNAP_DATASETS}"
+echo "    globals: $(basename "$GLOBALS_FILE") mode ${GLOBALS_MODE}, failure path fails the cycle"
 # trap drops all three throwaway DBs on exit.

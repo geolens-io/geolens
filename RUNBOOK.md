@@ -52,15 +52,23 @@ BACKUP_SCHEDULE=0 3 * * *    # 03:00 daily — must be in "M H * * *" form
 
 ### What each backup cycle captures
 
-Each cycle produces two paired artifacts with matching timestamps:
+Each cycle produces three paired artifacts with matching timestamps:
 
 | Artifact | Format | What it contains |
 |---|---|---|
 | `<db>_<YYYYmmdd_HHMMSS>.dump` | `pg_dump -Fc` custom-format | Full database (schema + data), restorable via `pg_restore` |
 | `staging-<YYYYmmdd_HHMMSS>.tar.gz` | tar.gz | Contents of the `upload_staging` volume (source files, rasters, COGs) |
+| `globals-<YYYYmmdd_HHMMSS>.sql` | `pg_dumpall --globals-only` plain SQL | Cluster roles, their passwords, and cluster-wide grants |
 
 The staging archive is omitted silently when the `upload_staging` volume is absent
 or empty (fresh install with no uploaded datasets).
+
+The globals dump is the piece a database-only `pg_dump` can never give back, and
+it is what makes the fresh-cluster restore in [§ 2](#multi-tenant-role-reconstruction-after-a-fresh-cluster-restore)
+work. It contains **role password verifiers**, so it is written mode `0600` and
+must keep the same protection as the dump itself wherever it is copied. A
+`pg_dumpall` failure fails the whole cycle: a backup set that cannot restore its
+roles should not be reported as a good one.
 
 ### Retention
 
@@ -69,8 +77,10 @@ Artifacts land at:
 - Weekly (every Sunday): `backup_data` volume → `/backups/weekly/`
 
 Default retention: 7 daily, 4 weekly (set `BACKUP_RETENTION_DAILY` /
-`BACKUP_RETENTION_WEEKLY` in `.env` to override). Retention prunes both
-`.dump` files and their paired `staging-*.tar.gz` archives.
+`BACKUP_RETENTION_WEEKLY` in `.env` to override). Retention prunes all three
+artifact kinds on the same counts — `.dump` files, their paired
+`staging-*.tar.gz` archives, and their paired `globals-*.sql` dumps — so a
+globals dump never outlives the dump it belongs with.
 
 ### Offsite (S3) upload
 
@@ -161,24 +171,31 @@ Run both before starting API, worker, or tile traffic.
 
 **Step 1 — put the roles on the new cluster.**
 
-The clean way is a globals dump captured from the source cluster while it is
-still reachable, or from a replica. Take one now if your backup cycle has no
-`pg_dumpall --globals-only` artifact — it is the piece a database-only
-`pg_dump` can never give back.
+Use the `globals-<timestamp>.sql` artifact that the backup cycle wrote next to
+the dump you are restoring. It is captured automatically, from the source
+cluster, at the moment of the dump — matching timestamps mean the roles and the
+data belong to the same point in time. Replay it **before** `pg_restore`:
 
 ```bash
 # Load .env so $POSTGRES_USER / $POSTGRES_DB are set in this shell.
 set -a; . ./.env; set +a
 
-# On the source cluster. umask 077 because --globals-only emits role password
-# verifiers: under a default 022 umask this file lands world-readable. Store it
-# with the same protection as the dump itself, or add --no-role-passwords and
-# reset the login passwords during recovery instead.
+# On the new cluster, BEFORE pg_restore. Substitute the timestamp of the dump
+# you are restoring; both files sit in /backups/daily (or weekly) together.
+docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres \
+  < globals-<YYYYmmdd_HHMMSS>.sql
+```
+
+If the source cluster is still reachable and you would rather capture roles as
+of now than as of the dump, take a fresh globals dump instead:
+
+```bash
+# umask 077 because --globals-only emits role password verifiers: under a
+# default 022 umask this file lands world-readable. Store it with the same
+# protection as the dump itself, or add --no-role-passwords and reset the login
+# passwords during recovery instead.
 (umask 077; docker compose exec -T db \
   pg_dumpall --globals-only -U "$POSTGRES_USER" > globals.sql)
-
-# On the new cluster, BEFORE pg_restore.
-docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres < globals.sql
 ```
 
 For managed/external Postgres there is no `db` container to exec into: drop the
