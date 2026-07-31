@@ -1,5 +1,6 @@
 import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 import type { StyleConfig } from '@/types/api';
+import { expressionReadsColumn } from '@/lib/maplibre-expressions';
 
 // --- Curated palette definitions ---
 //
@@ -409,7 +410,20 @@ export function colorClassificationIsOrphaned(
   if (!claimsClasses) return false;
   // Same key the editor writes, from the same function, so the check cannot disagree
   // with the writer about which colour property this geometry uses.
-  return !Array.isArray(paint[getColorProperty(geometryType)]);
+  const painted = paint[getColorProperty(geometryType)];
+  if (!Array.isArray(painted)) return true;
+  // fix(#910, codex P2): an array alone is not proof the classification still holds.
+  // Advanced JSON or the AI can swap a categorical `era` expression for one reading
+  // `status`; the legend and editor then report `era` over a map drawn by `status`.
+  //
+  // The test is deliberately one-directional: a classification NAMES a column, so an
+  // expression that never reads it cannot be the one this config describes. It does not
+  // try to work out WHICH `get` in a hand-authored expression is the classification —
+  // guessing wrong there would delete hand-authored category colours (#461), and every
+  // builder-generated expression reads the config's column by construction, so the
+  // conservative direction has no false positives to trade away.
+  return typeof config.column === 'string' && config.column !== ''
+    && !expressionReadsColumn(painted, config.column);
 }
 
 /**

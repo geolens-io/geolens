@@ -345,6 +345,32 @@ describe('colorClassificationIsOrphaned', () => {
     expect(colorClassificationIsOrphaned(categorical({ render_mode }), {}, 'MultiPoint')).toBe(false);
   });
 
+  // fix(#910, codex P2): an array alone is not proof. Advanced JSON or the AI can swap a
+  // categorical `era` expression for one reading `status`, and the legend then reports
+  // `era` over a map drawn by `status`.
+  it('is orphaned when the expression classifies a different column', () => {
+    const byStatus = ['match', ['get', 'status'], 'open', '#ff0000', '#00ff00'];
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': byStatus }, 'Polygon')).toBe(true);
+  });
+
+  // The column can sit anywhere inside the expression — a builder classification is
+  // wrapped in a `case` null-guard, and a hand-authored one can nest arbitrarily.
+  it('finds the column at any depth, and accepts a multi-column expression that reads it', () => {
+    const nested = ['case', ['==', ['get', 'era'], null], '#ccc', RAMP];
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': nested }, 'Polygon')).toBe(false);
+    // Reads `zone` as well as `era`. Guessing which `get` is "the" classification is
+    // exactly what this must not do — a wrong guess deletes hand-authored categories.
+    const multi = ['case', ['has', 'zone'], RAMP, '#ccc'];
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': multi }, 'Polygon')).toBe(false);
+  });
+
+  // Without a column there is nothing to compare against, so the array is all we have.
+  it('accepts any expression when the config names no column', () => {
+    const byStatus = ['match', ['get', 'status'], 'open', '#ff0000', '#00ff00'];
+    const noColumn = categorical({ column: undefined });
+    expect(colorClassificationIsOrphaned(noColumn, { 'fill-color': byStatus }, 'Polygon')).toBe(false);
+  });
+
   it('reads the colour key the geometry uses, not fill-color everywhere', () => {
     expect(colorClassificationIsOrphaned(categorical(), { 'circle-color': RAMP }, 'MultiPoint')).toBe(false);
     expect(colorClassificationIsOrphaned(categorical(), { 'line-color': RAMP }, 'MultiLineString')).toBe(false);

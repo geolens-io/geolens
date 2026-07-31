@@ -75,10 +75,14 @@ vi.mock('../ColorRampPicker', () => ({
  * alongside a colour classification — the two are written together and persist together.
  * Fixtures that pair a classification with a flat colour model a layer that cannot come
  * out of a save, and the editor now REGENERATES for one (that disagreement is the #918
- * bug), so a guard test needs the paint half to be testing the guard at all. Only the
- * shape matters here, not the stops.
+ * bug), so a guard test needs the paint half to be testing the guard at all.
+ *
+ * Takes the column so every fixture pairs its expression with its OWN config: the
+ * reconciliation also treats an expression reading a DIFFERENT column as orphaned, since
+ * a config claiming `era` cannot describe a map drawn by `status`. Only the shape and the
+ * column matter here, not the stops.
  */
-const COLOR_EXPR = ['match', ['get', 'typeA'], 'a', '#e41a1c', '#377eb8'];
+const colorExprFor = (column: string) => ['match', ['get', column], 'a', '#e41a1c', '#377eb8'];
 
 function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
   return {
@@ -148,7 +152,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config, paint: { 'fill-color': COLOR_EXPR } })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -205,7 +209,7 @@ describe('DataDrivenStyleEditor', () => {
         <DataDrivenStyleEditor
           layer={makeLayer({
             style_config: matchingCategoricalConfig(),
-            paint: { 'fill-color': COLOR_EXPR },
+            paint: { 'fill-color': colorExprFor('typeA') },
           })}
           onStyleConfigChange={onStyleConfigChange}
         />,
@@ -271,7 +275,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config, paint: { 'fill-color': COLOR_EXPR } })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -461,7 +465,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config, paint: { 'fill-color': COLOR_EXPR } })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -512,7 +516,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config, paint: { 'fill-color': COLOR_EXPR } })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('population') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -750,8 +754,8 @@ describe('DataDrivenStyleEditor', () => {
             dataset_geometry_type: 'Polygon',
             dataset_column_info: [{ name: 'height_roof', type: 'double precision' }],
             // The seeded layer carries its ramp as a paint expression too (a `case`
-            // wrapping a `match`, see scripts/seed-showcase.py) — only the shape matters.
-            paint: { 'fill-color': COLOR_EXPR },
+            // wrapping a `match`, see scripts/seed-showcase.py) — shape and column matter.
+            paint: { 'fill-color': colorExprFor('height_roof') },
             style_config: seededConfig,
           })}
           onStyleConfigChange={onStyleConfigChange}
@@ -1229,7 +1233,7 @@ describe('DataDrivenStyleEditor', () => {
       // rampRotationIndex=5 would select a non-Inferno ramp, but saved ramp wins
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: savedConfig, paint: { 'fill-color': COLOR_EXPR } })}
+          layer={makeLayer({ style_config: savedConfig, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
           rampRotationIndex={5}
         />,
