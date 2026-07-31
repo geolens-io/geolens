@@ -26024,50 +26024,6 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses = {
     200: unknown;
 };
 
-export type RasterAuthCheckTilesRasterAuthCheckGetData = {
-    body?: never;
-    path?: never;
-    query: {
-        /**
-         * Dataset Id
-         */
-        dataset_id: string;
-    };
-    url: '/tiles/raster-auth-check/';
-};
-
-export type RasterAuthCheckTilesRasterAuthCheckGetErrors = {
-    /**
-     * Bad request — invalid query parameters or payload
-     */
-    400: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
-     * Internal server error
-     */
-    500: ProblemDetail;
-    /**
-     * Service unavailable — the database could not serve the request
-     */
-    503: ProblemDetail;
-};
-
-export type RasterAuthCheckTilesRasterAuthCheckGetError = RasterAuthCheckTilesRasterAuthCheckGetErrors[keyof RasterAuthCheckTilesRasterAuthCheckGetErrors];
-
-export type RasterAuthCheckTilesRasterAuthCheckGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
 export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData = {
     body?: never;
     path: {
