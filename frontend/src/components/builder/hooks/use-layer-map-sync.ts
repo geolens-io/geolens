@@ -197,7 +197,7 @@ export function resolveFillExclusions(
   isDataDrivenColor: boolean;
   dropsFillPattern: boolean;
   patternOwnsFill: boolean;
-  strandedFillColor: unknown;
+  strandedFillColor: string | undefined;
 } {
   // P1-07: a data-driven SOLID color (categorical, or graduated with the color
   // target) is incompatible with a line-gradient.
@@ -216,12 +216,21 @@ export function resolveFillExclusions(
     const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
     effectivePaint = rest;
   }
+  // fix(#910, codex P2): a SOLID colour only. `fillColorSaved` can hold nothing else,
+  // so a solid colour is the only fill None can bring back — deleting an expression
+  // here would be unrecoverable, and it is reachable without any data-driven config
+  // (Advanced JSON writes an expression into `fill-color`, and then ANY later builder
+  // edit re-sends that paint through this resolver). LayerStyleEditor already refuses
+  // to touch an expression when a pattern is applied; the funnel must not undo that.
+  // Both keys then persist, which the pattern wins on the map — a pre-existing
+  // Advanced-JSON quirk, and far cheaper than destroying the user's classification.
+  const fillColor = effectivePaint['fill-color'];
   const patternOwnsFill =
-    !isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
-  let strandedFillColor: unknown;
+    !isDataDrivenColor && typeof fillColor === 'string' && 'fill-pattern' in effectivePaint;
+  let strandedFillColor: string | undefined;
   if (patternOwnsFill) {
-    const { 'fill-color': droppedColor, ...rest } = effectivePaint;
-    strandedFillColor = droppedColor;
+    const { 'fill-color': _droppedColor, ...rest } = effectivePaint;
+    strandedFillColor = fillColor;
     effectivePaint = rest;
   }
   return { paint: effectivePaint, isDataDrivenColor, dropsFillPattern, patternOwnsFill, strandedFillColor };
@@ -237,12 +246,13 @@ export function resolveFillExclusions(
  * did not bring one of its own: on a paste or bulk apply that value is the SOURCE
  * layer's colour, which is the one the user actually copied.
  *
- * Strings only. The stash feeds the extrusion companion and #914's tint resolver,
- * both of which need a solid colour, and an expression cannot serve as one.
+ * The stash is a solid colour by construction — `resolveFillExclusions` only ever
+ * displaces a string, because the extrusion companion and #914's tint resolver both
+ * read this value as a colour and an expression cannot serve as one.
  */
 export function stashExcludedFillColor(
   config: StyleConfig | null,
-  flags: { isDataDrivenColor: boolean; patternOwnsFill: boolean; strandedFillColor: unknown },
+  flags: { isDataDrivenColor: boolean; patternOwnsFill: boolean; strandedFillColor: string | undefined },
 ): StyleConfig | null {
   let next = config;
   if (flags.isDataDrivenColor && next?.builder?.fillColorSaved !== undefined) {

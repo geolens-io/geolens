@@ -301,6 +301,32 @@ def test_extrusion_companion_keeps_an_expression_fill_color_over_the_stash():
     assert style["layers"][-1]["paint"]["fill-extrusion-color"] == expression
 
 
+def test_extrusion_companion_ignores_a_non_string_fill_color_stash():
+    """`style_config` gets size validation only, so the stash may hold anything.
+
+    Offering a number or object as the fallback does not corrupt the document —
+    `_strip_wrong_typed_values` pops it on the way out — but the companion then
+    ships with NO `fill-extrusion-color`, so MapLibre draws the spec default black
+    rather than the brand blue this fallback exists to supply.
+    """
+    for junk in (42, {"r": 1}, ["#fff"], True, None):
+        layer = _layer(
+            dataset_geometry_type="POLYGON",
+            paint={"fill-pattern": "geolens-fill-hatch"},
+            label_config=None,
+            style_config={
+                "builder": {"heightColumn": "height_m", "fillColorSaved": junk}
+            },
+        )
+
+        style = build_maplibre_style(_map(), [layer])
+
+        assert (
+            style["layers"][-1]["paint"]["fill-extrusion-color"]
+            == style_json.DEFAULT_FILL_COLOR
+        )
+
+
 def test_build_maplibre_style_emits_raster_dem_source_for_hillshade():
     dem_id = uuid.uuid4()
     layer = _dem_layer(dem_id=dem_id)

@@ -984,7 +984,13 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     expect(builder?.outlineWidth).toBe(2);
   });
 
-  it('does not stash an expression-valued fill-color it drops', () => {
+  // fix(#910, codex P2): this asserted the drop and the drop was wrong. An expression
+  // has no stashable form, so removing it is unrecoverable — and it does not take a
+  // pattern click to get here: an Advanced-JSON layer carrying both keys re-sends
+  // that paint through the funnel on ANY later builder edit, so an outline-width
+  // change silently destroyed the classification. LayerStyleEditor already emits the
+  // expression untouched when a pattern is applied; the funnel now agrees.
+  it('keeps an expression-valued fill-color rather than dropping what it cannot stash', () => {
     const { result, layers } = renderWith(
       makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': RAMP } }),
     );
@@ -998,7 +1004,8 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     });
 
     const updated = layers().find((l) => l.id === LAYER_ID)!;
-    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+    expect(updated.paint?.['fill-color']).toEqual(RAMP);
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
     const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
     expect(builder?.fillColorSaved).toBeUndefined();
   });

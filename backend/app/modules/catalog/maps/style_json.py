@@ -626,7 +626,17 @@ def _fill_companion_layers(
         # `fill-adapter.ts`. A `None` check, not `or`: an expression must pass through.
         fill_color = paint.get("fill-color")
         if fill_color is None:
-            fill_color = builder.get("fillColorSaved")
+            # `style_config` is an open dict that gets size validation only, so an
+            # API-authored layer can put a number or object in the stash. That never
+            # reaches consumers — `_strip_wrong_typed_values` pops any non-string
+            # `*-color` before the style ships — but being stripped is worse than
+            # being resolved: the companion loses the key entirely and MapLibre draws
+            # the spec default (black) instead of falling back to brand blue, and
+            # every export logs a wrong-typed-value warning for a layer nobody
+            # mistyped by hand. Resolve it here so only a real colour is offered,
+            # matching the frontend rule for what may be stashed at all.
+            stashed = builder.get("fillColorSaved")
+            fill_color = stashed if isinstance(stashed, str) else None
         if fill_color is None:
             fill_color = DEFAULT_FILL_COLOR
         height_scale = _finite_number(builder.get("heightScale")) or 1
