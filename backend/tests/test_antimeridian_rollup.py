@@ -511,13 +511,22 @@ async def test_stac_collection_extent_uses_the_spec_west_greater_than_east_form(
 
 
 @pytest.mark.anyio
-async def test_collections_api_extent_bbox_stays_monotonic(
+async def test_collections_api_extent_bbox_uses_the_spec_form(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """``CollectionResponse.extent_bbox`` feeds CollectionCard's BBoxPreview,
-    which sizes its SVG from ``maxx - minx`` and has no crossing guard yet
-    (#903). Over-broad here, never inverted --- matching the sibling
-    per-dataset ``extent_bbox``."""
+    """``CollectionResponse.extent_bbox`` is the RFC 7946 §5.2 pair.
+
+    fix(#1006): this pinned the monotonic span form under #886, when
+    CollectionCard's BBoxPreview had no crossing guard. #903 added one
+    (``crossesAntimeridian``, ``splitBbox``), and the span form then defeated
+    it: ``rollup_span_bbox`` collapses a crossing rollup to
+    ``[-180, s, 180, n]``, which is bit-identical to what a genuinely global
+    collection produces, so no client-side test could tell them apart and a
+    Fiji-shaped collection drew a band across the whole world.
+
+    Rewritten rather than deleted --- it is the contract pin for this field, and
+    it now pins the opposite half of the same contract. Mirrors the sibling
+    per-dataset ``extent_bbox``, flipped in #1004."""
     coll, _ = await _seed_crossing_collection(test_db_session)
 
     resp = await client.get(
@@ -525,8 +534,8 @@ async def test_collections_api_extent_bbox_stays_monotonic(
     )
     assert resp.status_code == 200
     bbox = resp.json()["extent_bbox"]
-    assert bbox == [-180.0, -20.0, 180.0, -15.0]
-    assert bbox[0] < bbox[2]
+    assert bbox == [178.5, -20.0, -178.5, -15.0]
+    assert bbox[0] > bbox[2]
 
 
 @pytest.mark.anyio
