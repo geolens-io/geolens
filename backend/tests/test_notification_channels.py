@@ -9,12 +9,16 @@ Covers:
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+import structlog
 
+from app.core.logging_config import setup_logging
 from app.platform.extensions.protocols import Notification
 
 # ---------------------------------------------------------------------------
@@ -30,6 +34,87 @@ _TEST_NOTIFICATION = Notification(
 
 _SECRET_PASSWORD = "s3cr3t-smtp-pass"
 _SECRET_WEBHOOK = "webhook-hmac-secret"
+
+# Emitted through the same structlog path the channels would use, to prove the
+# channel is live before anything is asserted about its contents.
+_LIVENESS_MARKER = "notification_log_liveness_probe"
+
+
+class _LiveLogs:
+    """Real log output for one test, with a liveness proof attached.
+
+    fix(#1064): replaces a loop over ``caplog.records`` that asserted a secret
+    was absent from each record. caplog captures ZERO structlog records in
+    this suite, so the loop body never ran and the assertion passed vacuously
+    — it has never been able to fail, and would not have fired if the leak it
+    guards against actually happened.
+
+    Reads real emitted output rather than using a recorder, deliberately: a
+    recorder can only observe a logger that already exists, and
+    ``smtp_channel.py`` has none. This tripwire has to catch a logger nobody
+    has written yet.
+    """
+
+    def __init__(self, records: list[str]) -> None:
+        self._records = records
+
+    def assert_no_secrets(self, *secrets: str) -> None:
+        """Both halves. The first is the one that was missing."""
+        assert any(_LIVENESS_MARKER in r for r in self._records), (
+            "log channel is not live: no structured record arrived, so a leak "
+            "assertion here would pass vacuously. That missing check is why "
+            "the previous caplog version never tested anything."
+        )
+        for secret in secrets:
+            offenders = [r for r in self._records if secret in r]
+            assert not offenders, (
+                f"secret leaked into log output: {secret!r} in {offenders}"
+            )
+
+
+@contextlib.contextmanager
+def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
+    """Configure real logging bound to the captured stream, then restore it.
+
+    Must be entered INSIDE the test body. pytest swaps ``sys.stdout``/``stderr``
+    for the call phase only, so a handler created during fixture setup binds to
+    a stream that is not the one being captured and every write fails with
+    ``--- Logging error ---`` instead of landing anywhere assertable.
+
+    Root handlers and the structlog config are restored on exit, because
+    leaking global logging state into later tests is the same failure class
+    this construction exists to close.
+    """
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    setup_logging(json_logs=True, log_level="INFO")
+    records: list[str] = []
+    live = _LiveLogs(records)
+    try:
+        yield live
+    finally:
+        structlog.stdlib.get_logger("app.platform.notifications.liveness").info(
+            _LIVENESS_MARKER
+        )
+        captured = capsys.readouterr()
+        for line in (captured.out + captured.err).splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                # pytest writes tracebacks to the same stream; a traceback
+                # carrying a secret is a different finding from a LOG carrying
+                # one. A traceback rendered INTO a record is still caught,
+                # because format_exc_info puts it inside the JSON.
+                continue
+            try:
+                parsed = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict) and "event" in parsed:
+                records.append(line)
+        structlog.reset_defaults()
+        root.handlers[:] = saved_handlers
+        root.setLevel(saved_level)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +345,7 @@ async def test_smtp_no_login_when_no_username(monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.mark.anyio
 async def test_smtp_password_not_in_logs(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """T-1229-04: SMTP password must not appear in any log output."""
     import smtplib
@@ -296,13 +381,10 @@ async def test_smtp_password_not_in_logs(
 
     from app.platform.notifications.smtp_channel import send_email
 
-    with caplog.at_level(logging.DEBUG):
+    with _live_logs(capsys) as logs:
         await send_email(_TEST_NOTIFICATION)
 
-    for record in caplog.records:
-        assert _SECRET_PASSWORD not in record.getMessage(), (
-            f"SMTP password must not appear in log: {record.getMessage()!r}"
-        )
+    logs.assert_no_secrets(_SECRET_PASSWORD)
 
 
 @pytest.mark.anyio
@@ -495,7 +577,7 @@ async def test_webhook_raises_on_non_2xx(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.mark.anyio
 async def test_webhook_secret_not_in_logs(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """T-1229-04: Webhook secret must not appear in any log output."""
     from pydantic import SecretStr
@@ -523,13 +605,10 @@ async def test_webhook_secret_not_in_logs(
 
     from app.platform.notifications.webhook_channel import post_webhook
 
-    with caplog.at_level(logging.DEBUG):
+    with _live_logs(capsys) as logs:
         await post_webhook(_TEST_NOTIFICATION)
 
-    for record in caplog.records:
-        assert _SECRET_WEBHOOK not in record.getMessage(), (
-            f"Webhook secret must not appear in log: {record.getMessage()!r}"
-        )
+    logs.assert_no_secrets(_SECRET_WEBHOOK)
 
 
 @pytest.mark.anyio
@@ -746,7 +825,7 @@ async def test_env_sink_no_channels_configured_returns_silently(
 
 @pytest.mark.anyio
 async def test_env_sink_all_failed_error_message_has_no_secrets_in_logs(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """T-1229-04: Secrets must not appear in logs during channel failures."""
     from pydantic import SecretStr
@@ -781,14 +860,11 @@ async def test_env_sink_all_failed_error_message_has_no_secrets_in_logs(
         )
 
         sink = EnvConfiguredNotificationSink()
-        with caplog.at_level(logging.DEBUG):
+        with _live_logs(capsys) as logs:
             with pytest.raises(NotificationDeliveryError):
                 await sink.deliver(_TEST_NOTIFICATION)
 
-    for record in caplog.records:
-        msg = record.getMessage()
-        assert _SECRET_PASSWORD not in msg, f"Password in log: {msg!r}"
-        assert _SECRET_WEBHOOK not in msg, f"Webhook secret in log: {msg!r}"
+    logs.assert_no_secrets(_SECRET_PASSWORD, _SECRET_WEBHOOK)
 
 
 @pytest.mark.anyio
