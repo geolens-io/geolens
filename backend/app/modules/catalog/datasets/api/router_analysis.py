@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import current_tenant_var, defer_async_with_tenant
@@ -312,6 +312,33 @@ async def analysis_materialize_endpoint(
     # The client deliberately applies no staleness rule of its own
     # (AnalysisJobWatcher.tsx): it mirrors job status from the API, and on a
     # released lease the next create attempt simply succeeds server-side.
+    # fix(#1015): serialize admission per tenant before counting anything.
+    # Without it the caps are check-then-insert: N users in one tenant can all
+    # read a count below the ceiling, then all create a job, and the tenant
+    # ends up over by however many callers arrived together — precisely the
+    # unbounded-concurrency case the ceiling exists to stop, and the one #1012's
+    # raised work_mem makes expensive. A transaction-scoped advisory lock held
+    # until this request commits makes the count-then-create sequence atomic.
+    #
+    # Blocking rather than pg_try_advisory_xact_lock (the sandbox's shape at
+    # executor.py): concurrent admissions should queue for the microseconds this
+    # takes, not fail. The critical section is a COUNT and an INSERT.
+    #
+    # In single-tenant mode the key is constant, so this serializes every
+    # analysis admission on the deployment. That is the correct reading — there
+    # is one tenant — and admissions are rare and short. It also incidentally
+    # hardens the per-user cap below, which the comment there describes as soft.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:admission_key, 0))"),
+        {
+            "admission_key": (
+                f"geolens:analysis-admission:{current_tenant_var.get()}"
+                if is_multi_tenant()
+                else "geolens:analysis-admission"
+            )
+        },
+    )
+
     lease_cutoff = datetime.now(timezone.utc) - timedelta(
         seconds=MATERIALIZE_LEASE_SECONDS
     )
