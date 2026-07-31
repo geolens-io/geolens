@@ -2159,13 +2159,22 @@ def test_a_builtin_pattern_inside_an_expression_is_stripped_too():
     assert "fill-pattern" not in _fill_paint(style)
 
 
-def test_a_non_builtin_fill_pattern_is_left_alone():
-    """Only the closed `geolens-fill-*` set is known to be absent from the
-    sprite. Any other value may name a real `map_icons` entry, and dropping it
-    would break a style that works.
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "some-uploaded-icon",
+        # fix(#917 codex r1): `create_icon_asset` derives a sprite slug from the
+        # uploaded filename, so `geolens-fill-logo.png` becomes a real map_icons
+        # entry whose slug carries the builtin prefix. Reserving the prefix
+        # would strip a working pattern from every exported style.
+        "geolens-fill-logo-a1b2c3d4",
+    ],
+)
+def test_a_non_builtin_fill_pattern_is_left_alone(pattern):
+    """Only the five builtin ids are known to be absent from the sprite. Any
+    other value may name a real `map_icons` entry, and dropping it would break a
+    style that works.
     """
-    style = build_maplibre_style(
-        _map(), [_polygon_layer_with_pattern("some-uploaded-icon")]
-    )
+    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
 
-    assert _fill_paint(style)["fill-pattern"] == "some-uploaded-icon"
+    assert _fill_paint(style)["fill-pattern"] == pattern

@@ -1269,14 +1269,29 @@ def _strip_wrong_typed_values(layer: dict[str, Any], key: str) -> None:
 # fix(#917): the builder's builtin fill patterns. Their images are generated and
 # registered in the browser by `layer-adapters/fill-pattern-images.ts`, so they
 # exist only inside a GeoLens session — the served sprite is indexed from the
-# `map_icons` table alone and has never contained them.
-_BUILTIN_FILL_PATTERN_PREFIX = "geolens-fill-"
+# `map_icons` table alone and has never contained them. Mirrors
+# `FILL_PATTERN_IDS` in that module; keep the two in step.
+#
+# fix(#917 codex r1): matched exactly, never by the `geolens-fill-` prefix.
+# `create_icon_asset` derives a sprite slug from the uploaded filename, so an
+# icon named `geolens-fill-logo.png` becomes a real `map_icons` entry whose slug
+# carries that prefix — reserving it would strip a working pattern from every
+# exported style.
+_BUILTIN_FILL_PATTERN_IDS = frozenset(
+    {
+        "geolens-fill-hatch",
+        "geolens-fill-crosshatch",
+        "geolens-fill-diagonal",
+        "geolens-fill-dots",
+        "geolens-fill-grid",
+    }
+)
 
 
 def _references_builtin_fill_pattern(value: Any) -> bool:
     """Whether a fill-pattern value names a builtin, directly or in an expression."""
     if isinstance(value, str):
-        return value.startswith(_BUILTIN_FILL_PATTERN_PREFIX)
+        return value in _BUILTIN_FILL_PATTERN_IDS
     if isinstance(value, list):
         return any(_references_builtin_fill_pattern(item) for item in value)
     return False
@@ -1296,10 +1311,9 @@ def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:
     faithful, but a sprite is one shared atlas and cannot hold the per-layer
     tint the client-side generator applies (#914), so that is not this fix.
 
-    Only the ``geolens-fill-*`` builtins are stripped. They are a closed set
-    this repo owns and knows to be absent from the sprite; any other value may
-    name a real ``map_icons`` sprite entry, and dropping it would break a style
-    that works.
+    Only the five builtin ids are stripped. They are a closed set this repo owns
+    and knows to be absent from the sprite; any other value may name a real
+    ``map_icons`` sprite entry, and dropping it would break a style that works.
     """
     paint = layer.get("paint")
     if not isinstance(paint, dict):
