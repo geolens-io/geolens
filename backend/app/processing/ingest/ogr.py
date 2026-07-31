@@ -119,6 +119,18 @@ class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
 
 
+class IngestBudgetExceededError(IngestionError):
+    """Raised when a source exceeds an ingest resource ceiling (fix(#948)).
+
+    A subclass so the preview route can surface THIS message verbatim without
+    widening the generic ``IngestionError`` handler, which also carries GDAL
+    subprocess output. The text is server-authored and names the limit, the
+    observed value, and what to do about it — telling a user only that their
+    file "may be malformed or unsupported" when it is merely too large leaves
+    them with nothing to act on. Raised from the parquet path today.
+    """
+
+
 def validate_layer_name_argv(layer_name: str) -> None:
     """Reject option-like layer names before they reach a GDAL argv.
 
