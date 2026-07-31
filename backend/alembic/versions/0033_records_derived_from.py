@@ -9,8 +9,8 @@ Nullable with no backfill: the information needed to reconstruct provenance for
 records created before this migration is exactly what the migration exists to
 stop losing, so there is nothing to fill them with.
 
-Revision ID: 0031_records_derived_from
-Revises: 0030_records_spatial_extent_type
+Revision ID: 0033_records_derived_from
+Revises: 0032_api_key_scope
 Create Date: 2026-07-31
 """
 
@@ -20,8 +20,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0031_records_derived_from"
-down_revision: Union[str, None] = "0030_records_spatial_extent_type"
+revision: str = "0033_records_derived_from"
+down_revision: Union[str, None] = "0032_api_key_scope"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
