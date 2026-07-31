@@ -528,10 +528,12 @@ def _iter_immediate(node: ast.AST, *, stop_at_comprehensions: bool = True):
     stop = (
         (*_LEXICAL_SCOPES, ast.ClassDef)
         if stop_at_comprehensions
-        else (
-            *_SCOPE_NODES,
-            ast.ClassDef,
-        )
+        # fix(#996 review): a GeneratorExp stops the walk either way. Its body
+        # is deferred like a lambda's — building the generator runs nothing —
+        # so descending into it would credit a scope for a call that never
+        # executed. Callers that care about its eagerly-evaluated first
+        # iterable handle that themselves.
+        else (*_SCOPE_NODES, ast.GeneratorExp, ast.ClassDef)
     )
     for child in ast.iter_child_nodes(node):
         yield child
@@ -614,6 +616,17 @@ def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
     assign_target_nodes = _record_assign_targets(info, scope)
     _record_canonical_defs(info, scope, rel)
 
+    # fix(#996 review): a walrus inside a comprehension binds in the CONTAINING
+    # scope (PEP 572), and _comprehension_walrus_targets already exports it
+    # there. Recording it HERE as well put the same name in both scopes, so
+    # `[run(cmd) for _ in items if (cmd := ["gdalinfo", path])]` had its own
+    # load read as a nested shadow and the argv vanished. Exporting a binding
+    # and also keeping it is the contradiction; the export is the correct half.
+    comprehension_walrus_ids = (
+        {id(n) for n in _comprehension_walrus_targets(scope)}
+        if isinstance(scope, _COMPREHENSION_NODES)
+        else set()
+    )
     for node in _iter_immediate(scope):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             _record_import(info, node)
@@ -622,6 +635,8 @@ def _scope_info(scope: ast.AST, rel: str) -> _ScopeInfo:
                 info.bound.add(node.name)
                 info.other_bound.add(node.name)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            if id(node) in comprehension_walrus_ids:
+                continue  # belongs to the containing scope, not this one
             info.bound.add(node.id)
             if id(node) not in assign_target_nodes:
                 info.other_bound.add(node.id)
@@ -923,12 +938,25 @@ def _scope_uses_safe_env(root: ast.AST, rel: str) -> bool:
     a call inside a nested def or lambda runs on that nested scope's
     schedule (or never), so it may not credit the outer function's argv.
 
-    fix(#996): comprehensions stay transparent here. Only def/lambda defer;
-    a list/set/dict comprehension body runs as part of the enclosing
-    statement, so a helper call written inside one still credits this scope,
-    exactly as it did before #996 made comprehensions binding scopes.
+    fix(#996): list/set/dict comprehensions stay transparent here — their
+    bodies run as part of the enclosing statement, so a helper call inside one
+    still credits this scope.
+
+    fix(#996 review): a GENERATOR EXPRESSION does not. Building
+    ``(gdal_safe_env() for _ in ())`` executes nothing, so crediting the scope
+    for a call in its body handed safe-env credit to a function that never
+    ran it — an unclamped argv beside it would pass. This module lumped
+    generator expressions in with the eager comprehensions, and its own
+    comment claimed only def and lambda defer. Both were wrong: the genexp
+    body is deferred exactly like a lambda's. Its OUTERMOST iterable is
+    evaluated eagerly at construction, so that part is still scanned.
     """
     for node in _iter_immediate(root, stop_at_comprehensions=False):
+        if isinstance(node, ast.GeneratorExp):
+            # Deferred body, eager first iterable.
+            if node.generators and _scope_uses_safe_env(node.generators[0].iter, rel):
+                return True
+            continue
         if isinstance(node, ast.Call) and _is_canonical_helper_call(
             node, SAFE_SUBPROCESS_ENV_HELPER, rel
         ):
@@ -3131,6 +3159,78 @@ def test_guard_container_wrapper_still_marks_the_name_a_container():
             "def fn(path):\n"
             "    commands = {'inspect': ['gdalinfo', path]}\n"
             "    subprocess.run(commands['inspect'])\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_generator_expression_does_not_grant_safe_env_credit():
+    """fix(#996 review): building `(gdal_safe_env() for _ in ())` executes
+    nothing, so it must not credit the scope. This module lumped generator
+    expressions in with the eager comprehensions and its own comment claimed
+    only def and lambda defer — an unclamped argv beside one passed."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def fn(path):\n"
+            "    deferred = (gdal_safe_env() for _ in ())\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "    return deferred\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_eager_comprehension_still_grants_safe_env_credit():
+    """The control: a list comprehension body DOES run as part of the
+    enclosing statement, so the credit it grants is real."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def fn(path):\n"
+            "    envs = [gdal_safe_env() for _ in range(1)]\n"
+            "    subprocess.run(['gdalinfo', path], env=envs[0])\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert violations == []
+
+
+def test_guard_generator_expression_outermost_iterable_is_still_eager():
+    """The other half: a genexp's FIRST iterable is evaluated at construction,
+    so a helper call there is real and does credit the scope."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "def fn(path):\n"
+            "    lazy = (x for x in [gdal_safe_env()])\n"
+            "    subprocess.run(['gdalinfo', path])\n"
+            "    return lazy\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert violations == []
+
+
+def test_guard_comprehension_walrus_argv_is_detected():
+    """fix(#996 review): the walrus binds in the CONTAINING scope, so
+    recording it in the comprehension too made its own load read as a nested
+    shadow and the argv vanished."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path, items):\n"
+            "    return [subprocess.run(cmd) for _ in items "
+            "if (cmd := ['gdalinfo', path])]\n"
         ),
         {},
     )
