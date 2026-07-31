@@ -1,6 +1,15 @@
 from typing import Literal, cast
 
-AnalysisMaterializeRequestOperation = Literal["buffer", "centroid", "clip", "dissolve"]
+AnalysisMaterializeRequestOperation = Literal[
+    "buffer",
+    "centroid",
+    "clip",
+    "dissolve",
+    "intersect",
+    "measure",
+    "select_by_location",
+    "spatial_join",
+]
 
 ANALYSIS_MATERIALIZE_REQUEST_OPERATION_VALUES: set[
     AnalysisMaterializeRequestOperation
@@ -9,6 +18,10 @@ ANALYSIS_MATERIALIZE_REQUEST_OPERATION_VALUES: set[
     "centroid",
     "clip",
     "dissolve",
+    "intersect",
+    "measure",
+    "select_by_location",
+    "spatial_join",
 }
 
 

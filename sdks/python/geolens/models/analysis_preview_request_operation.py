@@ -1,11 +1,23 @@
 from typing import Literal, cast
 
-AnalysisPreviewRequestOperation = Literal["buffer", "centroid", "clip"]
+AnalysisPreviewRequestOperation = Literal[
+    "buffer",
+    "centroid",
+    "clip",
+    "intersect",
+    "measure",
+    "select_by_location",
+    "spatial_join",
+]
 
 ANALYSIS_PREVIEW_REQUEST_OPERATION_VALUES: set[AnalysisPreviewRequestOperation] = {
     "buffer",
     "centroid",
     "clip",
+    "intersect",
+    "measure",
+    "select_by_location",
+    "spatial_join",
 }
 
 

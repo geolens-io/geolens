@@ -866,6 +866,35 @@
             "description": "Buffer distance in meters (buffer only)",
             "title": "Distance Meters"
           },
+          "join_dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)",
+            "title": "Join Dataset Id"
+          },
+          "join_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)",
+            "title": "Join Fields"
+          },
           "mask": {
             "anyOf": [
               {
@@ -876,7 +905,7 @@
                 "type": "null"
               }
             ],
-            "description": "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)",
+            "description": "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)",
             "title": "Mask"
           },
           "mask_dataset_id": {
@@ -889,7 +918,7 @@
                 "type": "null"
               }
             ],
-            "description": "Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)",
+            "description": "Polygon dataset supplying the mask geometry: the area clipped to, or selected against (clip and select_by_location; alternative to mask)",
             "title": "Mask Dataset Id"
           },
           "operation": {
@@ -897,7 +926,11 @@
               "buffer",
               "centroid",
               "clip",
-              "dissolve"
+              "dissolve",
+              "spatial_join",
+              "measure",
+              "select_by_location",
+              "intersect"
             ],
             "title": "Operation",
             "type": "string"
@@ -953,6 +986,35 @@
             "description": "Buffer distance in meters (buffer only)",
             "title": "Distance Meters"
           },
+          "join_dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)",
+            "title": "Join Dataset Id"
+          },
+          "join_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)",
+            "title": "Join Fields"
+          },
           "mask": {
             "anyOf": [
               {
@@ -963,7 +1025,7 @@
                 "type": "null"
               }
             ],
-            "description": "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)",
+            "description": "GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)",
             "title": "Mask"
           },
           "mask_dataset_id": {
@@ -976,14 +1038,18 @@
                 "type": "null"
               }
             ],
-            "description": "Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)",
+            "description": "Polygon dataset supplying the mask geometry: the area clipped to, or selected against (clip and select_by_location; alternative to mask)",
             "title": "Mask Dataset Id"
           },
           "operation": {
             "enum": [
               "buffer",
               "centroid",
-              "clip"
+              "clip",
+              "spatial_join",
+              "measure",
+              "select_by_location",
+              "intersect"
             ],
             "title": "Operation",
             "type": "string"
@@ -1020,6 +1086,18 @@
             "additionalProperties": true,
             "title": "Geojson",
             "type": "object"
+          },
+          "match_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact total across the WHOLE source, not just the previewed features: intersecting source/join feature PAIRS for spatial_join, selected source features for select_by_location. Null for other operations, and when the count could not be computed within the query budget",
+            "title": "Match Count"
           },
           "source_feature_count": {
             "anyOf": [

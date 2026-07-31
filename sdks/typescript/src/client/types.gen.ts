@@ -539,9 +539,21 @@ export type AnalysisMaterializeRequest = {
      */
     distance_meters?: number | null;
     /**
+     * Join Dataset Id
+     *
+     * Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
+     */
+    join_dataset_id?: string | null;
+    /**
+     * Join Fields
+     *
+     * Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+     */
+    join_fields?: Array<string> | null;
+    /**
      * Mask
      *
-     * GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+     * GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)
      */
     mask?: {
         [key: string]: unknown;
@@ -549,13 +561,13 @@ export type AnalysisMaterializeRequest = {
     /**
      * Mask Dataset Id
      *
-     * Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)
+     * Polygon dataset supplying the mask geometry: the area clipped to, or selected against (clip and select_by_location; alternative to mask)
      */
     mask_dataset_id?: string | null;
     /**
      * Operation
      */
-    operation: 'buffer' | 'centroid' | 'clip' | 'dissolve';
+    operation: 'buffer' | 'centroid' | 'clip' | 'dissolve' | 'spatial_join' | 'measure' | 'select_by_location' | 'intersect';
     /**
      * Title
      */
@@ -594,9 +606,21 @@ export type AnalysisPreviewRequest = {
      */
     distance_meters?: number | null;
     /**
+     * Join Dataset Id
+     *
+     * Dataset to join against; each source feature gains a count of the features from it that intersect (spatial_join only)
+     */
+    join_dataset_id?: string | null;
+    /**
+     * Join Fields
+     *
+     * Columns to copy from the intersecting join feature, prefixed 'join_' in the output. Ties break on the lowest join-layer gid (spatial_join only)
+     */
+    join_fields?: Array<string> | null;
+    /**
      * Mask
      *
-     * GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip only)
+     * GeoJSON Polygon or MultiPolygon geometry in EPSG:4326 (clip and select_by_location)
      */
     mask?: {
         [key: string]: unknown;
@@ -604,13 +628,13 @@ export type AnalysisPreviewRequest = {
     /**
      * Mask Dataset Id
      *
-     * Polygon dataset whose unioned features form the clip mask (clip only; alternative to mask)
+     * Polygon dataset supplying the mask geometry: the area clipped to, or selected against (clip and select_by_location; alternative to mask)
      */
     mask_dataset_id?: string | null;
     /**
      * Operation
      */
-    operation: 'buffer' | 'centroid' | 'clip';
+    operation: 'buffer' | 'centroid' | 'clip' | 'spatial_join' | 'measure' | 'select_by_location' | 'intersect';
 };
 
 /**
@@ -633,6 +657,12 @@ export type AnalysisPreviewResponse = {
     geojson: {
         [key: string]: unknown;
     };
+    /**
+     * Match Count
+     *
+     * Exact total across the WHOLE source, not just the previewed features: intersecting source/join feature PAIRS for spatial_join, selected source features for select_by_location. Null for other operations, and when the count could not be computed within the query budget
+     */
+    match_count?: number | null;
     /**
      * Source Feature Count
      *
