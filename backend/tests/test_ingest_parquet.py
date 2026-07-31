@@ -20,10 +20,12 @@ from sqlalchemy import text
 
 from app.processing.export.parquet import build_geoparquet_table, export_parquet
 from app.processing.ingest.ogr import (
+    IngestBudgetExceededError,
     IngestionError,
     run_ogrinfo,
     run_ogrinfo_preview,
 )
+from app.processing.ingest import parquet as parquet_module
 from app.processing.ingest.parquet import (
     _srid_from_geo,
     load_parquet_to_postgis,
@@ -34,6 +36,7 @@ from app.processing.ingest.validation import (
     validate_file_size,
     validate_parquet_file,
 )
+from tests.factories import get_user_id
 
 
 def _write_geoparquet(path, *, crs: dict | None = None) -> None:
@@ -68,6 +71,225 @@ async def test_geometry_only_without_geometry_raises(tmp_path):
         await load_parquet_to_postgis(
             str(p), "t_geomonly", schema="data", srid=4326, include_geometry=False
         )
+
+
+class TestParquetIngestBudget:
+    """fix(#948): row and cell ceilings, checked from the footer.
+
+    The constants are monkeypatched down rather than generating a
+    five-million-row fixture — being module constants is half the reason they
+    are module constants. Each test asserts the loader raises BEFORE creating
+    the table, which is what checking ``pf.metadata.num_rows`` up front buys
+    over a running counter.
+    """
+
+    @staticmethod
+    def _write(path, *, rows: int, columns: int) -> None:
+        cols = {f"c{i}": list(range(rows)) for i in range(columns)}
+        pq.write_table(pa.table(cols), path)
+
+    @staticmethod
+    async def _table_exists(session, table_name: str) -> bool:
+        result = await session.execute(
+            text("SELECT to_regclass(:t)"), {"t": f"data.{table_name}"}
+        )
+        return result.scalar() is not None
+
+    @pytest.mark.anyio
+    async def test_over_row_cap_rejected(self, tmp_path, monkeypatch, test_db_session):
+        """Trips the ROW cap alone: 6 rows x 1 column is 6 cells, well under
+        the cell cap, so this isolates the row ceiling."""
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 5)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 1_000)
+        p = tmp_path / "wide_rows.parquet"
+        self._write(p, rows=6, columns=1)
+
+        table_name = f"t_rowcap_{uuid.uuid4().hex[:8]}"
+        with pytest.raises(IngestBudgetExceededError, match=r"6 rows, above the 5-row"):
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=False
+            )
+        assert not await self._table_exists(test_db_session, table_name), (
+            "the loader created a table before rejecting the file — the budget "
+            "check must run before the DDL"
+        )
+
+    @pytest.mark.anyio
+    async def test_over_cell_cap_rejected(self, tmp_path, monkeypatch, test_db_session):
+        """Trips the CELL cap alone: 4 rows is under a row cap of 100, but
+        4 x 5 = 20 cells is over a cell cap of 10."""
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 100)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 10)
+        p = tmp_path / "wide_cols.parquet"
+        self._write(p, rows=4, columns=5)
+
+        table_name = f"t_cellcap_{uuid.uuid4().hex[:8]}"
+        with pytest.raises(
+            IngestBudgetExceededError, match=r"20 cells \(4 rows x 5 columns\)"
+        ):
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=False
+            )
+        assert not await self._table_exists(test_db_session, table_name)
+
+    @pytest.mark.anyio
+    async def test_geometry_column_counts_toward_cell_cap(
+        self, tmp_path, monkeypatch, test_db_session
+    ):
+        """The geometry column is skipped from ``plan`` but IS inserted, and is
+        the most expensive value per row — leaving it out of the count would
+        let the loader write more values than the ceiling advertises."""
+        from shapely.geometry import Point
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 100)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 5)
+        p = tmp_path / "spatial.parquet"
+        pq.write_table(
+            build_geoparquet_table(
+                [Point(0, 0).wkb, Point(1, 1).wkb],
+                {"a": [1, 2], "b": [3, 4]},
+                ["a", "b"],
+            ),
+            p,
+        )
+
+        table_name = f"t_geomcell_{uuid.uuid4().hex[:8]}"
+        # 2 attributes + geometry = 3 columns, so 6 cells. Counting only the
+        # attributes would give 4 and let this through.
+        with pytest.raises(
+            IngestBudgetExceededError, match=r"6 cells \(2 rows x 3 columns\)"
+        ):
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=True
+            )
+        assert not await self._table_exists(test_db_session, table_name)
+
+    @pytest.mark.anyio
+    async def test_budget_checked_before_geometry_scan(self, tmp_path, monkeypatch):
+        """The gate must fire before any row data is read.
+
+        ``_geometry_has_z`` decodes the whole geometry column when the
+        GeoParquet metadata declares no ``geometry_types`` — which is what this
+        repo's own exporter writes. A budget check placed after it would let an
+        over-limit file monopolize the worker for a full scan before being
+        rejected, which is the opposite of a backstop.
+        """
+        from shapely.geometry import Point
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 1)
+
+        def _explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError(
+                "_geometry_has_z scanned the geometry column before the budget "
+                "check rejected the file"
+            )
+
+        monkeypatch.setattr(parquet_module, "_geometry_has_z", _explode)
+
+        p = tmp_path / "scan_first.parquet"
+        pq.write_table(
+            build_geoparquet_table(
+                [Point(0, 0).wkb, Point(1, 1).wkb], {"a": [1, 2]}, ["a"]
+            ),
+            p,
+        )
+        with pytest.raises(IngestBudgetExceededError, match="2 rows, above the 1-row"):
+            await load_parquet_to_postgis(
+                str(p),
+                f"t_scanfirst_{uuid.uuid4().hex[:8]}",
+                schema="data",
+                srid=4326,
+                include_geometry=True,
+            )
+
+    @pytest.mark.anyio
+    async def test_preview_rejects_before_probing_geometry(self, tmp_path, monkeypatch):
+        """The gate belongs on the preview path too, and ahead of ITS probe.
+
+        tasks_vector calls run_ogrinfo before run_ogr2ogr, and
+        _open_and_inspect's geometry probe iterates batches until it finds the
+        first non-NULL WKB — an unbounded scan on a file with millions of
+        leading NULLs. Gating only in the loader would leave the worker exposed
+        on the path that actually runs first.
+        """
+        from shapely.geometry import Point
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 2)
+        p = tmp_path / "preview_over.parquet"
+        # Leading NULL geometry: the probe has to walk past it, so a probe that
+        # ran first would touch row data before the file was rejected.
+        pq.write_table(
+            build_geoparquet_table(
+                [None, Point(0, 0).wkb, Point(1, 1).wkb],
+                {"a": [1, 2, 3]},
+                ["a"],
+            ),
+            p,
+        )
+        with pytest.raises(IngestBudgetExceededError, match="3 rows, above the 2-row"):
+            await parquet_info(str(p))
+
+    @pytest.mark.anyio
+    async def test_preview_endpoint_surfaces_the_limit(
+        self, tmp_path, monkeypatch, client, admin_auth_header, test_db_session
+    ):
+        """The ceiling message has to survive the route, not just the call.
+
+        The preview handler's broad `except Exception` reports "The file may be
+        malformed or unsupported", which is actively misleading for a file that
+        is merely too large — and preview runs BEFORE commit, so this is the
+        moment the user can act on it. IngestBudgetExceededError is a subclass
+        so the route can surface this text without also widening the handler to
+        GDAL subprocess output.
+        """
+        from app.platform.jobs.models import IngestJob
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 1)
+        p = tmp_path / "route_over.parquet"
+        _write_plain_parquet(p)  # 2 rows, over the patched cap of 1
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = IngestJob(
+            source_filename="route_over.parquet",
+            file_path=str(p),
+            status="pending",
+            created_by=admin_id,
+            user_metadata={"file_type": "vector"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert "2 rows, above the 1-row ingest limit" in detail, detail
+        assert "may be malformed or unsupported" not in detail, detail
+
+    @pytest.mark.anyio
+    async def test_just_under_both_caps_still_loads(
+        self, tmp_path, monkeypatch, test_db_session
+    ):
+        """The ceilings are exclusive: a file exactly at both still ingests."""
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 4)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 8)
+        p = tmp_path / "under.parquet"
+        self._write(p, rows=4, columns=2)
+
+        table_name = f"t_undercap_{uuid.uuid4().hex[:8]}"
+        try:
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=False
+            )
+            result = await test_db_session.execute(
+                text(f"SELECT COUNT(*) FROM data.{table_name}")
+            )
+            assert result.scalar() == 4
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
 
 
 class TestParquetValidation:
