@@ -113,17 +113,22 @@ test.describe.serial('Collections', () => {
     //
     // A single lookup here would usually still see 'running', since the reason
     // we are in this branch is that the job outlived its polling window. Wait
-    // for the id, bounded: 30 more attempts at 2s is a full minute past the
-    // 45-second budget the test itself allows, which is generous for a
-    // one-point GeoJSON. If it has not landed by then the worker is wedged and
-    // the leak is the smaller of the problems — teardown must not hang.
-    const CLEANUP_ATTEMPTS = 30;
-    for (let attempt = 0; !createdDatasetId && createdJobId && attempt < CLEANUP_ATTEMPTS; attempt++) {
-      // fix(#1018 review): sleep BEFORE the request, never after the last one.
-      // Sleeping at the end of the body re-created the very race this loop
-      // exists to close — the job could land during the final delay and the
-      // loop would exit without looking again.
-      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
+    // for the id — but the budget is set by Playwright, not by patience.
+    // fix(#1018 review): `timeout: 60_000` in playwright.config.ts applies to
+    // this hook on its own, so a 30x2s loop would burn 58 seconds in sleeps
+    // and the hook could time out BEFORE the bulk-delete it exists to send.
+    // Bound by wall clock at 20s, leaving the rest of the hook's minute for
+    // the requests and for CI latency. If the job has not landed by then the
+    // worker is wedged and the leak is the smaller problem.
+    const CLEANUP_DEADLINE = Date.now() + 20_000;
+    for (let attempt = 0; !createdDatasetId && createdJobId; attempt++) {
+      // Sleep BEFORE the request, never after the last one: sleeping at the
+      // end of the body re-created the very race this loop closes, since the
+      // job could land during the final delay and never be looked at again.
+      if (attempt > 0) {
+        if (Date.now() >= CLEANUP_DEADLINE) break;
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
       const res = await fetch(`${BASE_URL}/api/jobs/${createdJobId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
