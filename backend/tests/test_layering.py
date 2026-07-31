@@ -865,8 +865,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # so the flip succeeded and every signed-in viewer of that map lost
         # the layer in silence. #930 made the rule a matrix, so the helper
         # compares the before and after audiences instead of listing
-        # forbidden target values. Cap 735 -> 811, exact.
-        "backend/app/modules/catalog/maps/service_public.py": 811,
+        # forbidden target values. Cap 735 -> 845, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 845,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
@@ -905,8 +905,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#931): +7. _apply_visibility_change no longer carries its own
         # `new != public and old == public` gate — that gate is what hid the
         # internal-map case — and delegates the whole before/after audience
-        # comparison to the maps helper. Cap 480 -> 487, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 487,
+        # comparison to the maps helper. Cap 480 -> 489, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 489,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic

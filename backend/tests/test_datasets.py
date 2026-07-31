@@ -506,23 +506,31 @@ class TestUpdateMetadata:
         await test_db_session.commit()
         return ds
 
-    async def test_a_granted_restricted_dataset_still_blocks_the_drop_to_private(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        test_db_session,
-    ):
-        """fix(#931 codex r1/r2): `restricted` is a partial audience when, and
-        only when, someone actually holds a grant.
-
-        With a grant row the layer really does render for those viewers, and
-        dropping to private takes it from them — the stranding this guard is
-        for. Without one the same move reaches nobody new, which is the
-        parametrised `restricted -> private` row above.
-        """
+    async def _grant_role(self, test_db_session, dataset_id, role_name: str):
         from app.modules.auth.models import Role
         from app.modules.catalog.datasets.domain.models import DatasetGrant
 
+        role = (
+            await test_db_session.execute(select(Role).where(Role.name == role_name))
+        ).scalar_one()
+        test_db_session.add(DatasetGrant(dataset_id=dataset_id, role_id=role.id))
+        await test_db_session.commit()
+
+    async def test_a_grant_reaching_a_real_viewer_blocks_the_drop_to_private(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r1/r3): `restricted` is a partial audience when, and
+        only when, a grant reaches someone who would LOSE access.
+
+        The `viewer_auth_header` fixture mints a real viewer and assigns the
+        role, so the grant below reaches a user who is neither the owner nor an
+        admin. That user renders the layer today and stops after the move, which
+        is the stranding this guard exists for.
+        """
         admin_id = await _get_user_id(test_db_session, "admin")
         map_name = "Granted Restricted Map"
         ds = await self._dataset_on_map(
@@ -532,11 +540,7 @@ class TestUpdateMetadata:
             map_visibility="internal",
             map_name=map_name,
         )
-        role = (
-            await test_db_session.execute(select(Role).where(Role.name == "viewer"))
-        ).scalar_one()
-        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
-        await test_db_session.commit()
+        await self._grant_role(test_db_session, ds.id, "viewer")
 
         resp = await client.patch(
             f"/datasets/{ds.id}",
@@ -546,6 +550,69 @@ class TestUpdateMetadata:
 
         assert resp.status_code == 422
         assert map_name in resp.json()["detail"]
+
+    async def test_a_grant_to_an_empty_role_does_not_block(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r3): a grant row is not an audience.
+
+        No `editor_auth_header` here, so the editor role has no members and the
+        grant reaches nobody. Blocking would be a refusal that lies — the same
+        defect as the ungranted case, one level further in.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name="Empty Grant Map",
+        )
+        await self._grant_role(test_db_session, ds.id, "editor")
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_an_unpublished_dataset_never_blocks(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r3): an unpublished record is already invisible to
+        every shared-map audience.
+
+        `filter_visible`'s status gate is `published OR created_by == <caller>`,
+        so a draft reaches only its creator, and admins bypass the filter — both
+        keep access after any visibility change. A rank comparison alone would
+        invent a 422 for a move that costs nothing.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="public",
+            map_visibility="public",
+            map_name="Draft On Public Map",
+        )
+        ds.record.record_status = "draft"
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
 
     @pytest.mark.parametrize(
         ("dataset_visibility", "map_visibility", "new_visibility", "blocked"),
