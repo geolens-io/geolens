@@ -98,8 +98,12 @@ def test_changes_job_does_not_pretend_to_have_filtered_the_queue():
     steps = _workflow()["jobs"]["changes"]["steps"]
     filter_steps = [s for s in steps if "paths-filter" in str(s.get("uses", ""))]
     assert len(filter_steps) == 1, "expected exactly one paths-filter step"
-    assert "merge_group" in str(filter_steps[0].get("if", "")), (
+    condition = " ".join(str(filter_steps[0].get("if", "")).split())
+    # fix(#1000 review): the NEGATIVE form specifically. A substring test for
+    # "merge_group" would keep passing if the condition were inverted to
+    # `== 'merge_group'`, i.e. if the step ran on exactly the event this test
+    # exists to exclude.
+    assert condition == "github.event_name != 'merge_group'", (
         "the paths-filter step must be skipped on merge_group; with no base to "
-        "diff against its outputs cannot be trusted, and a failure there fails "
-        "a required check"
+        f"diff against its outputs cannot be trusted. Found: {condition!r}"
     )
