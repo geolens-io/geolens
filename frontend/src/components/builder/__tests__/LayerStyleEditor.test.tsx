@@ -1577,6 +1577,47 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(opts?.replace).toBe(true);
   });
 
+  // fix(#910, codex P1): Reset destroys the classification and the render mode. An
+  // earlier attempt at the stash clear rebuilt the config from the WHOLE style_config,
+  // which `replace` then persisted verbatim — mode, column and render_mode survived a
+  // Reset. The reset config is builder-only for exactly that reason.
+  it('drops mode, column and render_mode on Reset', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': ['match', ['get', 'era'], 'a', '#f00', '#0f0'] },
+          style_config: {
+            mode: 'categorical',
+            column: 'era',
+            ramp: 'Set2',
+            categories: [{ value: 'a', color: '#f00' }],
+            builder: { outlineWidth: 3, fillColorSaved: '#ff0000' },
+          },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Reset style' }));
+
+    const { config, opts } = lastStyleConfigCall(onStyleConfigChange);
+    expect(opts?.replace).toBe(true);
+    expect(config?.mode).toBeUndefined();
+    expect(config?.column).toBeUndefined();
+    expect(config?.categories).toBeUndefined();
+    expect((config as { render_mode?: string } | null)?.render_mode).toBeUndefined();
+    // The builder block survives, minus the pattern colour stash.
+    expect(config?.builder?.outlineWidth).toBe(3);
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+  });
+
   it('keeps the stash when switching from one pattern straight to another', () => {
     const onStyleConfigChange = vi.fn();
     render(

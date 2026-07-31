@@ -10,7 +10,7 @@ import type { EditorDispatchKey } from './LayerStyleEditor/RenderModeSwitch';
 import { buildBuilderControlPaint, routeBuilderPaintProp } from './LayerStyleEditor/builder-paint-map';
 import {
   FILL_DEFAULTS, LINE_DEFAULTS, CIRCLE_DEFAULTS, getPaintValue,
-  withBuilderConfig, stylePreviewStyle, hasUnsupportedBuilderState,
+  withBuilderConfig, compactBuilder, stylePreviewStyle, hasUnsupportedBuilderState,
   hasUnsavedStyleChanges as hasUnsavedStyleChangesImpl,
 } from './LayerStyleEditor/utils';
 import { LazyLoadErrorBoundary } from '@/components/error';
@@ -399,9 +399,15 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // fix(#910, codex P2): a plain null config makes the funnel preserve the builder
     // block wholesale, stash included, so Reset used to leave a fillColorSaved from
     // before it — and a pattern applied later (Advanced JSON) then cleared with None
-    // restored that pre-reset colour. Drop the stash explicitly and replace, which
-    // otherwise keeps exactly what the null branch preserved.
-    const resetConfig = withBuilderConfig(layer.style_config, { fillColorSaved: undefined });
+    // restored that pre-reset colour.
+    //
+    // Builder-only, deliberately NOT withBuilderConfig(layer.style_config, …): that
+    // copies the whole config, and `replace` would then persist mode / column /
+    // render_mode verbatim — Reset has to destroy the classification and the render
+    // mode. This reproduces exactly what the funnel's null branch preserved (the
+    // builder block, nothing else), minus the stash.
+    const resetBuilder = compactBuilder({ ...builderConfig, fillColorSaved: undefined });
+    const resetConfig = resetBuilder ? ({ builder: resetBuilder } as StyleConfig) : null;
     if (geomType === 'fill') {
       onStyleConfigChange(layer.id, resetConfig, FILL_DEFAULTS, { replace: true });
     } else if (geomType === 'line') {
@@ -412,7 +418,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     }
     onLayoutChange(layer.id, nextLayout);
     onOpacityChange?.(layer.id, 1);
-  }, [geomType, layer.id, layer.style_config, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
+  }, [builderConfig, geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
 
   // Reset destroys render mode + classification — gate it behind the builder's
   // shared inline confirm (same pattern as the DEM editor's delete footer).
