@@ -185,7 +185,10 @@ describe('AnalysisJobWatcher', () => {
 
     await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
     expect(toast.success).not.toHaveBeenCalled();
-    expect(invalidate).not.toHaveBeenCalled();
+    // fix(#1008 codex P2): the claim dedups REPORTING, not refreshing. This
+    // tab has its own QueryClient and focus-refetch is off, so skipping the
+    // invalidation would leave it showing a catalog without the new dataset.
+    expect(invalidate).toHaveBeenCalledTimes(2);
     // The local cleanup still runs: this tab's Create button has to re-enable,
     // and the finished run's name must not come back with it.
     expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
@@ -212,7 +215,7 @@ describe('AnalysisJobWatcher', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('reports and invalidates exactly once when it wins the claim', async () => {
+  it('reports exactly once and invalidates its own caches when it wins', async () => {
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
     mockJob({ status: 'complete', dataset_id: 'ds9' });

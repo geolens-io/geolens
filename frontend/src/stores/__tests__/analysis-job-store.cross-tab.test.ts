@@ -105,29 +105,39 @@ describe('analysis-job-store completion claim', () => {
     localStorage.clear();
   });
 
-  it('is granted to the first caller and recorded in storage', () => {
-    expect(useAnalysisJobStore.getState().claimCompletion('job-1')).toBe(true);
+  it('is granted to the first caller and recorded in storage', async () => {
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
     expect(storedState().completedAt).toMatchObject({ jobId: 'job-1' });
   });
 
-  it('stays granted to the tab that won it', () => {
-    useAnalysisJobStore.getState().claimCompletion('job-1');
+  it('stays granted to the tab that won it', async () => {
+    await useAnalysisJobStore.getState().claimCompletion('job-1');
 
     // StrictMode invokes the watcher effect twice; the tab that already
     // reported must not silence itself on the second pass.
-    expect(useAnalysisJobStore.getState().claimCompletion('job-1')).toBe(true);
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
   });
 
-  it('grants each job its own claim', () => {
-    expect(useAnalysisJobStore.getState().claimCompletion('job-1')).toBe(true);
-    expect(useAnalysisJobStore.getState().claimCompletion('job-2')).toBe(true);
+  it('grants each job its own claim', async () => {
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-2'),
+    ).resolves.toBe(true);
   });
 
   it('grants exactly one of two tabs the same completion', async () => {
     const tabB = await openSecondTab();
 
-    const wonInA = useAnalysisJobStore.getState().claimCompletion('job-1');
-    const wonInB = tabB.useAnalysisJobStore.getState().claimCompletion('job-1');
+    const wonInA = await useAnalysisJobStore.getState().claimCompletion('job-1');
+    const wonInB = await tabB.useAnalysisJobStore
+      .getState()
+      .claimCompletion('job-1');
 
     expect(wonInA).toBe(true);
     expect(wonInB).toBe(false);
@@ -136,22 +146,118 @@ describe('analysis-job-store completion claim', () => {
   });
 
   it('holds across a reload, so a returning tab does not report again', async () => {
-    useAnalysisJobStore.getState().claimCompletion('job-1');
+    await useAnalysisJobStore.getState().claimCompletion('job-1');
 
     // A reload is a new module instance reading the same storage — which is
     // exactly what the second tab above is, so it doubles as the durability
     // case the timing-based alternative could not give.
     const reloaded = await openSecondTab();
 
-    expect(reloaded.useAnalysisJobStore.getState().claimCompletion('job-1')).toBe(
-      false,
-    );
+    await expect(
+      reloaded.useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(false);
   });
 
-  it('reports no claim rather than throwing when storage is unreadable', () => {
+  it('reports no claim rather than throwing when storage is unreadable', async () => {
     localStorage.setItem(ANALYSIS_JOB_STORAGE_KEY, 'not json');
 
     // A duplicate toast is a far better failure than a broken watcher effect.
-    expect(() => useAnalysisJobStore.getState().claimCompletion('job-1')).not.toThrow();
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
+  });
+});
+
+describe('analysis-job-store claim atomicity', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    localStorage.clear();
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'locks');
+    vi.restoreAllMocks();
+  });
+
+  // fix(#1008 codex P2): the read/write/read sequence is not atomic by itself.
+  // `A reads empty, B reads empty, A writes, A reads back A, B writes, B reads
+  // back B` leaves both tabs holding a winning claim, and localStorage
+  // serializing individual operations does not prevent it. Web Locks is what
+  // makes the sequence mutually exclusive across documents.
+  //
+  // The race itself cannot be staged here — two tabs are two processes, and a
+  // single JS realm runs `attempt()` to completion before the other caller
+  // starts. So pin the mechanism: the claim must go through the lock.
+  it('runs the claim inside a Web Lock', async () => {
+    const request = vi.fn(
+      <T,>(_name: string, callback: () => T | Promise<T>) =>
+        Promise.resolve(callback()),
+    );
+    Object.defineProperty(navigator, 'locks', {
+      value: { request },
+      configurable: true,
+    });
+
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
+
+    expect(request).toHaveBeenCalledWith(
+      'geolens-analysis-completion',
+      expect.any(Function),
+    );
+  });
+
+  it('still claims when Web Locks is unavailable', async () => {
+    expect('locks' in navigator).toBe(false);
+
+    // Older browsers and non-DOM environments lose the tie-breaking guarantee,
+    // not the feature — a duplicate toast on a genuine tie is the behaviour
+    // that shipped before any of this.
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
+  });
+});
+
+describe('analysis-job-store guarded clear', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    localStorage.clear();
+  });
+
+  it('clears the job it was asked about', () => {
+    useAnalysisJobStore.setState({ job });
+
+    useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
+
+    expect(useAnalysisJobStore.getState().job).toBeNull();
+  });
+
+  // fix(#1008 codex P1): the clear propagates now, so an unconditional one is
+  // no longer this tab's own business. A backgrounded tab whose timers were
+  // throttled can process a terminal response long after another tab started
+  // the NEXT run.
+  it('leaves a newer run alone', () => {
+    const newer = { jobId: 'job-2', title: 'Next run', mapId: 'map-1' };
+    useAnalysisJobStore.setState({ job: newer });
+
+    useAnalysisJobStore.getState().clearJobIfCurrent('job-1');
+
+    expect(useAnalysisJobStore.getState().job).toEqual(newer);
+    expect(storedState().job).toEqual(newer);
+  });
+
+  it('clears this tab even when storage tracks nothing', () => {
+    // The mirror already carried another tab's clear through storage; this
+    // tab's in-memory copy still has to go.
+    useAnalysisJobStore.setState({ job });
+    localStorage.setItem(
+      ANALYSIS_JOB_STORAGE_KEY,
+      JSON.stringify({ state: { job: null, completedAt: null }, version: 1 }),
+    );
+
+    useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
+
+    expect(useAnalysisJobStore.getState().job).toBeNull();
   });
 });

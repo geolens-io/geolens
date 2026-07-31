@@ -31,12 +31,22 @@ interface AnalysisJobState {
   /**
    * Try to become the one tab that reports this job's completion.
    *
-   * Returns true exactly once across every open tab, and keeps returning true
+   * Resolves true exactly once across every open tab, and keeps resolving true
    * for the tab that won (so a StrictMode double-invoke does not lose its own
    * claim). See the storage listener below for why a mirror alone is not
    * enough.
    */
-  claimCompletion: (jobId: string) => boolean;
+  claimCompletion: (jobId: string) => Promise<boolean>;
+  /**
+   * Stop tracking ``jobId``, unless a newer run already owns the slot.
+   *
+   * fix(#1008 codex P1): the clear propagates now, so an unconditional one is
+   * no longer this tab's business alone. A backgrounded tab whose timers were
+   * throttled can process a terminal response long after another tab started
+   * the NEXT analysis; clearing then erases the newer job everywhere and
+   * re-enables Create while the server job is still running.
+   */
+  clearJobIfCurrent: (jobId: string) => void;
 }
 
 export const ANALYSIS_JOB_STORAGE_KEY = 'geolens-analysis-job';
@@ -45,27 +55,32 @@ export const ANALYSIS_JOB_STORAGE_KEY = 'geolens-analysis-job';
 const TAB_ID =
   globalThis.crypto?.randomUUID?.() ?? `tab-${Math.random().toString(36).slice(2)}`;
 
+/** Web Locks name guarding the claim's read/write/read sequence. */
+const COMPLETION_LOCK = 'geolens-analysis-completion';
+
 /**
- * Read the claim straight out of storage rather than off in-memory state.
+ * Read persisted state straight out of storage rather than off in-memory state.
  *
  * The mirror below is event-driven and therefore always a beat behind; the
- * stored value is the only view that is current at the instant of the claim.
- * Reaching for `localStorage` directly matches what the persist middleware
- * uses by default — if this store ever names a different storage, this has to
- * follow it.
+ * stored value is the only view that is current at the instant of a claim or a
+ * clear. Reaching for `localStorage` directly matches what the persist
+ * middleware uses by default — if this store ever names a different storage,
+ * this has to follow it.
  */
-function readPersistedClaim(): AnalysisCompletionClaim | null {
+function readPersisted(): {
+  job?: TrackedAnalysisJob | null;
+  completedAt?: AnalysisCompletionClaim | null;
+} {
   try {
     const raw = localStorage.getItem(ANALYSIS_JOB_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as {
-      state?: { completedAt?: AnalysisCompletionClaim | null };
-    };
-    return parsed.state?.completedAt ?? null;
+    if (!raw) return {};
+    return (
+      (JSON.parse(raw) as { state?: ReturnType<typeof readPersisted> }).state ?? {}
+    );
   } catch {
     // Storage disabled, quota-exceeded, or a payload from a future version.
-    // Losing the arbiter means duplicate toasts, not a broken app.
-    return null;
+    // Losing this view means a duplicate toast, not a broken app.
+    return {};
   }
 }
 
@@ -86,21 +101,42 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
       job: null,
       completedAt: null,
       setJob: (job) => set({ job }),
-      claimCompletion: (jobId) => {
-        const existing = readPersistedClaim();
-        if (existing?.jobId === jobId) {
-          // Someone already reported this one. Ours only if we were the one.
-          return existing.tabId === TAB_ID;
+      claimCompletion: async (jobId) => {
+        const attempt = () => {
+          const existing = readPersisted().completedAt;
+          if (existing?.jobId === jobId) {
+            // Already reported. Ours only if we were the one who did it.
+            return existing.tabId === TAB_ID;
+          }
+          set({ completedAt: { jobId, tabId: TAB_ID, at: Date.now() } });
+          const settled = readPersisted().completedAt;
+          return settled?.jobId === jobId && settled.tabId === TAB_ID;
+        };
+        // fix(#1008 codex P2): the read/write/read above is NOT atomic on its
+        // own, and the tempting argument that it is does not survive contact
+        // with an interleaving. localStorage serializes individual operations,
+        // not a sequence of them, so `A reads empty, B reads empty, A writes,
+        // A reads back A, B writes, B reads back B` leaves both tabs holding
+        // what looks like a winning claim — which is exactly the simultaneous
+        // completion this exists to dedup. Web Locks is the primitive that
+        // actually makes the sequence mutually exclusive across same-origin
+        // documents, so run it under one.
+        const locks = globalThis.navigator?.locks;
+        if (!locks) {
+          // No Web Locks (older browser, or a non-DOM environment). The
+          // sequence is still right in every staggered case, which is the
+          // common one; the residual loss is a duplicate toast on a genuine
+          // tie, i.e. the behaviour before any of this existed.
+          return attempt();
         }
-        set({ completedAt: { jobId, tabId: TAB_ID, at: Date.now() } });
-        // Last writer wins, and the read-back is the arbiter: if two tabs got
-        // past the check above simultaneously, only one of them reads its own
-        // id back. Checking first AND re-reading is what makes it exactly one
-        // — the check alone loses to a genuine race, and the read-back alone
-        // lets a tab that writes and reads before the other tab writes come
-        // out true as well.
-        const settled = readPersistedClaim();
-        return settled?.jobId === jobId && settled.tabId === TAB_ID;
+        return await locks.request(COMPLETION_LOCK, attempt);
+      },
+      clearJobIfCurrent: (jobId) => {
+        const persistedJob = readPersisted().job;
+        // Only bail when storage names a DIFFERENT run: a null there means
+        // nothing is tracked, and this tab's in-memory copy still has to go.
+        if (persistedJob && persistedJob.jobId !== jobId) return;
+        set({ job: null });
       },
     }),
     {
