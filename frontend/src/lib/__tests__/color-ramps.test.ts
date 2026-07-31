@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import type { StyleConfig } from '@/types/api';
 import {
+  colorClassificationIsOrphaned,
+  reconcileColorClassification,
   buildCategoricalExpression,
   buildGraduatedSizeExpression,
   getSizeProperty,
@@ -304,5 +307,120 @@ describe('buildCategoricalExpression empty-map guard (B-054/S-03)', () => {
       '#aabbcc',
       ['match', ['get', 'kind'], 'a', '#111111', '#aabbcc'],
     ]);
+  });
+});
+
+// fix(#910, codex P2): the one predicate both halves of the reconciliation read — the
+// commit boundary in use-layer-map-sync.ts, and DataDrivenStyleEditor's skip guard.
+describe('colorClassificationIsOrphaned', () => {
+  const RAMP = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+  const categorical = (extra: Record<string, unknown> = {}) =>
+    ({
+      mode: 'categorical',
+      column: 'era',
+      categories: [{ value: 'pre-war', color: '#ff0000' }],
+      ...extra,
+    }) as StyleConfig;
+
+  it('is orphaned when the config claims classes the paint does not express', () => {
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': '#3b82f6' }, 'Polygon')).toBe(true);
+    expect(colorClassificationIsOrphaned(categorical(), {}, 'Polygon')).toBe(true);
+  });
+
+  it('is not orphaned while the expression is there', () => {
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': RAMP }, 'Polygon')).toBe(false);
+  });
+
+  // fix(#461): an all-null column legitimately yields `categories: []`, and
+  // buildCategoricalExpression emits a BARE colour for it rather than a below-arity
+  // `match`. Calling that orphaned makes the editor regenerate on every render.
+  it('is not orphaned by a config that claims no classes', () => {
+    expect(colorClassificationIsOrphaned(categorical({ categories: [] }), { 'fill-color': '#3b82f6' }, 'Polygon')).toBe(false);
+    expect(colorClassificationIsOrphaned({ mode: 'graduated', column: 'h' } as StyleConfig, {}, 'Polygon')).toBe(false);
+  });
+
+  // heatmap and symbol park a classification while the renderer paints something else
+  // entirely — the same exemption hasUnsupportedBuilderState makes.
+  it.each(['heatmap', 'symbol'])('is not orphaned under render_mode %s', (render_mode) => {
+    expect(colorClassificationIsOrphaned(categorical({ render_mode }), {}, 'MultiPoint')).toBe(false);
+  });
+
+  // fix(#910, codex P2): an array alone is not proof. Advanced JSON or the AI can swap a
+  // categorical `era` expression for one reading `status`, and the legend then reports
+  // `era` over a map drawn by `status`.
+  it('is orphaned when the expression classifies a different column', () => {
+    const byStatus = ['match', ['get', 'status'], 'open', '#ff0000', '#00ff00'];
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': byStatus }, 'Polygon')).toBe(true);
+  });
+
+  // The column can sit anywhere inside the expression — a builder classification is
+  // wrapped in a `case` null-guard, and a hand-authored one can nest arbitrarily.
+  it('finds the column at any depth, and accepts a multi-column expression that reads it', () => {
+    const nested = ['case', ['==', ['get', 'era'], null], '#ccc', RAMP];
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': nested }, 'Polygon')).toBe(false);
+    // Reads `zone` as well as `era`. Guessing which `get` is "the" classification is
+    // exactly what this must not do — a wrong guess deletes hand-authored categories.
+    const multi = ['case', ['has', 'zone'], RAMP, '#ccc'];
+    expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': multi }, 'Polygon')).toBe(false);
+  });
+
+  // Without a column there is nothing to compare against, so the array is all we have.
+  it('accepts any expression when the config names no column', () => {
+    const byStatus = ['match', ['get', 'status'], 'open', '#ff0000', '#00ff00'];
+    const noColumn = categorical({ column: undefined });
+    expect(colorClassificationIsOrphaned(noColumn, { 'fill-color': byStatus }, 'Polygon')).toBe(false);
+  });
+
+  it('reads the colour key the geometry uses, not fill-color everywhere', () => {
+    expect(colorClassificationIsOrphaned(categorical(), { 'circle-color': RAMP }, 'MultiPoint')).toBe(false);
+    expect(colorClassificationIsOrphaned(categorical(), { 'line-color': RAMP }, 'MultiLineString')).toBe(false);
+    // The same paint under a polygon geometry claims nothing about fill-color.
+    expect(colorClassificationIsOrphaned(categorical(), { 'circle-color': RAMP }, 'Polygon')).toBe(true);
+  });
+
+  it('ignores a size target and a config that is not data-driven at all', () => {
+    const sizeTarget = categorical({ mode: 'graduated', target: 'radius', colors: ['#111', '#222'] });
+    expect(colorClassificationIsOrphaned(sizeTarget, {}, 'MultiPoint')).toBe(false);
+    expect(colorClassificationIsOrphaned({ builder: { outlineWidth: 2 } } as StyleConfig, {}, 'Polygon')).toBe(false);
+    expect(colorClassificationIsOrphaned(null, {}, 'Polygon')).toBe(false);
+  });
+});
+
+describe('reconcileColorClassification', () => {
+  const orphaned = {
+    mode: 'categorical',
+    column: 'era',
+    ramp: 'Set2',
+    categories: [{ value: 'pre-war', color: '#ff0000' }],
+    colors: ['#ff0000'],
+    breaks: [10],
+    render_mode: 'cluster',
+    builder: { outlineWidth: 3 },
+  } as StyleConfig;
+
+  it('drops the claim and keeps everything that is not the claim', () => {
+    const next = reconcileColorClassification(orphaned, { 'fill-color': '#3b82f6' }, 'Polygon');
+    expect(next?.mode).toBeUndefined();
+    expect(next?.categories).toBeUndefined();
+    expect(next?.colors).toBeUndefined();
+    expect(next?.breaks).toBeUndefined();
+    // fix(#910, codex P2): column and ramp too — a config carrying a column and no mode
+    // reads to a freshly mounted DataDrivenStyleEditor as a live categorical
+    // classification, which re-applied it over the paint that retired it.
+    expect(next?.column).toBeUndefined();
+    expect(next?.ramp).toBeUndefined();
+    // Not the claim: the renderer and the builder block are untouched.
+    expect(next?.render_mode).toBe('cluster');
+    expect(next?.builder?.outlineWidth).toBe(3);
+  });
+
+  it('returns the config untouched (same reference) when nothing is orphaned', () => {
+    const paint = { 'fill-color': ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'] };
+    expect(reconcileColorClassification(orphaned, paint, 'Polygon')).toBe(orphaned);
+  });
+
+  it('collapses to null when the claim was all the config had', () => {
+    const claimOnly = { mode: 'categorical', categories: [{ value: 'a', color: '#111' }] } as StyleConfig;
+    expect(reconcileColorClassification(claimOnly, {}, 'Polygon')).toBeNull();
   });
 });

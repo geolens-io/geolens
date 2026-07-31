@@ -14,6 +14,7 @@ import darkThumb from '@/assets/basemaps/dark.png';
 import osmThumb from '@/assets/basemaps/osm.png';
 import brightThumb from '@/assets/basemaps/bright.png';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { expressionReadsColumn } from '@/lib/maplibre-expressions';
 
 export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
@@ -555,12 +556,6 @@ export function applyBasemapConfigToStyle(
       applyBasemapLayerConfig(layer as StyleLayer, config) as StyleSpecification['layers'][number],
     ) as StyleSpecification['layers'],
   };
-}
-
-function expressionReadsColumn(value: unknown, column: string): boolean {
-  if (!Array.isArray(value)) return false;
-  if (value[0] === 'get' && value[1] === column) return true;
-  return value.some((entry) => expressionReadsColumn(entry, column));
 }
 
 function hasMissingStyleImageReference(value: unknown): boolean {

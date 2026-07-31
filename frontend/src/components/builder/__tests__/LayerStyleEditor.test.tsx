@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { LayerStyleEditor, hasUnsavedStyleChanges } from '../LayerStyleEditor';
 import { LayerEditorPanel } from '../LayerEditorPanel';
 import { stopsToLineGradientExpression } from '../LineGradientControls';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 // Radix Select uses ResizeObserver internally
 (globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
@@ -134,8 +134,12 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     // Restores the exact saved paint (not FILL_DEFAULTS), saved layout, saved opacity.
     // fix(#461, codex P2): passes { replace: true } so the saved config is restored
     // verbatim — the builder-merge must not strand a discarded builder-only edit.
+    // fix(#910, codex P2): and `restore: true`, which opts the commit boundary out of
+    // the EDIT-05 normalization. A baseline that holds both fill keys (reachable via
+    // Advanced JSON) would otherwise come back normalized, and since the dirty check
+    // diffs against that same baseline the layer could never return to clean.
     await user.click(screen.getByRole('button', { name: 'Revert' }));
-    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint, { replace: true });
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint, { replace: true, restore: true });
     expect(onLayoutChange).toHaveBeenCalledWith('layer-1', saved.layout);
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
@@ -167,10 +171,13 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     expect(onStyleConfigChange).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Reset style' }));
+    // fix(#910, codex P2): `replace` so Reset cannot leave the pattern colour stash
+    // behind — the funnel's null-config branch would otherwise preserve the builder
+    // block wholesale. With no other builder fields the config is still null.
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),
-    }));
+    }), { replace: true });
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
 
@@ -1429,10 +1436,13 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
     // Reset now confirms first — apply via the inline confirm's "Reset style".
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     await user.click(screen.getByRole('button', { name: 'Reset style' }));
+    // fix(#910, codex P2): `replace` so Reset cannot leave the pattern colour stash
+    // behind — the funnel's null-config branch would otherwise preserve the builder
+    // block wholesale. With no other builder fields the config is still null.
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),
-    }));
+    }), { replace: true });
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
 });
@@ -1441,17 +1451,30 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
 // EDIT-05: fill-color / fill-pattern mutual exclusion via handleFillPatternChange
 // ---------------------------------------------------------------------------
 describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusion', () => {
-  it('switching to a pattern emits onPaintChange paint that has fill-pattern but NOT fill-color', () => {
-    const onPaintChange = vi.fn();
+  // fix(#910): the handler now stashes the solid color in style_config.builder,
+  // so it emits through onStyleConfigChange (config, paint) rather than
+  // onPaintChange. The both-keys-never invariant is asserted on that paint.
+  function lastStyleConfigCall(fn: ReturnType<typeof vi.fn>) {
+    const calls = fn.mock.calls as Array<
+      [string, StyleConfig | null, Record<string, unknown>, { replace?: boolean } | undefined]
+    >;
+    expect(calls.length).toBeGreaterThan(0);
+    const [, config, paint, opts] = calls[calls.length - 1];
+    expect(Object.values(paint).filter((v) => v === undefined)).toHaveLength(0);
+    return { config, paint, opts };
+  }
+
+  it('switching to a pattern emits paint that has fill-pattern but NOT fill-color, and stashes the color', () => {
+    const onStyleConfigChange = vi.fn();
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.8 },
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
@@ -1459,29 +1482,26 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     // Click the Hatch pattern swatch (rendered by FillPatternPicker inside FillEditor)
     fireEvent.click(screen.getByRole('button', { name: 'Hatch' }));
 
-    const calls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
-    expect(calls.length).toBeGreaterThan(0);
-    const emittedPaint = calls[calls.length - 1][1];
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
     // Pattern key is set
-    expect(emittedPaint['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(paint['fill-pattern']).toBe('geolens-fill-hatch');
     // Color key is DELETED — not undefined, completely absent
-    expect('fill-color' in emittedPaint).toBe(false);
-    // No undefined values in the emitted paint object
-    const undefinedValues = Object.values(emittedPaint).filter((v) => v === undefined);
-    expect(undefinedValues).toHaveLength(0);
+    expect('fill-color' in paint).toBe(false);
+    // ...but stashed so the round-trip can restore it
+    expect(config?.builder?.fillColorSaved).toBe('#ff0000');
   });
 
-  it('clearing a pattern (None) emits onPaintChange paint that has fill-color but NOT fill-pattern', () => {
-    const onPaintChange = vi.fn();
+  it('clearing a pattern (None) emits paint that has fill-color but NOT fill-pattern', () => {
+    const onStyleConfigChange = vi.fn();
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
           paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
@@ -1490,16 +1510,228 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     const noneButtons = screen.getAllByRole('button', { name: 'None' });
     fireEvent.click(noneButtons[0]);
 
-    const calls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
-    expect(calls.length).toBeGreaterThan(0);
-    const emittedPaint = calls[calls.length - 1][1];
+    const { paint } = lastStyleConfigCall(onStyleConfigChange);
     // fill-pattern key is DELETED — completely absent, not set to undefined
-    expect('fill-pattern' in emittedPaint).toBe(false);
+    expect('fill-pattern' in paint).toBe(false);
     // fill-color is restored
-    expect(typeof emittedPaint['fill-color']).toBe('string');
-    // No undefined values
-    const undefinedValues = Object.values(emittedPaint).filter((v) => v === undefined);
-    expect(undefinedValues).toHaveLength(0);
+    expect(typeof paint['fill-color']).toBe('string');
+  });
+
+  // fix(#910): the acceptance case that fails if either alias table is missed —
+  // the stash arrives from style_config (i.e. the save-and-reload path), not
+  // from this session's paint.
+  it('restores a stashed fillColorSaved on None and clears the stash', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
+          style_config: { builder: { fillColorSaved: '#ff0000' } },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { config, paint, opts } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-color']).toBe('#ff0000');
+    expect('fill-pattern' in paint).toBe(false);
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+    // fix(#910, codex P2): with fillColorSaved the only builder field, the emitted
+    // config collapses to null — and a null config means "keep the existing builder"
+    // in handleStyleConfigChange, which would resurrect the stash. `replace` is what
+    // makes the clear stick; the funnel side is pinned in use-layer-map-sync.test.ts.
+    expect(config).toBeNull();
+    expect(opts?.replace).toBe(true);
+  });
+
+  // fix(#910, codex P2): pattern-to-pattern finds no fill-color to stash, so the
+  // handler must carry the existing stash forward instead of dropping it.
+  // fix(#910, codex P2): Reset must drop the stash. A layer with other builder
+  // fields keeps them, so the config is not null and `replace` is what makes the
+  // removal stick through the funnel.
+  it('drops the stash on Reset while keeping the rest of the builder', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: { builder: { fillColorSaved: '#ff0000', outlineWidth: 3 } },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Reset style' }));
+
+    const { config, opts } = lastStyleConfigCall(onStyleConfigChange);
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+    expect(config?.builder?.outlineWidth).toBe(3);
+    expect(opts?.replace).toBe(true);
+  });
+
+  // fix(#910, codex P1): Reset destroys the classification and the render mode. An
+  // earlier attempt at the stash clear rebuilt the config from the WHOLE style_config,
+  // which `replace` then persisted verbatim — mode, column and render_mode survived a
+  // Reset. The reset config is builder-only for exactly that reason.
+  it('drops mode, column and render_mode on Reset', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': ['match', ['get', 'era'], 'a', '#f00', '#0f0'] },
+          style_config: {
+            mode: 'categorical',
+            column: 'era',
+            ramp: 'Set2',
+            categories: [{ value: 'a', color: '#f00' }],
+            builder: { outlineWidth: 3, fillColorSaved: '#ff0000' },
+          },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Reset style' }));
+
+    const { config, opts } = lastStyleConfigCall(onStyleConfigChange);
+    expect(opts?.replace).toBe(true);
+    expect(config?.mode).toBeUndefined();
+    expect(config?.column).toBeUndefined();
+    expect(config?.categories).toBeUndefined();
+    expect((config as { render_mode?: string } | null)?.render_mode).toBeUndefined();
+    // The builder block survives, minus the pattern colour stash.
+    expect(config?.builder?.outlineWidth).toBe(3);
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+  });
+
+  // fix(#910, codex P2): the delete is what destroyed classifications. It must never
+  // touch an expression — only a solid colour is stashable, and only a solid colour
+  // is safe to remove. Reachable without a classification: Advanced JSON can write an
+  // expression into fill-color with no style_config mode, and the picker is live there.
+  it('never deletes an expression-valued fill-color when a pattern is applied', () => {
+    const ramp = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': ramp, 'fill-opacity': 0.3 },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dots' }));
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-color']).toEqual(ramp);
+    expect(paint['fill-pattern']).toBe('geolens-fill-dots');
+    // Nothing stashable, so nothing stashed.
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+  });
+
+  // fix(#910, codex P2): the stash is declared `string` but arrives from an open
+  // `style_config`, so an API-authored layer can hold junk. Restoring that on None
+  // would paint a colour MapLibre rejects.
+  it('falls back to the default colour when the stash is not a usable colour', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: { builder: { fillColorSaved: 42 } } as unknown as StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect('fill-pattern' in paint).toBe(false);
+    expect(typeof paint['fill-color']).toBe('string');
+  });
+
+  // fix(#910, codex P2): None only removes the pattern when an expression is already
+  // painting the fill — no solid colour is installed over it, because deleting an
+  // expression is unrecoverable. Whether the CLASSIFICATION survives is decided at the
+  // commit boundary off the resolved paint, not here: see the reconciliation tests in
+  // hooks/__tests__/use-layer-map-sync.test.ts. This editor passes style_config through.
+  it('leaves an expression-valued fill-color in place when None removes the pattern', () => {
+    const ramp = ['match', ['get', 'zone'], 'a', '#e41a1c', '#377eb8'];
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': ramp, 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: {
+            mode: 'categorical',
+            column: 'zone',
+            ramp: 'Set2',
+            categories: [{ value: 'a', color: '#e41a1c' }],
+          } as StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-color']).toEqual(ramp);
+    expect('fill-pattern' in paint).toBe(false);
+  });
+
+  it('keeps the stash when switching from one pattern straight to another', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
+          style_config: { builder: { fillColorSaved: '#ff0000' } },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dots' }));
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-pattern']).toBe('geolens-fill-dots');
+    expect(config?.builder?.fillColorSaved).toBe('#ff0000');
   });
 });
 

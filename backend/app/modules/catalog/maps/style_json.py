@@ -619,7 +619,26 @@ def _fill_companion_layers(
 
     height_column = builder.get("heightColumn") or paint.get("_height_column")
     if isinstance(height_column, str) and height_column:
-        fill_color = paint.get("fill-color", DEFAULT_FILL_COLOR)
+        # fix(#910, codex P2): a patterned layer keeps no `fill-color` — EDIT-05 makes
+        # the two mutually exclusive and the colour moves to the builder stash. The
+        # extrusion companion is the one place that still needs a solid colour, so it
+        # reads the stash rather than falling to default blue, matching
+        # `fill-adapter.ts`. A `None` check, not `or`: an expression must pass through.
+        fill_color = paint.get("fill-color")
+        if fill_color is None:
+            # `style_config` is an open dict that gets size validation only, so an
+            # API-authored layer can put a number or object in the stash. That never
+            # reaches consumers — `_strip_wrong_typed_values` pops any non-string
+            # `*-color` before the style ships — but being stripped is worse than
+            # being resolved: the companion loses the key entirely and MapLibre draws
+            # the spec default (black) instead of falling back to brand blue, and
+            # every export logs a wrong-typed-value warning for a layer nobody
+            # mistyped by hand. Resolve it here so only a real colour is offered,
+            # matching the frontend rule for what may be stashed at all.
+            stashed = builder.get("fillColorSaved")
+            fill_color = stashed if isinstance(stashed, str) else None
+        if fill_color is None:
+            fill_color = DEFAULT_FILL_COLOR
         height_scale = _finite_number(builder.get("heightScale")) or 1
         extrusion_min_zoom = (
             _finite_number(builder.get("extrusionMinZoom"))
@@ -958,6 +977,29 @@ def _style_layer_for_map_layer(
         builder = _builder_style_config(style_config)
         if builder.get("strokeDisabled") or (layer.paint or {}).get("_stroke-disabled"):
             base["paint"] = {**base["paint"], "fill-outline-color": "rgba(0,0,0,0)"}
+        # fix(#910): seed the export colour from the stash BEFORE
+        # `_strip_builtin_fill_pattern` (#917) runs at validate time. EDIT-05 makes
+        # `fill-color` and `fill-pattern` mutually exclusive, so a patterned layer keeps
+        # no colour in paint at all — the user's choice lives in `builder.fillColorSaved`.
+        # The stripper falls back to DEFAULT_FILL_COLOR when paint has no colour, which
+        # for every builder-patterned polygon is always, so the export repainted them
+        # brand blue and discarded the chosen colour. It cannot read the stash itself:
+        # it runs from `_validate_emitted_style`, which walks emitted layers with no
+        # access to the source layer. Seeding here — where the builder is already in
+        # scope — keeps that function untouched. A string only, matching every other
+        # reader of this stash; an expression in paint already wins on its own.
+        stashed_fill = builder.get("fillColorSaved")
+        if (
+            isinstance(stashed_fill, str)
+            # fix(#910, codex P2): absent OR explicitly null. An API-authored or imported
+            # layer can carry `fill-color: null`, which a presence test read as "a colour
+            # is already set" — #917 then stripped the pattern, left the null in place
+            # (`_strip_wrong_typed_values` does not pop it), and MapLibre resolved the
+            # null to its own default instead of the colour in the stash.
+            and base["paint"].get("fill-color") is None
+            and _references_builtin_fill_pattern(base["paint"].get("fill-pattern"))
+        ):
+            base["paint"] = {**base["paint"], "fill-color": stashed_fill}
         above_companions.extend(
             _fill_companion_layers(layer, source_id, layer_id, mvt_source_layer_prefix)
         )

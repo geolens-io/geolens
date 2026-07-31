@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from '../StyleColorPicker';
 import { SliderRow } from '../HeatmapStyleControls';
 import { StrokeControls } from './StrokeControls';
-import { FillPatternPicker } from '../FillPatternPicker';
+import { FillPatternPicker, EXPRESSION_PATTERN } from '../FillPatternPicker';
 import { getPaintValue, FILL_DEFAULTS } from './utils';
 import type { BaseStyleEditorProps } from './types';
 import { formatNumber } from '@/lib/format';
@@ -43,6 +43,34 @@ export function FillEditor({
   currentHeightCol,
   t,
 }: BaseStyleEditorProps) {
+  // fix(#910): fill-color and fill-pattern are mutually exclusive (EDIT-05), so
+  // exactly one of the two controls is reachable at a time. The pattern picker
+  // is also out in 3D-extrusion mode, where the extrusion companion reads
+  // fill-color and a pattern click would reset the whole layer to the default.
+  // It stays visible while a pattern IS set, because it is the only way to clear
+  // one — selecting a height column with a pattern already applied would
+  // otherwise strand the layer with a pattern and no control to remove it.
+  // Any present value counts, not just a string: fill-pattern accepts MapLibre
+  // expressions, and AdvancedJsonEditor lets one through. A gate that only saw
+  // strings would leave the colour picker live on an expression-patterned layer,
+  // where editing it writes both keys back — the EDIT-05 breakage this closes.
+  const hasFillPattern = paint['fill-pattern'] != null;
+  // An ACTIVE pattern always keeps its clearing control, whatever else is true of
+  // the layer. Advanced JSON and the AI set_style action write paint through
+  // onPaintChange, which bypasses the exclusion in handleStyleConfigChange, so a
+  // data-driven or extruded layer can arrive here already carrying a pattern — and
+  // hiding the picker then strands it with the pattern winning on the map. Applying
+  // a NEW pattern stays gated to plain solid polygons.
+  const showPatternPicker = isPolygon && (hasFillPattern || (!isDataDriven && !currentHeightCol));
+  // fix(#910, codex P2): an expression-valued pattern is active but unrepresentable
+  // as a swatch. Coercing it to undefined made None report aria-pressed while
+  // MapLibre drew the expression, so it gets a sentinel: no swatch matches it, and
+  // None correctly reads unpressed. Display-only — onChange never emits it.
+  const patternValue = !hasFillPattern
+    ? undefined
+    : typeof paint['fill-pattern'] === 'string'
+      ? (paint['fill-pattern'] as string)
+      : EXPRESSION_PATTERN;
   return (
     <>
       <div className="flex items-center justify-between">
@@ -60,6 +88,10 @@ export function FillEditor({
             <div className="text-xs text-muted-foreground italic">
               {t('style.styledBy', { column: layer.style_config?.column })}
             </div>
+          ) : hasFillPattern ? (
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.fillColorUnavailablePattern')}
+            </div>
           ) : (
             <StyleColorPicker
               label={t('style.color')}
@@ -73,13 +105,18 @@ export function FillEditor({
             min={0} max={1} step={0.01} format="percent"
             onChange={(val) => onPaintProp('fill-opacity', val)}
           />
-          {isPolygon && (
+          {showPatternPicker ? (
             <FillPatternPicker
-              value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
+              value={patternValue}
               onChange={onFillPatternChange}
               t={t}
+              clearOnly={isDataDriven || !!currentHeightCol}
             />
-          )}
+          ) : isPolygon && isDataDriven ? (
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.fillPatternUnavailableDataDriven')}
+            </div>
+          ) : null}
         </>
       )}
       <StrokeControls

@@ -70,6 +70,20 @@ vi.mock('../ColorRampPicker', () => ({
 
 // --- Helpers ---
 
+/**
+ * fix(#910, codex P2): a colour expression in paint, which is what a real save writes
+ * alongside a colour classification — the two are written together and persist together.
+ * Fixtures that pair a classification with a flat colour model a layer that cannot come
+ * out of a save, and the editor now REGENERATES for one (that disagreement is the #918
+ * bug), so a guard test needs the paint half to be testing the guard at all.
+ *
+ * Takes the column so every fixture pairs its expression with its OWN config: the
+ * reconciliation also treats an expression reading a DIFFERENT column as orphaned, since
+ * a config claiming `era` cannot describe a map drawn by `status`. Only the shape and the
+ * column matter here, not the stops.
+ */
+const colorExprFor = (column: string) => ['match', ['get', column], 'a', '#e41a1c', '#377eb8'];
+
 function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
   return {
     id: 'layer-1',
@@ -138,7 +152,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -147,6 +161,102 @@ describe('DataDrivenStyleEditor', () => {
       await waitFor(() => {
         expect(onStyleConfigChange).not.toHaveBeenCalled();
       });
+    });
+
+    // fix(#910, codex P2): the guard above compares the saved config against this
+    // component's own state, which assumes paint agrees with config — so it cannot
+    // detect the one case where it doesn't. A layer arrives here orphaned from STORAGE
+    // (written straight through the API/SDK/AI, or saved before the write boundary
+    // enforced the pairing), where no in-session write happened for the boundary to
+    // reconcile. Skipping meant the map drew a flat colour while this editor and the
+    // legend both reported attribute styling. Regenerating is the repair.
+    it('regenerates when the saved config matches but paint carries no expression', async () => {
+      const config = matchingCategoricalConfig();
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': '#3b82f6' } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).toHaveBeenCalledTimes(1);
+      });
+      const [, newConfig, newPaint] = onStyleConfigChange.mock.calls[0];
+      expect((newConfig as StyleConfig).mode).toBe('categorical');
+      // ...and the expression the config always claimed is finally in paint.
+      expect(Array.isArray((newPaint as Record<string, unknown>)['fill-color'])).toBe(true);
+    });
+
+    // fix(#910, codex P2): the mirror of the case above, and the harder one. When the
+    // claim is retired from OUTSIDE this editor — the commit boundary retiring one whose
+    // expression an Advanced JSON paint replacement removed, or Reset destroying one —
+    // regenerating would overwrite the paint the user explicitly asked for. Local
+    // `column`/`mode` are a third copy of the classification and have to follow the
+    // layer, or the editor silently reverts the edit that retired it.
+    it('does not re-assert a classification the layer no longer claims', async () => {
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      const { rerender } = render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: matchingCategoricalConfig(),
+            paint: { 'fill-color': colorExprFor('typeA') },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+      await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
+
+      // Exactly what the boundary commits after a paint replacement: no `mode`, the
+      // user's column/ramp selections kept, and a flat colour in paint.
+      rerender(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { column: 'typeA', ramp: RAMP } as StyleConfig,
+            paint: { 'fill-color': '#3b82f6' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      // Nothing written back — the replaced paint stands.
+      await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
+    });
+
+    // fix(#910, codex P2): the closed-editor half of the same hazard. The transition
+    // guard above only sees a claim being retired while this component is MOUNTED; when
+    // the paint replacement happens with the panel closed, the editor mounts fresh with
+    // no transition to observe. It seeds local `column` from the config and defaults local
+    // `mode` to 'categorical', so a retired config that still carried its column read as a
+    // live categorical classification and the effect re-applied it over the user's paint.
+    // The reconciliation drops `column`/`ramp` for exactly this reason; this pins the
+    // consequence at the component, where the damage would appear.
+    it('does not classify on mount from a column with no mode behind it', async () => {
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { builder: { outlineWidth: 2 } } as StyleConfig,
+            paint: { 'fill-color': '#3b82f6' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
     });
 
     it('regenerates colors when categories do not match hook data', async () => {
@@ -192,7 +302,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -284,6 +394,46 @@ describe('DataDrivenStyleEditor', () => {
   });
 
   describe('useEffect guard — graduated', () => {
+    // fix(#910, codex P2): the graduated-colour effect carries the same orphan check as
+    // the categorical one — a settled config whose expression is missing from paint
+    // regenerates instead of skipping. Wired separately, so pinned separately.
+    it('regenerates a settled graduated config when paint carries no expression', async () => {
+      const breaks = equalIntervalBreaks(0, 100, 5);
+      const settled: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        method: 'equal_interval',
+        classCount: 5,
+        target: 'color',
+        breaks,
+        colors: getRampColors('YlOrRd', 5),
+      };
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 100,
+          count: 100,
+          mean: 50,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: settled, paint: { 'fill-color': '#3b82f6' } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).toHaveBeenCalledTimes(1);
+      });
+      const [, , newPaint] = onStyleConfigChange.mock.calls[0];
+      expect(Array.isArray((newPaint as Record<string, unknown>)['fill-color'])).toBe(true);
+    });
+
     it('resolves custom ramp to YlOrRd when regenerating graduated colors', async () => {
       const customConfig: StyleConfig = {
         mode: 'graduated',
@@ -342,7 +492,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -393,7 +543,7 @@ describe('DataDrivenStyleEditor', () => {
       const onStyleConfigChange = vi.fn();
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: config })}
+          layer={makeLayer({ style_config: config, paint: { 'fill-color': colorExprFor('population') } })}
           onStyleConfigChange={onStyleConfigChange}
         />,
       );
@@ -535,10 +685,12 @@ describe('DataDrivenStyleEditor', () => {
       await user.click(screen.getAllByRole('combobox')[0]);
       await user.click(await screen.findByRole('option', { name: 'Categorical' }));
 
+      // fix(#918, codex P2): the clear paths now pass `replace` so they can drop the
+      // pattern colour stash; with no builder block the config is still null.
       expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
         'circle-color': MAP_COLORS.default.fill,
         'circle-radius': 5,
-      }));
+      }), { replace: true });
       expect(onStyleConfigChange).not.toHaveBeenCalledWith(
         'layer-1',
         expect.objectContaining({ target: 'radius' }),
@@ -628,7 +780,9 @@ describe('DataDrivenStyleEditor', () => {
           layer={makeLayer({
             dataset_geometry_type: 'Polygon',
             dataset_column_info: [{ name: 'height_roof', type: 'double precision' }],
-            paint: { 'fill-color': '#3b82f6' },
+            // The seeded layer carries its ramp as a paint expression too (a `case`
+            // wrapping a `match`, see scripts/seed-showcase.py) — shape and column matter.
+            paint: { 'fill-color': colorExprFor('height_roof') },
             style_config: seededConfig,
           })}
           onStyleConfigChange={onStyleConfigChange}
@@ -899,6 +1053,78 @@ describe('DataDrivenStyleEditor', () => {
       // config should be null after clear
       expect(clearedConfig).toBeNull();
     });
+
+    // fix(#918, codex P2): a Mode switch on a patterned-but-unclassified layer used
+    // to drop the pattern and expose the default blue, leaving the user's colour in
+    // the stash only — exploring the Mode selector should not repaint the layer a
+    // colour it never had.
+    it('restores the stashed colour and clears the stash when switching mode', async () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3 },
+            style_config: { builder: { fillColorSaved: '#ff0000', outlineWidth: 2 } },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByText('Switch to graduated mode'));
+
+      const [, config, paint, opts] = onStyleConfigChange.mock.calls[0];
+      expect('fill-pattern' in paint).toBe(false);
+      expect(paint['fill-color']).toBe('#ff0000');
+      expect(opts).toEqual({ replace: true });
+      expect(config?.builder?.fillColorSaved).toBeUndefined();
+      expect(config?.builder?.outlineWidth).toBe(2);
+    });
+
+    it('falls back to the default colour when a patterned layer has no stash', async () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            paint: { 'fill-pattern': 'geolens-fill-hatch' },
+            style_config: { mode: 'categorical', column: 'typeA', ramp: 'Set2' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByRole('button', { name: /clear/i }));
+
+      const [, config, paint] = onStyleConfigChange.mock.calls[0];
+      expect('fill-pattern' in paint).toBe(false);
+      expect(paint['fill-color']).toBe(MAP_COLORS.default.fill);
+      expect(config).toBeNull();
+    });
+
+    // fix(#918): the clear paths write a non-data-driven config, so the exclusion
+    // in handleStyleConfigChange does not fire for them. A surviving fill-pattern
+    // would win over the freshly defaulted fill-color on the map.
+    it('drops a surviving fill-pattern when clearing a ramp', async () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            paint: {
+              'fill-color': ['match', ['get', 'typeA'], 'a', '#ff0000', '#00ff00'],
+              'fill-pattern': 'geolens-fill-hatch',
+            },
+            style_config: { mode: 'categorical', column: 'typeA', ramp: 'Set2' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByRole('button', { name: /clear/i }));
+
+      const [, config, paint] = onStyleConfigChange.mock.calls[0];
+      expect(config).toBeNull();
+      expect('fill-pattern' in paint).toBe(false);
+      expect(paint['fill-color']).toBe(MAP_COLORS.default.fill);
+    });
   });
 
   describe('ENH-08: ramp rotation + data-character suggestion', () => {
@@ -1034,7 +1260,7 @@ describe('DataDrivenStyleEditor', () => {
       // rampRotationIndex=5 would select a non-Inferno ramp, but saved ramp wins
       render(
         <DataDrivenStyleEditor
-          layer={makeLayer({ style_config: savedConfig })}
+          layer={makeLayer({ style_config: savedConfig, paint: { 'fill-color': colorExprFor('typeA') } })}
           onStyleConfigChange={onStyleConfigChange}
           rampRotationIndex={5}
         />,

@@ -387,6 +387,10 @@ describe('FillEditor', () => {
           'style.fillPatternName.diagonal': 'Diagonal',
           'style.fillPatternName.dots': 'Dots',
           'style.fillPatternName.grid': 'Grid',
+          'style.fillPattern (clear only)': 'Fill Pattern (clear only)',
+          'style.fillPatternClearOnly': 'Fill Pattern (clear only)',
+          'style.fillPatternUnavailableDataDriven': 'Patterns unavailable',
+          'style.fillColorUnavailablePattern': 'Color unavailable',
         };
         return labels[key] ?? key;
       },
@@ -461,6 +465,123 @@ describe('FillEditor', () => {
       />,
     );
     expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+  });
+
+  // fix(#910): gating truth table. A pattern click deletes fill-color, which on a
+  // data-driven layer destroys the classification expression and in extrusion
+  // mode resets the extrusion (it reads rawPaint['fill-color']).
+  it('does NOT render Fill Pattern section when isDataDriven=true, and explains why', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), {
+          isPolygon: true,
+          fillEnabled: true,
+          isDataDriven: true,
+        })}
+      />,
+    );
+    expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+    expect(screen.getByText('Patterns unavailable')).toBeInTheDocument();
+  });
+
+  // fix(#910, codex P2): Advanced JSON and the AI set_style action write paint
+  // through onPaintChange, bypassing the exclusion in handleStyleConfigChange — so a
+  // data-driven layer can arrive already patterned, and hiding the picker strands it.
+  it('DOES render Fill Pattern section on a data-driven layer that already has a pattern', () => {
+    const layer = makeFillLayer({
+      paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': ['match', ['get', 'k'], 'a', '#f00', '#0f0'] },
+      style_config: { column: 'k', mode: 'categorical', ramp: 'Set2' } as MapLayerResponse['style_config'],
+    });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          isDataDriven: true,
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    // fix(#910, codex P2): recovery only — applying a pattern to a classified layer
+    // is impossible by EDIT-05 and the funnel strips it straight back, so a swatch
+    // that silently reverts must not be offered.
+    expect(screen.getByText('Fill Pattern (clear only)')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Hatch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dots' })).toBeNull();
+  });
+
+  it('does NOT render Fill Pattern section in 3D-extrusion mode', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), {
+          isPolygon: true,
+          fillEnabled: true,
+          currentHeightCol: 'height',
+        })}
+      />,
+    );
+    expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+  });
+
+  // fix(#910, codex P2): selecting a height column with a pattern already applied
+  // must not strand the layer — the clearing control has to stay reachable.
+  it('DOES render Fill Pattern section in 3D-extrusion mode when a pattern is active', () => {
+    const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          currentHeightCol: 'height',
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Fill Pattern (clear only)')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Dots' })).toBeNull();
+  });
+
+  // fix(#910, codex P2): fill-pattern accepts MapLibre expressions and
+  // AdvancedJsonEditor lets one through; a string-only gate left the colour picker
+  // live, where editing it writes both keys back.
+  it('treats an expression-valued fill-pattern as an active pattern', () => {
+    const expression = ['match', ['get', 'kind'], 'a', 'geolens-fill-hatch', 'geolens-fill-dots'];
+    const layer = makeFillLayer({ paint: { 'fill-pattern': expression, 'fill-opacity': 0.8 } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Color unavailable')).toBeInTheDocument();
+    // Still clearable: the picker renders with no swatch selected.
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    // fix(#910, codex P2): None is reachable but NOT the current state — a pattern is
+    // drawing. Reporting aria-pressed here told a screen reader the opposite. No
+    // swatch matches an expression either, so nothing in the grid is pressed.
+    expect(screen.getAllByRole('button', { name: 'None' })[0]).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Dots' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('hides the fill color picker while a pattern is active, and explains why', () => {
+    const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Color unavailable')).toBeInTheDocument();
+    // The picker itself stays, so the pattern can still be cleared
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
   });
 
   it('behavior preservation: color picker, opacity slider, stroke controls still present', () => {
