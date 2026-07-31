@@ -1140,7 +1140,7 @@
       "escape": "Close panel / clear selection / exit reorder",
       "multiSelect": "Toggle layer in selection",
       "multiSelectKey": "Toggle layer in selection (focused row)",
-      "rename": "Rename layer",
+      "rename": "Rename layer (double-click its name)",
       "rangeSelect": "Select a range of layers",
       "extendSelect": "Extend selection (stack focused)"
     },

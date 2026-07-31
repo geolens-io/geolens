@@ -103,7 +103,9 @@ export function KeyboardShortcutsSheet({
     },
     {
       id: 'rename',
-      label: t('a11y.shortcuts.rename', { defaultValue: 'Rename layer' }),
+      // The handler is on the layer-name span, not the row, so the label names the
+      // target: double-clicking the icon or empty row space selects instead.
+      label: t('a11y.shortcuts.rename', { defaultValue: 'Rename layer (double-click its name)' }),
       chord: 'Double-click',
     },
     {

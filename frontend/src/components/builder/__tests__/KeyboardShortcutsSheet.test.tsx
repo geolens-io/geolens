@@ -54,6 +54,9 @@ describe('KeyboardShortcutsSheet', () => {
 
     const renameRow = screen.getByTestId('shortcut-rename');
     expect(renameRow.querySelector('kbd')!.textContent).toMatch(/Double-click/i);
+    // The gesture is bound to the layer-name span, so the label has to say so —
+    // double-clicking the icon or empty row space selects instead of renaming.
+    expect(renameRow.textContent).toMatch(/name/i);
   });
 
   it('calls onOpenChange(false) when dialog requests close', () => {
