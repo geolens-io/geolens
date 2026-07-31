@@ -177,9 +177,15 @@ async def apply_analysis_provenance(
     Two things here are copied VALUES rather than gated references, and that
     is deliberate (#765):
 
-    * Inherited keywords. The caller necessarily has read access (Rule 1 gates
-      the analysis), and a keyword discloses nothing the derived geometry does
-      not already embody.
+    * Inherited keywords. NOT because a keyword is harmless in itself: it can
+      be a project codename or a client name, and no geometry embodies those
+      (#1045 review). It rests on the same ground as the title below. The
+      output is registered ``visibility="private"`` and owned by the caller
+      who already held access to the source, so an inherited keyword reaches
+      anyone else only when that owner publishes or shares the dataset. That
+      is their deliberate act, on ordinary editable record metadata they can
+      delete first. Warning an owner what they inherited before they publish
+      is #1070.
     * The source (and mask) title inside the lineage sentence. The output is
       registered private and owned by that same caller, so the title only
       reaches anyone else if its owner publishes or shares the dataset —

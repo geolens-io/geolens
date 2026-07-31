@@ -133,8 +133,9 @@ class TestMaterializedProvenance:
         self, test_db_session: AsyncSession
     ):
         """Deliberate: the creator already has read access (Rule 1 gates the
-        analysis), and a keyword discloses nothing the derived geometry does not
-        already embody. Recorded as a test so it is not "fixed" later.
+        analysis) and the output is registered private, so an inherited keyword
+        goes no further unless its owner publishes it. Recorded as a test so it
+        is not "fixed" later; apply_analysis_provenance carries the argument.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         source = await _create_polygon_dataset(
@@ -230,11 +231,18 @@ class TestDerivedFromVisibility:
         """The output can be shared while its source stays private. The
         reference is omitted for a requester who cannot open the source, so a
         private dataset's id never leaks through a derived one.
+
+        The inherited KEYWORD is the deliberate exception, asserted below so
+        the decision is pinned rather than described. A keyword is a copied
+        value its owner can delete before publishing, not a reference the
+        requester could act on; see apply_analysis_provenance.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         source = await _create_polygon_dataset(
             test_db_session, created_by=admin_id, visibility="private"
         )
+        term = f"codename-{uuid.uuid4().hex[:6]}"
+        await _add_keyword(test_db_session, source.record_id, term, "theme")
         out = await _buffer_to_dataset(test_db_session, source, admin_id)
 
         # Publish the OUTPUT only.
@@ -250,6 +258,21 @@ class TestDerivedFromVisibility:
         other = await client.get(f"/datasets/{out.id}", headers=viewer_auth_header)
         assert other.status_code == 200, other.text
         assert other.json()["derived_from"] is None
+
+        # The keyword endpoint gates the source itself...
+        denied = await client.get(
+            f"/records/{source.record_id}/keywords/", headers=viewer_auth_header
+        )
+        assert denied.status_code == 404
+
+        # ...and yet the COPY on the published output is visible to that same
+        # viewer. Intended, not an oversight: the output was registered
+        # private and its owner published it.
+        keywords = await client.get(
+            f"/records/{out.record_id}/keywords/", headers=viewer_auth_header
+        )
+        assert keywords.status_code == 200, keywords.text
+        assert [k["keyword"] for k in keywords.json()["keywords"]] == [term]
 
 
 class TestDerivedFromParamsVisibility:
