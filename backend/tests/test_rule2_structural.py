@@ -142,6 +142,22 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   passed to the subprocess is not verified. Wiring the returned dict to the
   ``subprocess.run(env=...)`` argument is dataflow analysis — reviewer
   territory, documented, not promised.
+- Credit is denied for a call whose body is DEFERRED, and that set is closed:
+  generator expression, lambda, nested def/async def. Those are the only
+  constructs in Python whose body does not run at construction — verified by
+  measurement, not inspection. Comprehensions, class bodies, decorator
+  expressions and default arguments are all eager. So a novel AST shape is
+  not automatically a new deferral case; check which class it is first.
+  ``functools.partial(gdal_safe_env)`` needs no rule at all: it is a call to
+  ``partial``, and ``_is_canonical_helper_call`` resolves the Call's OWN
+  ``func``, so it never credits. Do not add one.
+- What credit does NOT model is CONDITIONALITY. A call under ``if False:``,
+  in an untaken ternary arm, or in an unreached ``match`` case still credits
+  the scope. That is the #974 boundary — credit asks whether the canonical
+  helper is called in this scope, not whether that line executes — and it is
+  the open half of this design. The bounded alternative is to invert the
+  default: allowlist the shapes that may grant credit and report everything
+  else. Tracked in #1077 rather than patched shape by shape here.
 - Remote-source detection is LITERAL only (codex round 7): an open or argv
   whose argument is, or obviously leads with, a remote-prefixed string
   literal (http/https, ``/vsicurl*``, hardcoded ``/vsis3``/``/vsiaz``/
