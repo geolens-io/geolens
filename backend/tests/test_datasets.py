@@ -516,6 +516,24 @@ class TestUpdateMetadata:
         test_db_session.add(DatasetGrant(dataset_id=dataset_id, role_id=role.id))
         await test_db_session.commit()
 
+    async def _grant_empty_role(self, test_db_session, dataset_id):
+        """Grant a role created here, so "it has no members" is a fact.
+
+        The seeded roles are shared: 22 test files mint `editor_<hex>` accounts
+        and 37 mint `viewer_<hex>`, all on the same per-worker database. A test
+        asserting a grant reaches NOBODY cannot borrow one of those — its
+        emptiness would depend on which files happened to run first, which is
+        true in file order and false under `-n 4`.
+        """
+        from app.modules.auth.models import Role
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        role = Role(name=f"empty-grant-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(DatasetGrant(dataset_id=dataset_id, role_id=role.id))
+        await test_db_session.commit()
+
     async def test_a_grant_reaching_a_real_viewer_blocks_the_drop_to_private(
         self,
         client: AsyncClient,
@@ -540,6 +558,12 @@ class TestUpdateMetadata:
             map_visibility="internal",
             map_name=map_name,
         )
+        # fix(#931): borrows the seeded `viewer` role deliberately. This asserts
+        # BLOCKED, so it needs the role to have a member — `viewer_auth_header`
+        # guarantees one, and the accounts other files leave on the shared
+        # worker DB only reinforce it. The direction is what makes the ambient
+        # dependency safe here; the empty-role case below cannot borrow and
+        # builds its own.
         await self._grant_role(test_db_session, ds.id, "viewer")
 
         resp = await client.patch(
@@ -559,9 +583,15 @@ class TestUpdateMetadata:
     ):
         """fix(#931 codex r3): a grant row is not an audience.
 
-        No `editor_auth_header` here, so the editor role has no members and the
-        grant reaches nobody. Blocking would be a refusal that lies — the same
-        defect as the ungranted case, one level further in.
+        The granted role is created here and never populated, so the grant
+        reaches nobody. Blocking would be a refusal that lies — the same defect
+        as the ungranted case, one level further in.
+
+        It must NOT borrow a seeded role. The first version granted `editor`
+        and reasoned "no `editor_auth_header` in this test, so it is empty",
+        which is a claim about the whole worker rather than about this test:
+        22 files mint editor accounts on the same database. It passed in file
+        order, where `test_datasets.py` runs first, and failed under `-n 4`.
         """
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await self._dataset_on_map(
@@ -571,7 +601,7 @@ class TestUpdateMetadata:
             map_visibility="internal",
             map_name="Empty Grant Map",
         )
-        await self._grant_role(test_db_session, ds.id, "editor")
+        await self._grant_empty_role(test_db_session, ds.id)
 
         resp = await client.patch(
             f"/datasets/{ds.id}",
