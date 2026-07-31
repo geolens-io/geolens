@@ -110,14 +110,21 @@ def restore_logging_state():
     `sys.stdout`/`stderr` for the call phase only, so a handler created during
     fixture setup binds to a stream capsys is not capturing. Saving here and
     restoring on teardown is the part that can live in a fixture.
+
+    fix(#1064 codex r1): restores the previous structlog config rather than
+    calling `reset_defaults()`. The library default drops
+    `_redact_sensitive_fields` and the stdlib routing, so resetting would
+    leave later tests on the worker logging unredacted — trading one
+    order-dependence for a worse one.
     """
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
+    saved_structlog = dict(structlog.get_config())
     try:
         yield
     finally:
-        structlog.reset_defaults()
+        structlog.configure(**saved_structlog)
         root.handlers[:] = saved_handlers
         root.setLevel(saved_level)
 

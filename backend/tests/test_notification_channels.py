@@ -81,18 +81,30 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     a stream that is not the one being captured and every write fails with
     ``--- Logging error ---`` instead of landing anywhere assertable.
 
-    On exit the root handlers and level are restored, and structlog is reset
-    to LIBRARY defaults rather than to whatever was configured before. That is
-    deliberate and it is not the same thing: `reset_defaults()` leaves
-    `cache_logger_on_first_use` False, which is the safe end of the range,
-    whereas faithfully restoring a prior True would hand the next test the
-    exact global that makes capture go blind. Leaking that state onward is the
-    failure class this construction exists to close.
+    On exit the root handlers, the root level and the structlog config are all
+    put back exactly as they were.
+
+    fix(#1064 codex r1): an earlier version called `structlog.reset_defaults()`
+    instead, reasoning that the library default leaves
+    `cache_logger_on_first_use` False and is therefore the safe end. That was
+    wrong, and wrong in a security-relevant direction: `reset_defaults()`
+    replaces the WHOLE chain, so it drops `_redact_sensitive_fields` and the
+    stdlib routing `setup_logging` installed, and any later test on the worker
+    would log unredacted. Restoring what was actually there is the only
+    version that leaves no trace — resetting to a default is still changing
+    state the caller established.
+
+    Captured at DEBUG, not INFO (fix(#1064 codex r1)): a channel logging a
+    revealed credential at debug level would otherwise be filtered out before
+    this saw it, and the test would pass while a deployment running
+    LOG_LEVEL=DEBUG emitted the secret. The assertions this replaced used
+    `caplog.at_level(logging.DEBUG)`, so anything narrower is a regression.
     """
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
-    setup_logging(json_logs=True, log_level="INFO")
+    saved_structlog = dict(structlog.get_config())
+    setup_logging(json_logs=True, log_level="DEBUG")
     records: list[str] = []
     live = _LiveLogs(records)
     try:
@@ -116,7 +128,7 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
                 continue
             if isinstance(parsed, dict) and "event" in parsed:
                 records.append(line)
-        structlog.reset_defaults()
+        structlog.configure(**saved_structlog)
         root.handlers[:] = saved_handlers
         root.setLevel(saved_level)
 
