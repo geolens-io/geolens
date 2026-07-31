@@ -1251,6 +1251,26 @@ def _escape_kind(node: ast.AST, *, vector: bool = True) -> int:
     return best
 
 
+def _target_names(target: ast.expr) -> set[str]:
+    """The names an assignment TARGET actually binds.
+
+    fix(#996 review): walking every ``Name`` in the target read
+    ``settings.choices = [...]`` as binding ``settings``, so a later
+    ``render(settings)`` looked like the argv escaping — a false positive on
+    data that is never handed anywhere. An attribute or subscript target binds
+    nothing this analysis can follow: it mutates an object whose other
+    references live outside this expression. Return nothing for those rather
+    than guessing at the container.
+    """
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {n for elt in target.elts for n in _target_names(elt)}
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    return set()  # Attribute, Subscript — not a name binding
+
+
 def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] | None:
     """The targets an unpacking assigns position ``index`` to, or None.
 
@@ -1291,6 +1311,8 @@ _TRANSPARENT_WRAPPERS = (
     # as inert.
     ast.IfExp,
     ast.BinOp,
+    # ...and `fallback or [...]`, which is the same shape (fix(#996 review)).
+    ast.BoolOp,
 )
 
 
@@ -1325,23 +1347,21 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
             positional = _positional_targets(parent.targets, index_in_parent)
             if positional is not None:
                 return {
-                    n.id
-                    for target in positional
-                    for n in ast.walk(target)
-                    if isinstance(n, ast.Name)
+                    n for target in positional for n in _target_names(target)
                 }, climbed
-        return {
-            n.id
-            for target in parent.targets
-            for n in ast.walk(target)
-            if isinstance(n, ast.Name)
-        }, climbed
+        return {n for target in parent.targets for n in _target_names(target)}, climbed
     if (
         isinstance(parent, (ast.AnnAssign, ast.NamedExpr))
         and parent.value is current
         and isinstance(parent.target, ast.Name)
     ):
         return {parent.target.id}, climbed
+    # fix(#996 review): `cmd = []` then `cmd += ["gdalinfo", path]` assembles a
+    # real argv, and the literal's parent is an AugAssign that none of the
+    # branches above matched. `climbed` is False regardless: `+=` splices the
+    # elements in, so the target holds the vector rather than a container.
+    if isinstance(parent, ast.AugAssign) and parent.value is current:
+        return _target_names(parent.target), False
     # fix(#996 review): `for cmd in (["gdalinfo", path],): subprocess.run(cmd)`
     # reaches an exec through the loop target. Same for `async for` and for a
     # comprehension's generator.
@@ -1357,7 +1377,7 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     ):
         # The loop target receives an ELEMENT of the iterable, so it is the
         # vector itself, not a container of it.
-        return {n.id for n in ast.walk(parent.target) if isinstance(n, ast.Name)}, False
+        return _target_names(parent.target), False
     return set(), False
 
 
@@ -2677,3 +2697,66 @@ def test_guard_chained_unpacking_keeps_every_target():
     )
     assert total == 1, (total, violations)
     assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_argv_assembled_by_augmented_assignment_is_detected():
+    """fix(#996 review): `cmd = []` then `cmd += [...]` assembles a real argv,
+    and the literal's parent is an AugAssign no binding branch matched."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    cmd = []\n"
+            "    cmd += ['gdalinfo', path]\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_argv_behind_a_boolean_fallback_is_detected():
+    """fix(#996 review): `fallback or [...]` is a value-producing wrapper like
+    the ternary; the climb used to stop at the BoolOp."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path, fallback):\n"
+            "    cmd = fallback or ['gdalinfo', path]\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_attribute_target_does_not_bind_its_container():
+    """fix(#996 review): `settings.choices = [...]` binds nothing this analysis
+    can follow. Reading `settings` as the binding made `render(settings)` look
+    like the argv escaping — a false positive on data that never moves."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def fn(settings):\n"
+            "    settings.choices = ['gdalinfo', '-json']\n"
+            "    render(settings)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_subscript_target_does_not_bind_its_container_either():
+    """The sibling shape: `registry['tools'] = [...]` then `render(registry)`."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def fn(registry):\n"
+            "    registry['tools'] = ['gdalinfo', '-json']\n"
+            "    render(registry)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
