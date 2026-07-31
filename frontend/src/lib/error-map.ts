@@ -199,6 +199,19 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // fix(#931): the backend names the offending maps precisely so a human can go
+  // and fix them, and unmapped that list fell through to the generic 422 —
+  // which drops exactly the part that makes the refusal actionable.
+  const strandedMaps = message.match(
+    /^Cannot restrict visibility: dataset is used in shared maps:\s*(.+)$/i,
+  );
+  if (strandedMaps) {
+    return {
+      key: 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: strandedMaps[1] },
+    };
+  }
+
   return fallbackDescriptor(status);
 }
 

@@ -258,6 +258,7 @@
     "analysisJobAlreadyRunning": "Your previous analysis is still running. Wait for it to finish before starting another.",
     "analysisVectorRequired": "Analysis needs a vector dataset — this layer is not one.",
     "analysisMaskPolygonRequired": "The clip mask must be a polygon layer.",
+    "datasetVisibilityBlockedByMaps": "These maps share the dataset with an audience that would lose it: {{maps}}. Remove the layer there, or narrow those maps first.",
     "analysisUnknownDissolveColumn": "The column “{{column}}” does not exist on this dataset. Pick a different group-by field.",
     "corsWildcardNotAllowed": "Wildcard origins are not accepted. Credentialed requests require every origin listed in full, for example https://example.com.",
     "duplicateSource": "A dataset from this source is already registered ({{title}}).",

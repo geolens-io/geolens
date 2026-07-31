@@ -75,16 +75,59 @@ async def validate_public_visibility(
     return [row[0] for row in result.all()]
 
 
-async def find_public_maps_using_dataset(
-    session: AsyncSession, dataset_id: uuid.UUID
+# fix(#931): the two shared map audiences and what a dataset must be to reach
+# each. A private map has no audience beyond its owner and grantees, so a
+# dataset visibility change can never strand it.
+_SHARED_MAP_AUDIENCES = ("public", "internal")
+
+
+def _dataset_reaches(map_visibility: str, dataset_visibility: str) -> bool:
+    """Whether a dataset at this visibility is visible to a map's whole audience."""
+    if map_visibility == "public":
+        return dataset_visibility == "public"
+    if map_visibility == "internal":
+        return dataset_visibility in ("public", "internal")
+    return True
+
+
+async def find_maps_broken_by_dataset_visibility(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    old_visibility: str,
+    new_visibility: str,
 ) -> list[str]:
-    """Return names of public maps that contain the given dataset. Empty = safe to restrict."""
+    """Names of shared maps that work at ``old_visibility`` and would not at ``new``.
+
+    fix(#931): this was ``find_public_maps_using_dataset``, which matched
+    ``Map.visibility == "public"`` only. An **internal** map using the dataset
+    was not matched, so the flip succeeded and every signed-in viewer of that
+    map silently lost the layer's tiles and features, with no signal to anyone.
+
+    Framed as a before/after comparison rather than a list of forbidden target
+    values, because #930 turned the rule into a matrix. An internal map keeps
+    working when its dataset moves from public to internal, and breaks only on
+    the move to private — a rule expressed against today's target value alone
+    would fire on a move that is in fact safe. It also means a dataset that was
+    already unreachable for an audience (a ``restricted`` one on an internal
+    map) does not produce a block for a change that strands nothing new.
+
+    Empty = safe to apply.
+    """
+    audiences = [
+        visibility
+        for visibility in _SHARED_MAP_AUDIENCES
+        if _dataset_reaches(visibility, old_visibility)
+        and not _dataset_reaches(visibility, new_visibility)
+    ]
+    if not audiences:
+        return []
     stmt = (
         select(Map.name)
         .select_from(MapLayer)
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
-        .where(Map.visibility == "public")
+        .where(Map.visibility.in_(audiences))
     )
     result = await session.execute(stmt)
     return [row[0] for row in result.all()]

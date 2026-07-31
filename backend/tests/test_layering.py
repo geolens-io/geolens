@@ -859,7 +859,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Hosted opaque-share isolation joins every token operation through
         # its RLS-visible Map/User parent (+9 LOC). Cap 720 -> 735 leaves
         # only six lines before the next required split review.
-        "backend/app/modules/catalog/maps/service_public.py": 735,
+        # fix(#931): +32. find_public_maps_using_dataset became
+        # find_maps_broken_by_dataset_visibility: an internal map using the
+        # dataset was matched by neither the old query nor its caller's gate,
+        # so the flip succeeded and every signed-in viewer of that map lost
+        # the layer in silence. #930 made the rule a matrix, so the helper
+        # compares the before and after audiences instead of listing
+        # forbidden target values. Cap 735 -> 767, exact.
+        "backend/app/modules/catalog/maps/service_public.py": 767,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
@@ -895,7 +902,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 480,
+        # fix(#931): +7. _apply_visibility_change no longer carries its own
+        # `new != public and old == public` gate — that gate is what hid the
+        # internal-map case — and delegates the whole before/after audience
+        # comparison to the maps helper. Cap 480 -> 487, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 487,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
