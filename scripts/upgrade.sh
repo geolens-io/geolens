@@ -272,6 +272,9 @@ say ""
 # continues with the current files (the pre-v1043 pull-only behaviour) rather than
 # aborting the upgrade. Local edits to the tracked files above are replaced.
 say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
+DB_CONF="db/postgresql.conf"
+DB_CONF_CHANGED=0
+DB_CONF_AT_TARGET=0
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
@@ -288,17 +291,88 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
          scripts/lib scripts/minio-setup.sh scripts/backup-entrypoint.sh 2>/dev/null; then
       say "  mounted helper scripts synced to ${TARGET_TAG}"
     fi
+    # fix(#959): db/postgresql.conf is bind-mounted into the db container, so a
+    # release that changes a Postgres setting (temp_file_limit, log_temp_files)
+    # never reaches an existing install unless this file is synced too. Unlike
+    # the files above it is one operators are told to tune (RUNBOOK section 4),
+    # so overwrite it ONLY when it still matches the installed checkout; a
+    # customised file is left alone with instructions to merge by hand.
+    #
+    # Both tests compare file CONTENT against release blobs, never against HEAD
+    # or the index (codex review on #959's PR). A path-restricted checkout
+    # updates the index and worktree but leaves HEAD at the tag the install was
+    # created from, so a HEAD comparison would read the PREVIOUS upgrade's own
+    # file as an operator edit and freeze the config forever; an index
+    # comparison misses tuning the operator has staged, e.g. to version-control
+    # it. Content against the installed release's blob is true in both cases:
+    #   "needs changing"  = worktree differs from the TARGET tag's blob
+    #   "operator edited" = worktree differs from the CURRENT release's blob
+    # Unresolvable current tag => treated as edited, i.e. never clobbered.
+    if [ -n "${CURRENT_VERSION:-}" ] && [ "$CURRENT_VERSION" != "latest" ]; then
+      git fetch --depth 1 --quiet "$REPO_URL" \
+        "refs/tags/v${CURRENT_VERSION}:refs/tags/v${CURRENT_VERSION}" 2>/dev/null || true
+    fi
+    if git cat-file -e "${TARGET_TAG}:${DB_CONF}" 2>/dev/null; then
+      _db_conf_target="$(mktemp)"
+      _db_conf_installed="$(mktemp)"
+      if git show "${TARGET_TAG}:${DB_CONF}" > "$_db_conf_target" 2>/dev/null; then
+        if cmp -s "$_db_conf_target" "$DB_CONF"; then
+          DB_CONF_AT_TARGET=1   # already the release's file on disk
+        elif git show "v${CURRENT_VERSION:-}:${DB_CONF}" > "$_db_conf_installed" 2>/dev/null \
+             && cmp -s "$_db_conf_installed" "$DB_CONF"; then
+          if git checkout --quiet "$TARGET_TAG" -- "$DB_CONF" 2>/dev/null; then
+            DB_CONF_AT_TARGET=1
+            say "  ${DB_CONF} synced to ${TARGET_TAG}"
+          fi
+        else
+          warn "${DB_CONF} does not match the installed release — keeping your version."
+          warn "  Review 'git diff ${TARGET_TAG} -- ${DB_CONF}', merge any new settings,"
+          warn "  then apply them with 'docker compose up -d --force-recreate db'."
+        fi
+      fi
+      rm -f "$_db_conf_target" "$_db_conf_installed"
+    fi
   else
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
   fi
 else
   warn "git unavailable or not a git checkout — skipping release-file sync; keeping the current compose/scripts."
 fi
+
+# fix(#959): git only says what is on DISK. Whether the running database is
+# serving it is a question only the container can answer, and an attempt that
+# synced the config and then failed later (a pull error, say) leaves the
+# release's file on disk and the OLD inode inside the container — a retry that
+# trusted git alone would skip the bounce and run on stale settings forever.
+# Scoped to a file that IS the release's, so an operator's own tuning is never
+# applied as a side effect of upgrading. No db container (external/managed
+# Postgres) or an unreadable file leaves this at 0.
+if [ "$DB_CONF_AT_TARGET" = "1" ] && [ -f "$DB_CONF" ]; then
+  _db_conf_running="$(mktemp)"
+  if compose exec -T db cat /etc/postgresql/custom.conf > "$_db_conf_running" 2>/dev/null \
+     && [ -s "$_db_conf_running" ] \
+     && ! cmp -s "$_db_conf_running" "$DB_CONF"; then
+    DB_CONF_CHANGED=1
+  fi
+  rm -f "$_db_conf_running"
+fi
 say ""
 
 # --- Step 5: pull the new images --------------------------------------------
 compose pull --ignore-buildable || fail "Could not pull prebuilt images for $TARGET_VERSION."
 say ""
+
+# fix(#959): the release's db/postgresql.conf needs the container RECREATED,
+# not restarted or reloaded — `git checkout` writes a new inode and a
+# single-file bind mount keeps resolving the one the container started with.
+# Do it before the migrate step, while the old app containers are still the
+# ones about to be replaced anyway, and wait for the healthcheck.
+if [ "$DB_CONF_CHANGED" = "1" ]; then
+  say "Applying ${DB_CONF} (recreating the db container)"
+  compose up -d --force-recreate --no-deps --wait db \
+    || fail "Could not recreate the db container after syncing ${DB_CONF}."
+  say ""
+fi
 
 # --- Step 6: run migrations (fail-closed) BEFORE bringing the app up ---------
 say "Step 4/5: running database migrations (fail-closed)"

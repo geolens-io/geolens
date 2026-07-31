@@ -66,6 +66,12 @@ class MercatorClipDetail(BaseModel):
 
     dropped_features: int = Field(ge=0)
     clipped_features: int = Field(ge=0)
+    # fix(#906): True when the clip was skipped because the Mercator safe
+    # envelope degenerates under ST_Transform into the source CRS (e.g.
+    # EPSG:4807 collapses it to a line); counts are 0/0 then, and the flag is
+    # what makes the skip user-visible instead of silent. Defaults False so
+    # pre-#906 stored warnings still validate.
+    clip_skipped: bool = False
 
     model_config = ConfigDict(extra="forbid")
 

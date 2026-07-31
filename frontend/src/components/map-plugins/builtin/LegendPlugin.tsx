@@ -9,6 +9,7 @@ import {
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
+import { fillPatternFromPaint } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
@@ -45,7 +46,7 @@ function getSwatchStyleFromPaint(
       : paint?.['fill-opacity'];
   const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
 
-  return { outlineColor, strokeDisabled, opacity: masterOpacity, fillOpacity, strokeWidth };
+  return { outlineColor, strokeDisabled, opacity: masterOpacity, fillOpacity, strokeWidth, fillPattern: fillPatternFromPaint(paint) };
 }
 
 /** Extract colors and breaks from a paint color expression for the legend. */

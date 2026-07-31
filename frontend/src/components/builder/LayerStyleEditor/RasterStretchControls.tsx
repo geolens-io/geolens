@@ -106,7 +106,7 @@ export function RasterStretchControls({
                   which 422s anything not in that frozenset. There is no codegen guard — adding or
                   renaming a colormap on either side must be mirrored here (and vice-versa). */}
               <Select value={currentColormap} onValueChange={(v) => onPaintProp('_colormap', v)}>
-                <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectTrigger className="h-8 text-xs flex-1" aria-label={t('style.raster.colormapLabel', { defaultValue: 'Colormap' })}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -131,7 +131,7 @@ export function RasterStretchControls({
               {t('style.raster.stretchLabel', { defaultValue: 'Stretch' })}
             </span>
             <Select value={currentStretch} onValueChange={(v) => onPaintProp('_stretch', v)}>
-              <SelectTrigger className="h-8 text-xs flex-1">
+              <SelectTrigger className="h-8 text-xs flex-1" aria-label={t('style.raster.stretchLabel', { defaultValue: 'Stretch' })}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

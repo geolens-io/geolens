@@ -76,7 +76,7 @@ export function FillEditor({
           {isPolygon && (
             <FillPatternPicker
               value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
-              onChange={onFillPatternChange ?? ((id) => onPaintProp('fill-pattern', id))}
+              onChange={onFillPatternChange}
               t={t}
             />
           )}
@@ -97,7 +97,7 @@ export function FillEditor({
               onBuilderChange({ heightColumn: val === '' || val === '__none__' ? undefined : val });
             }}
           >
-            <SelectTrigger className="h-8 text-xs w-36">
+            <SelectTrigger className="h-8 text-xs w-36" aria-label={t('style.heightColumn', { defaultValue: 'Height column' })}>
               <SelectValue placeholder={t('style.none', { defaultValue: 'None' })} />
             </SelectTrigger>
             <SelectContent>

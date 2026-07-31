@@ -193,9 +193,9 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 if __name__ == "__main__":
     import asyncio
 
-    from app.core.db import async_session
-
     async def _run():
+        from app.core.db import async_session  # fix(#909): late-bind
+
         async with async_session() as session:
             result = await backfill_embeddings(session)
             logger.info("Backfill complete", result=result)

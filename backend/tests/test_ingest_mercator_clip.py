@@ -503,6 +503,166 @@ class TestClipAccounting(_FixtureTable):
 
 
 # ---------------------------------------------------------------------------
+# 3b. fix(#906): degenerate-envelope skip for narrow-validity CRSs
+# ---------------------------------------------------------------------------
+
+
+class TestDegenerateEnvelopeSkip(_FixtureTable):
+    """fix(#906): ST_Transform of the global safe envelope collapses for
+    narrow-validity CRSs (4415 of 8500 stock SRIDs measure zero-area or
+    collapsed, 108 more error), and the clip's intersection would then empty
+    the whole table with a *successful* ingest. The guard skips the clip and
+    records ``clip_skipped`` so the skip is visible, not silent."""
+
+    async def test_narrow_validity_grads_crs_preserves_features(self, test_db_session):
+        """EPSG:4807 (NTF Paris): the measured collapse — every envelope X
+        becomes 197.396. Pre-guard, this ingest emptied the table."""
+        await _seed_points(test_db_session, [(2.0, 54.0), (3.0, 55.0)], srid=4807)
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": False,
+            "dropped_features": 0,
+            "clipped_features": 0,
+            "clip_skipped": True,
+        }
+        assert await _nonempty_count(test_db_session) == 2
+        assert await _xs(test_db_session) == pytest.approx([2.0, 3.0])
+        warning = make_mercator_clip_warning(counts)
+        assert warning is not None
+        assert warning["details"]["clip_skipped"] is True
+
+    async def test_utm_source_preserves_features(self, test_db_session):
+        """Every UTM zone collapses the global envelope too (measured on
+        32633): lon ±180 is far outside the zone's validity."""
+        await _seed_points(
+            test_db_session, [(500000.0, 5000000.0), (510000.0, 5010000.0)], srid=32633
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert counts.get("clip_skipped") is True
+        assert counts["dropped_features"] == 0
+        assert await _nonempty_count(test_db_session) == 2
+
+    async def test_partial_collapse_with_positive_area_is_detected(
+        self, test_db_session
+    ):
+        """EPSG:2263 (NY Long Island, ftUS) leaves a 19-square-foot 'world' —
+        positive area, so a bare area check misses it, but clipping real NY
+        data against it would still destroy everything. The sliver test
+        (area under 1e-6 of the envelope's own bbox area) catches it."""
+        await _seed_points(
+            test_db_session,
+            [(984000.0, 150000.0), (1030000.0, 200000.0)],
+            srid=2263,
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert counts.get("clip_skipped") is True
+        assert await _xs(test_db_session) == pytest.approx([984000.0, 1030000.0])
+
+    async def test_ordinary_web_mercator_source_still_clips_normally(
+        self, test_db_session
+    ):
+        """EPSG:3857 transforms the envelope sanely; the guard must not fire
+        and the counts shape stays exactly as before (no clip_skipped key)."""
+        await _seed_points(test_db_session, [(100.0, 0.0), (200.0, 0.0)], srid=3857)
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": False,
+            "dropped_features": 0,
+            "clipped_features": 0,
+        }
+
+    async def test_data_wider_than_the_envelope_is_still_clipped(self, test_db_session):
+        """fix(#906 codex r1): a 3857 table with a feature genuinely beyond
+        ±20 037 508 m is WIDER than its correctly transformed envelope. The
+        degeneracy floor must be absolute (envelope size), never relative to
+        the data extent, or exactly the geometry this routine exists to trim
+        would skip the clip."""
+        await _seed_points(
+            test_db_session,
+            [(0.0, 0.0), (25_000_000.0, 0.0)],
+            srid=3857,
+        )
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts is not None
+        assert "clip_skipped" not in counts
+        assert counts["dropped_features"] == 1
+        # The in-bounds feature survives; the out-of-bounds one is emptied.
+        assert await _nonempty_count(test_db_session) == 1
+
+    async def test_compound_geographic_crs_polar_clip_is_unchanged(
+        self, test_db_session
+    ):
+        """fix(#906 codex r2): EPSG:5498 (NAD83 + NAVD88 height) is a
+        COMPD_CS whose horizontal axes are degrees. The floor's geographic
+        test must see through the compound prefix, or its valid
+        360x170-degree envelope trips the 1000-unit floor and every ingest in
+        that CRS skips the polar clip."""
+        await _seed_points(test_db_session, [(10.0, -89.95), (20.0, 45.0)], srid=5498)
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": False,
+            "dropped_features": 1,
+            "clipped_features": 0,
+        }
+
+    async def test_geographic_3d_crs_polar_clip_is_unchanged(self, test_db_session):
+        """EPSG:4979 stays on the clip path: geographic transforms cannot
+        collapse, and genuinely polar geometry must keep being clipped with
+        the same counts as before the guard existed."""
+        await _seed_points(test_db_session, [(10.0, -89.95), (20.0, 45.0)], srid=4979)
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": False,
+            "dropped_features": 1,
+            "clipped_features": 0,
+        }
+
+    async def test_shift_still_runs_before_a_skipped_clip(
+        self, test_db_session, monkeypatch
+    ):
+        """Ordering constraint from the issue: skipping the clip must still
+        leave the 0..360 shift applied. No real degree-geographic CRS
+        degenerates, so the probe is forced True to pin the ordering."""
+        from app.processing.ingest import metadata as metadata_module
+
+        async def _always_degenerate(*_args, **_kwargs):
+            return True
+
+        monkeypatch.setattr(
+            metadata_module,
+            "_mercator_envelope_degenerates",
+            _always_degenerate,
+        )
+        await _seed_points(test_db_session, [(100.0, 10.0), (200.0, 10.0)], srid=4269)
+
+        counts = await clip_to_mercator_bounds(test_db_session, TABLE)
+
+        assert counts == {
+            "shifted_longitudes": True,
+            "dropped_features": 0,
+            "clipped_features": 0,
+            "clip_skipped": True,
+        }
+        assert await _xs(test_db_session) == pytest.approx([100.0, -160.0])
+
+
+# ---------------------------------------------------------------------------
 # 4. Producer contract
 # ---------------------------------------------------------------------------
 
@@ -555,6 +715,38 @@ class TestMercatorClipWarningProducer:
         assert parsed.kind == "mercator_clip"
         assert parsed.details.dropped_features == 2
         assert parsed.details.clipped_features == 1
+
+    def test_warns_when_clip_was_skipped(self):
+        """fix(#906): a skipped clip lost nothing but must not be silent."""
+        warning = make_mercator_clip_warning(
+            {
+                "shifted_longitudes": False,
+                "dropped_features": 0,
+                "clipped_features": 0,
+                "clip_skipped": True,
+            }
+        )
+        assert warning is not None
+        assert warning["details"]["clip_skipped"] is True
+        assert warning["details"]["dropped_features"] == 0
+
+        from app.platform.jobs.schemas import MercatorClipWarning
+
+        parsed = MercatorClipWarning.model_validate(warning)
+        assert parsed.details.clip_skipped is True
+
+    def test_pre_906_stored_warning_still_validates(self):
+        """Old warnings in user_metadata carry no clip_skipped; the API model
+        must default it False rather than reject them."""
+        from app.platform.jobs.schemas import MercatorClipWarning
+
+        parsed = MercatorClipWarning.model_validate(
+            {
+                "kind": "mercator_clip",
+                "details": {"dropped_features": 1, "clipped_features": 0},
+            }
+        )
+        assert parsed.details.clip_skipped is False
 
 
 # ---------------------------------------------------------------------------

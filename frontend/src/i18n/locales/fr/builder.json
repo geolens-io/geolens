@@ -210,8 +210,6 @@
     "resetTitle": "Réinitialiser le style de cette couche",
     "unsupportedBuilderState": "Ce style importé utilise des paramètres que l'éditeur visuel ne peut pas modifier en toute sécurité. Les paramètres valides sont conservés ; utilisez le JSON avancé pour les parties non prises en charge.",
     "sections": {
-      "render": "Afficher comme",
-      "renderDescription": "Choisissez comment cette couche de points doit s'afficher.",
       "dataDriven": "Style piloté par les données",
       "dataDrivenDescription": "Colorez ou dimensionnez les entités par attribut.",
       "appearance": "Couleur, forme et visibilité",
@@ -286,11 +284,6 @@
     "zoomRange": "Plage de zoom",
     "minZoom": "Zoom min",
     "maxZoom": "Zoom max",
-    "renderAs": "Afficher comme",
-    "renderPoints": "Points",
-    "renderSymbol": "Symboles",
-    "renderHeatmap": "Carte de chaleur",
-    "renderCluster": "Agrégat",
     "none": "Aucun",
     "symbol": {
       "title": "Symbole",
@@ -302,7 +295,20 @@
       "offsetX": "Décalage X",
       "offsetY": "Décalage Y",
       "categoryMapping": "Icônes par valeur",
-      "categoryIcon": "Icône pour {{value}}"
+      "categoryIcon": "Icône pour {{value}}",
+      "anchorOption": {
+        "center": "Centre",
+        "top": "Haut",
+        "bottom": "Bas",
+        "left": "Gauche",
+        "right": "Droite",
+        "top-left": "En haut à gauche",
+        "top-right": "En haut à droite",
+        "bottom-left": "En bas à gauche",
+        "bottom-right": "En bas à droite"
+      },
+      "sampledValues": "Un échantillon des valeurs de cette colonne, pas toutes les valeurs du jeu de données.",
+      "unknownIcon": "Aucune icône nommée « {{icon}} » : cette valeur ne dessinera rien."
     },
     "arrow": {
       "title": "Direction des flèches",
@@ -345,7 +351,6 @@
       "resampling": "Rééchantillonnage",
       "resamplingLinear": "Linéaire",
       "resamplingNearest": "Plus proche voisin",
-      "renderMode": "Rendu",
       "renderRaster": "Raster",
       "renderHillshade": "Ombrage",
       "reset": "Réinitialiser",

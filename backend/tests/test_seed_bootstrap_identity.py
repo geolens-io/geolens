@@ -44,8 +44,12 @@ async def test_seed_roles_selects_scalars_without_loading_unscoped_users(monkeyp
     from app.modules.auth.models import Role
 
     session = _RecordingSeedSession()
+    # fix(#909): seed_roles late-binds async_session from app.core.db,
+    # so the patch targets the origin module, not app.api.main.
+    import app.core.db as db_module
+
     monkeypatch.setattr(
-        main,
+        db_module,
         "async_session",
         lambda: _SeedSessionContext(session),
     )

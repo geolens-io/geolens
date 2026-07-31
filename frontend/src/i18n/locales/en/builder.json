@@ -210,8 +210,6 @@
     "resetTitle": "Reset this layer style",
     "unsupportedBuilderState": "This imported style uses settings the visual editor cannot safely change. Valid settings are preserved; use Advanced JSON for the unsupported parts.",
     "sections": {
-      "render": "Render as",
-      "renderDescription": "Choose how this point layer should draw.",
       "dataDriven": "Data-driven style",
       "dataDrivenDescription": "Color or size features by an attribute.",
       "appearance": "Color, shape, and visibility",
@@ -286,11 +284,6 @@
     "zoomRange": "Zoom Range",
     "minZoom": "Min zoom",
     "maxZoom": "Max zoom",
-    "renderAs": "Render as",
-    "renderPoints": "Points",
-    "renderSymbol": "Symbols",
-    "renderHeatmap": "Heatmap",
-    "renderCluster": "Cluster",
     "none": "None",
     "symbol": {
       "title": "Symbol",
@@ -302,7 +295,20 @@
       "offsetX": "Offset X",
       "offsetY": "Offset Y",
       "categoryMapping": "Icons by value",
-      "categoryIcon": "Icon for {{value}}"
+      "categoryIcon": "Icon for {{value}}",
+      "anchorOption": {
+        "center": "Center",
+        "top": "Top",
+        "bottom": "Bottom",
+        "left": "Left",
+        "right": "Right",
+        "top-left": "Top left",
+        "top-right": "Top right",
+        "bottom-left": "Bottom left",
+        "bottom-right": "Bottom right"
+      },
+      "sampledValues": "A sample of this column’s values — not every value in the dataset.",
+      "unknownIcon": "No icon named “{{icon}}” — this value will draw nothing."
     },
     "arrow": {
       "title": "Arrow direction",
@@ -345,7 +351,6 @@
       "resampling": "Resampling",
       "resamplingLinear": "Linear",
       "resamplingNearest": "Nearest",
-      "renderMode": "Render",
       "renderRaster": "Raster",
       "renderHillshade": "Hillshade",
       "reset": "Reset",

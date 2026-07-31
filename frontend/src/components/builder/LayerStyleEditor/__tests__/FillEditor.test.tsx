@@ -46,22 +46,20 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
     builderConfig: {},
     styleConfig: null,
     symbolConfig: { iconImage: 'marker', iconSize: 1, iconRotation: 0, iconAnchor: 'center' },
-    renderMode: 'points',
     isPolygon: true,
     numericColumns: [],
     currentHeightCol: '',
     strokeEnabled: true,
     fillEnabled: true,
-    clusterAvailable: false,
     onPaintChange: vi.fn(),
     onLayoutChange: vi.fn(),
-    onStyleConfigChange: vi.fn(),
     onPaintProp: vi.fn(),
     onToggleFill: vi.fn(),
     onToggleStroke: vi.fn(),
     onHeatmapPaintChange: vi.fn(),
     onSymbolConfigChange: vi.fn(),
     onBuilderChange: vi.fn(),
+    onFillPatternChange: vi.fn(),
     t: (key: string, opts?: Record<string, unknown>) => {
       if (key === 'style.extrusionRange') {
         const o = opts ?? {};
@@ -408,18 +406,24 @@ describe('FillEditor', () => {
     expect(screen.getByRole('button', { name: 'Hatch' })).toBeInTheDocument();
   });
 
-  it('clicking a pattern swatch calls onPaintProp("fill-pattern", id)', () => {
+  // fix(#922): the picker routes through the dedicated onFillPatternChange
+  // handler, which enforces the EDIT-05 fill-color/fill-pattern exclusion by
+  // DELETING keys. The old onPaintProp fallback set them to undefined instead.
+  it('clicking a pattern swatch calls onFillPatternChange(id)', () => {
+    const onFillPatternChange = vi.fn();
     const onPaintProp = vi.fn();
     render(
       <FillEditor
-        {...makePropsWithPattern(makeFillLayer(), { isPolygon: true, fillEnabled: true, onPaintProp })}
+        {...makePropsWithPattern(makeFillLayer(), { isPolygon: true, fillEnabled: true, onPaintProp, onFillPatternChange })}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Hatch' }));
-    expect(onPaintProp).toHaveBeenCalledWith('fill-pattern', 'geolens-fill-hatch');
+    expect(onFillPatternChange).toHaveBeenCalledWith('geolens-fill-hatch');
+    expect(onPaintProp).not.toHaveBeenCalledWith('fill-pattern', expect.anything());
   });
 
-  it('clicking "None" swatch calls onPaintProp("fill-pattern", undefined)', () => {
+  it('clicking "None" swatch calls onFillPatternChange(undefined)', () => {
+    const onFillPatternChange = vi.fn();
     const onPaintProp = vi.fn();
     const layer = makeFillLayer({ paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' } });
     render(
@@ -428,6 +432,7 @@ describe('FillEditor', () => {
           isPolygon: true,
           fillEnabled: true,
           onPaintProp,
+          onFillPatternChange,
           paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' },
         })}
       />,
@@ -436,7 +441,8 @@ describe('FillEditor', () => {
     const noneButtons = screen.getAllByRole('button', { name: 'None' });
     // Click the first one (in the picker)
     fireEvent.click(noneButtons[0]);
-    expect(onPaintProp).toHaveBeenCalledWith('fill-pattern', undefined);
+    expect(onFillPatternChange).toHaveBeenCalledWith(undefined);
+    expect(onPaintProp).not.toHaveBeenCalledWith('fill-pattern', expect.anything());
   });
 
   it('does NOT render Fill Pattern section when isPolygon=false', () => {
@@ -498,8 +504,8 @@ describe('FillEditor', () => {
         {...makePropsWithPattern(layer, {
           isPolygon: true,
           fillEnabled: true,
-          onFillPatternChange,
           onPaintProp,
+          onFillPatternChange,
           paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' },
         })}
       />,

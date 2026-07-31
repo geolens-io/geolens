@@ -16,8 +16,6 @@ export interface BaseStyleEditorProps {
   builderConfig: BuilderStyleConfig;
   styleConfig: StyleConfig | null;
   symbolConfig: SymbolStyleConfig;
-  /** Effective render mode (point layers only). */
-  renderMode: PointRenderMode;
   /** True when layer is a polygon (vs pure POINT geometry). */
   isPolygon: boolean;
   /** Numeric columns available for height extrusion etc. */
@@ -28,11 +26,8 @@ export interface BaseStyleEditorProps {
   strokeEnabled: boolean;
   /** True when fill is currently enabled (polygon only). */
   fillEnabled: boolean;
-  /** True when the cluster render mode is available for this layer. */
-  clusterAvailable: boolean;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   /** Patch a single paint property (handles builder-alias routing internally). */
   onPaintProp: (key: string, value: unknown) => void;
   /**
@@ -40,7 +35,9 @@ export interface BaseStyleEditorProps {
    * setting a pattern deletes fill-color; clearing the pattern (id=undefined)
    * deletes fill-pattern and restores fill-color. Optional — only FillEditor uses it.
    */
-  onFillPatternChange?: (id: string | undefined) => void;
+  /** fix(#922): required — the fallback set fill-pattern to undefined instead of
+   *  deleting the key, exactly what the EDIT-05 mutual-exclusion rule forbids. */
+  onFillPatternChange: (id: string | undefined) => void;
   onToggleFill: () => void;
   onToggleStroke: () => void;
   onHeatmapPaintChange: (layerId: string, nextPaint: Record<string, unknown>) => void;

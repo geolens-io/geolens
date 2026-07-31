@@ -64,6 +64,34 @@ describe('IngestWarningsBanner', () => {
     expect(screen.queryByText(/was trimmed/)).not.toBeInTheDocument();
   });
 
+  // fix(#906): a skipped clip (narrow-validity CRS) lost nothing but must
+  // not be silent — and must not claim geometry was clipped away.
+  it('explains a skipped clip instead of claiming geometry was removed', () => {
+    render(
+      <IngestWarningsBanner
+        job={job([
+          {
+            kind: 'mercator_clip',
+            details: {
+              dropped_features: 0,
+              clipped_features: 0,
+              clip_skipped: true,
+            },
+          },
+        ])}
+      />,
+    );
+
+    expect(
+      screen.getByText('Geometry outside the Web Mercator bounds'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/boundary check was skipped/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/clipped away during import/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/lost/)).not.toBeInTheDocument();
+  });
+
   it('still renders the pre-existing warning kinds', () => {
     render(
       <IngestWarningsBanner
