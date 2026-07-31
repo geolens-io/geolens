@@ -581,6 +581,71 @@ class TestUpdateMetadata:
 
         assert resp.status_code == 200, resp.text
 
+    async def test_a_grant_reaching_only_an_inactive_user_does_not_block(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r4): a grant holder who cannot authenticate is not an
+        audience.
+
+        `get_optional_user` rejects a non-active account before it can render a
+        layer, so deactivating the only grant holder leaves nobody to strand —
+        and the same move that must block while they are active must stop
+        blocking once they are not. Both directions are asserted, because the
+        failure this guards against is a refusal that lies.
+
+        The grant goes to a role created for this test rather than to `viewer`:
+        the per-worker database is shared across tests, and earlier ones leave
+        active `viewer_<hex>` accounts behind, so granting `viewer` would reach
+        members this test cannot deactivate.
+        """
+        from app.modules.auth.models import Role, User, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name="Inactive Grant Map",
+        )
+
+        viewer_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+        role = Role(name=f"grant-only-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        # Sole grant holder is active: the move strands them, so it is refused.
+        blocked = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert blocked.status_code == 422
+        assert "Inactive Grant Map" in blocked.json()["detail"]
+
+        viewer = await test_db_session.get(User, viewer_id)
+        viewer.is_active = False
+        viewer.status = "suspended"
+        await test_db_session.commit()
+
+        # Same move, same grant row — nobody left who could have rendered it.
+        allowed = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert allowed.status_code == 200, allowed.text
+
     async def test_an_unpublished_dataset_never_blocks(
         self,
         client: AsyncClient,
