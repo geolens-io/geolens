@@ -385,6 +385,26 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       }
       fillColorSaved = undefined;
     }
+    // fix(#910, codex P2): None means "plain solid fill", so a colour classification
+    // that no longer has an expression in paint has to go with it. Reachable because
+    // Advanced JSON and the AI `replace_paint` action can swap a categorical fill-color
+    // expression for a pattern-only paint object while leaving `style_config` behind:
+    // the classification is already orphaned at that point, and None then installed a
+    // solid colour beside it. DataDrivenStyleEditor saw a persisted config matching its
+    // own state, skipped regenerating the expression, and the layer drew solid while the
+    // editor and legend both still claimed it was styled by the attribute.
+    //
+    // Scoped to a config that targets COLOUR — a graduated `target: 'radius'` or
+    // 'width' classification is untouched by anything the fill picker just did. Only
+    // the builder block survives, which is the same shape DataDrivenStyleEditor's own
+    // clear paths produce.
+    const configOwnsFillColor =
+      !!layer.style_config &&
+      (layer.style_config.mode === 'categorical' || layer.style_config.mode === 'graduated') &&
+      (layer.style_config.target === undefined || layer.style_config.target === 'color');
+    const baseConfig = !id && configOwnsFillColor
+      ? ({ builder: layer.style_config?.builder } as StyleConfig)
+      : layer.style_config;
     // Not updateBuilderConfig: this one needs `replace`. withBuilderConfig collapses
     // to null once fillColorSaved was the only builder field, and
     // handleStyleConfigChange reads a null config as "keep the existing builder",
@@ -394,7 +414,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // and are left alone.)
     onStyleConfigChange(
       layer.id,
-      withBuilderConfig(layer.style_config, { fillColorSaved }),
+      withBuilderConfig(baseConfig, { fillColorSaved }),
       stripLegacyBuilderPaint(next),
       { replace: true },
     );

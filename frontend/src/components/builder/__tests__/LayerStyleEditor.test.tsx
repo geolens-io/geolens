@@ -1677,6 +1677,73 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(typeof paint['fill-color']).toBe('string');
   });
 
+  // fix(#910, codex P2): None means a plain solid fill, so an orphaned colour
+  // classification must not survive it. Reachable when Advanced JSON or the AI
+  // replace_paint action swaps a categorical fill-color expression for a pattern-only
+  // paint object: the config outlives its expression, and None then left the layer
+  // drawing solid while the editor and legend still claimed attribute styling.
+  it('clears an orphaned colour classification when None restores a solid fill', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          // The replace_paint aftermath: pattern only, no fill-color expression left.
+          paint: { 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: {
+            mode: 'categorical',
+            column: 'zone',
+            ramp: 'Set2',
+            categories: [{ value: 'a', color: '#e41a1c' }],
+          } as StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect('fill-pattern' in paint).toBe(false);
+    expect(typeof paint['fill-color']).toBe('string');
+    // The classification is gone, so the legend and the editor agree with the map.
+    expect(config?.mode).toBeUndefined();
+    expect(config?.column).toBeUndefined();
+    expect(config?.categories).toBeUndefined();
+  });
+
+  // The mirror: a classification the fill picker has no business touching survives.
+  it('leaves a non-colour classification alone when None restores a solid fill', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: {
+            mode: 'graduated',
+            column: 'height',
+            ramp: 'Blues',
+            target: 'width',
+          } as StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { config } = lastStyleConfigCall(onStyleConfigChange);
+    expect(config?.mode).toBe('graduated');
+    expect(config?.target).toBe('width');
+  });
+
   it('keeps the stash when switching from one pattern straight to another', () => {
     const onStyleConfigChange = vi.fn();
     render(
