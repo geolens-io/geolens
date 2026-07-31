@@ -161,6 +161,42 @@ describe('API error localization boundary', () => {
     ).toBe('The submitted values are invalid.');
   });
 
+  // fix(#931): the backend names the offending maps precisely so a human can go
+  // and fix them; unmapped, that list fell through to the generic 422 string.
+  it('surfaces the maps a visibility change would strand', () => {
+    expect(
+      classifyApiError(
+        'Cannot restrict visibility: dataset is used in shared maps: Flood Risk, Parcels 2026',
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: 'Flood Risk, Parcels 2026' },
+    });
+    expect(
+      translateApiErrorDetail(
+        'Cannot restrict visibility: dataset is used in shared maps: Flood Risk',
+        422,
+      ),
+    ).toContain('Flood Risk');
+  });
+
+  // fix(#931 codex r5): `MapCreate.name` is length-bounded and NFC-normalized,
+  // nothing more, so a newline in a map name is valid input. Without the `s`
+  // flag `.` stopped at it and the whole list fell back to the generic 422 —
+  // losing exactly the part that makes the refusal actionable.
+  it('surfaces map names that legally contain a newline', () => {
+    expect(
+      classifyApiError(
+        'Cannot restrict visibility: dataset is used in shared maps: Flood\nRisk, Parcels',
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: 'Flood\nRisk, Parcels' },
+    });
+  });
+
   it('retains unknown layer names through localized structured validation', () => {
     expect(
       translateApiErrorDetail(
