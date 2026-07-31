@@ -96,7 +96,16 @@ class FakeProcessingPort:
         return {"viewer"}
 
     async def run_analysis_preview(
-        self, session, dataset, operation, *, user_id, distance_meters=None, mask=None
+        self,
+        session,
+        dataset,
+        operation,
+        *,
+        user_id,
+        distance_meters=None,
+        mask=None,
+        # feat(#683): the protocol carries a mask DATASET for clip-by-layer.
+        mask_dataset=None,
     ):
         return None
 

@@ -44,11 +44,21 @@ class TestExtensionApiVersionConstant:
             f"EXTENSION_API_VERSION must be int, got {type(EXTENSION_API_VERSION)}"
         )
 
-    def test_version_matches_required_connector_contract(self):
-        """v2 covers the required connector discovery/dispatch methods."""
+    def test_version_matches_required_overlay_contract(self):
+        """The constant is pinned so a bump has to be a deliberate act.
+
+        v2 covered the required connector discovery/dispatch methods. v3 adds
+        the ``mask_dataset`` keyword to ``ProcessingPort.run_analysis_preview``
+        (feat(#683), chat clip-by-layer) — the ``processing_port`` registry key
+        is overlay-populated, so changing that method's signature changes the
+        expected type of a registry key, which version.py's bump convention
+        names explicitly.
+
+        Update this pin, and the note above it, whenever the constant moves.
+        """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 2
+        assert EXTENSION_API_VERSION == 3
 
 
 class TestCheckExtensionApiVersion:
