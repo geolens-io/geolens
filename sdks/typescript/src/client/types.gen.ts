@@ -3042,6 +3042,14 @@ export type DatasetResponse = {
      */
     data_vintage_start?: string | null;
     /**
+     * Derived From
+     *
+     * Provenance for an analysis output — {dataset_id, operation, params, created_at}. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset.
+     */
+    derived_from?: {
+        [key: string]: unknown;
+    } | null;
+    /**
      * Extent Bbox
      *
      * Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.

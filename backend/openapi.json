@@ -5107,6 +5107,19 @@
             "description": "Start of temporal coverage",
             "title": "Data Vintage Start"
           },
+          "derived_from": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provenance for an analysis output \u2014 {dataset_id, operation, params, created_at}. Null for a dataset that was not derived, and also for a requester who cannot access the source dataset.",
+            "title": "Derived From"
+          },
           "extent_bbox": {
             "anyOf": [
               {

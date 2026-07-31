@@ -48,8 +48,14 @@ def _build_stac_links(
     item_id: str,
     collection_id: str | None,
     stac_api_url: str,
+    derived_from_id: str | None = None,
 ) -> list[dict]:
-    """Build the ``links`` array for a STAC Item."""
+    """Build the ``links`` array for a STAC Item.
+
+    ``derived_from_id`` (feat(#765)) is the source item of an analysis output.
+    It must already be access-checked by the caller — this function only
+    formats the link, and an id that reached it is emitted.
+    """
     self_href = (
         f"{stac_api_url}/collections/{collection_id}/items/{item_id}"
         if collection_id
@@ -82,6 +88,14 @@ def _build_stac_links(
                 "rel": "collection",
                 "href": f"{stac_api_url}/collections/{collection_id}",
                 "type": "application/json",
+            }
+        )
+    if derived_from_id:
+        links.append(
+            {
+                "rel": "derived_from",
+                "href": f"{stac_api_url}/items/{derived_from_id}",
+                "type": "application/geo+json",
             }
         )
     return links
@@ -142,6 +156,7 @@ def ogc_record_to_stac_item(
     *,
     collection_id: str | None = None,
     stac_api_url: str,
+    derived_from_id: str | None = None,
 ) -> dict:
     """Transform an OGC Record Feature dict into a STAC 1.0 Item dict.
 
@@ -205,7 +220,9 @@ def ogc_record_to_stac_item(
         "id": record["id"],
         "geometry": record.get("geometry"),
         "properties": stac_props,
-        "links": _build_stac_links(record["id"], collection_id, stac_api_url),
+        "links": _build_stac_links(
+            record["id"], collection_id, stac_api_url, derived_from_id
+        ),
         "assets": record.get("assets", {}),
     }
     if record.get("bbox") is not None:

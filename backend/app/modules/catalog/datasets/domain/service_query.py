@@ -255,6 +255,8 @@ async def get_dataset_detail(
         user_roles = await get_user_roles(db, user) if user is not None else set()
     is_admin = "admin" in user_roles
 
+    from app.modules.catalog.authorization import visible_derived_from
+
     response = dataset_to_response(
         dataset,
         collections=collections_data,
@@ -264,6 +266,11 @@ async def get_dataset_detail(
         source_count=source_count,
         base_url=base_url,
         stac_assets=stac_assets_dict or None,
+        # feat(#765): detail only, and only when the requester can reach the
+        # source dataset.
+        derived_from=await visible_derived_from(
+            db, dataset.record.derived_from, user, user_roles
+        ),
     )
     # fix(#430 codex r18): genericity probe (helpers.py) keeps all draw modes.
     if response is not None and dataset.source_format == "created":

@@ -139,6 +139,46 @@ async def check_dataset_access(
     return user_roles
 
 
+async def visible_derived_from(
+    db: AsyncSession,
+    derived_from: dict | None,
+    user: Identity | None,
+    user_roles: set[str],
+) -> dict | None:
+    """The provenance reference, but only for a requester who can see the source.
+
+    feat(#765): an analysis output can be shared while the dataset it was
+    derived from stays private, so the reference is gated on access to that
+    source. It is omitted rather than stubbed: a requester cannot tell
+    "not derived from anything" from "derived from something you cannot see",
+    which is what keeps the id (and the fact of its existence) from leaking.
+
+    A source that has since been deleted also yields None — access to it can no
+    longer be established, and the prose lineage on the record still reads.
+    """
+    if not derived_from:
+        return None
+    raw_id = derived_from.get("dataset_id")
+    try:
+        source_id = uuid.UUID(str(raw_id))
+    except (TypeError, ValueError):
+        return None
+
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    source = await get_dataset(db, source_id)
+    if source is None:
+        return None
+    allowed = await get_permission_extension().can_access_dataset(
+        db,
+        source,
+        source_id,
+        user,
+        user_roles=user_roles,
+    )
+    return derived_from if allowed else None
+
+
 async def check_dataset_write_access(
     db: AsyncSession,
     dataset: Any,

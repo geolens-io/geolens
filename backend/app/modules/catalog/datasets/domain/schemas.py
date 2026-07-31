@@ -309,6 +309,14 @@ class DatasetResponse(BaseModel):
     lineage_summary: str | None = Field(
         default=None, description="Free-text provenance / lineage statement"
     )
+    derived_from: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Provenance for an analysis output — {dataset_id, operation, params, "
+            "created_at}. Null for a dataset that was not derived, and also for "
+            "a requester who cannot access the source dataset."
+        ),
+    )
     update_frequency: str | None = Field(
         default=None, description="ISO maintenance frequency code"
     )
