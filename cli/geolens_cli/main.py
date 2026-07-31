@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Optional
@@ -925,8 +926,13 @@ def analysis_materialize(
     # fix(#685 review): `timeout or POLL_FOREVER` read an explicit 0 as "no
     # bound", the opposite of what it asks for. A zero or negative wait is a
     # usage error — --no-wait is the way to not wait.
-    if timeout is not None and timeout <= 0:
-        state.output.error("--timeout must be greater than 0; use --no-wait to skip waiting.")
+    # `inf` and overflowing literals like 1e309 parse as a real float, so a
+    # bound the caller asked for would silently become no bound at all.
+    if timeout is not None and (timeout <= 0 or not math.isfinite(timeout)):
+        state.output.error(
+            "--timeout must be a finite number greater than 0; "
+            "use --no-wait to skip waiting."
+        )
         raise typer.Exit(EXIT_USAGE)
     sdk = state.sdk()
 

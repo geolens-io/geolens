@@ -102,6 +102,18 @@ class TestRequestBuilders:
         with pytest.raises(ValueError, match="not a valid id"):
             build_preview_request("clip", mask_dataset_id="not-a-uuid")
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_a_non_finite_distance_is_rejected_before_serialization(
+        self, bad: float
+    ) -> None:
+        """fix(#685 review): Click parses nan/inf/1e309 into real floats, and
+        JSON cannot spell any of them — the failure would otherwise surface
+        from inside the SDK's encoder."""
+        from geolens_cli.analysis import build_preview_request
+
+        with pytest.raises(ValueError, match="finite"):
+            build_preview_request("buffer", distance_meters=bad)
+
 
 # ---------------------------------------------------------------------------
 # Preview rendering
@@ -453,6 +465,40 @@ class TestAnalysisMaterializeCli:
         )
         assert result.exit_code == 0, result.output
         assert seen["timeout"] == 30.0
+
+    def test_a_non_finite_timeout_is_a_usage_error(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#685 review): --timeout inf parses fine and would turn an
+        explicitly bounded wait into an unbounded one."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+
+        def _must_not_poll(*args, **kwargs):  # pragma: no cover - failure path
+            raise AssertionError("--timeout inf must not start an unbounded poll")
+
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr("geolens_cli.publish.resolve_dataset_id", _must_not_poll)
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "inf",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "finite" in result.output
 
     def test_a_zero_timeout_is_a_usage_error_not_an_endless_wait(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

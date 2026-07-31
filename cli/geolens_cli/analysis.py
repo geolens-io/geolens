@@ -15,6 +15,7 @@ call goes through the generated SDK functions.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 from uuid import UUID
 
@@ -39,6 +40,21 @@ DISTANCE_UNIT = "metres"
 #: bound of its own, and hitting it reports honestly that the job is unfinished
 #: rather than failed.
 POLL_FOREVER: float = float("inf")
+
+
+def require_finite(value: Optional[float], flag: str) -> Optional[float]:
+    """Reject NaN/Infinity before they reach the wire (fix(#685 review)).
+
+    Click parses ``nan``, ``inf`` and overflowing literals like ``1e309`` into
+    real float values, and JSON has no way to spell any of them: the encoder
+    downstream either emits non-standard tokens or raises from inside the SDK,
+    neither of which reads as "that argument was not a number".
+    """
+    if value is None:
+        return None
+    if not math.isfinite(value):
+        raise ValueError(f"{flag} must be a finite number")
+    return value
 
 
 def _mask_dataset_arg(mask_dataset_id: Optional[str]) -> Any:
@@ -68,6 +84,7 @@ def build_preview_request(
     from geolens.models.analysis_preview_request import AnalysisPreviewRequest
     from geolens.types import UNSET
 
+    distance_meters = require_finite(distance_meters, "--distance")
     return AnalysisPreviewRequest(
         operation=operation,  # type: ignore[arg-type]  # the SDK enum is the authority
         distance_meters=UNSET if distance_meters is None else distance_meters,
@@ -87,6 +104,7 @@ def build_materialize_request(
     from geolens.models.analysis_materialize_request import AnalysisMaterializeRequest
     from geolens.types import UNSET
 
+    distance_meters = require_finite(distance_meters, "--distance")
     return AnalysisMaterializeRequest(
         operation=operation,  # type: ignore[arg-type]  # the SDK enum is the authority
         title=title,
