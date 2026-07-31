@@ -59,7 +59,14 @@ function RootLayout() {
       {/* feat(#682): analysis-job notifier — global so a materialize job that
           outlives the builder (panel closed, navigated away, tab reloaded)
           still reports when it lands. Needs router context for its
-          "View dataset" action, so it lives here rather than main.tsx. */}
+          "View dataset" action, so it lives here rather than main.tsx.
+          fix(#1018): the reload case covers a job still RUNNING at reload
+          time, which is what the persisted store carries. One that reached a
+          terminal status first has already had setJob(null) persisted by the
+          watcher, so a reload in the gap between that write and the toast
+          being read loses the notification. Not worth guarding — it needs a
+          hard reload inside a few hundred ms — but the guarantee is narrower
+          than "survives a reload" full stop. */}
       <AnalysisJobWatcher />
       <Suspense fallback={<LoadingState />}>
         <Outlet />

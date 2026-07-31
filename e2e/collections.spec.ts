@@ -29,6 +29,14 @@ async function waitForDatasetJob(jobId: string, authHeaders: Record<string, stri
     const statusRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders });
     expect(statusRes.ok).toBe(true);
     const status = await statusRes.json() as JobStatusPayload;
+    // fix(#1018): claim the cleanup handle the moment the row exists, not once
+    // the job also reports complete. Everything below this line can throw — a
+    // failed import, a 45-attempt timeout, the ok() assertion on the next poll
+    // — and until this assignment lands afterAll sees a null id and deletes
+    // nothing, so each failed retry leaks one dataset. Same fix as #895 in
+    // analysis.spec.ts, where the catalog count climbed 3 → 4 → 5 across three
+    // retries.
+    if (status.dataset_id) createdDatasetId = status.dataset_id;
     if (status.status === 'complete' && status.dataset_id) return status.dataset_id;
     if (status.status === 'failed') {
       throw new Error(`Collection fixture import failed: ${status.error_message ?? 'unknown error'}`);
@@ -42,6 +50,10 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
   const token = getAuthToken();
   const authHeaders = { Authorization: `Bearer ${token}` };
   const title = `E2E Collection Dataset ${Date.now()}`;
+  // The other half of the cleanup handle, registered before the upload can
+  // create anything: afterAll needs BOTH the id and the confirm title, so
+  // claiming the id early only helps if the title is already there.
+  createdDatasetTitle = title;
   const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.geojson`;
   const geojson = JSON.stringify({
     type: 'FeatureCollection',
@@ -188,9 +200,10 @@ test.describe.serial('Collections', () => {
       page.getByRole('heading', { name: 'Add Datasets' }),
     ).toBeVisible();
 
+    // createdDatasetId / createdDatasetTitle are registered inside the helper,
+    // as early as each value exists, so afterAll can clean up a run that dies
+    // before this line (fix(#1018)).
     const dataset = await createCollectionDataset();
-    createdDatasetId = dataset.datasetId;
-    createdDatasetTitle = dataset.title;
 
     await page.getByPlaceholder('Search datasets by name...').fill(dataset.title);
     await page.getByRole('button', { name: 'Search' }).click();

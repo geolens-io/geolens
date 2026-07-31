@@ -824,8 +824,19 @@ async def _ingest_vector_into_staging(
 ) -> StagingResult:
     """Load a vector source into staging and return extracted staging metadata.
 
-    This helper preserves the staging-pipeline unit-test boundary while the
-    production ingest path continues to inline the broader job lifecycle.
+    TEST-ONLY (#1018). Nothing in ``app/`` calls this. Every caller is a test:
+    ``tests/test_staging_pipeline.py`` and
+    ``tests/test_staging_pipeline_integration.py``. It exists to give those
+    tests a callable seam over the staging half of ingest, which production
+    inlines inside its own job lifecycle rather than factoring out.
+
+    So it is a PARALLEL COPY, not the live path, and it can drift. The two
+    production sequences it mirrors are ``tasks_vector.py`` (run_ogr2ogr ->
+    rename_reserved_columns -> DBF-truncation check -> geometry override ->
+    _run_staging_pipeline, :459-560) and ``tasks_reupload.py`` (:261-340).
+    A change to either has to visit here, or these tests start asserting
+    against a shape production no longer has.
+
     It intentionally performs no commits.
     """
     from app.processing.ingest.metadata import rename_reserved_columns

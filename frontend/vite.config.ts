@@ -245,12 +245,13 @@ export default defineConfig({
       // recompute floor(actual) and bump these (add a +1 / +2 buffer when actual
       // sits comfortably above the floor). Never lower without a documented
       // rationale in CHANGELOG.
-      // 2026-05-07 actuals: statements 41.51 / branches 39.42 / functions 37.99 / lines 42.69
-      // Note: plan-prescribed +2 buffer (43/41/39/44) failed all four dimensions because
-      // actuals sit < 1pt above their integer floors. +1 buffer would also fail for the
-      // same reason. Set to floor(actual) (= +0 buffer) — values still ratchet meaningfully
-      // above the prior 32/27/27/32 baseline (statements +9, branches +12, functions +10,
-      // lines +10) so the gate catches any non-trivial coverage regression.
+      // 2026-07-31 actuals: statements 72.05 / branches 67.31 / functions 66.29 / lines 74.16
+      // (fix(#1018): the numbers here used to be the 2026-05-07 ones — 41.51 / 39.42 /
+      // 37.99 / 42.69 — carrying a warning that even a +1 buffer would fail because
+      // actuals sat under a point above their integer floors. Neither half is true now:
+      // the suite has ~30 points of headroom on every dimension, so an uncovered line
+      // does not trip these thresholds. Ratcheting them up to match is a separate call,
+      // deliberately not made here.)
       thresholds: {
         statements: 41,
         branches: 39,
