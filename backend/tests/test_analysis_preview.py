@@ -208,6 +208,153 @@ def _preview_url(dataset_id) -> str:
 # ---------------------------------------------------------------------------
 
 
+class TestPreviewGlobalBound:
+    """fix(#1014): previews are bounded globally, not only per user."""
+
+    def test_bound_is_sized_from_the_configured_pool(self, monkeypatch):
+        """fix(#1014 review): the bound must track DB_POOL_SIZE/DB_MAX_OVERFLOW.
+
+        A hardcoded 4 against the supported small-pool configuration
+        (DB_POOL_SIZE=2, DB_MAX_OVERFLOW=0) would admit twice as many previews
+        as there are connections — the exact failure the bound exists to
+        prevent, at a different scale.
+        """
+        from app.core.config import settings
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        # Default pool: 10 + 3 = 13 slots, a quarter of which is 3. A quarter
+        # rather than a third because the AI chat path cannot release its
+        # request session, so those previews cost two slots each.
+        monkeypatch.setattr(settings, "db_pool_size", 10)
+        monkeypatch.setattr(settings, "db_max_overflow", 3)
+        assert service_analysis._preview_bound() == 3
+
+        monkeypatch.setattr(settings, "db_pool_size", 2)
+        monkeypatch.setattr(settings, "db_max_overflow", 0)
+        assert service_analysis._preview_bound() == 1
+
+        # -1 means "unlimited overflow"; it must not shrink the budget.
+        monkeypatch.setattr(settings, "db_pool_size", 8)
+        monkeypatch.setattr(settings, "db_max_overflow", -1)
+        assert service_analysis._preview_bound() == 2
+
+        # Never zero — a semaphore of zero would refuse every preview.
+        monkeypatch.setattr(settings, "db_pool_size", 1)
+        monkeypatch.setattr(settings, "db_max_overflow", 0)
+        assert service_analysis._preview_bound() == 1
+
+        # With an external pooler the engine uses NullPool, so DB_POOL_SIZE and
+        # DB_MAX_OVERFLOW are ignored and deriving from them would be
+        # arithmetic on numbers that no longer mean anything.
+        monkeypatch.setattr(settings, "db_use_external_pooler", True)
+        assert service_analysis._preview_bound() == 3
+        monkeypatch.setattr(settings, "db_pool_size", 400)
+        monkeypatch.setattr(settings, "db_max_overflow", 400)
+        assert service_analysis._preview_bound() == 3
+
+    async def test_previews_never_exceed_the_global_bound(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """More concurrent previews than slots must fail cleanly, not pile onto
+        the pool.
+
+        Asserts the PEAK number of previews simultaneously inside execute_safe,
+        not pool checkout counts: the test engine uses NullPool, so checkout
+        numbers here say nothing about the production QueuePool (the same
+        reason test_preview_releases_request_session_before_sandbox_query
+        asserts on in_transaction()). The peak is the pool-independent form of
+        the same invariant — it is exactly what determines how many pool slots
+        previews can hold at once.
+
+        execute_safe is replaced, so its per-user advisory lock never runs and
+        one user can stand in for many. That is the point: the per-user lock is
+        not what is under test.
+        """
+        import asyncio
+
+        from app.modules.catalog.datasets.domain import service_analysis
+
+        bound = service_analysis._MAX_CONCURRENT_PREVIEWS
+        gate = asyncio.Event()
+        inside = 0
+        peak = 0
+        real = service_analysis.execute_safe
+
+        async def _parked_execute_safe(db, sql, **kwargs):
+            nonlocal inside, peak
+            inside += 1
+            peak = max(peak, inside)
+            try:
+                await gate.wait()
+                return await real(db, sql, **kwargs)
+            finally:
+                inside -= 1
+
+        monkeypatch.setattr(service_analysis, "execute_safe", _parked_execute_safe)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+
+        tasks = [
+            asyncio.create_task(
+                client.post(
+                    _preview_url(ds.id),
+                    json={"operation": "buffer", "distance_meters": 1000},
+                    headers=admin_auth_header,
+                )
+            )
+            for _ in range(bound * 2)
+        ]
+        # Wait until EVERY request has reached the bound, then open the gate.
+        # A request that got a slot is parked (counted by `inside`); one that
+        # was refused has already returned its 429 and its task is done. Any
+        # weaker wait is flaky: each request first authenticates, loads the
+        # dataset and checks quota, and those are DB round-trips of unbounded
+        # duration, so a fixed number of event-loop turns released the gate
+        # early and late arrivals were refused by the per-user lock instead of
+        # by the bound. Nothing can drain a slot before the gate opens, so once
+        # this holds the split is fixed.
+        for _ in range(2000):
+            settled = inside + sum(1 for t in tasks if t.done())
+            if settled >= len(tasks):
+                break
+            await asyncio.sleep(0.01)
+        assert inside + sum(1 for t in tasks if t.done()) == len(tasks), (
+            f"only {inside} parked and "
+            f"{sum(1 for t in tasks if t.done())} returned, of {len(tasks)}"
+        )
+        assert inside == bound, f"{inside} previews hold slots, expected {bound}"
+        gate.set()
+        responses = await asyncio.gather(*tasks)
+
+        assert peak <= bound, (
+            f"{peak} previews were inside the sandbox at once against a bound of "
+            f"{bound} — previews can still exhaust the connection pool"
+        )
+        details = [r.json()["detail"] for r in responses if r.status_code == 429]
+        # The refusals split by CAUSE, and the split is the point. Half never
+        # got a slot and were refused by the global bound; the rest are the
+        # per-user advisory lock inside the real execute_safe, which the gate
+        # releases them into all at once — an artifact of one user standing in
+        # for many, and proof the two refusals are distinguishable rather than
+        # one message doing double duty. Telling a user "you already have one
+        # running" when this is their first request would be a misleading
+        # explanation, which is why the bound has its own message.
+        at_capacity = [d for d in details if "maximum number of analysis previews" in d]
+        assert len(at_capacity) == bound, (
+            f"expected {bound} previews refused by the global bound, got "
+            f"{len(at_capacity)} of {len(details)} refusals: {details}"
+        )
+        assert all("already running for this user" not in d for d in at_capacity)
+        assert all(r.status_code in (200, 429) for r in responses), [
+            r.status_code for r in responses
+        ]
+
+
 class TestAnalysisPreviewEndpoint:
     async def test_preview_releases_request_session_before_sandbox_query(
         self,

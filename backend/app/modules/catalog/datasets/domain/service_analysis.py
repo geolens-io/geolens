@@ -15,6 +15,7 @@ materialize worker via ``app.platform.analysis_sql``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
@@ -35,8 +36,76 @@ from app.platform.analysis_sql import (
     render_geometry_expr,
 )
 from app.platform.sandbox.executor import execute_safe
+from app.platform.sandbox.schemas import SandboxError
 
 PREVIEW_FEATURE_CAP = 500
+
+
+# fix(#1014): total concurrent previews, on top of the per-user lock.
+#
+# The per-user `pg_try_advisory_xact_lock` in execute_safe stops ONE user from
+# stacking previews. It does nothing about N different users, and each preview
+# holds a dedicated connection from the engine pool for up to the sandbox
+# timeout. The pool is db_pool_size 10 + db_max_overflow 3 = 13 slots, and the
+# numbers in the #716 note above were measured, not estimated: before that fix
+# each preview held two slots and seven concurrent previews exhausted the pool,
+# at which point EVERY endpoint on the worker blocked for the 30-second
+# pool_timeout and the waiter's SQLAlchemy TimeoutError surfaced as an HTTP 500.
+# #716 halved the cost to one slot, which doubles the headroom without changing
+# the shape of the failure.
+#
+# Derived from the configured pool, not hardcoded: DB_POOL_SIZE and
+# DB_MAX_OVERFLOW are operator knobs, and against the supported small-pool
+# configuration (DB_POOL_SIZE=2, DB_MAX_OVERFLOW=0) a hardcoded ceiling would
+# admit more previews than there are connections — the exact failure this bound
+# exists to prevent, at a different scale.
+#
+# A QUARTER, not a third, because not every preview costs one slot. The REST
+# endpoint passes release_session=True and costs one, but the AI chat path
+# reaches this through defaults_processing_port.run_analysis_preview, which
+# cannot release the session (both chat paths read user.id again after the tool
+# returns) and therefore holds the request connection alongside the sandbox
+# one. Sizing against the worst case of two slots each keeps previews under
+# half the pool either way. On the default 13-slot pool that is 3.
+#
+# The floor of 1 keeps a one-slot pool working rather than deadlocking on a
+# semaphore of zero.
+#
+# A GLOBAL bound, not a tenant-scoped one. Re-keying the per-user lock to the
+# tenant is the smaller diff and the wrong behaviour: in the single-tenant
+# common case every user is in one tenant, so colleagues would block each other
+# for a resource that is not contended between them. What is contended is total
+# concurrent connections, so that is what is bounded.
+#
+# PER WORKER PROCESS, deliberately. An asyncio.Semaphore cannot span processes,
+# so with UVICORN_WORKERS=2 the deployment-wide ceiling is 8 — but each worker
+# has its OWN pool of 13, so the ratio this protects (4 of 13) holds per pool,
+# which is the thing that actually runs out. A cross-worker bound would need
+# another advisory lock keyed on a slot index; that is more machinery than this
+# warrants unless the per-process reading turns out to be wrong.
+# With DB_USE_EXTERNAL_POOLER=true the engine switches to NullPool, so
+# DB_POOL_SIZE and DB_MAX_OVERFLOW are ignored entirely and the real budget
+# belongs to PgBouncer or RDS Proxy, which this process cannot see. Deriving
+# from settings that no longer apply would be arithmetic on numbers that mean
+# nothing. Fall back to the value the default pool produces: a throttle is
+# still worth having (it is what stops previews saturating the pooler), it just
+# cannot be sized from here.
+_EXTERNAL_POOLER_PREVIEW_BOUND = 3
+
+
+def _preview_bound() -> int:
+    from app.core.config import settings
+
+    if settings.db_use_external_pooler:
+        return _EXTERNAL_POOLER_PREVIEW_BOUND
+    # db_max_overflow uses -1 for "unlimited"; treat that as no extra headroom
+    # rather than letting a negative shrink the budget.
+    overflow = max(0, settings.db_max_overflow)
+    return max(1, (settings.db_pool_size + overflow) // 4)
+
+
+_MAX_CONCURRENT_PREVIEWS = _preview_bound()
+_preview_slots = asyncio.Semaphore(_MAX_CONCURRENT_PREVIEWS)
 _GEOJSON_PRECISION = 6
 
 
@@ -187,12 +256,33 @@ async def run_analysis_preview(
     source_feature_count = dataset.feature_count
     if release_session:
         await db.rollback()
-    result = await execute_safe(
-        db,
-        sql,
-        row_limit=PREVIEW_FEATURE_CAP,
-        concurrency_key=str(user_id),
-    )
+    # fix(#1014): fail fast at the bound rather than queueing. The client is
+    # holding a request open, so waiting turns a fast failure into a slow one;
+    # the sandbox already has the query_busy path and the frontend already
+    # handles it. The message must NOT be the per-user one — "you already have
+    # one running" is a misleading explanation for a user whose first preview
+    # is being refused because the server is busy.
+    #
+    # `.locked()` then `async with` is atomic here despite looking like a
+    # check-then-act: there is no await between them, and acquiring a semaphore
+    # with a free slot does not yield to the loop.
+    if _preview_slots.locked():
+        # Its own category, not query_busy: every consumer that maps a category
+        # to wording — the REST 429 detail and the AI chat ERROR_MESSAGES table
+        # — would otherwise relabel this as "your query is already running",
+        # which is false for a user whose first preview is being refused.
+        raise SandboxError(
+            "query_at_capacity",
+            "The server is running its maximum number of analysis previews. "
+            "Try again in a moment.",
+        )
+    async with _preview_slots:
+        result = await execute_safe(
+            db,
+            sql,
+            row_limit=PREVIEW_FEATURE_CAP,
+            concurrency_key=str(user_id),
+        )
     features: list[dict[str, Any]] = []
     bbox: list[float] | None = None
     for gid, geometry_json in result.rows:
