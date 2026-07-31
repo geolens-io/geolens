@@ -165,6 +165,27 @@ describe('buildColormapTileUrl', () => {
     expect(result.startsWith(BASE)).toBe(true);
   });
 
+  // fix(#688): the raster template now arrives signed, so the base already
+  // carries a query string. A blind `?` folded the style params into the
+  // `scope` VALUE — a "Scope mismatch" 403 on a private raster, and silently
+  // dropped styling on a public one.
+  it('merges into an existing query string instead of starting a second one', () => {
+    const signed = `${BASE}?sig=deadbeef&exp=1700000000&scope=abc`;
+
+    const result = buildColormapTileUrl(signed, { _colormap: 'viridis' });
+
+    expect(result).toBe(`${signed}&colormap_name=viridis`);
+    expect(result.split('?')).toHaveLength(2);
+    // The scope must survive intact — it is what the server re-derives.
+    expect(new URLSearchParams(result.split('?')[1]).get('scope')).toBe('abc');
+  });
+
+  it('leaves a signed template untouched when there is nothing to append', () => {
+    const signed = `${BASE}?sig=deadbeef&exp=1700000000&scope=abc`;
+
+    expect(buildColormapTileUrl(signed, { _colormap: 'gray' })).toBe(signed);
+  });
+
   it('returns base URL unchanged for gray colormap (Titiler single-band default)', () => {
     const result = buildColormapTileUrl(BASE, { _colormap: 'gray' });
     expect(result).toBe(BASE);

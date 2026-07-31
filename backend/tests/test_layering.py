@@ -1146,7 +1146,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the note recording that the ROUTE is vestigial while the HANDLER is on the
     # live raster tile path sits at the decorator so nobody deletes the wrong
     # half. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2081,
+    # fix(#688): +73 — the raster tile template is signed like its vector
+    # sibling (mint in _build_tile_token_for_dataset, verify in
+    # _resolve_raster_access via _has_tile_signature/_verify_raster_tile_signature).
+    # Before this a client following the contract literally received an
+    # unauthenticated template for a private raster. Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2154,
 }
 
 

@@ -3,7 +3,12 @@ import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
 import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig, PopupConfig } from '@/types/api';
 import { extractPlaceholders } from '@/lib/popup-template';
-import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
+import type {
+  RasterTileToken,
+  TileToken,
+  UnsignedRasterTileTemplate,
+  VectorTileToken,
+} from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import {
@@ -251,7 +256,7 @@ function isRasterLikeLayer(layer: SyncLayerInput) {
     || layer.dataset_record_type === 'vrt_dataset';
 }
 
-function rasterTokenFromLayer(layer: SyncLayerInput): RasterTileToken | null {
+function rasterTokenFromLayer(layer: SyncLayerInput): UnsignedRasterTileTemplate | null {
   if (!isRasterLikeLayer(layer) || !layer.tile_url) return null;
   return {
     kind: 'raster',
@@ -764,7 +769,10 @@ export function isHillshadeTerrainBound(
 function syncRasterLayer(
   map: MaplibreMap,
   adapterInput: AdapterLayerInput,
-  token: RasterTileToken,
+  // fix(#688): either shape. This reads only the URL, zoom, size and bounds —
+  // never the signature — so the locally-built unsigned template is as good
+  // here as a fetched one.
+  token: RasterTileToken | UnsignedRasterTileTemplate,
   desiredSources: Set<string>,
 ) {
   adapterInput.style_config = normalizeDemStyleConfig(adapterInput.style_config, adapterInput.is_dem);
