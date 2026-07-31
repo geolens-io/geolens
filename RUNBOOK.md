@@ -842,14 +842,20 @@ Determine what was lost:
 # List all daily dumps in the backup_data volume, newest first
 docker compose exec backup sh -c 'ls -lt /backups/daily/*.dump'
 
-# Copy the chosen dump (and its paired staging archive) out of the volume.
+# Copy the chosen dump and BOTH its paired artifacts out of the volume — the
+# globals dump included, or a fresh-cluster restore has no roles to replay and
+# restore.sh cannot report which ones are missing.
 # Replace <project> with your Compose project name (see `docker volume ls`).
-mkdir -p ./restore
+# umask 077: globals-*.sql holds role password verifiers.
+mkdir -p ./restore && chmod 700 ./restore
 docker run --rm \
   -v <project>_backup_data:/backups:ro \
   -v "$(pwd)/restore":/out \
-  alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
-                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; ls -lh /out'
+  alpine sh -c 'umask 077; \
+                cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
+                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; \
+                cp /backups/daily/globals-<YYYYmmdd_HHMMSS>.sql /out/ 2>/dev/null; \
+                ls -lh /out'
 
 # Validate the candidate dump before restoring. Omit the filename to read
 # stdin: PG 18 rejects the literal `-` with `could not open input file "-"`,
