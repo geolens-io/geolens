@@ -168,7 +168,7 @@ export type RecordType =
   | 'service'
   | 'collection'
   | 'table';
-export type DatasetVisibility = 'public' | 'restricted' | 'private';
+export type DatasetVisibility = 'public' | 'internal' | 'restricted' | 'private';
 export type RecordStatus = 'draft' | 'published';
 export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
 
@@ -641,6 +641,9 @@ export interface JobStatusResponse {
   created_at: string;
 }
 
+/** fix(#875): 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
+export type ApiKeyScope = 'full' | 'read_only';
+
 export interface ApiKeyResponse {
   id: string;
   user_id: string;
@@ -648,6 +651,7 @@ export interface ApiKeyResponse {
   fingerprint: string | null;
   is_active: boolean;
   expires_at: string | null;
+  scope: ApiKeyScope;
   created_at: string;
   last_used_at: string | null;
 }
@@ -658,6 +662,7 @@ export interface ApiKeyCreateResponse {
   fingerprint: string;
   name: string;
   expires_at: string | null;
+  scope: ApiKeyScope;
   created_at: string;
 }
 
@@ -667,6 +672,7 @@ export interface MyApiKeyResponse {
   fingerprint: string | null;
   is_active: boolean;
   expires_at: string | null;
+  scope: ApiKeyScope;
   created_at: string;
   last_used_at: string | null;
 }
@@ -1130,6 +1136,10 @@ export interface MapSummaryResponse {
   description: string | null;
   visibility: MapVisibility;
   thumbnail_url: string | null;
+  /** fix(#1005): the thumbnail's cache version, separate from the map's edit
+   * timestamp. Null for maps whose thumbnail predates the column — fall back to
+   * `updated_at` so the card keeps a stable version either way. */
+  thumbnail_updated_at: string | null;
   layer_count: number;
   created_by_username: string | null;
   created_at: string;

@@ -93,11 +93,37 @@ describe('admin api request contracts', () => {
     expect(calledInit()?.body).toBeUndefined();
   });
 
-  it('createApiKey POSTs user_id + name to /admin/api-keys/', async () => {
+  it('createApiKey POSTs user_id + name + scope to /admin/api-keys/', async () => {
     await admin.createApiKey('u1', 'ci-key');
     expect(calledUrl()).toBe('/admin/api-keys/');
     expect(calledInit()?.method).toBe('POST');
-    expect(JSON.parse(calledInit()?.body as string)).toEqual({ user_id: 'u1', name: 'ci-key' });
+    // fix(#875): scope is always sent, defaulting to the pre-#875 behaviour.
+    expect(JSON.parse(calledInit()?.body as string)).toEqual({
+      user_id: 'u1',
+      name: 'ci-key',
+      scope: 'full',
+    });
+  });
+
+  it('createApiKey sends a read_only scope when asked (#875)', async () => {
+    await admin.createApiKey('u1', 'ci-key', { scope: 'read_only' });
+    expect(JSON.parse(calledInit()?.body as string)).toEqual({
+      user_id: 'u1',
+      name: 'ci-key',
+      scope: 'read_only',
+    });
+  });
+
+  it('createApiKey threads expires_at, which the mirror used to drop (#875)', async () => {
+    // AdminApiKeyCreateRequest has accepted expires_at since #821; this mirror
+    // never sent it, so the admin UI could not mint an expiring key at all.
+    await admin.createApiKey('u1', 'ci-key', { expiresAt: '2027-01-01T00:00:00Z' });
+    expect(JSON.parse(calledInit()?.body as string)).toEqual({
+      user_id: 'u1',
+      name: 'ci-key',
+      scope: 'full',
+      expires_at: '2027-01-01T00:00:00Z',
+    });
   });
 
   it('bulkRevokeEmbedTokens POSTs token_ids to the bulk-revoke endpoint', async () => {

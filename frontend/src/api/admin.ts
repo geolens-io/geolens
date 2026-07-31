@@ -15,6 +15,7 @@ import type {
   AuditLogListResponse,
   ApiKeyResponse,
   ApiKeyCreateResponse,
+  ApiKeyScope,
   InfrastructureResponse,
 } from '@/types/api';
 
@@ -119,10 +120,21 @@ export async function listApiKeys(userId: string): Promise<ApiKeyResponse[]> {
   return data.items;
 }
 
-export async function createApiKey(userId: string, name: string): Promise<ApiKeyCreateResponse> {
+export async function createApiKey(
+  userId: string,
+  name: string,
+  options: { scope?: ApiKeyScope; expiresAt?: string | null } = {},
+): Promise<ApiKeyCreateResponse> {
+  // fix(#875): same omission as createMyApiKey — expires_at has been accepted
+  // by AdminApiKeyCreateRequest since #821 and was never sent.
   return apiFetch<ApiKeyCreateResponse>('/admin/api-keys/', {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId, name }),
+    body: JSON.stringify({
+      user_id: userId,
+      name,
+      scope: options.scope ?? 'full',
+      ...(options.expiresAt ? { expires_at: options.expiresAt } : {}),
+    }),
   });
 }
 

@@ -5137,6 +5137,13 @@ export interface components {
              */
             name: string;
             /**
+             * Scope
+             * @description Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
+             * @default full
+             * @enum {string}
+             */
+            scope: "full" | "read_only";
+            /**
              * User Id
              * Format: uuid
              * @description ID of the user the new API key will belong to.
@@ -5182,6 +5189,11 @@ export interface components {
              * @description Human-readable label.
              */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875).
+             */
+            scope: string;
             /**
              * User Id
              * Format: uuid
@@ -5520,6 +5532,13 @@ export interface components {
              * @description Human-readable label for the API key
              */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
+             * @default full
+             * @enum {string}
+             */
+            scope: "full" | "read_only";
         };
         /** ApiKeyCreateResponse */
         ApiKeyCreateResponse: {
@@ -5550,6 +5569,11 @@ export interface components {
             key: string;
             /** Name */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875)
+             */
+            scope: string;
         };
         /** ApiKeyListItem */
         ApiKeyListItem: {
@@ -5579,6 +5603,11 @@ export interface components {
             last_used_at: string | null;
             /** Name */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875)
+             */
+            scope: string;
         };
         /** ApiKeyListResponse */
         ApiKeyListResponse: {
@@ -7209,7 +7238,7 @@ export interface components {
             data_vintage_start?: string | null;
             /**
              * Extent Bbox
-             * @description Bounding box [minx, miny, maxx, maxy]
+             * @description Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
              */
             extent_bbox?: number[] | null;
             /** Feature Count */
@@ -9171,6 +9200,8 @@ export interface components {
             layer_count: number;
             /** Name */
             name: string;
+            /** Thumbnail Updated At */
+            thumbnail_updated_at?: string | null;
             /** Thumbnail Url */
             thumbnail_url?: string | null;
             /**

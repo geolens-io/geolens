@@ -8,6 +8,10 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.admin_api_key_create_request_scope import AdminApiKeyCreateRequestScope
+from ..models.admin_api_key_create_request_scope import (
+    check_admin_api_key_create_request_scope,
+)
 from dateutil.parser import isoparse
 from typing import cast
 from uuid import UUID
@@ -25,11 +29,16 @@ class AdminApiKeyCreateRequest:
         user_id (UUID): ID of the user the new API key will belong to.
         expires_at (datetime.datetime | None | Unset): Optional expiry timestamp (RFC 3339, timezone-aware). Omit or
             null for a non-expiring key; expired keys stop authenticating.
+        scope (AdminApiKeyCreateRequestScope | Unset): Privilege scope (#875). 'full' impersonates the owner completely,
+            the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is
+            refused with 403. A service-account key minted for an application is the usual case for 'read_only'. Default:
+            'full'.
     """
 
     name: str
     user_id: UUID
     expires_at: datetime.datetime | None | Unset = UNSET
+    scope: AdminApiKeyCreateRequestScope | Unset = "full"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -45,6 +54,10 @@ class AdminApiKeyCreateRequest:
         else:
             expires_at = self.expires_at
 
+        scope: str | Unset = UNSET
+        if not isinstance(self.scope, Unset):
+            scope = self.scope
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -55,6 +68,8 @@ class AdminApiKeyCreateRequest:
         )
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
+        if scope is not UNSET:
+            field_dict["scope"] = scope
 
         return field_dict
 
@@ -82,10 +97,18 @@ class AdminApiKeyCreateRequest:
 
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
+        _scope = d.pop("scope", UNSET)
+        scope: AdminApiKeyCreateRequestScope | Unset
+        if isinstance(_scope, Unset):
+            scope = UNSET
+        else:
+            scope = check_admin_api_key_create_request_scope(_scope)
+
         admin_api_key_create_request = cls(
             name=name,
             user_id=user_id,
             expires_at=expires_at,
+            scope=scope,
         )
 
         admin_api_key_create_request.additional_properties = d

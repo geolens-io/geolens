@@ -3190,25 +3190,58 @@ class TestMapThumbnail:
         )
         assert resp.status_code == 204
 
-    async def test_upload_thumbnail_bumps_updated_at(
-        self, client: AsyncClient, admin_auth_header: dict
+    @staticmethod
+    async def _summary(client: AsyncClient, headers: dict, map_id: str) -> dict:
+        """The map's row as the gallery sees it (MapSummaryResponse).
+
+        ``thumbnail_updated_at`` is a card concern, so it rides the summary
+        shape rather than the full ``MapResponse``.
+        """
+        resp = await client.get("/maps/", headers=headers)
+        assert resp.status_code == 200
+        return next(m for m in resp.json()["maps"] if m["id"] == map_id)
+
+    @pytest.mark.parametrize(
+        ("path", "payload_key"),
+        [("thumbnail", "data_uri"), ("og-image", "data_uri")],
+    )
+    async def test_image_upload_versions_the_thumbnail_not_the_map(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        path: str,
+        payload_key: str,
     ):
-        """Thumbnail refreshes must invalidate map-card thumbnail caches."""
+        """Thumbnail refreshes must invalidate map-card thumbnail caches.
+
+        fix(#1005): the cache version moved to its own column. ``updated_at``
+        carried both meanings, so the lazy backfill that fires when an owner
+        first opens a thumbnail-less map in the builder — a read, editing
+        nothing — bumped the map's edit timestamp and reordered the "Last
+        updated" gallery. Both halves are pinned here: the card must still get
+        a new version, and the map must not come back looking edited.
+
+        One ``captureThumbnail`` call uploads both images, so the OG endpoint is
+        parametrised in rather than left as the half that still bumps.
+        """
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
         before = created["updated_at"]
+        assert await self._summary(client, admin_auth_header, map_id) is not None
 
         resp = await client.put(
-            f"/maps/{map_id}/thumbnail/",
-            json={"data_uri": _valid_png_data_uri()},
+            f"/maps/{map_id}/{path}/",
+            json={payload_key: _valid_png_data_uri()},
             headers=admin_auth_header,
         )
         assert resp.status_code == 204
 
-        refreshed = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        summary = await self._summary(client, admin_auth_header, map_id)
+        assert summary["thumbnail_updated_at"] is not None
 
+        refreshed = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
         assert refreshed.status_code == 200
-        assert refreshed.json()["updated_at"] != before
+        assert refreshed.json()["updated_at"] == before
 
     async def test_get_thumbnail_after_upload(
         self, client: AsyncClient, admin_auth_header: dict

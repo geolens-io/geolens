@@ -25,6 +25,7 @@ import {
   triggerBackfill,
   updateSemanticSearch,
 } from '@/api/admin';
+import type { ApiKeyScope } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { retryJob } from '@/api/ingest';
@@ -313,8 +314,15 @@ export function useApiKeys(userId: string) {
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, name }: { userId: string; name: string }) =>
-      createApiKey(userId, name),
+    mutationFn: ({
+      userId,
+      name,
+      scope,
+    }: {
+      userId: string;
+      name: string;
+      scope: ApiKeyScope;
+    }) => createApiKey(userId, name, { scope }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.apiKeys(variables.userId) });
     },

@@ -934,8 +934,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_processing_port.py": 406,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
-        # rationale comments. Cap exact, zero headroom.
-        "backend/app/platform/extensions/defaults_extensions.py": 352,
+        # rationale comments. fix(#930): +20 — the internal branch on the same
+        # two functions, whose comments carry why the obvious stricter variant
+        # is wrong (it hides an owner's own draft from the owner). Cap exact,
+        # zero headroom.
+        "backend/app/platform/extensions/defaults_extensions.py": 372,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -1027,7 +1030,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
     "backend/app/api/main.py": 1292,
-    "backend/app/modules/catalog/maps/schemas.py": 1312,
+    # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
+    # thumbnail cache version split out of updated_at. Ratchet stays exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1316,
     # fix(#888): +117. `clip_to_mercator_bounds` used to lose data twice over
     # in silence — it clipped away everything east of lon 180 in a 0..360
     # source, and it reduced valid polar geometry to EMPTY without telling
@@ -1063,10 +1068,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
+    # fix(#1005): +32 — _record_image_capture, the shared write for both
+    # image-upload endpoints. Its docstring carries the part that is easy to
+    # get wrong: Map.updated_at has onupdate=func.now(), so dropping the
+    # explicit assignment does not stop the bump. Ratchet stays exact.
     # fix(#941): +8 — the reworded add-layer history summary carries the reason
     # the immediate-POST and save-diff writers say different things, so a later
     # refactor does not collapse them. Ratchet stays exact.
-    "backend/app/modules/catalog/maps/router.py": 1393,
+    "backend/app/modules/catalog/maps/router.py": 1425,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
@@ -1185,7 +1194,9 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
         "backend/app/modules/catalog/search/router_saved.py": 100,
         # fix(#821): +14 lines — admin key mint accepts expires_at (audit
         # detail + response) and maps the inactive-owner mint refusal to 409.
-        "backend/app/modules/admin/router_operations.py": 289,
+        # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
+        # in the audit detail, the create response, and the list item.
+        "backend/app/modules/admin/router_operations.py": 296,
         "backend/app/modules/settings/router_public.py": 150,
     }
     oversized = []
