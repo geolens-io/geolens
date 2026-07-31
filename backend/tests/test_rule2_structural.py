@@ -94,6 +94,21 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   requirement would blind the gate to the sites it exists for. Two or more
   elements are required for the name-list rule, since ``("gdalinfo",)`` is
   indistinguishable from a bare invocation.
+- WHERE THE ESCAPE ANALYSIS STOPS (fix(#996), after eight review rounds).
+  What it does is def-use tracking over paths, not dataflow: no flow
+  sensitivity beyond the one narrow rebinding rule, no cross-function
+  propagation, no container element tracking. Known and accepted residue, in
+  the reported (loud) direction: a rebinding under an `if` still reports the
+  dead literal; a vector passed INTO a helper and spawned there is credited to
+  the helper's own scope, not the caller's. In the silent direction: a vector
+  reached through a computed key (`registry[name]`) has no path and is not
+  tracked, and neither is one that leaves via a mutation this analysis cannot
+  name (`box.append(cmd)` on an object whose other references are elsewhere).
+  Extending further means writing a static analyser, and this is a CI gate —
+  the escape hatch for anything it misclassifies is an allowlist entry with a
+  written justification, which is the same answer #974 reached for the wrapper
+  and credit questions. If a new shape shows up, prefer an allowlist entry and
+  a note here over another rule.
 - Comprehensions and generator expressions are binding scopes (fix(#996)),
   so their targets cannot shadow a name used elsewhere in the enclosing
   function. Two carve-outs match Python: the outermost iterable is evaluated
@@ -1230,6 +1245,13 @@ def _escape_kind(node: ast.AST, *, vector: bool = True) -> int:
     prev: ast.AST = node
     current: ast.AST | None = getattr(node, "_rule2_parent", None)
     while current is not None:
+        # fix(#996 review): a comparison yields a BOOLEAN, so
+        # `log.debug("matched=%s", cmd == expected)` hands over the result, not
+        # the vector. Same family as the subscript rule below: an operation
+        # that consumes the value and produces something else is where the
+        # escape stops.
+        if isinstance(current, ast.Compare):
+            return best
         # fix(#996 review): `cmd[0]` yields a STRING, so `return cmd[0]` and
         # `consume(cmd[0])` move an element, not the command vector. A slice
         # still yields a sequence that could be spawned, so only a single
@@ -1412,12 +1434,12 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
                     n for target in positional for n in _target_names(target)
                 }, climbed
         return {n for target in parent.targets for n in _target_names(target)}, climbed
-    if (
-        isinstance(parent, (ast.AnnAssign, ast.NamedExpr))
-        and parent.value is current
-        and isinstance(parent.target, ast.Name)
-    ):
-        return {parent.target.id}, climbed
+    # fix(#996 review): the same path rule as the Assign branch above. An
+    # annotated `box.cmd: list[str] = [...]` binds a path exactly like the
+    # unannotated form; requiring a bare Name here dropped it. A walrus target
+    # is always a Name, so it rides the same branch.
+    if isinstance(parent, (ast.AnnAssign, ast.NamedExpr)) and parent.value is current:
+        return _target_names(parent.target), climbed
     # fix(#996 review): `cmd = []` then `cmd += ["gdalinfo", path]` assembles a
     # real argv, and the literal's parent is an AugAssign that none of the
     # branches above matched. `climbed` is False regardless: `+=` splices the
@@ -2996,6 +3018,55 @@ def test_guard_rebinding_in_a_branch_still_reports():
             "    cmd = ['gdalinfo', '-json']\n"
             "    if flag:\n"
             "        cmd = ['echo', 'ok']\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_annotated_path_target_is_tracked():
+    """fix(#996 review): `box.cmd: list[str] = [...]` binds a path exactly like
+    the unannotated form. The AnnAssign branch still required a bare Name."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(box, path):\n"
+            "    box.cmd: list[str] = ['gdalinfo', path]\n"
+            "    subprocess.run(box.cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_comparison_result_is_not_the_vector():
+    """fix(#996 review): a comparison yields a BOOLEAN. Passing that to a call
+    hands over the result, not the argv — same family as the subscript rule."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def fn(expected):\n"
+            "    cmd = ['gdalinfo', '-json']\n"
+            "    log.debug('matched=%s', cmd == expected)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_comparison_does_not_hide_a_later_real_escape():
+    """The control: comparing a vector must not exempt it from a genuine
+    spawn elsewhere in the same scope."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path, expected):\n"
+            "    cmd = ['gdalinfo', path]\n"
+            "    if cmd == expected:\n"
+            "        pass\n"
             "    subprocess.run(cmd)\n"
         ),
         {},
