@@ -20,7 +20,7 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.core.geo import extent_to_span_bbox, wkt_is_geographic
+from app.core.geo import extent_to_bbox, wkt_is_geographic
 
 
 async def _load_actor_identities(
@@ -174,14 +174,18 @@ def dataset_to_response(
         n_dims=dataset.n_dims,
         z_min=dataset.z_min,
         z_max=dataset.z_max,
-        # fix(#892 codex P2): the SPAN, not the RFC 7946 spec bbox. This field is
-        # documented as "[minx, miny, maxx, maxy]" and its consumers are map
-        # viewers, not a standards serializer: DatasetMap draws an unguarded
-        # planar ring from it and calls fitBounds, so a west > east pair would
-        # paint the complementary 340° and hand MapLibre an inverted camera.
-        # The spec form is served where the spec demands it (STAC/OGC record
-        # bbox via extract_bbox, OGC collection extents), not here.
-        extent_bbox=extent_to_span_bbox(record.spatial_extent),
+        # fix(#1004): the RFC 7946 §5.2 spec bbox, west > east on a crossing.
+        # This was the span form under #892, when DatasetMap drew an unguarded
+        # planar ring and called fitBounds. #903 added the seam guards, and the
+        # span form then defeated them: extent_to_span_bbox flattens a Fiji
+        # extent to [-180, s, 180, n], which is bit-identical to a genuinely
+        # global dataset, so isLargeExtent fired first and no client-side test
+        # could tell the two apart. The seam information has to survive the
+        # wire. Do NOT flip the sibling `dataset_extent_bbox` in
+        # maps/_router_helpers.py: it bounds a vector tile source, where an
+        # inverted pair yields no tiles at all. One column, two contracts —
+        # both pinned in tests/test_antimeridian_extent.py.
+        extent_bbox=extent_to_bbox(record.spatial_extent),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,
