@@ -91,6 +91,23 @@ export function KeyboardShortcutsSheet({
       label: t('a11y.shortcuts.multiSelect', { defaultValue: 'Toggle layer in selection' }),
       chord: IS_MAC ? '⌘+Click' : 'Ctrl+Click',
     },
+    // fix(#806): Space on a focused row is the keyboard equivalent of the
+    // Cmd-click above (StackRow's `e.key === ' '` handler), and double-click
+    // renames. Both existed with no way to discover them from here — the
+    // keyboard one especially, since it was the only route for a keyboard-only
+    // user and the sheet documented multi-select as a pointer chord alone.
+    {
+      id: 'multi-select-key',
+      label: t('a11y.shortcuts.multiSelectKey', { defaultValue: 'Toggle layer in selection (focused row)' }),
+      chord: 'Space',
+    },
+    {
+      id: 'rename',
+      // The handler is on the layer-name span, not the row, so the label names the
+      // target: double-clicking the icon or empty row space selects instead.
+      label: t('a11y.shortcuts.rename', { defaultValue: 'Rename layer (double-click its name)' }),
+      chord: 'Double-click',
+    },
     {
       id: 'range-select',
       label: t('a11y.shortcuts.rangeSelect', { defaultValue: 'Select a range of layers' }),
@@ -105,7 +122,11 @@ export function KeyboardShortcutsSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      {/* fix(#806, codex P2): DialogContent has no max height and no overflow of its
+          own, and it is vertically centred, so a sheet taller than the viewport
+          clips at both ends with nothing to scroll. Fifteen rows plus wrapped
+          translations reach that on a short window or with enlarged text. */}
+      <DialogContent className="sm:max-w-sm max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {t('a11y.shortcuts.title', { defaultValue: 'Keyboard shortcuts' })}
