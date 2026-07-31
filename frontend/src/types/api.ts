@@ -168,7 +168,7 @@ export type RecordType =
   | 'service'
   | 'collection'
   | 'table';
-export type DatasetVisibility = 'public' | 'restricted' | 'private';
+export type DatasetVisibility = 'public' | 'internal' | 'restricted' | 'private';
 export type RecordStatus = 'draft' | 'published';
 export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
 
