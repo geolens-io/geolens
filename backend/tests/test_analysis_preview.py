@@ -243,6 +243,15 @@ class TestPreviewGlobalBound:
         monkeypatch.setattr(settings, "db_max_overflow", 0)
         assert service_analysis._preview_bound() == 1
 
+        # With an external pooler the engine uses NullPool, so DB_POOL_SIZE and
+        # DB_MAX_OVERFLOW are ignored and deriving from them would be
+        # arithmetic on numbers that no longer mean anything.
+        monkeypatch.setattr(settings, "db_use_external_pooler", True)
+        assert service_analysis._preview_bound() == 3
+        monkeypatch.setattr(settings, "db_pool_size", 400)
+        monkeypatch.setattr(settings, "db_max_overflow", 400)
+        assert service_analysis._preview_bound() == 3
+
     async def test_previews_never_exceed_the_global_bound(
         self,
         client: AsyncClient,

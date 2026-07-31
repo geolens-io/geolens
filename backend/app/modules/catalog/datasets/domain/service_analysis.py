@@ -83,9 +83,21 @@ PREVIEW_FEATURE_CAP = 500
 # which is the thing that actually runs out. A cross-worker bound would need
 # another advisory lock keyed on a slot index; that is more machinery than this
 # warrants unless the per-process reading turns out to be wrong.
+# With DB_USE_EXTERNAL_POOLER=true the engine switches to NullPool, so
+# DB_POOL_SIZE and DB_MAX_OVERFLOW are ignored entirely and the real budget
+# belongs to PgBouncer or RDS Proxy, which this process cannot see. Deriving
+# from settings that no longer apply would be arithmetic on numbers that mean
+# nothing. Fall back to the value the default pool produces: a throttle is
+# still worth having (it is what stops previews saturating the pooler), it just
+# cannot be sized from here.
+_EXTERNAL_POOLER_PREVIEW_BOUND = 3
+
+
 def _preview_bound() -> int:
     from app.core.config import settings
 
+    if settings.db_use_external_pooler:
+        return _EXTERNAL_POOLER_PREVIEW_BOUND
     # db_max_overflow uses -1 for "unlimited"; treat that as no extra headroom
     # rather than letting a negative shrink the budget.
     overflow = max(0, settings.db_max_overflow)
