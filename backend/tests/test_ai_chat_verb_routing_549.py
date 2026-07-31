@@ -67,11 +67,33 @@ def test_prompt_classifies_the_question_verbs(verb):
 
 
 @pytest.mark.parametrize(
-    "verb", ["filter", "style", "color", "label", "hide", "show only", "change"]
+    "verb", ["filter", "style", "color", "label", "hide", "change", "set", "make"]
 )
 def test_prompt_classifies_the_change_verbs(verb):
     change_block = _prompt().split("CHANGE verbs")[1].split('"show" is a QUESTION')[0]
     assert verb in change_block
+
+
+def test_prompt_reads_the_object_before_the_verb():
+    """fix(#549 codex r1): verb alone is not enough. "find datasets about
+    flood zones" is a QUESTION verb whose object is the CATALOG, and
+    query_data can only reach layers already on the map, so routing on the
+    verb turned a valid catalog lookup into a failed SQL question."""
+    prompt = _prompt()
+    assert "Read the OBJECT of the request first" in prompt
+    assert "The object is the CATALOG" in prompt
+    assert "find datasets about flood zones" in prompt
+    assert "search_datasets" in prompt
+
+
+def test_prompt_keeps_layer_narrowing_on_the_visibility_tool():
+    """fix(#549 codex r1): "show only @Parks" among several layers means hide
+    the others. set_filter cannot do that — it only filters features inside
+    one layer — so the two narrowing cases have to be told apart."""
+    prompt = _prompt()
+    assert '"show only @Parks" when @Parks is a LAYER' in prompt
+    assert "cannot hide a sibling layer" in prompt
+    assert "NARROWING to a feature PREDICATE" in prompt
 
 
 def test_prompt_carries_both_acceptance_phrasings():
@@ -97,7 +119,7 @@ def test_prompt_settles_bare_show():
         # (frontend ChatPanel.test.tsx). Routing it to query_data would query a
         # hidden layer instead of making it visible.
         ("visibility", '"show the layer"'),
-        ("narrowing", '"show only"'),
+        ("feature narrowing", '"show only the accessible ones"'),
         # fix(#549 codex r1): with a filter already applied, "show all features
         # again" asks to CLEAR it. Answering it as a question returns a
         # temporary result and leaves the persistent filter in place.

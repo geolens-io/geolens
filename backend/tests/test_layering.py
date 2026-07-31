@@ -820,7 +820,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # via _build_chat_actions (re-exported here for streaming.py) so one
         # invalid action drops with a note instead of failing the whole turn.
         # Cap raised 440 -> 446 (~4 LOC headroom).
-        "backend/app/processing/ai/chat_service.py": 446,
+        # fix(#549): +9 LOC — the system prompt now owns verb classification
+        # outright, reading the request's OBJECT (catalog / layer / data / map
+        # appearance) before its verb, so the tool descriptions stop
+        # re-litigating which phrasing wins. Cap raised 446 -> 456.
+        "backend/app/processing/ai/chat_service.py": 456,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
