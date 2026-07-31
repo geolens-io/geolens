@@ -28,9 +28,14 @@ export function AnalysisJobWatcher() {
   const completedAt = useAnalysisJobStore((s) => s.completedAt);
   const claimCompletion = useAnalysisJobStore((s) => s.claimCompletion);
   const clearJobIfCurrent = useAnalysisJobStore((s) => s.clearJobIfCurrent);
-  // Runs whose terminal status this tab has already acted on, so neither the
-  // effect below nor the propagated-clear cleanup repeats itself.
+  // Runs whose terminal status this tab has already acted on, so the effect
+  // below does not re-enter for one it is already seeing through.
   const handledRef = useRef<Set<string>>(new Set());
+  // Runs this tab has already refreshed its caches for.
+  const refreshedRef = useRef<Set<string>>(new Set());
+  // Runs whose remembered form title this tab has already settled — retired,
+  // or deliberately kept because the run failed.
+  const titleRetiredRef = useRef<Set<string>>(new Set());
   // The job as of the previous render, so a departure is detectable.
   const lastSeenRef = useRef<TrackedAnalysisJob | null>(null);
   // A departed job still owed its document-local cleanup, waiting for the
@@ -58,6 +63,7 @@ export function AnalysisJobWatcher() {
       // (#793 review): restoring it would re-enable Create with the finished
       // run's name.
       useAnalysisFormStore.getState().clearTitleForMap(job.mapId);
+      titleRetiredRef.current.add(job.jobId);
       void clearJobIfCurrent(job.jobId);
       return;
     }
@@ -89,6 +95,7 @@ export function AnalysisJobWatcher() {
     // but the winner showing a catalog that omits the dataset just created.
     // Reporting is what must happen once; refreshing must happen everywhere.
     if (status === 'complete') {
+      refreshedRef.current.add(job.jobId);
       queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
     }
@@ -215,6 +222,10 @@ export function AnalysisJobWatcher() {
       //
       // Outside the claim: a tab that lost still has to stop offering the
       // finished run's name and re-enable its own Create button.
+      // Settled either way: a failed run KEEPS its name for the retry, which
+      // is a decision, not an omission — the departure handler below must not
+      // second-guess it.
+      titleRetiredRef.current.add(tracked.jobId);
       if (status === 'complete') {
         useAnalysisFormStore.getState().clearTitleForMap(tracked.mapId);
       }
@@ -236,48 +247,52 @@ export function AnalysisJobWatcher() {
   // through the terminal poll simply watches its tracked job go away. The
   // effect above then returns at `if (!job)` and it never runs the cleanup
   // that is document-local: its own QueryClient (focus refetching is off, so
-  // nothing else refreshes it) and its own remembered form title. The claim
-  // carries the status precisely so a tab that did not observe the run's end
-  // still knows what kind of end it was.
+  // nothing else refreshes it) and its own remembered form title.
   //
-  // fix(#1008 codex P2, second pass): "went away" is not "became null". A tab
-  // that resumes after another cleared job1 and started job2 rehydrates from
-  // the latest payload and can go straight from job1 to job2, never rendering
-  // null in between. And the claim need not arrive on the same render, so the
-  // departed job waits in a ref until one names it.
+  // The two halves have DIFFERENT keys, which is what earlier passes kept
+  // getting wrong by handling them together.
+  //
+  // Refreshing is keyed on the CLAIM and is not job-specific: one
+  // invalidation re-reads the whole catalog, so a tab suspended across
+  // several runs needs exactly one, for whichever claim it can see.
+  //
+  // Retiring the remembered title is keyed on the DEPARTURE of the run this
+  // tab was showing, because that title is what its form would reopen with.
+  // It deliberately does not wait for a claim: the claim and the clear are
+  // separate persisted writes and arrive in either order, and a job swept by
+  // the retention sweep (401/403/404) departs with no claim at all. Keeping a
+  // finished run's name invites an accidental duplicate, so an unexplained
+  // departure retires it — the same reading the `gone` branch above already
+  // takes in whichever tab observes the sweep itself. A claim that says the
+  // run FAILED is the one case that keeps the name, for the retry.
   useEffect(() => {
     const previous = lastSeenRef.current;
     lastSeenRef.current = job;
     if (
       previous &&
       previous.jobId !== job?.jobId &&
-      // This tab reported the run itself, so it already did all of this.
-      !handledRef.current.has(previous.jobId)
+      !titleRetiredRef.current.has(previous.jobId)
     ) {
       // At most one: the store tracks a single run, so an older departed job
-      // has had its claim slot overwritten and can never be matched by id.
+      // has already been superseded here.
       pendingCleanupRef.current = previous;
     }
-    // fix(#1008 codex P2, third pass): keyed on the CLAIM, not on which job
-    // departed. A tab suspended across two whole runs resumes to a claim
-    // naming the second while it remembers the first, and matching ids would
-    // then refresh for neither — leaving it a catalog missing both outputs,
-    // with focus refetching disabled and nothing else to correct it.
-    //
-    // Refreshing is not job-specific anyway: an invalidation re-reads the
-    // whole catalog, so one is enough however many runs it slept through.
-    if (!completedAt || handledRef.current.has(completedAt.jobId)) return;
-    handledRef.current.add(completedAt.jobId);
-    if (completedAt.status !== 'complete') return;
-    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
-    // The remembered title IS job-specific — it belongs to the run this tab
-    // was showing, and only that run's completion retires it.
-    const pending = pendingCleanupRef.current;
-    if (pending && pending.jobId === completedAt.jobId) {
-      pendingCleanupRef.current = null;
-      useAnalysisFormStore.getState().clearTitleForMap(pending.mapId);
+
+    if (completedAt && !refreshedRef.current.has(completedAt.jobId)) {
+      refreshedRef.current.add(completedAt.jobId);
+      if (completedAt.status === 'complete') {
+        queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+      }
     }
+
+    const pending = pendingCleanupRef.current;
+    if (!pending) return;
+    pendingCleanupRef.current = null;
+    titleRetiredRef.current.add(pending.jobId);
+    const claim = completedAt?.jobId === pending.jobId ? completedAt : null;
+    if (claim?.status === 'failed') return;
+    useAnalysisFormStore.getState().clearTitleForMap(pending.mapId);
   }, [job, completedAt, queryClient]);
 
   return null;

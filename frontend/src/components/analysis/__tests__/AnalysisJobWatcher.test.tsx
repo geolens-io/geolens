@@ -353,6 +353,89 @@ describe('AnalysisJobWatcher', () => {
     invalidate.mockRestore();
   });
 
+  // fix(#1008 codex P2, fourth pass): claim and clear are separate persisted
+  // writes and arrive in either order, and a swept job departs with no claim
+  // at all. Retiring the remembered title therefore keys on the departure of
+  // the run this tab was showing, not on a claim turning up to explain it.
+  it('retires the remembered title when the claim lands before the clear', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    // The claim's storage event is processed first...
+    act(() => {
+      useAnalysisJobStore.setState({
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+    // ...and the clear arrives on its own.
+    act(() => {
+      useAnalysisJobStore.setState({ job: null });
+    });
+
+    await waitFor(() =>
+      expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe(''),
+    );
+  });
+
+  it('retires the remembered title when a swept job departs with no claim', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    // Another tab got the 401/403/404 and cleared. No claim is ever written
+    // for a swept run, so waiting for one would keep the name forever.
+    act(() => {
+      useAnalysisJobStore.setState({ job: null });
+    });
+
+    await waitFor(() =>
+      expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe(''),
+    );
+  });
+
+  it('keeps the remembered title when the claim says the run failed', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'failed',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    // Nothing was created — re-entering the name to retry would be pure loss.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
+  });
+
   it('does not refresh when the job is cleared without a completion claim', async () => {
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'running', dataset_id: null });
