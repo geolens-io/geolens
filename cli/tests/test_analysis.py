@@ -208,6 +208,19 @@ class TestAnalysisPreviewCli:
         assert result.exit_code == 2, result.output
 
 
+    def test_no_instance_exits_with_the_auth_code(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        """fix(#685 review): materialize maps this to EXIT_AUTH; preview let
+        state.sdk() raise BadParameter and exited 2 for the same condition."""
+        from geolens_cli.main import app
+
+        result = runner.invoke(
+            app, ["analysis", "preview", "ds-1", "--operation", "centroid"]
+        )
+        assert result.exit_code == 3, result.output
+
+
 class TestAnalysisMaterializeCli:
     def test_wait_resolves_the_dataset_url(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
@@ -440,6 +453,40 @@ class TestAnalysisMaterializeCli:
         )
         assert result.exit_code == 0, result.output
         assert seen["timeout"] == 30.0
+
+    def test_a_zero_timeout_is_a_usage_error_not_an_endless_wait(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#685 review): `timeout or POLL_FOREVER` read an explicit 0 as
+        "no bound", which is the opposite of what it asks for."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+
+        def _must_not_poll(*args, **kwargs):  # pragma: no cover - failure path
+            raise AssertionError("--timeout 0 must not start an unbounded poll")
+
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr("geolens_cli.publish.resolve_dataset_id", _must_not_poll)
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "0",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--no-wait" in result.output
 
     def test_json_mode_emits_the_job_and_dataset_ids(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

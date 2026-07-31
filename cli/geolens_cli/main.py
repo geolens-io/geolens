@@ -836,6 +836,12 @@ def analysis_preview(
     valid GeoJSON document you can redirect straight into a file.
     """
     state: AppState = ctx.obj
+    # fix(#685 review): without this, state.sdk() raises BadParameter and the
+    # missing instance exits 2 (usage) while the sibling materialize command
+    # exits 3 (auth) for the identical condition.
+    if not state.active_instance():
+        state.output.error("No instance configured. Run `geolens login <url>` first.")
+        raise typer.Exit(EXIT_AUTH)
     sdk = state.sdk()
 
     try:
@@ -916,6 +922,12 @@ def analysis_materialize(
     if not instance:
         state.output.error("No instance configured. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
+    # fix(#685 review): `timeout or POLL_FOREVER` read an explicit 0 as "no
+    # bound", the opposite of what it asks for. A zero or negative wait is a
+    # usage error — --no-wait is the way to not wait.
+    if timeout is not None and timeout <= 0:
+        state.output.error("--timeout must be greater than 0; use --no-wait to skip waiting.")
+        raise typer.Exit(EXIT_USAGE)
     sdk = state.sdk()
 
     try:
@@ -943,7 +955,9 @@ def analysis_materialize(
         return
 
     resolved = _publish.resolve_dataset_id(
-        sdk.client, job_id, timeout=timeout or _analysis.POLL_FOREVER
+        sdk.client,
+        job_id,
+        timeout=_analysis.POLL_FOREVER if timeout is None else timeout,
     )
     if resolved is None:
         # resolve_dataset_id returns None for BOTH a failed job and a poll
