@@ -21,15 +21,26 @@ interface EphemeralBadgeProps {
 export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount, onSaveAsDataset, className }: EphemeralBadgeProps) {
   const { t } = useTranslation('builder');
 
-  const countLabel = truncated && totalCount != null
-    ? t('ephemeralBadge.featureCountTruncated', {
-        count: featureCount,
-        // fix(#788): both numbers passed raw — the locale strings group them
-        // via {{count, number}}/{{total, number}} (one sentence, one grouping),
-        // and count keeps driving plural selection.
-        total: totalCount,
-        defaultValue: '{{count, number}} of {{total, number}} features',
-      })
+  // fix(#1076): three cases, not two. A clip filters rows, so the server
+  // cannot report a source total for it — the honest answer to "of how many?"
+  // is unknown. Falling back to the plain count there presented a capped
+  // preview as the complete result, which is #674's concern through a new
+  // door. Capped-with-a-total keeps its "N of M"; capped-without says so
+  // without inventing one.
+  const countLabel = truncated
+    ? totalCount != null
+      ? t('ephemeralBadge.featureCountTruncated', {
+          count: featureCount,
+          // fix(#788): both numbers passed raw — the locale strings group them
+          // via {{count, number}}/{{total, number}} (one sentence, one
+          // grouping), and count keeps driving plural selection.
+          total: totalCount,
+          defaultValue: '{{count, number}} of {{total, number}} features',
+        })
+      : t('ephemeralBadge.featureCountCapped', {
+          count: featureCount,
+          defaultValue: 'first {{count, number}} features',
+        })
     : t('ephemeralBadge.featureCount', { count: featureCount });
   const statusLabel = `${t('ephemeralBadge.queryResult')} · ${countLabel}`;
 

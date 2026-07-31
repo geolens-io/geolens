@@ -195,6 +195,61 @@ describe('ChatPanel', () => {
     });
   });
 
+  // fix(#1076): a clip filters rows, so run_analysis reports no source total —
+  // the flag arrives alone. Requiring a total dropped it here and a capped
+  // clip preview reached the badge looking complete.
+  it('forwards a cap that arrives without a total', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'show_query_result', geojson, bbox, truncated: true },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Clipped' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'clip the buildings to the flood zone');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
+        truncated: true,
+      });
+    });
+  });
+
+  // The other direction: an uncapped result must forward nothing, or the badge
+  // discloses a truncation that did not happen.
+  it('forwards no truncation for an uncapped result', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [{ type: 'show_query_result', geojson, bbox, row_count: 12 }],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Clipped' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'clip the buildings to the flood zone');
+
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, undefined);
+    });
+  });
+
   it('dispatches the flyover only for the winning (last) query result (#534)', async () => {
     const geojson = { type: 'FeatureCollection', features: [] };
     const bbox = [-74, 40, -73, 41];

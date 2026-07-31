@@ -168,11 +168,18 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       if (!(minX < -180 || minY < -90 || maxX > 180 || maxY > 90 || minX > maxX || minY > maxY)) {
         // fix(#674 audit): forward the truncation pair so the badge discloses
         // "N of TOTAL" rather than presenting a capped overlay as complete.
+        //
+        // fix(#1076): and forward it without a total too. A clip filters rows,
+        // so the server reports none for it — requiring one dropped the
+        // disclosure and a capped clip read as complete. This surface matters
+        // most of the two: an embed or a shared link lands here.
         const total = typeof action.row_count === 'number' ? action.row_count : undefined;
         handleQueryResult(
           geojson as GeoJSON.FeatureCollection,
           [minX, minY, maxX, maxY],
-          action.truncated === true && total != null ? { truncated: true, totalCount: total } : undefined,
+          action.truncated === true
+            ? { truncated: true, ...(total != null ? { totalCount: total } : {}) }
+            : undefined,
         );
       }
     }
