@@ -440,6 +440,13 @@ export function computeDisambiguationLabels(
  * are both absent (e.g. an older cached response), this returns `false`
  * rather than guessing — matching the pre-fix behavior of showing no warning,
  * not a false positive on every layer.
+ *
+ * fix(#930): the two shared map audiences are no longer equivalent. A public
+ * map's audience includes anonymous visitors, so only a public dataset
+ * survives; an internal map's audience is every signed-in user, which is
+ * exactly the audience an `internal` dataset serves, so such a layer is not
+ * stranded there. `restricted` stays flagged on both — it needs a grant, which
+ * a generic member of either audience does not have.
  */
 export function isLayerHiddenFromMapAudience(
   layer: Pick<MapLayerResponse, 'dataset_visibility' | 'dataset_status'>,
@@ -447,7 +454,9 @@ export function isLayerHiddenFromMapAudience(
 ): boolean {
   if (mapVisibility === 'private') return false;
   if (layer.dataset_visibility == null && layer.dataset_status == null) return false;
-  return layer.dataset_visibility !== 'public' || layer.dataset_status !== 'published';
+  if (layer.dataset_status !== 'published') return true;
+  if (layer.dataset_visibility === 'public') return false;
+  return !(mapVisibility === 'internal' && layer.dataset_visibility === 'internal');
 }
 
 function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {

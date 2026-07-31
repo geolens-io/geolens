@@ -1,7 +1,7 @@
 """Dataset visibility enforcement.
 
 Provides:
-- DatasetVisibility enum for public/restricted/private
+- DatasetVisibility enum for public/internal/restricted/private
 - apply_visibility_filter() for query-level dataset filtering
 - get_user_roles() for role lookup (replaces per-router duplicates)
 - check_dataset_access() for per-endpoint visibility checks
@@ -27,6 +27,10 @@ class DatasetVisibility(str, enum.Enum):
     """Controls who can see a dataset."""
 
     PUBLIC = "public"
+    # fix(#930): internal mirrors MapVisibility — any signed-in user, on a
+    # published record. It was already accepted by the API Literal and written
+    # by `geolens apply`, but had no branch in the permission layer.
+    INTERNAL = "internal"
     RESTRICTED = "restricted"
     PRIVATE = "private"
 
