@@ -2177,8 +2177,15 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
             ],
             True,
         ),
+        # fix(#917 codex r3): the two DIRECT forms name their image in the
+        # single operand rather than branching to it, so a builtin wrapped in
+        # either reached the sprite unchanged.
+        (["image", "geolens-fill-grid"], True),
+        (["literal", "geolens-fill-dots"], True),
+        (["image", "uploaded-a"], False),
+        (["case", [">", 1, 0], ["image", "geolens-fill-hatch"], "up-b"], True),
         # An expression shape that cannot yield an image id is left alone.
-        (["literal", "geolens-fill-grid"], False),
+        (["zoom"], False),
     ],
 )
 def test_data_driven_fill_pattern_is_read_at_its_output_positions(pattern, stripped):

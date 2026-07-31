@@ -1305,6 +1305,13 @@ _EXPRESSION_OUTPUT_POSITIONS: dict[str, tuple[int, int]] = {
     "step": (2, 2),
     # ["coalesce", out, out, ...]
     "coalesce": (1, 1),
+    # fix(#917 codex r3): the two forms that name an image DIRECTLY rather than
+    # branching to one. `["image", id]` is MapLibre's explicit image expression
+    # and `["literal", id]` is the constant form; both evaluate to their single
+    # operand, so a builtin wrapped in either reached the sprite unchanged and
+    # produced the same disappearing polygon as a bare string.
+    "image": (1, 1),
+    "literal": (1, 1),
 }
 
 
@@ -1313,10 +1320,11 @@ def _references_builtin_fill_pattern(value: Any) -> bool:
 
     A plain string is checked directly. A branching expression is checked at its
     output positions only, recursively, so a nested expression in a branch is
-    followed and an id used as an operand or a `match` label is not. Any other
-    expression shape is treated as not referencing a builtin: the builder's
-    pattern control writes a single value, so anything else is hand-authored,
-    and guessing wrong here silently flattens a working layer.
+    followed and an id used as an operand or a `match` label is not. The two
+    direct forms — `image` and `literal` — name their image in the single
+    operand. Any other expression shape is treated as not referencing a builtin:
+    the builder's pattern control writes a single value, so anything else is
+    hand-authored, and guessing wrong here silently flattens a working layer.
     """
     if isinstance(value, str):
         return value in _BUILTIN_FILL_PATTERN_IDS
