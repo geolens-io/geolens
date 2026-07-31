@@ -71,12 +71,26 @@ _FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f"
 # characters cannot reach it; an unresolvable template is
 # ``<unmatched-route>``, which is in no pair and so is refused.
 #
+# Spelled WITHOUT the `/api` prefix. The app is constructed with
+# `root_path="/api"` (`api/main.py`), and an ASGI root_path never appears in a
+# route template — starlette strips it before matching, and `api/main.py` says
+# so where it mirrors that behaviour. Nothing in the route table starts with
+# `/api/`, which is why the already-mounted `/stac/search` entry below is
+# spelled that way too. An `/api/query/` entry would simply never match, and
+# because the check fails closed that would silently defeat the maintainer
+# decision rather than break loudly (fix(#875 codex r2)).
+#
 # Both spellings, because ROUTE-01's dual-shape decorator registers the
 # trailing-slash form and a hidden bare form for the same handler, and
 # redirect_slashes is off — exempting only one would 403 half the callers of
 # the same endpoint for no reason anyone could find.
 #
-# The route is not mounted yet. Whoever lands #565 owns re-reading this.
+# NOT VERIFIABLE YET: the route does not exist, so the exact template is
+# whatever router #565 mounts it on. `/query/` assumes a bare `api_router`
+# path or a `prefix="/query"` router, matching every other entry here.
+# Whoever lands #565 must confirm the real `route.path` and move the entry
+# out of the pending list in `backend/tests/test_api_key_scope_875.py`, which
+# then asserts it resolves.
 # fix(#875 codex r1): STAC Item Search is the second entry, and it is required
 # rather than a widening. The issue's acceptance criteria say a read_only key
 # must be able to hit OGC/STAC endpoints, and `POST /stac/search` IS the
@@ -85,8 +99,8 @@ _FALSEY_QUERY_VALUES: frozenset[str] = frozenset({"false", "0", "off", "no", "f"
 # have shipped a comment claiming STAC works next to code that broke it.
 _READ_ONLY_KEY_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
-        ("POST", "/api/query/"),
-        ("POST", "/api/query"),
+        ("POST", "/query/"),
+        ("POST", "/query"),
         ("POST", "/stac/search"),
     }
 )

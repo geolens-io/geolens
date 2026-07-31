@@ -334,28 +334,113 @@ def test_unsafe_methods_are_refused_off_the_exempt_list():
         assert _read_only_key_may_call(method, "/api/datasets/") is False
 
 
+# Exemptions for routes that do not exist yet. Everything NOT listed here has
+# to resolve in the live route table, which is what makes the spelling of a
+# real entry verifiable instead of self-asserted.
+#
+# fix(#875 codex r2): the original entries were spelled `/api/query/`. The app
+# sets `root_path="/api"` and a route template never includes an ASGI
+# root_path, so those could never match — and because the check fails closed,
+# a read_only key would have been refused on the one endpoint the maintainer
+# decision says it may call, silently.
+_PENDING_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/query/"),  # #565, SELECT-only sandbox endpoint
+        ("POST", "/query"),  # ROUTE-01 dual-shape sibling
+    }
+)
+
+
+def _mounted_route_pairs() -> set[tuple[str, str]]:
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    return {
+        (method, ctx.path)
+        for ctx in iter_route_contexts(app.routes)
+        if isinstance(ctx.route, APIRoute)
+        for method in (ctx.route.methods or set())
+    }
+
+
+def test_no_exemption_carries_the_root_path_prefix():
+    """The bug class that shipped: an exemption spelled with `/api`.
+
+    `root_path="/api"` is set on the app and starlette strips it before
+    matching, so no route template ever begins with it. An entry that does can
+    never match, and the check fails closed, so it would defeat the carve-out
+    without failing anything.
+    """
+    from app.api.main import app
+
+    root = app.root_path
+    assert root, "root_path is what makes this test meaningful"
+    offenders = sorted(
+        pair for pair in _READ_ONLY_KEY_EXEMPT_ROUTES if pair[1].startswith(root + "/")
+    )
+    assert not offenders, (
+        f"route templates never include the ASGI root_path {root!r}; "
+        f"these entries can never match: {offenders}"
+    )
+
+
+def test_every_live_exemption_resolves_in_the_route_table():
+    """A non-pending exemption must name a route that actually exists.
+
+    This is the assertion the old test lacked: it compared the module's
+    literal against the same literal written out again, so it passed whatever
+    the string said.
+    """
+    mounted = _mounted_route_pairs()
+    live = _READ_ONLY_KEY_EXEMPT_ROUTES - _PENDING_EXEMPT_ROUTES
+    unresolved = sorted(pair for pair in live if pair not in mounted)
+    assert not unresolved, (
+        "exempted routes that do not exist; fix the spelling or add them to "
+        f"_PENDING_EXEMPT_ROUTES with the issue that will land them: {unresolved}"
+    )
+    assert live, "at least one exemption should be live, or this proves nothing"
+
+
+def test_pending_exemptions_are_still_pending():
+    """When #565 lands, this fails and forces the entry to be verified.
+
+    Moving it out of the pending list is what puts it under the resolution
+    check above, which is the only place the real template gets confirmed.
+    """
+    mounted = _mounted_route_pairs()
+    landed = sorted(pair for pair in _PENDING_EXEMPT_ROUTES if pair in mounted)
+    assert not landed, (
+        "these routes now exist; drop them from _PENDING_EXEMPT_ROUTES so the "
+        f"resolution check covers them: {landed}"
+    )
+    assert _PENDING_EXEMPT_ROUTES <= _READ_ONLY_KEY_EXEMPT_ROUTES
+
+
 def test_the_carve_out_is_a_named_method_and_route():
     """Decided in #875 and #565: a read_only key MAY call the SELECT-only
     sandbox endpoint, because it is a read. The exemption is an exact
     (method, route template) pair so nothing inherits it by resembling one."""
     assert _READ_ONLY_KEY_EXEMPT_ROUTES == frozenset(
         {
-            ("POST", "/api/query/"),
-            ("POST", "/api/query"),
+            ("POST", "/query/"),
+            ("POST", "/query"),
             ("POST", "/stac/search"),
         }
     )
-    assert _read_only_key_may_call("POST", "/api/query/") is True
-    # ROUTE-01's dual-shape decorator registers both spellings of the same
-    # handler, so both are exempt.
-    assert _read_only_key_may_call("POST", "/api/query") is True
+    # Driven from the ROUTE TABLE rather than from a literal: this pair is
+    # mounted, so True here means the real endpoint is reachable.
+    assert ("POST", "/stac/search") in _mounted_route_pairs()
+    assert _read_only_key_may_call("POST", "/stac/search") is True
     # A neighbour that merely looks like it inherits nothing.
-    assert _read_only_key_may_call("POST", "/api/query/run") is False
+    assert _read_only_key_may_call("POST", "/query/run") is False
+    # The dead spelling this fix removed must stay dead.
+    assert _read_only_key_may_call("POST", "/api/query/") is False
     # Exempting the PATH would have carried a future destructive method with
     # it; the pair is what stops that.
-    assert _read_only_key_may_call("DELETE", "/api/query/") is False
-    assert _read_only_key_may_call("PUT", "/api/query/") is False
-    assert _read_only_key_may_call("DELETE", "/api/query") is False
+    assert _read_only_key_may_call("DELETE", "/query/") is False
+    assert _read_only_key_may_call("PUT", "/query/") is False
+    assert _read_only_key_may_call("DELETE", "/stac/search") is False
 
 
 def test_an_unresolvable_route_fails_closed():
@@ -548,5 +633,6 @@ def test_an_explicitly_false_query_value_still_reads(value):
 def test_the_stac_search_carve_out_is_required_by_the_acceptance_criteria():
     """ "That key can ... hit OGC/STAC endpoints" is an acceptance criterion,
     and POST /stac/search is the standard's JSON-body search surface."""
+    assert ("POST", "/stac/search") in _mounted_route_pairs()
     assert _read_only_key_may_call("POST", "/stac/search") is True
     assert _read_only_key_may_call("DELETE", "/stac/search") is False
