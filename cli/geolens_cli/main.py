@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Optional
@@ -18,6 +19,7 @@ from typing import Annotated, Optional
 import typer
 from rich.table import Table
 
+from . import analysis as _analysis
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
@@ -30,6 +32,8 @@ from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
 export_app = typer.Typer(no_args_is_help=True, help="Export commands")
 app.add_typer(export_app, name="export")
+analysis_app = typer.Typer(no_args_is_help=True, help="Analysis commands")
+app.add_typer(analysis_app, name="analysis")
 
 
 @dataclass
@@ -797,3 +801,218 @@ def export_stac(
             _export_stac.render_stac_json(stac_item, compact=compact),
             nl=False,
         )
+
+
+@analysis_app.command("preview")
+def analysis_preview(
+    ctx: typer.Context,
+    dataset_id: Annotated[str, typer.Argument(help="Source dataset id")],
+    operation: Annotated[
+        str,
+        typer.Option(
+            "--operation",
+            help="buffer, centroid or clip (the server rejects anything else)",
+        ),
+    ],
+    distance: Annotated[
+        Optional[float],
+        typer.Option("--distance", help="Buffer distance in METRES (buffer only)"),
+    ] = None,
+    mask_dataset: Annotated[
+        Optional[str],
+        typer.Option(
+            "--mask-dataset",
+            help="Polygon dataset id whose features form the clip mask (clip only)",
+        ),
+    ] = None,
+    compact: Annotated[
+        bool,
+        typer.Option("--compact", help="Single-line JSON for piping to jq"),
+    ] = False,
+) -> None:
+    """Run an analysis operation and print the resulting GeoJSON.
+
+    Nothing is created: the preview is computed and returned, capped at the
+    server's preview limit. The cap is announced on stderr so stdout stays a
+    valid GeoJSON document you can redirect straight into a file.
+    """
+    state: AppState = ctx.obj
+    # fix(#685 review): without this, state.sdk() raises BadParameter and the
+    # missing instance exits 2 (usage) while the sibling materialize command
+    # exits 3 (auth) for the identical condition.
+    if not state.active_instance():
+        state.output.error("No instance configured. Run `geolens login <url>` first.")
+        raise typer.Exit(EXIT_AUTH)
+    sdk = state.sdk()
+
+    try:
+        request = _analysis.build_preview_request(
+            operation,
+            distance_meters=distance,
+            mask_dataset_id=mask_dataset,
+        )
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    response = _analysis.run_preview(sdk.client, dataset_id, request)
+
+    warning = _analysis.truncation_warning(response)
+    if warning:
+        state.output.warn(warning)
+
+    typer.echo(
+        _analysis.render_geojson(_analysis.preview_geojson(response), compact=compact),
+        nl=False,
+    )
+
+
+@analysis_app.command("materialize")
+def analysis_materialize(
+    ctx: typer.Context,
+    dataset_id: Annotated[str, typer.Argument(help="Source dataset id")],
+    operation: Annotated[
+        str,
+        typer.Option(
+            "--operation",
+            help="buffer, centroid, clip or dissolve (the server rejects anything else)",
+        ),
+    ],
+    title: Annotated[
+        str, typer.Option("--title", help="Title for the dataset that will be created")
+    ],
+    distance: Annotated[
+        Optional[float],
+        typer.Option("--distance", help="Buffer distance in METRES (buffer only)"),
+    ] = None,
+    mask_dataset: Annotated[
+        Optional[str],
+        typer.Option(
+            "--mask-dataset",
+            help="Polygon dataset id whose features form the clip mask (clip only)",
+        ),
+    ] = None,
+    by_field: Annotated[
+        Optional[str],
+        typer.Option("--by-field", help="Group-by column (dissolve only)"),
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Poll the job until the dataset exists"),
+    ] = True,
+    timeout: Annotated[
+        Optional[float],
+        typer.Option(
+            "--timeout",
+            help=(
+                "Seconds to wait before giving up (default: until the job "
+                "finishes, however long it queues)"
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Run an analysis operation over the whole dataset and save the result.
+
+    The work is queued, and analysis is queued BELOW uploads on purpose, so a
+    healthy job can wait behind a busy instance's backlog with no upper bound.
+    ``--wait`` (the default) therefore waits for the job to finish rather than
+    for a fixed number of seconds; pass ``--timeout`` to bound it, or Ctrl+C.
+    """
+    state: AppState = ctx.obj
+    instance = state.active_instance()
+    if not instance:
+        state.output.error("No instance configured. Run `geolens login <url>` first.")
+        raise typer.Exit(EXIT_AUTH)
+    # fix(#685 review): `timeout or POLL_FOREVER` read an explicit 0 as "no
+    # bound", the opposite of what it asks for. A zero or negative wait is a
+    # usage error — --no-wait is the way to not wait.
+    # `inf` and overflowing literals like 1e309 parse as a real float, so a
+    # bound the caller asked for would silently become no bound at all.
+    if timeout is not None and (timeout <= 0 or not math.isfinite(timeout)):
+        state.output.error(
+            "--timeout must be a finite number greater than 0; "
+            "use --no-wait to skip waiting."
+        )
+        raise typer.Exit(EXIT_USAGE)
+    sdk = state.sdk()
+
+    try:
+        request = _analysis.build_materialize_request(
+            operation,
+            title,
+            distance_meters=distance,
+            mask_dataset_id=mask_dataset,
+            by_field=by_field,
+        )
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    response = _analysis.run_materialize(sdk.client, dataset_id, request)
+    job_id = str(getattr(response, "job_id", "") or "")
+
+    if not wait:
+        # Nothing was polled, so there is no dataset to name yet — report the
+        # job id rather than a URL for a dataset that may not exist.
+        if state.output.json_mode:
+            state.output.json({"job_id": job_id, "dataset_id": None, "url": None})
+        else:
+            state.output.success(f"Analysis job queued: {job_id}")
+        return
+
+    # fix(#685 review): the deadline below is only checked BETWEEN polls, so a
+    # request that stalls after connecting would outlive the bound the caller
+    # asked for. The SDK builds its httpx client with timeout=None (no limit at
+    # all, not httpx's 5s default), so give the polling client the same bound.
+    # A float rather than an httpx.Timeout because OCCLI-06 forbids importing
+    # httpx here; httpx accepts either.
+    poll_client = sdk.client if timeout is None else sdk.client.with_timeout(timeout)
+    resolved = _publish.resolve_dataset_id(
+        poll_client,
+        job_id,
+        timeout=_analysis.POLL_FOREVER if timeout is None else timeout,
+    )
+    if resolved is None:
+        # resolve_dataset_id returns None for BOTH a failed job and a poll
+        # that ran out, and a script that asked us to wait must not read
+        # either as success. Read the status back so the two get different
+        # sentences; both still exit non-zero, because neither produced the
+        # dataset the caller waited for.
+        status, late_dataset_id = _analysis.job_snapshot(poll_client, job_id)
+        if late_dataset_id:
+            # The job finished between the poll's last look and this one, and
+            # the status response carries the id (fix(#685 review)). Reporting
+            # a completed job as unfinished would be the worst answer of the
+            # three.
+            resolved = late_dataset_id
+        elif status == "failed":
+            state.output.error(
+                f"Analysis job {job_id} failed. Its error is on the job record: "
+                f"GET /jobs/{job_id}."
+            )
+        elif status is None:
+            # The status endpoint would not answer (auth, 404, 5xx), so the
+            # job's fate is unknown — do not assert a timeout it may not have
+            # hit (fix(#685 review)).
+            state.output.error(
+                f"Analysis job {job_id} could not be read back, so its outcome "
+                f"is unknown. Check GET /jobs/{job_id}."
+            )
+        else:
+            # Only reachable with an explicit --timeout: the default waits for
+            # a terminal state. Unfinished is not failed, and the wording says
+            # so (fix(#685 review)).
+            state.output.error(
+                f"Analysis job {job_id} was still {status} after {int(timeout or 0)}s "
+                f"and has not finished. Check GET /jobs/{job_id}."
+            )
+        if resolved is None:
+            raise typer.Exit(EXIT_GENERIC)
+
+    url = _publish.construct_dataset_url(
+        instance, dataset_id=resolved, job_id=job_id
+    )
+    if state.output.json_mode:
+        state.output.json({"job_id": job_id, "dataset_id": resolved, "url": url})
+        return
+    state.output.success(url)
