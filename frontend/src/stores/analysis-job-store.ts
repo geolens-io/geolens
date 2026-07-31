@@ -200,18 +200,25 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
       return {
         job: null,
         completedAt: null,
-        setJob: (job) =>
+        setJob: (job) => {
+          // fix(#1008 codex P2): read the identity NOW, not inside the lock
+          // callback. That callback can wait behind another tab's write, and
+          // an account switch in the meantime would stamp this run as
+          // belonging to whoever arrived — which the scoped clear below would
+          // then dutifully preserve for them.
+          //
+          // Stamped here rather than by callers: every caller would have to
+          // remember, and forgetting reads as "belongs to nobody".
+          const owned = job
+            ? { ...job, userId: useAuthStore.getState().user?.id ?? null }
+            : null;
           // fix(#1008 codex P1): a job START has to serialize against a clear
           // too, or a clear that read "no newer job" moments earlier overwrites
           // this one with null.
-          withLock(() => {
-            // Stamped here rather than by callers: every caller would have to
-            // remember, and forgetting reads as "belongs to nobody".
-            const owned = job
-              ? { ...job, userId: useAuthStore.getState().user?.id ?? null }
-              : null;
+          return withLock(() => {
             set(mergeWith(readPersisted(), { job: owned }));
-          }, undefined),
+          }, undefined);
+        },
         clearJobForUser: (userId) =>
           withLock(() => {
             const persisted = readPersisted();

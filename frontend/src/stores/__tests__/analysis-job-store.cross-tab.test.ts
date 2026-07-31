@@ -416,3 +416,49 @@ describe('analysis-job-store identity-scoped clear', () => {
     expect(storedState().job).toBeNull();
   });
 });
+
+// fix(#1008 codex P2): the lock callback can wait behind another tab's write,
+// so reading the identity inside it would stamp the run as belonging to
+// whoever signed in during the wait — and the scoped clear would then
+// dutifully preserve the previous account's run for them.
+describe('analysis-job-store ownership capture', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    useAuthStore.setState({ token: null, refreshToken: null, user: null });
+    localStorage.clear();
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'locks');
+    vi.restoreAllMocks();
+  });
+
+  it('does not hand the previous account’s run to the one that replaced it', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    Object.defineProperty(navigator, 'locks', {
+      value: {
+        request: async <T,>(_name: string, callback: () => T) => {
+          await held;
+          return callback();
+        },
+      },
+      configurable: true,
+    });
+
+    useAuthStore.setState({ user: { id: 'u1' } as UserResponse });
+    const pending = useAnalysisJobStore.getState().setJob(job);
+
+    // The account switches while the write is still queued behind the lock.
+    useAuthStore.setState({ user: { id: 'u2' } as UserResponse });
+    release();
+    await pending;
+
+    // Reading the identity inside the callback would have stamped this run
+    // 'u2', and u1's queued sign-out clear would then have spared it — leaving
+    // u2 tracking a run they never started. Stamped 'u1', it is cleared.
+    expect(storedState().job).toBeNull();
+    expect(useAnalysisJobStore.getState().job).toBeNull();
+  });
+});

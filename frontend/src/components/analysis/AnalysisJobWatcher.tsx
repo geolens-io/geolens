@@ -280,10 +280,14 @@ export function AnalysisJobWatcher() {
 
     if (completedAt && !refreshedRef.current.has(completedAt.jobId)) {
       refreshedRef.current.add(completedAt.jobId);
-      if (completedAt.status === 'complete') {
-        queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
-        queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
-      }
+      // fix(#1008 codex P2): deliberately NOT gated on the status. A tab
+      // suspended while one run succeeded and a later one failed resumes to
+      // the failed claim only, and gating here would leave it a catalog
+      // missing the first run's dataset with nothing to correct it. A refetch
+      // after a failure costs one request; a permanently stale catalog does
+      // not correct itself.
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
     }
 
     const pending = pendingCleanupRef.current;

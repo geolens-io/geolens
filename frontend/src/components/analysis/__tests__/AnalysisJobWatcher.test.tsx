@@ -436,6 +436,32 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
   });
 
+  // fix(#1008 codex P2, fifth pass): a tab suspended while one run succeeded
+  // and a later one failed resumes to the failed claim only. Gating the
+  // refresh on the status would leave it a catalog missing the first run's
+  // dataset, with nothing to correct it.
+  it('refreshes on a failed claim too, since an earlier run may have succeeded', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j2',
+          tabId: 'some-other-tab',
+          status: 'failed',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    invalidate.mockRestore();
+  });
+
   it('does not refresh when the job is cleared without a completion claim', async () => {
     useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
     mockJob({ status: 'running', dataset_id: null });
