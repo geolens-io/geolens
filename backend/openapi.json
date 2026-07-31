@@ -5081,7 +5081,7 @@
                 "type": "null"
               }
             ],
-            "description": "Bounding box [minx, miny, maxx, maxy]",
+            "description": "Bounding box [west, south, east, north] per RFC 7946 \u00a75.2. west > east on an antimeridian-crossing extent.",
             "title": "Extent Bbox"
           },
           "feature_count": {

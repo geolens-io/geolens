@@ -7209,7 +7209,7 @@ export interface components {
             data_vintage_start?: string | null;
             /**
              * Extent Bbox
-             * @description Bounding box [minx, miny, maxx, maxy]
+             * @description Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
              */
             extent_bbox?: number[] | null;
             /** Feature Count */
