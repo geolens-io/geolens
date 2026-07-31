@@ -8,8 +8,8 @@ reaching stdout / log aggregators.
 import pytest
 import structlog
 
-from app.core.logging_config import _redact_sensitive_fields, setup_logging
-from tests._logging_state import preserved_logging_state
+from app.core.logging_config import _redact_sensitive_fields
+from tests._logging_state import configured_logging
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +95,9 @@ def test_processor_handles_empty_dict():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def restore_logging_state():
-    """Undo the global logging state the test below leaves behind.
+def test_integration_token_redacted_in_log_output(capsys):
+    """End-to-end: configure structlog via setup_logging, log a token,
+    verify the raw token does NOT appear and [REDACTED] DOES.
 
     fix(#1064): `setup_logging()` replaces the root handlers and sets
     `cache_logger_on_first_use=True`, and nothing here put either back — so
@@ -105,31 +105,26 @@ def restore_logging_state():
     leaked-global class this file's own subject matter is about, and the
     caching half is what makes a later `capture_logs()` see nothing.
 
-    The call itself has to stay in the test body: pytest swaps
+    fix(#1064 codex r4): `configured_logging()` replaces a fixture that only
+    saved and restored. Restoring was never sufficient on its own — while
+    caching is on, any module-level proxy emitting inside the window freezes
+    permanently, and a proxy-local bind survives every restore. The helper
+    disables caching after `setup_logging()`, which is the only order that
+    works, and this file was one `logger.info` away from being the test that
+    demonstrated it.
+
+    It stays a context manager in the body rather than a fixture: pytest swaps
     `sys.stdout`/`stderr` for the call phase only, so a handler created during
-    fixture setup binds to a stream capsys is not capturing. Saving here and
-    restoring on teardown is the part that can live in a fixture.
-
-    fix(#1064 codex r1/r2): restores the previous structlog config rather than
-    calling `reset_defaults()` — the library default drops
-    `_redact_sensitive_fields` and the stdlib routing — and covers the three
-    uvicorn loggers `setup_logging()` also rewrites, not just root. Both live
-    in `preserved_logging_state()` so there is one shape to be wrong.
+    fixture setup binds to a stream capsys is not capturing.
     """
-    with preserved_logging_state():
-        yield
+    with configured_logging(log_level="INFO"):
+        logger = structlog.stdlib.get_logger("test.redaction")
+        logger.info(
+            "auth_attempt", token="my-supersecret-jwt-token-value", user_id="alice"
+        )
 
-
-def test_integration_token_redacted_in_log_output(capsys, restore_logging_state):
-    """End-to-end: configure structlog via setup_logging, log a token,
-    verify the raw token does NOT appear and [REDACTED] DOES."""
-    setup_logging(json_logs=True, log_level="INFO")
-
-    logger = structlog.stdlib.get_logger("test.redaction")
-    logger.info("auth_attempt", token="my-supersecret-jwt-token-value", user_id="alice")
-
-    captured = capsys.readouterr()
-    out = captured.out + captured.err  # log destination depends on handler config
+        captured = capsys.readouterr()
+        out = captured.out + captured.err  # destination depends on handler config
 
     # The raw token must NOT appear
     assert "my-supersecret-jwt-token-value" not in out, (

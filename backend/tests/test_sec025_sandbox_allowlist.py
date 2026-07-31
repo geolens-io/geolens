@@ -63,9 +63,12 @@ def _recording_validator_logger():
     similar. A snapshot-and-restore guard CANNOT repair a proxy frozen while
     it was off-guard, because the cache is on the proxy rather than in the
     config; preventing the freeze is the only thing that closes the class
-    (#1066). And a helper that calls `setup_logging()` will seed this unless
-    it turns caching back off inside its own window — which is what
-    `tests/_logging_state.py` and the notification capture helper now do.
+    (#1066). And a helper that calls `setup_logging()` will seed this unless it
+    turns caching back off AFTER that call — order matters, since
+    `setup_logging()` turns it on. Use `configured_logging()` from
+    `tests/_logging_state.py`, which owns both steps; its sibling
+    `preserved_logging_state()` only snapshots and restores, so composing that
+    one with `setup_logging()` by hand leaves the freeze armed (#1064 codex r4).
     """
     events: list[dict] = []
 

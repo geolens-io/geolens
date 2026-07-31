@@ -17,8 +17,7 @@ from unittest.mock import patch
 import pytest
 import structlog
 
-from app.core.logging_config import setup_logging
-from tests._logging_state import preserved_logging_state
+from tests._logging_state import configured_logging
 from app.platform.extensions.protocols import Notification
 
 # ---------------------------------------------------------------------------
@@ -82,8 +81,11 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     ``--- Logging error ---`` instead of landing anywhere assertable.
 
     On exit every logger `setup_logging()` touches is put back exactly as it
-    was, via `preserved_logging_state()` — root AND the three uvicorn loggers,
-    handlers, propagate and level, plus the whole structlog config.
+    was, via `configured_logging()` — root AND the three uvicorn loggers,
+    handlers, propagate and level, plus the whole structlog config. That helper
+    also disables `cache_logger_on_first_use` for the window, which is what
+    stops this test from freezing a module-level proxy and manufacturing the
+    very hazard it exists to catch (#1063's mechanism).
 
     fix(#1064 codex r1): an earlier version called `structlog.reset_defaults()`
     instead, reasoning that the library default leaves
@@ -101,19 +103,10 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     LOG_LEVEL=DEBUG emitted the secret. The assertions this replaced used
     `caplog.at_level(logging.DEBUG)`, so anything narrower is a regression.
     """
-    with preserved_logging_state():
-        setup_logging(json_logs=True, log_level="DEBUG")
-        # fix(#1064 codex r3): setup_logging turns cache_logger_on_first_use
-        # ON. Any module-level logger that emits while it is on FREEZES its
-        # BoundLoggerLazyProxy against the then-current chain, and restoring
-        # the config on exit cannot undo a proxy-local bind — that logger is
-        # then invisible to every later capture_logs() in the worker.
-        # Measured: a proxy capture_logs could see before this helper ran was
-        # invisible afterwards. That is the #1063 mechanism, so leaving it
-        # would have this test manufacture the very hazard it exists to catch.
-        # Turning caching back off keeps the chain and the routing; only the
-        # freezing goes.
-        structlog.configure(cache_logger_on_first_use=False)
+    # fix(#1064 codex r4): the setup_logging call and the cache disable that has
+    # to follow it now live together in configured_logging(); composing them
+    # here by hand is the ordering trap that helper exists to remove.
+    with configured_logging(log_level="DEBUG"):
         records: list[str] = []
         live = _LiveLogs(records)
         try:

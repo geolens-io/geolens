@@ -29,6 +29,8 @@ from collections.abc import Iterator
 
 import structlog
 
+from app.core.logging_config import setup_logging
+
 # Every logger setup_logging() reaches, from logging_config.py:103-112.
 # "" is the root logger.
 _MUTATED_LOGGERS = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
@@ -63,3 +65,39 @@ def preserved_logging_state() -> Iterator[None]:
             logger.handlers[:] = handlers
             logger.propagate = propagate
             logger.setLevel(level)
+
+
+@contextlib.contextmanager
+def configured_logging(
+    *, json_logs: bool = True, log_level: str = "DEBUG"
+) -> Iterator[None]:
+    """``setup_logging()`` inside a preserved window, with the freeze disarmed.
+
+    fix(#1064 codex r4): use this rather than ``preserved_logging_state()``
+    directly whenever the window CALLS ``setup_logging()``. Restoring the
+    config on exit is not enough on its own, because ``setup_logging()`` turns
+    ``cache_logger_on_first_use`` ON, and a module-level logger that emits
+    while it is on freezes its ``BoundLoggerLazyProxy`` against the
+    then-current chain. That bind lives on the proxy object, not in the config,
+    so no amount of restoring undoes it — the logger is simply invisible to
+    every later ``capture_logs()`` in the worker. It is the #1063 mechanism.
+
+    **The order is the entire reason this is a separate helper.** The disable
+    has to land AFTER ``setup_logging()``; ``preserved_logging_state()`` cannot
+    do the job by configuring before it yields, because ``setup_logging()``
+    would immediately turn caching back on. A caller composing the two by hand
+    gets that wrong silently — nothing fails, the freeze just happens.
+
+    Turning caching off keeps the processor chain and the stdlib routing
+    ``setup_logging()`` installed; only the freezing goes. The original value
+    is restored on exit like everything else.
+
+    Enter it INSIDE the test body, never in fixture setup: pytest swaps
+    ``sys.stdout``/``sys.stderr`` for the call phase only, so a handler built
+    during setup binds to a stream ``capsys`` is not capturing and every write
+    fails with ``--- Logging error ---`` instead of landing anywhere assertable.
+    """
+    with preserved_logging_state():
+        setup_logging(json_logs=json_logs, log_level=log_level)
+        structlog.configure(cache_logger_on_first_use=False)
+        yield
