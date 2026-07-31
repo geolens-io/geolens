@@ -349,6 +349,33 @@ def test_builtin_pattern_export_keeps_the_stashed_fill_color():
     assert "fill-pattern" not in fill["paint"]
 
 
+def test_builtin_pattern_export_seeds_over_an_explicit_null_fill_color():
+    """`fill-color: null` is not a colour, so the stash still wins.
+
+    fix(#910, codex P2): an API-authored or imported layer can carry an explicit null
+    there, and a presence test read that as "already coloured" — #917 then stripped the
+    pattern and left the null in place (`_strip_wrong_typed_values` does not pop it), so
+    MapLibre resolved the null to its own default instead of the saved colour. Measured
+    before the fix: the emitted paint was `{'fill-color': None, 'fill-opacity': 0.5}`.
+    """
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={
+            "fill-pattern": "geolens-fill-hatch",
+            "fill-color": None,
+            "fill-opacity": 0.5,
+        },
+        label_config=None,
+        style_config={"builder": {"fillColorSaved": "#ff0000"}},
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    fill = next(lyr for lyr in style["layers"] if lyr.get("type") == "fill")
+    assert fill["paint"]["fill-color"] == "#ff0000"
+    assert "fill-pattern" not in fill["paint"]
+
+
 def test_builtin_pattern_export_falls_back_to_default_without_a_stash():
     """No stash to honour, so #917's own DEFAULT_FILL_COLOR fallback still applies."""
     layer = _layer(

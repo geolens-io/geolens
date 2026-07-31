@@ -1718,3 +1718,70 @@ describe('useLayerMapSync — provenance survives a JSON round-trip of an untouc
     expect('fill-pattern' in (updated.paint ?? {})).toBe(false);
   });
 });
+
+// fix(#910, codex P2): `fill-pattern: null` means NO pattern — MapLibre reads it as unset,
+// and `FillEditor` already tests `!= null`. A presence-only collision test read it as a
+// live pattern, so an unrelated edit fell through to pattern-wins and deleted the only
+// colour the layer had. Reachable from an imported or API-authored style, which gets
+// serialized-size validation and not much else.
+describe('useLayerMapSync — a null fill key is not an active one', () => {
+  const LID = 'layer-uuid-123';
+
+  function renderBoundary(initialLayer: MapLayerResponse) {
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub([`layer-${LID}`]) } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, layers: () => finalLayers };
+  }
+
+  it('keeps the solid colour when the pattern is null and an unrelated key changes', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#ff0000', 'fill-pattern': null, 'fill-opacity': 0.3 },
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-color': '#ff0000',
+        'fill-pattern': null,
+        'fill-opacity': 0.7,
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-color']).toBe('#ff0000');
+    expect(updated.paint?.['fill-opacity']).toBe(0.7);
+    // Nothing was displaced, so nothing was stashed either.
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBeUndefined();
+  });
+
+  it('treats a null pattern as no pattern when clearing a stale stash', () => {
+    const { result, layers } = renderBoundary(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#ff0000', 'fill-pattern': null },
+        style_config: { builder: { fillColorSaved: '#0000ff' } } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handlePaintChange(LID, { 'fill-color': '#00ff00', 'fill-pattern': null });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBeUndefined();
+    expect(updated.paint?.['fill-color']).toBe('#00ff00');
+  });
+});

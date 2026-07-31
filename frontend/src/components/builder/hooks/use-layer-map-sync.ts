@@ -191,6 +191,20 @@ export function applyLayerOpacityToMap(
  * for a key that merely *stopped being present*, which a paint object cannot
  * express — see `clearExcludedPaintOnMap`.
  */
+/**
+ * fix(#910, codex P2): is this fill key ACTIVELY set, as opposed to merely present?
+ *
+ * An imported, API-authored or Advanced-JSON layer can carry `fill-pattern: null`, which
+ * MapLibre reads as "no pattern" — and a presence test read it as a collision, so an
+ * unrelated `fill-opacity` edit fell through to pattern-wins and deleted the visible
+ * solid colour, leaving the layer on MapLibre's spec default. `FillEditor` already draws
+ * this distinction with `paint['fill-pattern'] != null`; this is the same rule, applied
+ * at every place the exclusions ask whether a key is set.
+ */
+function hasActiveFill(paint: Record<string, unknown>, key: string): boolean {
+  return paint[key] !== undefined && paint[key] !== null;
+}
+
 export function resolveFillExclusions(
   config: StyleConfig | null,
   paint: Record<string, unknown>,
@@ -222,7 +236,8 @@ export function resolveFillExclusions(
   //
   // With no previous paint to compare — or when the write touched both keys, or neither
   // — it falls back to pattern-wins, which is what MapLibre draws regardless.
-  const collides = 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+  const collides = hasActiveFill(effectivePaint, 'fill-color')
+    && hasActiveFill(effectivePaint, 'fill-pattern');
   // Compares VALUES, not just presence: on a layer that already carried both keys,
   // changing the colour is as much a request as adding one, and a presence-only check
   // read it as "nothing introduced" and deleted the new colour. An absent key compares
@@ -260,7 +275,8 @@ export function resolveFillExclusions(
     const { 'fill-color': _droppedColor, ...rest } = effectivePaint;
     strandedFillColor = fillColor;
     effectivePaint = rest;
-  } else if ('fill-pattern' in effectivePaint && !('fill-color' in effectivePaint)) {
+  } else if (hasActiveFill(effectivePaint, 'fill-pattern')
+    && !hasActiveFill(effectivePaint, 'fill-color')) {
     // fix(#910, codex P2): the displacement does not always arrive as a collision.
     // Advanced JSON replacing paint wholesale, or an AI `set_style` with
     // `replace_paint`, hands over a pattern-only object that already dropped the
@@ -299,7 +315,9 @@ export function stashExcludedFillColor(
   // a solid-colour win keep a stale stash: the next pattern write then found the slot
   // occupied, and None restored a colour from two edits ago while the extrusion
   // companion painted it too.
-  if (!('fill-pattern' in flags.paint) && next?.builder?.fillColorSaved !== undefined) {
+  // Active, not merely present: a `fill-pattern: null` no longer owns the fill, so the
+  // stash it would have justified is just as stale as an absent key's.
+  if (!hasActiveFill(flags.paint, 'fill-pattern') && next?.builder?.fillColorSaved !== undefined) {
     const { fillColorSaved: _dropped, ...restBuilder } = next.builder;
     next = { ...next, builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined };
   }

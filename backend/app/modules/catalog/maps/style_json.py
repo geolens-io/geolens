@@ -991,7 +991,12 @@ def _style_layer_for_map_layer(
         stashed_fill = builder.get("fillColorSaved")
         if (
             isinstance(stashed_fill, str)
-            and "fill-color" not in base["paint"]
+            # fix(#910, codex P2): absent OR explicitly null. An API-authored or imported
+            # layer can carry `fill-color: null`, which a presence test read as "a colour
+            # is already set" — #917 then stripped the pattern, left the null in place
+            # (`_strip_wrong_typed_values` does not pop it), and MapLibre resolved the
+            # null to its own default instead of the colour in the stash.
+            and base["paint"].get("fill-color") is None
             and _references_builtin_fill_pattern(base["paint"].get("fill-pattern"))
         ):
             base["paint"] = {**base["paint"], "fill-color": stashed_fill}
