@@ -147,6 +147,10 @@ function vectorToken(expSeconds: number): TileToken {
 const rasterToken: TileToken = {
   kind: 'raster',
   tile_url: '/raster-tiles/x/tiles/{z}/{x}/{y}.png',
+  sig: 'sig-fixture',
+  exp: 2000000000,
+  scope: 'scope-fixture',
+  expires_in: 900,
   bounds: null,
   minzoom: 0,
   maxzoom: 18,

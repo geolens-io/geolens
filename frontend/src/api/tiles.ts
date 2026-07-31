@@ -10,25 +10,39 @@ export type VectorTileToken = {
   expires_in: number;
 };
 
+/** An exact mirror of the API's RasterTileToken. Every field is required,
+ * because the response always carries all of them — `hand-typed-mirror-drift`
+ * pins that against `openapi.json` in both directions. */
 export type RasterTileToken = {
   kind: 'raster';
   /** fix(#688): arrives with `?sig=&exp=&scope=` already in it. MapLibre issues
    * the tile image requests itself and attaches no header, so the template has
    * to be self-sufficient for a client that cannot use `setTransformRequest`. */
   tile_url: string;
-  /** Optional only because `rasterTokenFromLayer` (map-sync.ts) builds this
-   * shape locally from a saved layer row, which has no signature — the in-app
-   * map authenticates with a bearer token instead. The API always sends them. */
-  sig?: string;
-  exp?: number;
-  scope?: string;
-  expires_in?: number;
+  sig: string;
+  exp: number;
+  scope: string;
+  expires_in: number;
   bounds: number[] | null;
   minzoom: number;
   maxzoom: number;
   tile_size: number;
   format: string;
 };
+
+/** The same shape MINUS the signature, built locally rather than fetched.
+ *
+ * fix(#688): `rasterTokenFromLayer` (map-sync.ts) assembles this from a saved
+ * layer row, which has no signature and cannot have one — the in-app map
+ * authenticates with a bearer token through `setTransformRequest` instead. It
+ * is a separate type rather than four optional fields on `RasterTileToken`
+ * because that type is a contract mirror: marking a field optional there would
+ * claim the API might omit it, which is the silent-undefined seed the drift
+ * test exists to catch. Consumers that accept either take the union. */
+export type UnsignedRasterTileTemplate = Omit<
+  RasterTileToken,
+  'sig' | 'exp' | 'scope' | 'expires_in'
+>;
 
 export type TileToken = VectorTileToken | RasterTileToken;
 

@@ -113,6 +113,10 @@ describe('useViewerTerrain', () => {
         ['dem-1', {
           kind: 'raster',
           tile_url: '/raster-tiles/token-dem/tiles/{z}/{x}/{y}.png',
+          sig: 'sig-fixture',
+          exp: 2000000000,
+          scope: 'scope-fixture',
+          expires_in: 900,
           bounds: [-113, 36, -111.5, 37],
           minzoom: 2,
           maxzoom: 14,
@@ -146,6 +150,10 @@ describe('useViewerTerrain', () => {
         ['dem-1', {
           kind: 'raster',
           tile_url: '/raster-tiles/token-only-dem/tiles/{z}/{x}/{y}.png',
+          sig: 'sig-fixture',
+          exp: 2000000000,
+          scope: 'scope-fixture',
+          expires_in: 900,
           bounds: null,
           minzoom: 0,
           maxzoom: 18,
@@ -199,6 +207,10 @@ describe('useViewerTerrain', () => {
         ['dem-1', {
           kind: 'raster',
           tile_url: '/raster-tiles/token-dem/tiles/{z}/{x}/{y}.png',
+          sig: 'sig-fixture',
+          exp: 2000000000,
+          scope: 'scope-fixture',
+          expires_in: 900,
           bounds: null,
           minzoom: 0,
           maxzoom: 18,
