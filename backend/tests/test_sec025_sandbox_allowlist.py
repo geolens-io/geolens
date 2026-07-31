@@ -613,6 +613,33 @@ class TestResourceAmplificationRejected:
             "SELECT ST_Segmentize(geom_4326::geography, 999) FROM data.cities"
         )
 
+    def test_degrees_floor_needs_a_statement_that_stays_in_4326(self):
+        """fix(#1001 codex r1): "not a geography cast" does not mean degrees.
+        ST_Transform is allowlisted, so a bare geometry can be projected, where
+        0.01 is a centimetre and a world-scale feature is billions of vertices.
+        A reprojection anywhere in the statement forces the metres floor."""
+        _assert_rejects(
+            "SELECT ST_Segmentize(ST_Transform(geom_4326, 3857), 0.01) FROM data.cities"
+        )
+        _assert_rejects(
+            "SELECT ST_Segmentize(ST_Transform(geom_4326, 3857), 0.1) FROM data.cities"
+        )
+        # The metres floor is still satisfiable on a projected target.
+        validate_sql(
+            "SELECT ST_Segmentize(ST_Transform(geom_4326, 3857), 1000) "
+            "FROM data.cities LIMIT 5"
+        )
+        # A non-literal SRID is unreadable, so it fails closed the same way.
+        _assert_rejects(
+            "SELECT ST_Segmentize(ST_Transform(geom_4326, srid_col), 0.1) "
+            "FROM data.cities"
+        )
+        # An explicit no-op transform to 4326 is still degrees.
+        validate_sql(
+            "SELECT ST_Segmentize(ST_Transform(geom_4326, 4326), 0.1) "
+            "FROM data.cities LIMIT 5"
+        )
+
     def test_allows_canonical_scale_segmentize(self):
         validate_sql(
             "SELECT ST_Segmentize(geom_4326::geography, 20000) FROM data.cities LIMIT 5"

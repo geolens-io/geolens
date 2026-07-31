@@ -402,8 +402,46 @@ def _select_subtree_scans_a_table(func: exp.Func) -> bool:
     )
 
 
-def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
-    """Reject function arguments that can amplify a one-row query into a DoS."""
+def _statement_reprojects_off_4326(stmt: exp.Expression) -> bool:
+    """True when the statement reprojects to anything but a literal 4326.
+
+    fix(#1001 codex r1): the segmentize floor infers its unit from the target,
+    but ST_Transform is allowlisted, so a bare geometry is not necessarily in
+    degrees — ST_Transform(geom_4326, 3857) makes 0.01 a centimetre, and a
+    world-scale feature at that edge length is billions of vertices. Alias
+    indirection makes the target's own CRS unknowable in general (the banded
+    renderer segmentizes ``_pb_d0.c0``, several derived levels from its input),
+    so this asks the whole statement instead: any reprojection away from 4326,
+    or to an SRID we cannot read as a literal, forces the metres floor on every
+    segmentize in the query. The canonical buffer reprojects via ``::geography``
+    casts and contains no ST_Transform, so it is unaffected.
+    """
+    for fn in stmt.find_all(exp.Func):
+        if isinstance(fn, exp.Anonymous):
+            name = fn.name.lower() if hasattr(fn, "name") else ""
+        else:
+            name = fn.sql_name().lower() if hasattr(fn, "sql_name") else ""
+        if name != "st_transform":
+            continue
+        srid = fn.expressions[1] if len(fn.expressions) > 1 else None
+        known_4326 = (
+            isinstance(srid, exp.Literal)
+            and srid.is_number
+            and str(srid.this) == "4326"
+        )
+        if not known_4326:
+            return True
+    return False
+
+
+def _validate_function_cost(
+    func: exp.Func, fn_name: str, sql: str, reprojected: bool = True
+) -> None:
+    """Reject function arguments that can amplify a one-row query into a DoS.
+
+    ``reprojected`` defaults to True so a caller that forgets to pass it gets
+    the strict metres floor rather than the relaxed degrees one.
+    """
     # fix(#935): generate_series is admitted ONLY in the exact bounded form
     # the canonical geodesic buffer expression emits; every other use — big
     # literals, dynamic bounds from table columns, generator composition — is
@@ -426,13 +464,17 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
     # the two overloads bounded to comparable vertex budgets over a global
     # extent — 40 075 km / 1000 m is ~40k vertices, 360° / 0.01° is 36k — so
     # neither unit is the cheap way past the guard.
+    #
+    # fix(#1001 codex r1): "not a geography cast" does NOT imply degrees; a
+    # projected geometry is in the projection's units. Only a statement with no
+    # reprojection away from 4326 gets the degrees floor.
     if fn_name == "st_segmentize":
         length = func.expressions[1] if len(func.expressions) > 1 else None
         target = func.expressions[0] if func.expressions else None
         in_metres = (
             isinstance(target, exp.Cast) and "geography" in target.to.sql().lower()
         )
-        floor = 1000.0 if in_metres else 0.01
+        floor = 0.01 if not in_metres and not reprojected else 1000.0
         segmentize_ok = (
             isinstance(length, exp.Literal)
             and length.is_number
@@ -503,6 +545,9 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
       4. Allowed spatial functions → reject unbounded aggregate/complexity forms
       5. Otherwise → reject (fail-closed)
     """
+    # Computed once per statement: the segmentize floor needs to know whether
+    # anything here leaves 4326, since that changes what its length means.
+    reprojected = _statement_reprojects_off_4326(stmt)
     for func in stmt.find_all(exp.Func):
         # fix(#538): sqlglot models AND/OR (exp.Connector) as Func subclasses,
         # so any compound condition (WHERE x AND y, JOIN ... ON a AND b,
@@ -541,7 +586,7 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
             logger.info("sandbox.unlisted_function", sql=sql, function=fn_name)
             raise SandboxError("invalid_query", "Query uses a disallowed function")
 
-        _validate_function_cost(func, fn_name, sql)
+        _validate_function_cost(func, fn_name, sql, reprojected)
 
 
 def validate_sql(sql: str) -> ValidatedQuery:
