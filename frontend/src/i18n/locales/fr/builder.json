@@ -524,6 +524,8 @@
     "manualBreaksInvalid": "Saisissez au moins une valeur de seuil dans un ordre strictement croissant.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs.",
+    "categoriesTruncatedWarning": "{{count}} catégories : les {{shown}} premières sont affichées ; envisagez le mode gradué pour de nombreuses valeurs.",
+    "mixedGeometryColorScope": "Les couleurs s’appliquent aux polygones. Les lignes et les points conservent leur couleur actuelle.",
     "target": "Cible",
     "targetColor": "Couleur",
     "targetRadius": "Rayon",

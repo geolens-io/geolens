@@ -34,6 +34,7 @@ import {
   manualBreaks,
 } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 import { isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
@@ -378,9 +379,14 @@ export function DataDrivenStyleEditor({
     columnForCategorical ? layer.dataset_id : undefined,
     columnForCategorical,
   );
+  // fix(#960): categorical mode needs the stats endpoint too. useColumnValues pages
+  // at 100 (500 max), so its length is a page size, not a cardinality — the warning
+  // read "100 categories" on a column with thousands and the swatch list stopped at
+  // 100 with nothing saying so. `distinct_count` is exact and full-table (#315).
+  const columnForStats = columnForGraduated ?? columnForCategorical;
   const { data: statsData } = useColumnStats(
-    columnForGraduated ? layer.dataset_id : undefined,
-    columnForGraduated,
+    columnForStats ? layer.dataset_id : undefined,
+    columnForStats,
   );
 
   // std-dev classification needs both mean and σ. The current stats endpoint
@@ -713,8 +719,18 @@ export function DataDrivenStyleEditor({
     [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange, colorDebounceRef],
   );
 
+  // fix(#960): the honest counts. `values` is one page (100 by default, 500 max);
+  // `distinct_count` is the exact full-table cardinality. The advice triggers on the
+  // true count, and when the swatch list is only a prefix of it, the copy says so.
+  const shownCategories = valuesData?.values.length ?? 0;
+  const distinctCategories = mode === 'categorical' ? statsData?.distinct_count ?? null : null;
+  const totalCategories = distinctCategories ?? shownCategories;
+  const categoriesTruncated = distinctCategories != null && distinctCategories > shownCategories;
   const hasTooManyCategories =
-    mode === 'categorical' && valuesData && valuesData.values.length > 20;
+    mode === 'categorical' && !!valuesData && totalCategories > 20;
+  // fix(#952): the same `classifyGeometry(...) === 'other'` test getColorProperty
+  // already makes — GEOMETRY / GEOMETRYCOLLECTION, i.e. created and sketch datasets.
+  const isMixedGeometry = classifyGeometry(layer.dataset_geometry_type) === 'other';
   const noCompatibleColumns = filteredColumns.length === 0;
   const selectedColumnMissing = Boolean(column) && !columns.some((c) => c.name === column);
   const graduatedStatsUnavailable =
@@ -816,6 +832,18 @@ export function DataDrivenStyleEditor({
           {mode === 'categorical'
             ? t('dataDriven.noTextColumnsHelp')
             : t('dataDriven.noNumericColumnsHelp')}
+        </p>
+      )}
+
+      {/* fix(#952): a ramp on a mixed-geometry layer writes one colour property,
+          chosen by geometry — 'other' resolves to fill-color — and the mixed adapter
+          then filters that key out of the line and circle sublayers. So only the
+          polygons classify, while the legend shows the full classification as though
+          it applied to everything. The multi-property fix is unscheduled; say which
+          features the colours reach so the mismatch is explicable. */}
+      {isMixedGeometry && (
+        <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
+          {t('dataDriven.mixedGeometryColorScope')}
         </p>
       )}
 
@@ -1055,7 +1083,12 @@ export function DataDrivenStyleEditor({
 
       {hasTooManyCategories && (
         <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning">
-          {t('dataDriven.categoriesWarning', { count: valuesData.values.length })}
+          {categoriesTruncated
+            ? t('dataDriven.categoriesTruncatedWarning', {
+                count: totalCategories,
+                shown: shownCategories,
+              })
+            : t('dataDriven.categoriesWarning', { count: totalCategories })}
         </p>
       )}
     </div>

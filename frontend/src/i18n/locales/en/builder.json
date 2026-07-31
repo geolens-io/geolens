@@ -524,6 +524,8 @@
     "manualBreaksInvalid": "Enter at least one break value in strictly ascending order.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
+    "categoriesTruncatedWarning": "{{count}} categories -- showing the first {{shown}}; consider using graduated mode for many values.",
+    "mixedGeometryColorScope": "Colors apply to polygon features. Lines and points keep their current color.",
     "target": "Target",
     "targetColor": "Color",
     "targetRadius": "Radius",
