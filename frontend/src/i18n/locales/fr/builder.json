@@ -250,6 +250,8 @@
     "toggleStroke": "Activer/désactiver le contour",
     "fillPattern": "Motif de remplissage",
     "fillPatternNone": "Sans motif",
+    "fillPatternUnavailableDataDriven": "Les motifs sont indisponibles lors du stylisme par attribut",
+    "fillColorUnavailablePattern": "La couleur est indisponible lorsqu'un motif est appliqué",
     "fillPatternName": {
       "hatch": "Hachures",
       "crosshatch": "Hachures croisées",

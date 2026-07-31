@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { LayerStyleEditor, hasUnsavedStyleChanges } from '../LayerStyleEditor';
 import { LayerEditorPanel } from '../LayerEditorPanel';
 import { stopsToLineGradientExpression } from '../LineGradientControls';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 // Radix Select uses ResizeObserver internally
 (globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
@@ -1441,17 +1441,28 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
 // EDIT-05: fill-color / fill-pattern mutual exclusion via handleFillPatternChange
 // ---------------------------------------------------------------------------
 describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusion', () => {
-  it('switching to a pattern emits onPaintChange paint that has fill-pattern but NOT fill-color', () => {
-    const onPaintChange = vi.fn();
+  // fix(#910): the handler now stashes the solid color in style_config.builder,
+  // so it emits through onStyleConfigChange (config, paint) rather than
+  // onPaintChange. The both-keys-never invariant is asserted on that paint.
+  function lastStyleConfigCall(fn: ReturnType<typeof vi.fn>) {
+    const calls = fn.mock.calls as Array<[string, StyleConfig | null, Record<string, unknown>]>;
+    expect(calls.length).toBeGreaterThan(0);
+    const [, config, paint] = calls[calls.length - 1];
+    expect(Object.values(paint).filter((v) => v === undefined)).toHaveLength(0);
+    return { config, paint };
+  }
+
+  it('switching to a pattern emits paint that has fill-pattern but NOT fill-color, and stashes the color', () => {
+    const onStyleConfigChange = vi.fn();
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.8 },
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
@@ -1459,29 +1470,26 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     // Click the Hatch pattern swatch (rendered by FillPatternPicker inside FillEditor)
     fireEvent.click(screen.getByRole('button', { name: 'Hatch' }));
 
-    const calls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
-    expect(calls.length).toBeGreaterThan(0);
-    const emittedPaint = calls[calls.length - 1][1];
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
     // Pattern key is set
-    expect(emittedPaint['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(paint['fill-pattern']).toBe('geolens-fill-hatch');
     // Color key is DELETED — not undefined, completely absent
-    expect('fill-color' in emittedPaint).toBe(false);
-    // No undefined values in the emitted paint object
-    const undefinedValues = Object.values(emittedPaint).filter((v) => v === undefined);
-    expect(undefinedValues).toHaveLength(0);
+    expect('fill-color' in paint).toBe(false);
+    // ...but stashed so the round-trip can restore it
+    expect(config?.builder?.fillColorSaved).toBe('#ff0000');
   });
 
-  it('clearing a pattern (None) emits onPaintChange paint that has fill-color but NOT fill-pattern', () => {
-    const onPaintChange = vi.fn();
+  it('clearing a pattern (None) emits paint that has fill-color but NOT fill-pattern', () => {
+    const onStyleConfigChange = vi.fn();
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
           paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
@@ -1490,16 +1498,38 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     const noneButtons = screen.getAllByRole('button', { name: 'None' });
     fireEvent.click(noneButtons[0]);
 
-    const calls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
-    expect(calls.length).toBeGreaterThan(0);
-    const emittedPaint = calls[calls.length - 1][1];
+    const { paint } = lastStyleConfigCall(onStyleConfigChange);
     // fill-pattern key is DELETED — completely absent, not set to undefined
-    expect('fill-pattern' in emittedPaint).toBe(false);
+    expect('fill-pattern' in paint).toBe(false);
     // fill-color is restored
-    expect(typeof emittedPaint['fill-color']).toBe('string');
-    // No undefined values
-    const undefinedValues = Object.values(emittedPaint).filter((v) => v === undefined);
-    expect(undefinedValues).toHaveLength(0);
+    expect(typeof paint['fill-color']).toBe('string');
+  });
+
+  // fix(#910): the acceptance case that fails if either alias table is missed —
+  // the stash arrives from style_config (i.e. the save-and-reload path), not
+  // from this session's paint.
+  it('restores a stashed fillColorSaved on None and clears the stash', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
+          style_config: { builder: { fillColorSaved: '#ff0000' } },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-color']).toBe('#ff0000');
+    expect('fill-pattern' in paint).toBe(false);
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
   });
 });
 

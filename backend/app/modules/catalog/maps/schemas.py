@@ -80,6 +80,7 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "fillDisabled": "fill_disabled",
     "strokeDisabled": "stroke_disabled",
     "fillOpacitySaved": "fill_opacity_saved",
+    "fillColorSaved": "fill_color_saved",
     "outlineWidthSaved": "outline_width_saved",
     "outlineColor": "outline_color",
     "outlineWidth": "outline_width",

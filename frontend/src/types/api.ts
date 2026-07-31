@@ -900,6 +900,8 @@ export interface BuilderStyleConfig {
   fillDisabled?: boolean;
   strokeDisabled?: boolean;
   fillOpacitySaved?: number;
+  /** Solid fill-color stashed while a fill-pattern owns the fill (#910). */
+  fillColorSaved?: string;
   outlineWidthSaved?: number;
   outlineColor?: string;
   outlineWidth?: number;

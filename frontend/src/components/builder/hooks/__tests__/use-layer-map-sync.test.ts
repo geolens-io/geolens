@@ -796,6 +796,104 @@ describe('useLayerMapSync — handleStyleConfigChange line-gradient cleanup (P1-
   });
 });
 
+// fix(#918): fill-color / fill-pattern is the same exclusion shape. MapLibre gives
+// the pattern precedence, so a ramp applied over a pattern rendered the pattern
+// while the appearance section, the legend and saved paint all claimed the ramp.
+describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function renderWith(initialLayer: MapLayerResponse, mapStub = makeMapStub([`layer-${LAYER_ID}`])) {
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: mapStub } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, mapStub, layers: () => finalLayers };
+  }
+
+  const RAMP = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+
+  it('drops fill-pattern paint + the stale fillColorSaved stash when a ramp takes the fill color', () => {
+    const { result, mapStub, layers } = renderWith(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3 },
+        style_config: {
+          builder: { fillColorSaved: '#ff0000', outlineWidth: 2 },
+        } as MapLayerResponse['style_config'],
+      }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { mode: 'categorical', column: 'era', ramp: 'Set2' },
+        { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.3, 'fill-color': RAMP },
+      );
+    });
+
+    const updated = layers().find((l) => l.id === LAYER_ID)!;
+    expect('fill-pattern' in (updated.paint ?? {})).toBe(false);
+    expect(updated.paint?.['fill-color']).toEqual(RAMP);
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBeUndefined();
+    // Unrelated builder fields survive.
+    expect(builder?.outlineWidth).toBe(2);
+    // Cleared imperatively too, so the ramp shows without a full adapter re-add.
+    expect(mapStub.setPaintProperty).toHaveBeenCalledWith(`layer-${LAYER_ID}`, 'fill-pattern', undefined);
+  });
+
+  it('preserves fill-pattern when the write is not a data-driven color', () => {
+    const { result, mapStub, layers } = renderWith(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+      }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { builder: { outlineWidth: 3 } },
+        { 'fill-pattern': 'geolens-fill-hatch' },
+      );
+    });
+
+    const updated = layers().find((l) => l.id === LAYER_ID)!;
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-hatch');
+    expect(mapStub.setPaintProperty).not.toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`, 'fill-pattern', undefined,
+    );
+  });
+
+  it('preserves fill-pattern when a graduated SIZE target changes', () => {
+    const { result, layers } = renderWith(
+      makeLayer({
+        dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': RAMP },
+      }),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { mode: 'graduated', column: 'len', ramp: 'YlOrRd', target: 'width' },
+        { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': RAMP, 'line-width': 3 },
+      );
+    });
+
+    expect('fill-pattern' in (layers().find((l) => l.id === LAYER_ID)!.paint ?? {})).toBe(true);
+  });
+});
+
 // fix(#461, codex P2): Revert-to-saved passes { replace: true } so the saved
 // config is restored verbatim. Without it, the default builder-preserve would
 // strand a discarded builder-only edit (e.g. outline width) and keep the layer dirty.

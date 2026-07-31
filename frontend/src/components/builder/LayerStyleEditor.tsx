@@ -348,22 +348,30 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // fill-color and fill-pattern. Setting a pattern deletes fill-color; clearing the
   // pattern (solid / None) deletes fill-pattern. The KEY is removed — never set to
   // undefined — so saved paint never carries both keys or an undefined value.
+  // fix(#910): the delete above discarded the color outright, so a pattern
+  // round-trip always came back as the default blue. Stash the solid color in
+  // the builder config first — same convention as fillOpacitySaved above — and
+  // restore it on None. Only a string is stashable; an expression means the
+  // layer is data-driven, and the truth table in FillEditor keeps the picker
+  // out of reach in that state (#918 owns dropping the pattern there instead).
   const handleFillPatternChange = useCallback((id: string | undefined) => {
     const next = { ...paint };
+    let fillColorSaved: string | undefined;
     if (id) {
       // switching to pattern: remove fill-color, set fill-pattern
+      if (typeof next['fill-color'] === 'string') fillColorSaved = next['fill-color'];
       delete next['fill-color'];
       next['fill-pattern'] = id;
     } else {
       // switching to solid / None: remove fill-pattern
       delete next['fill-pattern'];
-      // Restore default fill-color if absent
+      // Restore the stashed color, or the default when there was none to stash
       if (!next['fill-color']) {
-        next['fill-color'] = FILL_DEFAULTS['fill-color'];
+        next['fill-color'] = builderConfig.fillColorSaved ?? FILL_DEFAULTS['fill-color'];
       }
     }
-    onPaintChange(layer.id, next);
-  }, [layer.id, paint, onPaintChange]);
+    updateBuilderConfig({ fillColorSaved }, next);
+  }, [paint, builderConfig.fillColorSaved, updateBuilderConfig]);
 
   const handleResetStyle = useCallback(() => {
     // Every branch clears the zoom clamp — previously only the line branch

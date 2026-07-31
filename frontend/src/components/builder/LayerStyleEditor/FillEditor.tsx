@@ -43,6 +43,13 @@ export function FillEditor({
   currentHeightCol,
   t,
 }: BaseStyleEditorProps) {
+  // fix(#910): fill-color and fill-pattern are mutually exclusive (EDIT-05), so
+  // exactly one of the two controls is reachable at a time. The pattern picker
+  // is also out in 3D-extrusion mode, where the extrusion companion reads
+  // fill-color and a pattern click would reset the whole layer to the default.
+  // It stays visible while a pattern IS set, because it is the only way to clear one.
+  const hasFillPattern = typeof paint['fill-pattern'] === 'string';
+  const showPatternPicker = isPolygon && !isDataDriven && !currentHeightCol;
   return (
     <>
       <div className="flex items-center justify-between">
@@ -60,6 +67,10 @@ export function FillEditor({
             <div className="text-xs text-muted-foreground italic">
               {t('style.styledBy', { column: layer.style_config?.column })}
             </div>
+          ) : hasFillPattern ? (
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.fillColorUnavailablePattern')}
+            </div>
           ) : (
             <StyleColorPicker
               label={t('style.color')}
@@ -73,13 +84,17 @@ export function FillEditor({
             min={0} max={1} step={0.01} format="percent"
             onChange={(val) => onPaintProp('fill-opacity', val)}
           />
-          {isPolygon && (
+          {showPatternPicker ? (
             <FillPatternPicker
-              value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
+              value={hasFillPattern ? (paint['fill-pattern'] as string) : undefined}
               onChange={onFillPatternChange}
               t={t}
             />
-          )}
+          ) : isPolygon && isDataDriven ? (
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.fillPatternUnavailableDataDriven')}
+            </div>
+          ) : null}
         </>
       )}
       <StrokeControls

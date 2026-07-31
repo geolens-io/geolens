@@ -368,6 +368,17 @@ export function useLayerMapSync(
         const { 'line-gradient': _droppedGradient, ...rest } = paint;
         effectivePaint = rest;
       }
+      // fix(#918): the same exclusion for the other incompatible pair. MapLibre
+      // gives `fill-pattern` precedence over `fill-color`, so an expression that
+      // takes ownership of the fill color must drop a surviving pattern —
+      // otherwise the map keeps drawing the pattern while the appearance
+      // section, the legend and saved paint all claim the ramp applied.
+      const dropsFillPattern =
+        isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+      if (dropsFillPattern) {
+        const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
+        effectivePaint = rest;
+      }
       applyLayerUpdate(
         layerId,
         (l) => {
@@ -396,6 +407,16 @@ export function useLayerMapSync(
               builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
             };
           }
+          // fix(#918): once an expression owns fill-color, #910's fillColorSaved
+          // stash is stale — restoring it on a later None click would resurrect a
+          // solid color the user set several edits ago.
+          if (isDataDrivenColor && mergedConfig?.builder?.fillColorSaved !== undefined) {
+            const { fillColorSaved: _droppedFillColorSaved, ...restBuilder } = mergedConfig.builder;
+            mergedConfig = {
+              ...mergedConfig,
+              builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
+            };
+          }
           return {
             ...l,
             style_config: normalizeDemStyleConfig(mergedConfig, l.is_dem),
@@ -412,6 +433,15 @@ export function useLayerMapSync(
                 map.setPaintProperty(mapLayerId, 'line-gradient', undefined);
               } catch {
                 /* not a line layer — line-gradient is not a valid property */
+              }
+              // fix(#918): clear the pattern too, so the ramp shows without
+              // waiting on a full adapter re-add.
+              if (dropsFillPattern) {
+                try {
+                  map.setPaintProperty(mapLayerId, 'fill-pattern', undefined);
+                } catch {
+                  /* not a fill layer — fill-pattern is not a valid property */
+                }
               }
             }
           }

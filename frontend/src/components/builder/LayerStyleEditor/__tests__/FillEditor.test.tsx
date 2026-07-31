@@ -387,6 +387,8 @@ describe('FillEditor', () => {
           'style.fillPatternName.diagonal': 'Diagonal',
           'style.fillPatternName.dots': 'Dots',
           'style.fillPatternName.grid': 'Grid',
+          'style.fillPatternUnavailableDataDriven': 'Patterns unavailable',
+          'style.fillColorUnavailablePattern': 'Color unavailable',
         };
         return labels[key] ?? key;
       },
@@ -461,6 +463,52 @@ describe('FillEditor', () => {
       />,
     );
     expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+  });
+
+  // fix(#910): gating truth table. A pattern click deletes fill-color, which on a
+  // data-driven layer destroys the classification expression and in extrusion
+  // mode resets the extrusion (it reads rawPaint['fill-color']).
+  it('does NOT render Fill Pattern section when isDataDriven=true, and explains why', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), {
+          isPolygon: true,
+          fillEnabled: true,
+          isDataDriven: true,
+        })}
+      />,
+    );
+    expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+    expect(screen.getByText('Patterns unavailable')).toBeInTheDocument();
+  });
+
+  it('does NOT render Fill Pattern section in 3D-extrusion mode', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), {
+          isPolygon: true,
+          fillEnabled: true,
+          currentHeightCol: 'height',
+        })}
+      />,
+    );
+    expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+  });
+
+  it('hides the fill color picker while a pattern is active, and explains why', () => {
+    const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Color unavailable')).toBeInTheDocument();
+    // The picker itself stays, so the pattern can still be cleared
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
   });
 
   it('behavior preservation: color picker, opacity slider, stroke controls still present', () => {

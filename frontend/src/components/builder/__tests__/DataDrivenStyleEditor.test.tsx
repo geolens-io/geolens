@@ -899,6 +899,32 @@ describe('DataDrivenStyleEditor', () => {
       // config should be null after clear
       expect(clearedConfig).toBeNull();
     });
+
+    // fix(#918): the clear paths write a non-data-driven config, so the exclusion
+    // in handleStyleConfigChange does not fire for them. A surviving fill-pattern
+    // would win over the freshly defaulted fill-color on the map.
+    it('drops a surviving fill-pattern when clearing a ramp', async () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            paint: {
+              'fill-color': ['match', ['get', 'typeA'], 'a', '#ff0000', '#00ff00'],
+              'fill-pattern': 'geolens-fill-hatch',
+            },
+            style_config: { mode: 'categorical', column: 'typeA', ramp: 'Set2' },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByRole('button', { name: /clear/i }));
+
+      const [, config, paint] = onStyleConfigChange.mock.calls[0];
+      expect(config).toBeNull();
+      expect('fill-pattern' in paint).toBe(false);
+      expect(paint['fill-color']).toBe(MAP_COLORS.default.fill);
+    });
   });
 
   describe('ENH-08: ramp rotation + data-character suggestion', () => {

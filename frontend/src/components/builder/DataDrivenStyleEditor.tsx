@@ -615,6 +615,11 @@ export function DataDrivenStyleEditor({
     delete resetPaint['_stroke-disabled'];
     delete resetPaint['_fill-opacity-saved'];
     delete resetPaint['_outline-width-saved'];
+    // fix(#918): these three clear paths write a non-data-driven config, so the
+    // exclusion in handleStyleConfigChange does not fire for them. A surviving
+    // fill-pattern would win over the freshly defaulted fill-color, leaving a
+    // layer that reads as cleared but still renders the old pattern.
+    delete resetPaint['fill-pattern'];
     // Reset size paint properties to scalar defaults
     const radiusProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
     if (radiusProp) resetPaint[radiusProp] = 5;
@@ -631,6 +636,7 @@ export function DataDrivenStyleEditor({
         ...layer.paint,
         [colorProp]: MAP_COLORS.default.fill,
       };
+      delete basePaint['fill-pattern']; // fix(#918), see handleClear
       onStyleConfigChange(layer.id, null, basePaint);
     } else {
       setColumn(newColumn);
@@ -647,6 +653,7 @@ export function DataDrivenStyleEditor({
     // Reset color property to flat default to clear stale expressions from previous mode
     const colorProp = getColorProperty(layer.dataset_geometry_type);
     const nextPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
+    delete nextPaint['fill-pattern']; // fix(#918), see handleClear
     if (newMode === 'categorical') {
       // Categorical does not support size targets — force back to color
       setTarget('color');
