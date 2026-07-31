@@ -9,6 +9,7 @@ import { materializeAnalysis, previewAnalysis } from '@/api/analysis';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import { useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse, UserResponse } from '@/types/api';
 
 // fix(#760): the rehydration tests need a controllable job status; the real
@@ -317,7 +318,7 @@ describe('AnalysisPanel', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'buffer',
         distance_meters: 500,
-      });
+      }, expect.any(AbortSignal));
     });
     await waitFor(() => {
       expect(onPreviewResult).toHaveBeenCalledWith(
@@ -465,7 +466,7 @@ describe('AnalysisPanel', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'clip',
         mask_dataset_id: 'ds2',
-      }),
+      }, expect.any(AbortSignal)),
     );
   });
 
@@ -500,6 +501,55 @@ describe('AnalysisPanel', () => {
     expect(drawButton).not.toHaveAttribute('id');
   });
 
+  it('aborts a preview still on the wire when the panel closes (#787 item 3)', async () => {
+    let signal: AbortSignal | undefined;
+    vi.mocked(previewAnalysis).mockImplementationOnce(
+      ((_id: string, _body: unknown, s?: AbortSignal) => {
+        signal = s;
+        // Never settles, so the request is still in flight at unmount.
+        return new Promise(() => {});
+      }) as never,
+    );
+    const { unmount } = renderPanel([datasetLayer]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(previewAnalysis).toHaveBeenCalled());
+    expect(signal?.aborted).toBe(false);
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('picks up a map that arrives after mount (#787 item 10)', async () => {
+    // The panel mounts before the lazy map finishes loading, and the ref it
+    // is handed is filled in by assignment — which re-renders nothing. The
+    // button has to follow the instance the panel holds in state.
+    const user = userEvent.setup();
+    const mapRef = { current: null as MaplibreMap | null };
+    const qc = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    // A fresh element each time: rerendering the same reference hits React's
+    // same-element bailout and skips the subtree.
+    const renderTree = () => (
+      <QueryClientProvider client={qc}>
+        <AnalysisPanel layers={[datasetLayer]} mapInstanceRef={mapRef} />
+      </QueryClientProvider>
+    );
+    const view = render(renderTree());
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: 'Clip' }));
+    expect(screen.getByRole('button', { name: 'Draw clip area' })).toBeDisabled();
+
+    mapRef.current = { on: vi.fn(), off: vi.fn() } as unknown as MaplibreMap;
+    view.rerender(renderTree());
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Draw clip area' }),
+      ).not.toBeDisabled(),
+    );
+  });
+
   it('converts the buffer distance from the selected unit to meters (#686)', async () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer]);
@@ -519,7 +569,7 @@ describe('AnalysisPanel', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'buffer',
         distance_meters: 2 * 1609.344,
-      }),
+      }, expect.any(AbortSignal)),
     );
   });
 
@@ -541,7 +591,7 @@ describe('AnalysisPanel', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'buffer',
         distance_meters: 100,
-      }),
+      }, expect.any(AbortSignal)),
     );
 
     // And back — a clean round trip, no drift.
@@ -643,7 +693,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds2', {
         operation: 'buffer',
         distance_meters: 750,
-      });
+      }, expect.any(AbortSignal));
     });
   });
 
@@ -657,7 +707,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
     await waitFor(() => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'centroid',
-      });
+      }, expect.any(AbortSignal));
     });
   });
 
@@ -672,7 +722,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'buffer',
         distance_meters: 250,
-      });
+      }, expect.any(AbortSignal));
     });
   });
 
@@ -1335,7 +1385,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds2', {
         operation: 'buffer',
         distance_meters: 500,
-      }),
+      }, expect.any(AbortSignal)),
     );
   });
 
@@ -1356,7 +1406,7 @@ describe('AnalysisPanel — stack-selected layer (#772)', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'buffer',
         distance_meters: 750,
-      }),
+      }, expect.any(AbortSignal)),
     );
   });
 
@@ -1603,7 +1653,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
       expect(previewAnalysis).toHaveBeenCalledWith('ds1', {
         operation: 'buffer',
         distance_meters: 500,
-      }),
+      }, expect.any(AbortSignal)),
     );
   });
 

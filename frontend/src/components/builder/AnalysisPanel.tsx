@@ -422,6 +422,22 @@ export function AnalysisPanel({
     },
     [],
   );
+  // fix(#787 item 10): the clip Draw button gated on `mapInstanceRef.current`
+  // read during render. Ref assignments don't re-render, so the button could
+  // stay dead until an unrelated state change happened to re-render the panel.
+  // Mirror the instance into state from an effect — the legal place to read a
+  // ref — using the same no-dep-array, retry-every-commit idiom as the mask
+  // effects below, which is what reaches the moment the lazy map exists. The
+  // initializer covers the common case (map already loaded when the panel
+  // opens) so a mount does not spend an extra commit settling this.
+  const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(
+    () => mapInstanceRef?.current ?? null,
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately runs every commit (the ref object never changes identity, only its contents); the prev === map bailout is what stops the update chain
+  useEffect(() => {
+    const map = mapInstanceRef?.current ?? null;
+    setMapInstance((prev) => (prev === map ? prev : map));
+  });
   const restoredMaskDrawnRef = useRef(false);
   useEffect(() => {
     if (restoredMaskDrawnRef.current) return;
@@ -555,6 +571,11 @@ export function AnalysisPanel({
   // change bumps the sequence (so an in-flight response knows it has been
   // superseded) and clears the overlay + badge outright.
   const previewSeqRef = useRef(0);
+  // fix(#787 item 3): closing the panel mid-preview suppressed the result
+  // callbacks but left the request running. The controller for the preview in
+  // flight, aborted on unmount and when a newer preview supersedes it.
+  const previewAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => previewAbortRef.current?.abort(), []);
   const jobIdRef = useRef(jobId);
   jobIdRef.current = jobId;
   // fix(#793 review): an input change while the materialize POST is still on the
@@ -701,15 +722,24 @@ export function AnalysisPanel({
         throw new Error(
           t('analysisTools.noLayerSelected', { defaultValue: 'No layer selected' }),
         );
-      return previewAnalysis(datasetId, {
-        // canRun blocks dissolve from the preview path.
-        operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
-        ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
-        ...(operation === 'clip' && mask ? { mask } : {}),
-        ...(operation === 'clip' && !mask && maskLayer?.dataset_id
-          ? { mask_dataset_id: maskLayer.dataset_id }
-          : {}),
-      });
+      // The seq guard already drops a superseded response; aborting stops the
+      // abandoned request from finishing its sandbox query as well.
+      previewAbortRef.current?.abort();
+      const controller = new AbortController();
+      previewAbortRef.current = controller;
+      return previewAnalysis(
+        datasetId,
+        {
+          // canRun blocks dissolve from the preview path.
+          operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
+          ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
+          ...(operation === 'clip' && mask ? { mask } : {}),
+          ...(operation === 'clip' && !mask && maskLayer?.dataset_id
+            ? { mask_dataset_id: maskLayer.dataset_id }
+            : {}),
+        },
+        controller.signal,
+      );
     },
     // fix(#793 review): the error path checks the sequence too — a
     // rejection from a request whose inputs were already abandoned must not
@@ -1155,7 +1185,7 @@ export function AnalysisPanel({
                 variant="outline"
                 size="sm"
                 onClick={startDrawing}
-                disabled={!mapInstanceRef?.current}
+                disabled={!mapInstance}
               >
                 {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
               </Button>
