@@ -52,7 +52,10 @@ _INSERT_BATCH_ROWS = 5000
 # genuine signal. Cells bound the work better than rows alone, because a
 # 400-column file is a very different load from a 4-column one at the same row
 # count — at the row cap this permits 20 columns, and a wider table trips the
-# cell cap sooner, which is the intent.
+# cell cap sooner, which is the intent. Cells count every column the loader
+# actually inserts, geometry included: the geometry column is skipped from
+# ``plan`` but is the single most expensive value per row, so leaving it out
+# would let the loader write more values than the ceiling advertises.
 _MAX_TOTAL_ROWS = 5_000_000
 _MAX_TOTAL_CELLS = 100_000_000
 
@@ -409,6 +412,16 @@ async def load_parquet_to_postgis(
     skip = {source_geom_col, _covering_column(geo, source_geom_col)}
     plan = _column_plan(pf.schema_arrow, skip)
 
+    # fix(#948): the budget gate goes HERE, before anything reads row data.
+    # _geometry_has_z below decodes the whole geometry column when the
+    # GeoParquet metadata does not declare geometry_types — which includes
+    # files this repo's own exporter writes — so a check placed after it would
+    # let an over-limit file monopolize the worker for a full scan before being
+    # rejected. Everything above this line is footer metadata only.
+    _check_ingest_budget(
+        pf.metadata.num_rows, len(plan) + (1 if geom_col is not None else 0)
+    )
+
     def _q(ident: str) -> str:
         return '"' + ident.replace('"', '""') + '"'
 
@@ -453,10 +466,6 @@ async def load_parquet_to_postgis(
             "Parquet file contains only a geometry column; loading it "
             "without geometry would produce an empty dataset."
         )
-
-    # fix(#948): both ceilings are enforced here, before the DDL below, so an
-    # oversized file leaves no table behind.
-    _check_ingest_budget(pf.metadata.num_rows, len(plan))
 
     async with async_session() as session:
         await session.execute(text(f"DROP TABLE IF EXISTS {tref}"))

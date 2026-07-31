@@ -129,6 +129,74 @@ class TestParquetIngestBudget:
         assert not await self._table_exists(test_db_session, table_name)
 
     @pytest.mark.anyio
+    async def test_geometry_column_counts_toward_cell_cap(
+        self, tmp_path, monkeypatch, test_db_session
+    ):
+        """The geometry column is skipped from ``plan`` but IS inserted, and is
+        the most expensive value per row — leaving it out of the count would
+        let the loader write more values than the ceiling advertises."""
+        from shapely.geometry import Point
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 100)
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_CELLS", 5)
+        p = tmp_path / "spatial.parquet"
+        pq.write_table(
+            build_geoparquet_table(
+                [Point(0, 0).wkb, Point(1, 1).wkb],
+                {"a": [1, 2], "b": [3, 4]},
+                ["a", "b"],
+            ),
+            p,
+        )
+
+        table_name = f"t_geomcell_{uuid.uuid4().hex[:8]}"
+        # 2 attributes + geometry = 3 columns, so 6 cells. Counting only the
+        # attributes would give 4 and let this through.
+        with pytest.raises(IngestionError, match=r"6 cells \(2 rows x 3 columns\)"):
+            await load_parquet_to_postgis(
+                str(p), table_name, schema="data", srid=4326, include_geometry=True
+            )
+        assert not await self._table_exists(test_db_session, table_name)
+
+    @pytest.mark.anyio
+    async def test_budget_checked_before_geometry_scan(self, tmp_path, monkeypatch):
+        """The gate must fire before any row data is read.
+
+        ``_geometry_has_z`` decodes the whole geometry column when the
+        GeoParquet metadata declares no ``geometry_types`` — which is what this
+        repo's own exporter writes. A budget check placed after it would let an
+        over-limit file monopolize the worker for a full scan before being
+        rejected, which is the opposite of a backstop.
+        """
+        from shapely.geometry import Point
+
+        monkeypatch.setattr(parquet_module, "_MAX_TOTAL_ROWS", 1)
+
+        def _explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError(
+                "_geometry_has_z scanned the geometry column before the budget "
+                "check rejected the file"
+            )
+
+        monkeypatch.setattr(parquet_module, "_geometry_has_z", _explode)
+
+        p = tmp_path / "scan_first.parquet"
+        pq.write_table(
+            build_geoparquet_table(
+                [Point(0, 0).wkb, Point(1, 1).wkb], {"a": [1, 2]}, ["a"]
+            ),
+            p,
+        )
+        with pytest.raises(IngestionError, match="2 rows, above the 1-row"):
+            await load_parquet_to_postgis(
+                str(p),
+                f"t_scanfirst_{uuid.uuid4().hex[:8]}",
+                schema="data",
+                srid=4326,
+                include_geometry=True,
+            )
+
+    @pytest.mark.anyio
     async def test_just_under_both_caps_still_loads(
         self, tmp_path, monkeypatch, test_db_session
     ):
