@@ -54,7 +54,8 @@ class DatasetResponse:
         derived_from (DatasetResponseDerivedFromType0 | None | Unset): Provenance for an analysis output — {dataset_id,
             operation, params, created_at}. Null for a dataset that was not derived, and also for a requester who cannot
             access the source dataset.
-        extent_bbox (list[float] | None | Unset): Bounding box [minx, miny, maxx, maxy]
+        extent_bbox (list[float] | None | Unset): Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east
+            on an antimeridian-crossing extent.
         geometry_type (None | str | Unset): OGC geometry type, e.g. MultiPolygon
         has_generic_geometry (bool | Unset): True when the underlying column is generic GEOMETRY (created sketch
             datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above.
