@@ -19,7 +19,9 @@ import math
 from typing import Any, Optional
 from uuid import UUID
 
-from ._sdk_helpers import call_sdk, unwrap
+import typer
+
+from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap
 
 #: Distances are metres on the wire, matching the API and the map builder's
 #: unit picker (AnalysisPanel converts feet/miles before it POSTs).
@@ -144,30 +146,47 @@ def run_materialize(client: Any, dataset_id: str, request: Any) -> Any:
     return unwrap(resp, expected=200)
 
 
-def job_status(client: Any, job_id: str) -> Optional[str]:
-    """The job's current status, or None when the status could not be READ.
+def job_snapshot(client: Any, job_id: str) -> tuple[Optional[str], Optional[str]]:
+    """``(status, dataset_id)`` for a job, or ``(None, None)`` when unreadable.
 
-    Used only to word the failure: ``resolve_dataset_id`` collapses "the job
-    failed", "the poll ran out" and "the job endpoint would not answer" into
-    the same ``None``, and those deserve different sentences even though all
-    three mean "no dataset". None here is specifically the third case — an
-    unreadable status, not a healthy job — so the caller must not report it as
-    a timeout (fix(#685 review)).
+    ``resolve_dataset_id`` collapses "the job failed", "the poll ran out" and
+    "the job endpoint would not answer" into one ``None``, and those deserve
+    different sentences even though all three mean "no dataset" (fix(#685
+    review)).
+
+    The dataset id rides along because the job can finish between the poll's
+    last look and this one: the status response carries the id, and discarding
+    it would report a completed job as unfinished.
+
+    A 401/403 is raised rather than reported, so the exit code matches what
+    actually went wrong (D-32) instead of collapsing into the generic one.
     """
     from geolens.api.admin import get_job_status_jobs_job_id_get
 
     try:
         job_uuid = UUID(str(job_id))
     except ValueError:
-        return None
+        return None, None
     resp = call_sdk(
         get_job_status_jobs_job_id_get.sync_detailed,
         job_id=job_uuid,
         client=client,
     )
-    if int(resp.status_code) != 200:
-        return None
-    return getattr(resp.parsed, "status", None)
+    code = int(resp.status_code)
+    if code in (401, 403):
+        typer.secho(
+            "Authentication failed while reading the job status. "
+            "Run `geolens login` first.",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(EXIT_AUTH)
+    if code != 200:
+        return None, None
+    dataset_id = getattr(resp.parsed, "dataset_id", None)
+    return getattr(resp.parsed, "status", None), (
+        str(dataset_id) if dataset_id else None
+    )
 
 
 def preview_geojson(response: Any) -> dict:

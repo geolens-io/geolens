@@ -310,7 +310,9 @@ class TestAnalysisMaterializeCli:
         monkeypatch.setattr(
             "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
         )
-        monkeypatch.setattr("geolens_cli.analysis.job_status", lambda c, j: "failed")
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("failed", None)
+        )
 
         result = runner.invoke(
             app,
@@ -343,7 +345,9 @@ class TestAnalysisMaterializeCli:
         monkeypatch.setattr(
             "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
         )
-        monkeypatch.setattr("geolens_cli.analysis.job_status", lambda c, j: "running")
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("running", None)
+        )
 
         result = runner.invoke(
             app,
@@ -364,6 +368,43 @@ class TestAnalysisMaterializeCli:
         assert "has not finished" in result.output
         assert "failed" not in result.output
 
+    def test_a_job_that_finishes_during_the_final_read_is_a_success(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#685 review): the job can finish between the poll's last look
+        and the status re-read, and that response carries the dataset id.
+        Reporting it as unfinished would be the worst of the three answers."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot",
+            lambda c, j: ("complete", "ds-late"),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "30",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "/datasets/ds-late" in result.output
+
     def test_an_unreadable_status_is_not_reported_as_a_timeout(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
@@ -379,7 +420,9 @@ class TestAnalysisMaterializeCli:
         monkeypatch.setattr(
             "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
         )
-        monkeypatch.setattr("geolens_cli.analysis.job_status", lambda c, j: None)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: (None, None)
+        )
 
         result = runner.invoke(
             app,

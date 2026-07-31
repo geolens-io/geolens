@@ -978,8 +978,14 @@ def analysis_materialize(
         # either as success. Read the status back so the two get different
         # sentences; both still exit non-zero, because neither produced the
         # dataset the caller waited for.
-        status = _analysis.job_status(poll_client, job_id)
-        if status == "failed":
+        status, late_dataset_id = _analysis.job_snapshot(poll_client, job_id)
+        if late_dataset_id:
+            # The job finished between the poll's last look and this one, and
+            # the status response carries the id (fix(#685 review)). Reporting
+            # a completed job as unfinished would be the worst answer of the
+            # three.
+            resolved = late_dataset_id
+        elif status == "failed":
             state.output.error(
                 f"Analysis job {job_id} failed. Its error is on the job record: "
                 f"GET /jobs/{job_id}."
@@ -1000,7 +1006,8 @@ def analysis_materialize(
                 f"Analysis job {job_id} was still {status} after {int(timeout or 0)}s "
                 f"and has not finished. Check GET /jobs/{job_id}."
             )
-        raise typer.Exit(EXIT_GENERIC)
+        if resolved is None:
+            raise typer.Exit(EXIT_GENERIC)
 
     url = _publish.construct_dataset_url(
         instance, dataset_id=resolved, job_id=job_id
