@@ -1381,11 +1381,69 @@ def _references_builtin_fill_pattern(value: Any, depth: int = 0) -> bool:
     positions = _EXPRESSION_OUTPUT_POSITIONS.get(value[0])
     if positions is None:
         return False
+    if value[0] == "coalesce":
+        # fix(#917 codex r6): `coalesce` is MapLibre's availability-aware
+        # fallback, and `["image", id]` evaluates to null when the sprite lacks
+        # that id — so `["coalesce", ["image", builtin], ["image", uploaded]]`
+        # is the CORRECT way to author a pattern with a fallback, and it already
+        # renders. It fails only when every operand is unavailable, so report a
+        # builtin here only when no operand offers a way out.
+        operands = value[1:]
+        return bool(operands) and all(
+            _references_builtin_fill_pattern(item, depth + 1) for item in operands
+        )
+    if value[0] == "let":
+        return _let_references_builtin(value, depth)
     start, step = positions
     outputs = list(value[start::step])
     if value[0] in _EXPRESSION_TRAILING_OUTPUT and len(value) > start:
         outputs.append(value[-1])
     return any(_references_builtin_fill_pattern(item, depth + 1) for item in outputs)
+
+
+def _collect_var_names(value: Any, into: set[str]) -> None:
+    """Gather every ``["var", name]`` reference reachable in ``value``."""
+    if not isinstance(value, list):
+        return
+    if len(value) >= 2 and value[0] == "var" and isinstance(value[1], str):
+        into.add(value[1])
+        return
+    for item in value:
+        _collect_var_names(item, into)
+
+
+def _let_references_builtin(value: list, depth: int) -> bool:
+    """``["let", name, value, ..., result]`` — only the bindings the result USES.
+
+    fix(#917 codex r6): a binding the result never references cannot contribute
+    to what MapLibre renders, so
+    ``["let", "unused", ["image", builtin], ["image", uploaded]]`` resolves to
+    the uploaded image and works. Scanning every binding stripped it. Follow the
+    `var` references out of the result instead, transitively, since one binding
+    may reference another.
+    """
+    bindings = {
+        value[i]: value[i + 1]
+        for i in range(1, len(value) - 1, 2)
+        if isinstance(value[i], str)
+    }
+    result = value[-1] if len(value) > 1 else None
+    if _references_builtin_fill_pattern(result, depth + 1):
+        return True
+
+    seen: set[str] = set()
+    pending: set[str] = set()
+    _collect_var_names(result, pending)
+    while pending:
+        name = pending.pop()
+        if name in seen or name not in bindings:
+            continue
+        seen.add(name)
+        bound = bindings[name]
+        if _references_builtin_fill_pattern(bound, depth + 1):
+            return True
+        _collect_var_names(bound, pending)
+    return False
 
 
 def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:

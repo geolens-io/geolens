@@ -2166,7 +2166,11 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
         (["match", ["get", "kind"], "x", "geolens-fill-hatch", "up-b"], True),
         (["match", ["get", "kind"], "x", "up-a", "geolens-fill-dots"], True),
         (["step", ["zoom"], "geolens-fill-grid", 10, "up-a"], True),
-        (["coalesce", "up-a", "geolens-fill-dots"], True),
+        # fix(#917 codex r6): corrected from True. `coalesce` returns the first
+        # NON-NULL operand, and a bare string constant is never null, so this
+        # always resolves to "up-a" and the builtin behind it is unreachable.
+        # The earlier expectation treated every operand as a possible output.
+        (["coalesce", "up-a", "geolens-fill-dots"], False),
         # Nested expressions are followed through the output positions.
         (
             [
@@ -2226,6 +2230,30 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
         (["let", "p", "uploaded-a", "geolens-fill-dots"], True),
         (["let", "p", "uploaded-a", ["var", "p"]], False),
         (["let", "geolens-fill-grid", "uploaded-a", "uploaded-b"], False),
+        # fix(#917 codex r6): `coalesce` is MapLibre's availability-aware
+        # fallback — `["image", id]` is null when the sprite lacks it — so a
+        # builtin WITH a real fallback already renders and stripping it would
+        # replace a working expression with a solid fill. Only report when no
+        # operand offers a way out.
+        (
+            ["coalesce", ["image", "geolens-fill-grid"], ["image", "up-a"]],
+            False,
+        ),
+        (["coalesce", ["image", "up-a"], ["image", "geolens-fill-grid"]], False),
+        (
+            [
+                "coalesce",
+                ["image", "geolens-fill-grid"],
+                ["image", "geolens-fill-dots"],
+            ],
+            True,
+        ),
+        (["coalesce", "geolens-fill-grid"], True),
+        # ...and a `let` binding the result never references cannot contribute
+        # to what renders, so scanning every binding stripped working styles.
+        (["let", "unused", ["image", "geolens-fill-grid"], ["image", "up-a"]], False),
+        (["let", "a", "geolens-fill-grid", "b", ["var", "a"], ["var", "b"]], True),
+        (["let", "a", "geolens-fill-grid", "b", ["var", "a"], "up-a"], False),
     ],
 )
 def test_data_driven_fill_pattern_is_read_at_its_output_positions(pattern, stripped):
