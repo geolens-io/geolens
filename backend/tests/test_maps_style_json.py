@@ -263,6 +263,44 @@ def test_build_maplibre_style_exports_fill_companion_layers():
     assert extrusion["paint"]["fill-extrusion-color"] == "#94a3b8"
 
 
+# fix(#910, codex P2): once a fill pattern owns the fill, EDIT-05 keeps `fill-color`
+# out of paint and the colour lives in the builder stash. The extrusion companion is
+# the only exported layer that needs a solid colour, so it has to read the stash or a
+# patterned 3D layer exports default blue while the builder draws the saved colour.
+def test_extrusion_companion_colors_from_the_fill_color_stash():
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-pattern": "geolens-fill-hatch", "fill-opacity": 0.8},
+        label_config=None,
+        style_config={
+            "builder": {"heightColumn": "height_m", "fillColorSaved": "#94a3b8"}
+        },
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    extrusion = style["layers"][-1]
+    assert extrusion["type"] == "fill-extrusion"
+    assert extrusion["paint"]["fill-extrusion-color"] == "#94a3b8"
+
+
+def test_extrusion_companion_keeps_an_expression_fill_color_over_the_stash():
+    """paint wins when it has a colour, and an expression must survive intact."""
+    expression = ["match", ["get", "k"], "a", "#ff0000", "#00ff00"]
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": expression},
+        label_config=None,
+        style_config={
+            "builder": {"heightColumn": "height_m", "fillColorSaved": "#94a3b8"}
+        },
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    assert style["layers"][-1]["paint"]["fill-extrusion-color"] == expression
+
+
 def test_build_maplibre_style_emits_raster_dem_source_for_hillshade():
     dem_id = uuid.uuid4()
     layer = _dem_layer(dem_id=dem_id)

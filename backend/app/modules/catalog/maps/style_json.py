@@ -619,7 +619,16 @@ def _fill_companion_layers(
 
     height_column = builder.get("heightColumn") or paint.get("_height_column")
     if isinstance(height_column, str) and height_column:
-        fill_color = paint.get("fill-color", DEFAULT_FILL_COLOR)
+        # fix(#910, codex P2): a patterned layer keeps no `fill-color` — EDIT-05 makes
+        # the two mutually exclusive and the colour moves to the builder stash. The
+        # extrusion companion is the one place that still needs a solid colour, so it
+        # reads the stash rather than falling to default blue, matching
+        # `fill-adapter.ts`. A `None` check, not `or`: an expression must pass through.
+        fill_color = paint.get("fill-color")
+        if fill_color is None:
+            fill_color = builder.get("fillColorSaved")
+        if fill_color is None:
+            fill_color = DEFAULT_FILL_COLOR
         height_scale = _finite_number(builder.get("heightScale")) or 1
         extrusion_min_zoom = (
             _finite_number(builder.get("extrusionMinZoom"))
