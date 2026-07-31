@@ -40,6 +40,22 @@ describe('KeyboardShortcutsSheet', () => {
     expect(screen.getByTestId('shortcut-legend')).toBeInTheDocument();
   });
 
+  // fix(#806 item 1): Space on a focused row toggles multi-selection (StackRow's
+  // `e.key === ' '` handler) and double-click renames. Both were undocumented; the
+  // keyboard one was the only route a keyboard-only user had, and the sheet listed
+  // multi-select as a pointer chord alone.
+  it('documents Space on a focused row and double-click-to-rename', () => {
+    render(<KeyboardShortcutsSheet open={true} onOpenChange={vi.fn()} />);
+
+    const spaceRow = screen.getByTestId('shortcut-multi-select-key');
+    expect(spaceRow.querySelector('kbd')!.textContent).toBe('Space');
+    // Distinct from the drag-handle row, which is scoped to the handle.
+    expect(screen.getByTestId('shortcut-reorder-toggle')).toBeInTheDocument();
+
+    const renameRow = screen.getByTestId('shortcut-rename');
+    expect(renameRow.querySelector('kbd')!.textContent).toMatch(/Double-click/i);
+  });
+
   it('calls onOpenChange(false) when dialog requests close', () => {
     const onOpenChange = vi.fn();
     render(<KeyboardShortcutsSheet open={true} onOpenChange={onOpenChange} />);

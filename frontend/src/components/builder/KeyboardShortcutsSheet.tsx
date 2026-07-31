@@ -91,6 +91,21 @@ export function KeyboardShortcutsSheet({
       label: t('a11y.shortcuts.multiSelect', { defaultValue: 'Toggle layer in selection' }),
       chord: IS_MAC ? '⌘+Click' : 'Ctrl+Click',
     },
+    // fix(#806): Space on a focused row is the keyboard equivalent of the
+    // Cmd-click above (StackRow's `e.key === ' '` handler), and double-click
+    // renames. Both existed with no way to discover them from here — the
+    // keyboard one especially, since it was the only route for a keyboard-only
+    // user and the sheet documented multi-select as a pointer chord alone.
+    {
+      id: 'multi-select-key',
+      label: t('a11y.shortcuts.multiSelectKey', { defaultValue: 'Toggle layer in selection (focused row)' }),
+      chord: 'Space',
+    },
+    {
+      id: 'rename',
+      label: t('a11y.shortcuts.rename', { defaultValue: 'Rename layer' }),
+      chord: 'Double-click',
+    },
     {
       id: 'range-select',
       label: t('a11y.shortcuts.rangeSelect', { defaultValue: 'Select a range of layers' }),

@@ -1139,6 +1139,8 @@
       "reorderMove": "Move layer up / down (reorder mode)",
       "escape": "Close panel / clear selection / exit reorder",
       "multiSelect": "Toggle layer in selection",
+      "multiSelectKey": "Toggle layer in selection (focused row)",
+      "rename": "Rename layer",
       "rangeSelect": "Select a range of layers",
       "extendSelect": "Extend selection (stack focused)"
     },

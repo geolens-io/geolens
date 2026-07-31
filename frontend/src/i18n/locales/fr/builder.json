@@ -1135,6 +1135,8 @@
       "reorderMove": "Déplacer la couche vers le haut / bas (mode réorganisation)",
       "escape": "Fermer le panneau / effacer la sélection / quitter la réorganisation",
       "multiSelect": "Basculer la couche dans la sélection",
+      "multiSelectKey": "Ajouter ou retirer la couche de la sélection (ligne ciblée)",
+      "rename": "Renommer la couche",
       "rangeSelect": "Sélectionner une plage de couches",
       "extendSelect": "Étendre la sélection (pile active)"
     },
