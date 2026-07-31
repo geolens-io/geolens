@@ -14,7 +14,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useLayerMapSync } from '../use-layer-map-sync';
+import { useLayerMapSync, clearExcludedPaintOnMap } from '../use-layer-map-sync';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
@@ -1045,5 +1045,44 @@ describe('useLayerMapSync — handleStyleConfigChange replace mode (revert)', ()
     const updated = runWith();
     const builder = (updated.style_config as { builder?: { outlineWidth?: number } } | null)?.builder;
     expect(builder?.outlineWidth).toBe(4);
+  });
+});
+
+// fix(#910/#918, codex P2): the map half of the shared exclusions. Every write path
+// (funnel, paste, bulk apply) routes its imperative clear through here, and the bulk
+// path cannot reach it in a hook test — its map stub reports isStyleLoaded() false.
+describe('clearExcludedPaintOnMap', () => {
+  const FLAGS = { isDataDrivenColor: false, dropsFillPattern: false, patternOwnsFill: false };
+
+  it('clears only the keys its flags call for', () => {
+    const map = makeMapStub();
+    clearExcludedPaintOnMap(map, LAYER_ID, { ...FLAGS, isDataDrivenColor: true, dropsFillPattern: true });
+    const cleared = vi.mocked(map.setPaintProperty).mock.calls.map(([, key]) => key);
+    expect(cleared).toEqual(['line-gradient', 'fill-pattern']);
+  });
+
+  it('clears fill-color when the pattern won the fill', () => {
+    const map = makeMapStub();
+    clearExcludedPaintOnMap(map, LAYER_ID, { ...FLAGS, patternOwnsFill: true });
+    expect(map.setPaintProperty).toHaveBeenCalledWith(`layer-${LAYER_ID}`, 'fill-color', undefined);
+    expect(map.setPaintProperty).toHaveBeenCalledTimes(1);
+  });
+
+  it('swallows the throw when the key is invalid for the layer geometry', () => {
+    const map = makeMapStub();
+    vi.mocked(map.setPaintProperty).mockImplementation(() => {
+      throw new Error('layer does not support line-gradient');
+    });
+    // A fill layer rejects line-gradient outright rather than no-opping, so an
+    // unguarded clear would take down the whole style write.
+    expect(() =>
+      clearExcludedPaintOnMap(map, LAYER_ID, { ...FLAGS, isDataDrivenColor: true }),
+    ).not.toThrow();
+  });
+
+  it('does nothing when the layer is not on the map yet', () => {
+    const map = makeMapStub([]);
+    clearExcludedPaintOnMap(map, LAYER_ID, { ...FLAGS, patternOwnsFill: true });
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
   });
 });

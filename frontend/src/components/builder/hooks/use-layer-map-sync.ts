@@ -170,6 +170,126 @@ export function applyLayerOpacityToMap(
   }
 }
 
+/**
+ * fix(#910/#918, codex P2): the EDIT-05 paint exclusions, factored out because
+ * they have to hold on EVERY write path, not just the style-editor funnel.
+ *
+ * Two incompatible pairs, and MapLibre picks the winner for us in both cases:
+ * `fill-pattern` beats `fill-color`, and a `line-gradient` beats a solid
+ * `line-color`. Persisting either pair leaves the map drawing one thing while
+ * the appearance section, the legend and the saved JSON claim the other.
+ *
+ * Which key loses depends on what the user just asked for. A data-driven colour
+ * expression is the explicit request, so it takes the fill and the pattern goes;
+ * anything else (a paste, a bulk apply) means the pattern is what arrived, so the
+ * stray colour goes instead and is handed back through `strandedFillColor` for
+ * the caller to stash.
+ *
+ * Returns the flags as well as the paint: the live map needs an imperative clear
+ * for a key that merely *stopped being present*, which a paint object cannot
+ * express — see `clearExcludedPaintOnMap`.
+ */
+export function resolveFillExclusions(
+  config: StyleConfig | null,
+  paint: Record<string, unknown>,
+): {
+  paint: Record<string, unknown>;
+  isDataDrivenColor: boolean;
+  dropsFillPattern: boolean;
+  patternOwnsFill: boolean;
+  strandedFillColor: unknown;
+} {
+  // P1-07: a data-driven SOLID color (categorical, or graduated with the color
+  // target) is incompatible with a line-gradient.
+  const isDataDrivenColor =
+    !!config &&
+    (config.mode === 'categorical' || config.mode === 'graduated') &&
+    (config.target === undefined || config.target === 'color');
+  let effectivePaint = paint;
+  if (isDataDrivenColor && 'line-gradient' in effectivePaint) {
+    const { 'line-gradient': _droppedGradient, ...rest } = effectivePaint;
+    effectivePaint = rest;
+  }
+  const dropsFillPattern =
+    isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+  if (dropsFillPattern) {
+    const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
+    effectivePaint = rest;
+  }
+  const patternOwnsFill =
+    !isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
+  let strandedFillColor: unknown;
+  if (patternOwnsFill) {
+    const { 'fill-color': droppedColor, ...rest } = effectivePaint;
+    strandedFillColor = droppedColor;
+    effectivePaint = rest;
+  }
+  return { paint: effectivePaint, isDataDrivenColor, dropsFillPattern, patternOwnsFill, strandedFillColor };
+}
+
+/**
+ * fix(#910/#918, codex P2): the builder-stash half of the exclusions above.
+ *
+ * `fillColorSaved` is what a later None click restores, so it has to track which
+ * key won the fill. An expression takes ownership → the old stash is stale and
+ * would resurrect a colour from several edits ago. A pattern takes ownership →
+ * the colour it displaced becomes the stash, but only when the incoming config
+ * did not bring one of its own: on a paste or bulk apply that value is the SOURCE
+ * layer's colour, which is the one the user actually copied.
+ *
+ * Strings only. The stash feeds the extrusion companion and #914's tint resolver,
+ * both of which need a solid colour, and an expression cannot serve as one.
+ */
+export function stashExcludedFillColor(
+  config: StyleConfig | null,
+  flags: { isDataDrivenColor: boolean; patternOwnsFill: boolean; strandedFillColor: unknown },
+): StyleConfig | null {
+  let next = config;
+  if (flags.isDataDrivenColor && next?.builder?.fillColorSaved !== undefined) {
+    const { fillColorSaved: _dropped, ...restBuilder } = next.builder;
+    next = { ...next, builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined };
+  }
+  if (
+    flags.patternOwnsFill &&
+    typeof flags.strandedFillColor === 'string' &&
+    next?.builder?.fillColorSaved === undefined
+  ) {
+    next = {
+      ...(next ?? {}),
+      builder: { ...(next?.builder ?? {}), fillColorSaved: flags.strandedFillColor },
+    } as StyleConfig;
+  }
+  return next;
+}
+
+/**
+ * fix(#910/#918, codex P2): drop an excluded key from the LIVE map.
+ *
+ * Handing the adapter a paint object that simply omits a key leaves the old value
+ * painted, so the removal needs an explicit `undefined` write. Each is wrapped
+ * because the property is invalid on the wrong geometry — `line-gradient` on a
+ * fill layer throws rather than no-opping.
+ */
+export function clearExcludedPaintOnMap(
+  map: MaplibreMap,
+  layerId: string,
+  flags: { isDataDrivenColor: boolean; dropsFillPattern: boolean; patternOwnsFill: boolean },
+) {
+  const mapLayerId = `layer-${layerId}`;
+  if (!map.getLayer(mapLayerId)) return;
+  const keys: string[] = [];
+  if (flags.isDataDrivenColor) keys.push('line-gradient');
+  if (flags.dropsFillPattern) keys.push('fill-pattern');
+  if (flags.patternOwnsFill) keys.push('fill-color');
+  for (const key of keys) {
+    try {
+      map.setPaintProperty(mapLayerId, key, undefined);
+    } catch {
+      /* wrong geometry for this key — not a valid paint property here */
+    }
+  }
+}
+
 export function useLayerMapSync(
   localLayers: MapLayerResponse[],
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
@@ -352,49 +472,13 @@ export function useLayerMapSync(
 
   const handleStyleConfigChange = useCallback(
     (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => {
-      // P1-07: a data-driven SOLID color (categorical, or graduated with the
-      // color target) is incompatible with a line-gradient. Switching a line's
-      // color to data-driven must drop the stale `line-gradient` paint AND the
-      // `builder.lineGradient` intent stub — otherwise map-sync's
-      // lineGradientNeededFor() re-adds the gradient and the saved JSON keeps
-      // incompatible styling. This runs for BOTH the manual DataDrivenStyleEditor
-      // path and the AI `set_style_config` action, which both land here.
-      const isDataDrivenColor =
-        !!config &&
-        (config.mode === 'categorical' || config.mode === 'graduated') &&
-        (config.target === undefined || config.target === 'color');
-      let effectivePaint = paint;
-      if (isDataDrivenColor && 'line-gradient' in paint) {
-        const { 'line-gradient': _droppedGradient, ...rest } = paint;
-        effectivePaint = rest;
-      }
-      // fix(#918): the same exclusion for the other incompatible pair. MapLibre
-      // gives `fill-pattern` precedence over `fill-color`, so an expression that
-      // takes ownership of the fill color must drop a surviving pattern —
-      // otherwise the map keeps drawing the pattern while the appearance
-      // section, the legend and saved paint all claim the ramp applied.
-      const dropsFillPattern =
-        isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
-      if (dropsFillPattern) {
-        const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
-        effectivePaint = rest;
-      }
-      // fix(#910, codex P2): the same collision arrives WITHOUT a data-driven config.
-      // Paste-style overlays a copied `fill-pattern` onto a target that kept its own
-      // `fill-color` (applyCopiedStyleToLayer merges the two paint objects, and that
-      // file belongs to #923), so the merged paint lands here holding both keys with a
-      // builder-only config — `isDataDrivenColor` is false and the branch above never
-      // fires. MapLibre draws the pattern either way, so the pattern owns the fill and
-      // the stray colour goes, rather than persisting a pair EDIT-05 forbids and
-      // letting the extrusion companion paint the target's old colour.
-      const patternOwnsFill =
-        !isDataDrivenColor && 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
-      let strandedFillColor: unknown;
-      if (patternOwnsFill) {
-        const { 'fill-color': droppedColor, ...rest } = effectivePaint;
-        strandedFillColor = droppedColor;
-        effectivePaint = rest;
-      }
+      // The EDIT-05 exclusions live in `resolveFillExclusions` because the AI
+      // `set_style_config` action, paste-style and bulk apply all have to obey them
+      // too — this funnel is only one of the write paths. `builder.lineGradient` is
+      // handled below rather than in the helper: dropping the paint without the
+      // intent stub lets map-sync's lineGradientNeededFor() re-add the gradient.
+      const exclusions = resolveFillExclusions(config, paint);
+      const { isDataDrivenColor, paint: effectivePaint } = exclusions;
       applyLayerUpdate(
         layerId,
         (l) => {
@@ -423,32 +507,7 @@ export function useLayerMapSync(
               builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
             };
           }
-          // fix(#918): once an expression owns fill-color, #910's fillColorSaved
-          // stash is stale — restoring it on a later None click would resurrect a
-          // solid color the user set several edits ago.
-          if (isDataDrivenColor && mergedConfig?.builder?.fillColorSaved !== undefined) {
-            const { fillColorSaved: _droppedFillColorSaved, ...restBuilder } = mergedConfig.builder;
-            mergedConfig = {
-              ...mergedConfig,
-              builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
-            };
-          }
-          // fix(#910, codex P2): the colour just dropped above still has to be
-          // recoverable through None. An incoming `fillColorSaved` wins — on a paste
-          // that is the SOURCE layer's colour, which is the one the user copied — so
-          // this only fills the gap when nothing was stashed. Strings only: the stash
-          // feeds the extrusion companion and #914's tint resolver, both of which want
-          // a solid colour, and an expression cannot serve as one.
-          if (
-            patternOwnsFill &&
-            typeof strandedFillColor === 'string' &&
-            mergedConfig?.builder?.fillColorSaved === undefined
-          ) {
-            mergedConfig = {
-              ...(mergedConfig ?? {}),
-              builder: { ...(mergedConfig?.builder ?? {}), fillColorSaved: strandedFillColor },
-            } as StyleConfig;
-          }
+          mergedConfig = stashExcludedFillColor(mergedConfig, exclusions);
           return {
             ...l,
             style_config: normalizeDemStyleConfig(mergedConfig, l.is_dem),
@@ -456,41 +515,9 @@ export function useLayerMapSync(
           };
         },
         (map, layer) => {
-          // Imperatively clear any stale line-gradient on the live map before the
-          // adapter repaint; no-op for non-line layers (setPaintProperty throws).
-          if (isDataDrivenColor) {
-            const mapLayerId = `layer-${layer.id}`;
-            if (map.getLayer(mapLayerId)) {
-              try {
-                map.setPaintProperty(mapLayerId, 'line-gradient', undefined);
-              } catch {
-                /* not a line layer — line-gradient is not a valid property */
-              }
-              // fix(#918): clear the pattern too, so the ramp shows without
-              // waiting on a full adapter re-add.
-              if (dropsFillPattern) {
-                try {
-                  map.setPaintProperty(mapLayerId, 'fill-pattern', undefined);
-                } catch {
-                  /* not a fill layer — fill-pattern is not a valid property */
-                }
-              }
-            }
-          }
-          // fix(#910, codex P2): mirror of the above for the paste collision. The
-          // pattern already wins visually, but leaving the target's old fill-color on
-          // the live map means a later None click flashes THAT colour instead of the
-          // stash we just wrote.
-          if (patternOwnsFill) {
-            const mapLayerId = `layer-${layer.id}`;
-            if (map.getLayer(mapLayerId)) {
-              try {
-                map.setPaintProperty(mapLayerId, 'fill-color', undefined);
-              } catch {
-                /* not a fill layer — fill-color is not a valid property */
-              }
-            }
-          }
+          // Clear the excluded keys on the live map before the adapter repaint, so
+          // the winning key shows without waiting on a full adapter re-add.
+          clearExcludedPaintOnMap(map, layer.id, exclusions);
           syncStyleConfigToMap(map, layer, effectivePaint);
         },
       );

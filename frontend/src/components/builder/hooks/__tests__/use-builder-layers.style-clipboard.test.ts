@@ -201,4 +201,61 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
     expect(result.current.localLayers.find((l) => l.id === 'line')!.style_config).toBeNull();
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
+
+  // fix(#910/#918, codex P2): bulk apply reaches neither handleStyleConfigChange nor
+  // handlePasteStyle, so the EDIT-05 exclusions had to be shared with it explicitly.
+  // applyCopiedStyleToLayer merges the copied paint OVER the target's, which is what
+  // strands the loser of each incompatible pair on the layer.
+  describe('EDIT-05 fill exclusions', () => {
+    it('drops the target pattern when a data-driven colour style is applied over it', async () => {
+      const src = makeMockLayer({
+        id: 'src', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#abc' }, style_config: POLY_STYLE, sort_order: 0,
+      });
+      const patterned = makeMockLayer({
+        id: 'patterned', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder: { fillColorSaved: '#0f0' } } as StyleConfig, sort_order: 1,
+      });
+      const { result } = renderBuilderLayers(makeMapData([src, patterned]));
+      await waitForInit();
+
+      act(() => {
+        result.current.handleBulkApplyStyle(new Set(['src', 'patterned']));
+      });
+
+      const updated = result.current.localLayers.find((l) => l.id === 'patterned')!;
+      // The ramp is the explicit request, so it owns the fill and the pattern goes —
+      // otherwise MapLibre keeps drawing hatch while the legend claims the ramp.
+      expect('fill-pattern' in updated.paint).toBe(false);
+      expect(updated.paint['fill-color']).toBe('#abc');
+      // The old stash would restore a colour from before the ramp on a later None.
+      expect(updated.style_config?.builder?.fillColorSaved).toBeUndefined();
+    });
+
+    it('drops the target colour when a patterned style is applied over it', async () => {
+      const src = makeMockLayer({
+        id: 'src', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-dots' },
+        style_config: { builder: { fillColorSaved: '#ff0000' } } as StyleConfig, sort_order: 0,
+      });
+      const solid = makeMockLayer({
+        id: 'solid', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#0000ff' }, style_config: null, sort_order: 1,
+      });
+      const { result } = renderBuilderLayers(makeMapData([src, solid]));
+      await waitForInit();
+
+      act(() => {
+        result.current.handleBulkApplyStyle(new Set(['src', 'solid']));
+      });
+
+      const updated = result.current.localLayers.find((l) => l.id === 'solid')!;
+      expect('fill-color' in updated.paint).toBe(false);
+      expect(updated.paint['fill-pattern']).toBe('geolens-fill-dots');
+      // The copied source colour wins over the target's displaced blue: that is the
+      // one the user copied, and the one None has to bring back.
+      expect(updated.style_config?.builder?.fillColorSaved).toBe('#ff0000');
+    });
+  });
 });

@@ -8,6 +8,9 @@ import { normalizeTerrainExaggeration } from '@/components/builder/map-sync';
 import {
   applyLayerVisibilityToMap,
   applyLayerOpacityToMap,
+  resolveFillExclusions,
+  stashExcludedFillColor,
+  clearExcludedPaintOnMap,
 } from '@/components/builder/hooks/use-layer-map-sync';
 import {
   removePerLayerCompanions,
@@ -31,6 +34,34 @@ type SyncStyleConfigToMap = (
   layer: MapLayerResponse,
   paint: Record<string, unknown>,
 ) => void;
+
+/**
+ * fix(#910/#918, codex P2): bulk apply-style, with the EDIT-05 fill exclusions the
+ * style-editor funnel applies.
+ *
+ * `applyCopiedStyleToLayer` merges the copied paint over the target's, so a copied
+ * `fill-pattern` lands beside a `fill-color` the target kept (and a copied colour
+ * ramp lands beside a pattern the target kept). Bulk apply reaches neither
+ * `handleStyleConfigChange` nor `handlePasteStyle`, so without this it persisted the
+ * pair EDIT-05 forbids: MapLibre drew one key while the legend and saved JSON
+ * claimed the other. Returns the exclusions alongside the layer because the live
+ * map needs them for the imperative clear.
+ */
+function applyStyleExcludingFillCollisions(
+  layer: MapLayerResponse,
+  source: CopiedStyle,
+): { layer: MapLayerResponse; exclusions: ReturnType<typeof resolveFillExclusions> } {
+  const merged = applyCopiedStyleToLayer(layer, source);
+  const exclusions = resolveFillExclusions(merged.style_config ?? null, merged.paint ?? {});
+  return {
+    layer: {
+      ...merged,
+      paint: exclusions.paint,
+      style_config: stashExcludedFillColor(merged.style_config ?? null, exclusions),
+    },
+    exclusions,
+  };
+}
 
 // STATE-02: bulk-operation handlers (apply-style / visibility / opacity / group /
 // ungroup / delete), relocated verbatim out of the useBuilderLayers god-hook.
@@ -174,7 +205,7 @@ export function useBulkLayerActions({
     // Single atomic write — replace every compatible target in one pass
     // (the multi-field clobber rule: never field-by-field per layer).
     setLocalLayers((prev) =>
-      prev.map((l) => (targetIds.has(l.id) ? applyCopiedStyleToLayer(l, source) : l)),
+      prev.map((l) => (targetIds.has(l.id) ? applyStyleExcludingFillCollisions(l, source).layer : l)),
     );
     setHasUnsavedChanges(true);
 
@@ -184,8 +215,11 @@ export function useBulkLayerActions({
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
       for (const target of targets) {
-        const merged = applyCopiedStyleToLayer(target, source);
-        syncStyleConfigToMap(map, merged, merged.paint);
+        const { layer: merged, exclusions } = applyStyleExcludingFillCollisions(target, source);
+        // fix(#910/#918, codex P2): the excluded key has to leave the live map too —
+        // omitting it from the paint object leaves the old value painted.
+        clearExcludedPaintOnMap(map, target.id, exclusions);
+        syncStyleConfigToMap(map, merged, merged.paint ?? {});
       }
     }
 
