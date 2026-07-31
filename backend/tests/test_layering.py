@@ -1059,7 +1059,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
     # complexity ceiling, so the branch cannot live inline). Ratchet stays exact.
-    # fix(#1018): +33 — `_ingest_vector_into_staging` has no caller in `app/`;
+    # fix(#1018): +36 — `_ingest_vector_into_staging` has no caller in `app/`;
     # every call site is a test. The added lines say so at the definition and
     # map what it mirrors, because silent drift is what makes a test-only copy
     # dangerous rather than merely unused. fix(#1018 review) corrected that
@@ -1070,7 +1070,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # correction fixes `_run_staging_pipeline`'s own docstring, which claimed
     # `_ingest_vector_into_staging` was the "new ingests" caller.
     # Ratchet stays exact.
-    "backend/app/processing/ingest/tasks_common.py": 1664,
+    "backend/app/processing/ingest/tasks_common.py": 1667,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

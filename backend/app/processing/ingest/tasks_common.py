@@ -843,21 +843,24 @@ async def _ingest_vector_into_staging(
       COPY of ``tasks_vector.py`` (:459-560) and ``tasks_reupload.py``
       (:261-340). Those can drift from this, and only the tests would notice.
     - The staging steps are the real ``_run_staging_pipeline`` (:650), so this
-      helper does not fork them — but almost nothing else calls it either. The
-      staging sequence (ensure_geom_column, clip_to_mercator_bounds,
-      add_4326_column, grant_reader_access, extract_metadata, detect_3d,
-      promote_z_to_elev, get_sample_values) is written out FOUR times:
+      helper does not fork them — but almost nothing else calls it either.
+      Where the sequence is written out, and how much of it:
 
-        1. ``_run_staging_pipeline`` (:650) — reached in production only by
+        1. ``_run_staging_pipeline`` (:650) — the full eight steps
+           (ensure_geom_column, clip_to_mercator_bounds, add_4326_column,
+           grant_reader_access, extract_metadata, detect_3d_metadata,
+           promote_z_to_elev, get_sample_values). Reached in production only by
            ``reupload_file`` (``tasks_reupload.py:337``), and by this helper.
-        2. ``_finalize_ingest`` (:1069, block at :1114-1177) — new vector
-           ingest, via ``tasks_vector.py:572``.
+        2. ``_finalize_ingest`` (:1069, block at :1114-1177) — the same eight,
+           inlined. New vector ingest, via ``tasks_vector.py:572``.
         3. ``reupload_service`` (``tasks_reupload.py:463``, block at :670-690)
-           — service re-uploads, inlined again.
-        4. this helper, through (1).
+           — a SHORTER copy: ensure_geom_column, clip, add_4326_column,
+           grant_reader_access, extract_metadata, get_sample_values. No 3D
+           detection and no elevation promotion, so do not "fix" it by
+           symmetry with the other two; find out why first (fix(#1018 review)).
 
-      So a change to the sequence has to visit three independent copies, and
-      the tests here only cover the one production reaches least.
+      A change to the shared six therefore has three independent sites, and
+      the tests here cover the one production reaches least.
 
     It intentionally performs no commits.
     """

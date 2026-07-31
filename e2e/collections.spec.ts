@@ -77,6 +77,11 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
   const preview = await previewRes.json() as { layer_name?: string; geometry_type?: string | null };
   expect(preview.geometry_type).toBeTruthy();
 
+  // fix(#1018 review): before the commit is sent, not after. If the request
+  // reaches the API but its response is lost, `await fetch` rejects while the
+  // backend has already queued the ingest — and a handle recorded after that
+  // line would never exist for the dataset that then appears.
+  createdJobId = upload.job_id;
   const commitRes = await fetch(`${BASE_URL}/api/ingest/commit/${upload.job_id}`, {
     method: 'POST',
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
@@ -87,10 +92,6 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
       layer_name: preview.layer_name,
     }),
   });
-  // fix(#1018): the job id is the only handle that exists between the commit
-  // and the dataset appearing. Record it so teardown can resolve the dataset
-  // even when the poll below gives up first.
-  createdJobId = upload.job_id;
   expect(commitRes.ok).toBe(true);
 
   const datasetId = await waitForDatasetJob(upload.job_id, authHeaders);
@@ -116,20 +117,24 @@ test.describe.serial('Collections', () => {
     // 45-second budget the test itself allows, which is generous for a
     // one-point GeoJSON. If it has not landed by then the worker is wedged and
     // the leak is the smaller of the problems — teardown must not hang.
-    for (let attempt = 0; !createdDatasetId && createdJobId && attempt < 30; attempt++) {
+    const CLEANUP_ATTEMPTS = 30;
+    for (let attempt = 0; !createdDatasetId && createdJobId && attempt < CLEANUP_ATTEMPTS; attempt++) {
+      // fix(#1018 review): sleep BEFORE the request, never after the last one.
+      // Sleeping at the end of the body re-created the very race this loop
+      // exists to close — the job could land during the final delay and the
+      // loop would exit without looking again.
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2_000));
       const res = await fetch(`${BASE_URL}/api/jobs/${createdJobId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        const status = await res.json() as JobStatusPayload;
-        if (status.dataset_id) {
-          createdDatasetId = status.dataset_id;
-          break;
-        }
-        // A failed ingest produces no dataset, so there is nothing to clean up.
-        if (status.status === 'failed') break;
+      if (!res.ok) continue;
+      const status = await res.json() as JobStatusPayload;
+      if (status.dataset_id) {
+        createdDatasetId = status.dataset_id;
+        break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      // A failed ingest produces no dataset, so there is nothing to clean up.
+      if (status.status === 'failed') break;
     }
 
     if (!createdDatasetId || !createdDatasetTitle) return;
