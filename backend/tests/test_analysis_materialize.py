@@ -24,7 +24,7 @@ from app.modules.catalog.datasets.api import router_analysis
 from app.platform.analysis_sql import MAX_BUFFER_METERS
 from app.platform.jobs.models import IngestJob
 from app.processing.analysis.tasks import (
-    MATERIALIZE_TIMEOUT,
+    materialize_timeout,
     _complete_job_for_attempt,
     _enforce_output_size,
     _fail_cancelled_job,
@@ -2240,6 +2240,21 @@ class TestMaterializeWorker:
         # Same transaction, ahead of the CTAS it protects.
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
 
+    def test_analysis_timeouts_track_their_settings(self, monkeypatch):
+        """fix(#1013): the budgets are operator settings now, and they are read
+        at call time — a module-level snapshot would freeze whatever the
+        settings object held when this module was first imported."""
+        from app.core.config import settings
+
+        from app.processing.analysis.tasks import registration_timeout
+
+        assert materialize_timeout() == "300s"
+        assert registration_timeout() == "600s"
+        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 1200)
+        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 1800)
+        assert materialize_timeout() == "1200s"
+        assert registration_timeout() == "1800s"
+
     async def test_worker_rechecks_size_caps_before_ctas(
         self,
         test_db_session: AsyncSession,
@@ -3401,7 +3416,7 @@ class TestUserErrorMessage:
         msg = _user_error_message(exc)
         assert "time limit" in msg
         # fix(v1.6.0 audit D11): the message names the configured limit.
-        assert MATERIALIZE_TIMEOUT in msg
+        assert materialize_timeout() in msg
         assert "big_output" not in msg
 
     def test_domain_errors_pass_through(self):

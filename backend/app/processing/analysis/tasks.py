@@ -52,18 +52,33 @@ logger = structlog.stdlib.get_logger(__name__)
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 
+
 # The preview path is bounded (10s sandbox timeout, 500-row cap); the CTAS
 # here is the only unbounded statement a user can queue, so cap it.
-# Hardcoded ceiling; promote to persistent-config if operators hit it.
-MATERIALIZE_TIMEOUT = "300s"
+#
+# fix(#1013): the value is an operator setting now, not a hardcoded ceiling.
+# Read through a function rather than bound at import: these render into SQL
+# and into a user-facing message, and a module-level snapshot would freeze
+# whatever the settings object held the first time this module was imported.
+def materialize_timeout() -> str:
+    """The CTAS statement_timeout, as a PostgreSQL interval literal."""
+    from app.core.config import settings
+
+    return f"{settings.analysis_materialize_timeout_seconds}s"
+
 
 # The mid-task commit that makes the output table durable also ends the
-# transaction carrying MATERIALIZE_TIMEOUT — registration then runs full-scan
+# transaction carrying the CTAS budget — registration then runs full-scan
 # metadata extraction (COUNT + ST_Extent + the sample-values CTE) in a fresh
 # transaction, which would otherwise have no statement budget at all
-# (fix(#692)). Larger than the CTAS budget: those scans are cheap relative to
-# the build, but must never be unbounded.
-REGISTRATION_TIMEOUT = "600s"
+# (fix(#692)). Larger than the CTAS budget by default: those scans are cheap
+# relative to the build, but must never be unbounded.
+def registration_timeout() -> str:
+    """The post-commit registration statement_timeout, as an interval literal."""
+    from app.core.config import settings
+
+    return f"{settings.analysis_registration_timeout_seconds}s"
+
 
 # fix(#694): post-CTAS backstop on the built output's on-disk size. The
 # enqueue gates read the cached feature_count snapshot, which can be stale;
@@ -95,7 +110,7 @@ def _user_error_message(exc: Exception) -> str:
             # fix(v1.6.0 audit D11): name the configured limit so the user
             # knows what budget was exceeded.
             return (
-                f"The analysis exceeded its {MATERIALIZE_TIMEOUT} processing "
+                f"The analysis exceeded its {materialize_timeout()} processing "
                 "time limit. Try a smaller dataset or area."
             )
         if isinstance(exc, (DataError, InternalError)):
@@ -694,7 +709,7 @@ async def _materialize(
                 mask_table_ref=mask_table_ref,
             )
             await session.execute(
-                text(f"SET LOCAL statement_timeout = '{MATERIALIZE_TIMEOUT}'")
+                text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
             )
             if operation == "dissolve":
                 # fix(#694): hash aggregation holds every group's union state
@@ -760,7 +775,7 @@ async def _materialize(
             # rather than inside register_existing_table, which is shared
             # with the upload path.
             await session.execute(
-                text(f"SET LOCAL statement_timeout = '{REGISTRATION_TIMEOUT}'")
+                text(f"SET LOCAL statement_timeout = '{registration_timeout()}'")
             )
             # Identity is a structural Protocol; registration only reads .id.
             requester = SimpleNamespace(id=uuid.UUID(user_id))
