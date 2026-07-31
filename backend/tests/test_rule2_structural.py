@@ -1206,8 +1206,12 @@ _ESCAPE_RETURN = 1
 _ESCAPE_CALL = 2
 
 
-def _escape_kind(node: ast.AST) -> int:
+def _escape_kind(node: ast.AST, *, vector: bool = True) -> int:
     """How ``node``'s value leaves the expression it is written in.
+
+    ``vector`` says whether ``node``'s value IS the command vector, rather than
+    a container that holds it. It decides only the subscript rule below:
+    ``cmd[0]`` yields a string, but ``commands["inspect"]`` yields the argv.
 
     ``_ESCAPE_CALL`` — handed to a call (``subprocess.run([...])``,
     ``run_gdal(cmd)``, ``out.append(cmd)``). ``_ESCAPE_RETURN`` — returned or
@@ -1219,6 +1223,21 @@ def _escape_kind(node: ast.AST) -> int:
     prev: ast.AST = node
     current: ast.AST | None = getattr(node, "_rule2_parent", None)
     while current is not None:
+        # fix(#996 review): `cmd[0]` yields a STRING, so `return cmd[0]` and
+        # `consume(cmd[0])` move an element, not the command vector. A slice
+        # still yields a sequence that could be spawned, so only a single
+        # index stops the walk.
+        if (
+            vector
+            and isinstance(current, ast.Subscript)
+            and prev is current.value
+            and not isinstance(current.slice, ast.Slice)
+        ):
+            return best
+        # Stepping out through a container means everything above holds the
+        # vector rather than being it, so a subscript up there yields the argv.
+        if isinstance(current, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+            vector = False
         # The callee itself is not an argument: `cmd.index(x)` reads the list,
         # it does not hand it anywhere. Anything else inside a Call counts.
         if isinstance(current, ast.Call) and prev is not current.func:
@@ -1232,24 +1251,31 @@ def _escape_kind(node: ast.AST) -> int:
     return best
 
 
-def _positional_target(targets: list[ast.expr], index: int) -> ast.expr | None:
-    """The single target an unpacking assigns position ``index`` to.
+def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] | None:
+    """The targets an unpacking assigns position ``index`` to, or None.
 
     fix(#996 review): binding every target name to every nested literal made
     ``ignored, choices = (None, ["gdalinfo", "-json"])`` read ``choices`` as
     escaping through ``ignored``, a false positive on inert data — the class of
-    failure this whole issue is about. Only a same-length flat unpacking is
-    matched; a starred target makes positions ambiguous, so those fall back to
+    failure this whole issue is about. Positions are matched instead.
+
+    ALL matching targets, because chained unpacking (``a, b = c, d = (...)``)
+    binds the same position twice and returning only the first dropped the
+    second. None when no target is a flat same-shape sequence, or when a
+    starred element makes positions ambiguous — the caller then falls back to
     the conservative all-names answer.
     """
+    matched: list[ast.expr] = []
+    saw_sequence = False
     for target in targets:
         if not isinstance(target, (ast.Tuple, ast.List)):
             continue
+        saw_sequence = True
         if any(isinstance(e, ast.Starred) for e in target.elts):
             return None
         if index < len(target.elts):
-            return target.elts[index]
-    return None
+            matched.append(target.elts[index])
+    return matched if (saw_sequence and matched) else None
 
 
 # Expression wrappers a value passes through without being consumed. A literal
@@ -1268,7 +1294,7 @@ _TRANSPARENT_WRAPPERS = (
 )
 
 
-def _binding_targets(node: ast.AST) -> set[str]:
+def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     """Names this literal's value is reachable through in its own scope.
 
     Climbs out of transparent wrappers first (fix(#996 review)), so
@@ -1276,11 +1302,17 @@ def _binding_targets(node: ast.AST) -> set[str]:
     and a later ``subprocess.run(commands["inspect"])`` still counts. Covers
     ``=`` including unpacking, annotated ``=``, the walrus, and the loop target
     of a ``for``/``async for``/comprehension over a literal.
+
+    Returns ``(names, holds_a_container)``. The flag tells the caller whether
+    those names refer to the command vector itself or to something wrapping
+    it, which changes what a subscript on them means.
     """
     current: ast.AST = node
     parent = getattr(current, "_rule2_parent", None)
     index_in_parent: int | None = None
+    climbed = False
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
+        climbed = True
         if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
             index_in_parent = parent.elts.index(current)
         else:
@@ -1290,29 +1322,43 @@ def _binding_targets(node: ast.AST) -> set[str]:
 
     if isinstance(parent, ast.Assign) and parent.value is current:
         if index_in_parent is not None:
-            positional = _positional_target(parent.targets, index_in_parent)
+            positional = _positional_targets(parent.targets, index_in_parent)
             if positional is not None:
-                return {n.id for n in ast.walk(positional) if isinstance(n, ast.Name)}
+                return {
+                    n.id
+                    for target in positional
+                    for n in ast.walk(target)
+                    if isinstance(n, ast.Name)
+                }, climbed
         return {
             n.id
             for target in parent.targets
             for n in ast.walk(target)
             if isinstance(n, ast.Name)
-        }
+        }, climbed
     if (
         isinstance(parent, (ast.AnnAssign, ast.NamedExpr))
         and parent.value is current
         and isinstance(parent.target, ast.Name)
     ):
-        return {parent.target.id}
+        return {parent.target.id}, climbed
     # fix(#996 review): `for cmd in (["gdalinfo", path],): subprocess.run(cmd)`
     # reaches an exec through the loop target. Same for `async for` and for a
     # comprehension's generator.
-    if isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension)) and (
-        parent.iter is current
+    #
+    # Only when the literal is an ELEMENT of the iterable, which is what
+    # `climbed` records. `for tool in ["gdalinfo", "ogrinfo"]` binds each
+    # STRING to the target, not the list, and treating the list as escaping
+    # through it flagged ordinary tool-name data.
+    if (
+        climbed
+        and isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension))
+        and parent.iter is current
     ):
-        return {n.id for n in ast.walk(parent.target) if isinstance(n, ast.Name)}
-    return set()
+        # The loop target receives an ELEMENT of the iterable, so it is the
+        # vector itself, not a container of it.
+        return {n.id for n in ast.walk(parent.target) if isinstance(n, ast.Name)}, False
+    return set(), False
 
 
 def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
@@ -1358,21 +1404,63 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     best = _escape_kind(node)
     if best == _ESCAPE_CALL:
         return best
-    names = _binding_targets(node)
+    names, holds_container = _binding_targets(node)
     scope = _scope_root(node)
     if not names or scope is None:
         return best
-    for used in ast.walk(scope):
-        if (
-            isinstance(used, ast.Name)
-            and used.id in names
-            and isinstance(used.ctx, ast.Load)
-            and _use_reaches_the_binding(used, scope, rel)
-        ):
-            best = max(best, _escape_kind(used))
+
+    # fix(#996 review): follow re-aliasing to a fixed point. `cmd = [...]`,
+    # `alias = cmd`, `subprocess.run(alias)` reaches an exec through a name the
+    # literal was never directly bound to, and stopping at the first hop lost
+    # it — a regression against the pre-#996 scan, which flagged everything.
+    seen: set[str] = set()
+    pending = {(n, holds_container) for n in names}
+    while pending:
+        current_batch = pending
+        pending = set()
+        seen |= {n for n, _ in current_batch}
+        current_names = {n: c for n, c in current_batch}
+        for used in ast.walk(scope):
+            if not (
+                isinstance(used, ast.Name)
+                and used.id in current_names
+                and isinstance(used.ctx, ast.Load)
+                and _use_reaches_the_binding(used, scope, rel)
+            ):
+                continue
+            best = max(best, _escape_kind(used, vector=not current_names[used.id]))
             if best == _ESCAPE_CALL:
                 return best
+            aliases, alias_container = _binding_targets(used)
+            pending |= {
+                (n, current_names[used.id] or alias_container) for n in aliases - seen
+            }
     return best
+
+
+def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
+    """True when ``used`` is the scope's binding rather than a nested shadow.
+
+    fix(#996 review): the escape search walks the whole scope, so a nested
+    ``def inner(cmd): consume(cmd)`` counted as a use of an outer ``cmd`` and
+    turned an inert constant into a security failure. Any lexical scope between
+    the use and the binding that binds the same name breaks the link -- the
+    same rule ``_classify_name`` applies to rasterio names.
+
+    ``bound`` is not the whole binding table: a canonical import
+    (``from rasterio import open as cmd``) is recorded in ``canonical``
+    instead, and reading only ``bound`` missed that shadow.
+    """
+    current: ast.AST | None = getattr(used, "_rule2_parent", None)
+    while current is not None and current is not scope:
+        if isinstance(current, _LEXICAL_SCOPES):
+            info = _scope_info(current, rel)
+            if used.id in info.bound or any(
+                used.id in names for names in info.canonical.values()
+            ):
+                return False
+        current = getattr(current, "_rule2_parent", None)
+    return True
 
 
 def _collect_gdal_cli_violations(
@@ -2533,3 +2621,84 @@ def test_guard_canonical_import_shadow_also_breaks_the_escape_link():
     )
     assert total == 0, (total, violations)
     assert violations == []
+
+
+def test_guard_iterating_a_tool_name_list_is_not_an_argv():
+    """fix(#996 review): `for tool in ["gdalinfo", "ogrinfo"]` binds each
+    STRING to the target, not the list. Linking the list to every load of the
+    target flagged ordinary tool-name data — the loop-target rule only applies
+    when the literal is an ELEMENT of the iterable."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def fn():\n    for tool in ['gdalinfo', 'ogrinfo']:\n        consume(tool)\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_subscripting_an_argv_yields_an_element_not_the_vector():
+    """fix(#996 review): `cmd[0]` is a string. Returning or passing it moves an
+    element, so the command-shaped list stays inert; a SLICE still yields a
+    sequence that could be spawned and keeps escaping."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def head():\n"
+            "    cmd = ['gdalinfo', '-json']\n"
+            "    return cmd[0]\n"
+            "def element(path):\n"
+            "    cmd = ['ogrinfo', path]\n"
+            "    consume(cmd[0])\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+    sliced, total_sliced = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    cmd = ['gdalwarp', path]\n"
+            "    subprocess.run(cmd[0:2])\n"
+        ),
+        {},
+    )
+    assert total_sliced == 1, (total_sliced, sliced)
+    assert len(sliced) == 1 and "(fn)" in sliced[0]
+
+
+def test_guard_argv_reached_through_an_alias_chain_is_detected():
+    """fix(#996 review): `cmd = [...]`, `alias = cmd`, `run(alias)` reaches an
+    exec through a name the literal was never directly bound to. Stopping at
+    the first hop lost it, a regression against the pre-#996 scan."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    cmd = ['gdalinfo', path]\n"
+            "    alias = cmd\n"
+            "    later = alias\n"
+            "    subprocess.run(later)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_chained_unpacking_keeps_every_target():
+    """fix(#996 review): `a, b = cmd, y = (...)` binds the same position twice;
+    returning only the first target dropped the name that reaches the exec."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    ignored, x = cmd, y = (['gdalinfo', path], None)\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
