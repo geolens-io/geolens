@@ -103,6 +103,55 @@ AZURE_TITILER_KEYS = frozenset(
 # uses to persist a value into .env.
 WRITE_RE = re.compile(r"^\s*update_env_value\s+([A-Z][A-Z0-9_]*)\b")
 
+# fix(#950): operator docs prescribed `scripts/prepare-tenant-rls.py`, a script
+# that never existed in any repo — the multi-tenant restore recipe was
+# unrunnable as written and nothing caught it. Every `scripts/<file>` path a
+# doc tells an operator to run must resolve to a real file.
+SCRIPT_DOC_FILES = (
+    "RUNBOOK.md",
+    "README.md",
+    # The translations carry the same operator-facing install/upgrade commands
+    # (codex review on #950's PR), so a path mistyped only in a translation is
+    # exactly as broken for the reader who follows it.
+    "README.de.md",
+    "README.es.md",
+    "README.fr.md",
+    "UPGRADING.md",
+    "EDITIONS.md",
+    "SUPPORT.md",
+    ".env.example",
+    ".env.test.example",
+)
+# Nested path components and any extension are both in scope (codex review on
+# #950's PR): RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh
+# and README references scripts/README.md, and a pattern restricted to
+# single-component .py/.sh/.mjs/.sql paths silently skipped both. A trailing
+# extension is still required so that prose like "the scripts/ directory" and
+# bare directory names do not get resolved as files.
+#
+# The optional `./` prefix is the executable form operator commands actually
+# use (`./scripts/restore.sh`), so it must match; the lookbehind then runs
+# against the character before that prefix, which keeps a URL path such as
+# https://example.test/scripts/foo.py from being resolved repo-relative.
+SCRIPT_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_./-])(?:\./)?scripts/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-]+"
+    r"(?:\.[A-Za-z0-9_-]+)+)\b"
+)
+
+
+def unresolvable_doc_script_refs() -> list[str]:
+    """Return doc-referenced scripts/ paths that do not exist in the repo."""
+    errors: list[str] = []
+    for name in SCRIPT_DOC_FILES:
+        doc = REPO_ROOT / name
+        if not doc.is_file():
+            continue
+        for lineno, line in enumerate(doc.read_text().splitlines(), start=1):
+            for rel in SCRIPT_REF_RE.findall(line):
+                if not (REPO_ROOT / "scripts" / rel).is_file():
+                    errors.append(f"{name}:{lineno} references scripts/{rel}")
+    return sorted(set(errors))
+
 
 def keys_written_by_installer(install_sh: Path) -> set[str]:
     """Return the set of env keys install.sh persists via update_env_value."""
@@ -334,6 +383,12 @@ def main() -> int:
     contract_errors = compose_contract_errors(COMPOSE_FILES)
     if contract_errors:
         failures.append(("Compose service capability contract drift", contract_errors))
+
+    phantom_scripts = unresolvable_doc_script_refs()
+    if phantom_scripts:
+        failures.append(
+            ("doc-referenced scripts/ paths that do not exist", phantom_scripts)
+        )
 
     if failures:
         print("environment contract drift detected:", file=sys.stderr)

@@ -151,27 +151,225 @@ PostgreSQL roles are cluster objects and are not included in a database-only
 not the ACLs on schemas that `--clean` drops and recreates: those (including
 default privileges) die with the schema and must be re-granted after the
 restore, which is why `restore.sh` re-applies the `geolens_reader` grants as a
-post-restore step. When restoring a
-multi-tenant dump into a brand-new cluster, restore without ACL entries (the old
-tenant role names do not exist yet), then rebuild the guarded topology with the
-0019 migration before starting API, worker, or tile traffic:
+post-restore step.
+
+Nothing about roles travels inside a GeoLens dump: `scripts/backup-entrypoint.sh`
+writes it `--no-owner --no-acl` and `scripts/restore.sh` replays it `--no-owner`.
+A fresh cluster therefore needs both halves rebuilt — the role *definitions*
+(step 1) and the *ownership and grants* on restored tenant objects (step 2).
+Run both before starting API, worker, or tile traffic.
+
+**Step 1 — put the roles on the new cluster.**
+
+The clean way is a globals dump captured from the source cluster while it is
+still reachable, or from a replica. Take one now if your backup cycle has no
+`pg_dumpall --globals-only` artifact — it is the piece a database-only
+`pg_dump` can never give back.
 
 ```bash
-# Use the privileged migrator DATABASE_URL_OVERRIDE for all three commands.
-pg_restore --clean --if-exists --no-owner --no-acl \
-  -d "$POSTGRES_DB" geolens_<timestamp>.dump
-uv run alembic downgrade 0016
-uv run alembic upgrade head
-uv run python scripts/prepare-tenant-rls.py
+# Load .env so $POSTGRES_USER / $POSTGRES_DB are set in this shell.
+set -a; . ./.env; set +a
+
+# On the source cluster. umask 077 because --globals-only emits role password
+# verifiers: under a default 022 umask this file lands world-readable. Store it
+# with the same protection as the dump itself, or add --no-role-passwords and
+# reset the login passwords during recovery instead.
+(umask 077; docker compose exec -T db \
+  pg_dumpall --globals-only -U "$POSTGRES_USER" > globals.sql)
+
+# On the new cluster, BEFORE pg_restore.
+docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres < globals.sql
 ```
 
-The 0019 re-upgrade recreates the fixed provisioner/control/writer/sandbox/tile
-roles, recreates each tenant reader/writer role, and transfers restored tenant
-tables and sequences to the matching writer. Reapply the runtime login grants
-from `.env.example` afterward; those login credentials are deliberately not
-stored in the database dump. Verify that the API login can `SET ROLE` to one
-tenant writer/reader, the tile login can set only that tenant reader, and neither
-login owns catalog RLS tables or a `data_t_*` schema.
+For managed/external Postgres there is no `db` container to exec into: drop the
+`docker compose exec -T db` prefix and pass the provider's `-h`, `-p`, and `-U`
+to `pg_dumpall`/`psql` directly.
+
+If no globals dump exists, create the five fixed NOLOGIN groups by hand. This
+must happen **before** the step 2 commands: the downgrade passes through 0024,
+whose `downgrade()` re-installs the provisioning function with
+`OWNER TO geolens_tenant_provisioner`, so it fails on a cluster where that role
+is missing. The block is idempotent; run it as the migrator (needs CREATEROLE),
+and the attributes match what 0019 creates and validates.
+
+```sql
+DO $$
+DECLARE
+    group_name text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT FROM pg_roles WHERE rolname = 'geolens_tenant_provisioner'
+    ) THEN
+        CREATE ROLE geolens_tenant_provisioner
+            NOLOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT
+            NOREPLICATION NOBYPASSRLS;
+    END IF;
+    FOREACH group_name IN ARRAY ARRAY[
+        'geolens_tenant_control', 'geolens_tenant_writer',
+        'geolens_tenant_sandbox', 'geolens_tile_gateway'
+    ] LOOP
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = group_name) THEN
+            EXECUTE format(
+                'CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE '
+                'NOINHERIT NOREPLICATION NOBYPASSRLS', group_name);
+        END IF;
+    END LOOP;
+END
+$$;
+```
+
+**Step 2 — re-own the restored tenant objects. Last resort; read this first.**
+
+Replaying globals restores role definitions only; the restored tables, views,
+and sequences are all owned by whoever ran `pg_restore`. Migration 0019's
+upgrade is what fixes that, and the only way to reach it is to downgrade below
+0019 and come back up.
+
+> **That downgrade is not a supported recovery path.** It walks back through
+> every migration between head and 0019, and several of them either refuse on
+> data the current schema fully supports or discard state the re-upgrade
+> cannot rebuild. As of 0030 the known list is:
+>
+> | Migration | What its `downgrade()` does |
+> |---|---|
+> | 0030 | **Refuses** while any `catalog.records` row holds a MULTIPOLYGON `spatial_extent` — i.e. any antimeridian-crossing footprint, which the current schema exists to store |
+> | 0029 | **Discards** `api_keys.expires_at` and both `key_epoch` columns. The re-upgrade recreates them as NULL and 1, turning time-limited keys into permanent ones and un-revoking keys that a `key_epoch` bump had invalidated |
+> | 0027 | **Refuses** while any dataset uses a `parquet`, `json`, `xlsx`, or `xls` source format — all currently supported |
+> | 0022 | **Discards** `tenant_id` on `catalog.audit_logs` and `catalog.ingest_jobs`. The re-upgrade re-derives it from each row's live parent, so rows whose parent is gone lose tenant attribution permanently |
+> | 0021, 0020 | **Refuse** when two tenants share a collection name, OAuth subject, or `datasets.table_name` — all legal under the current per-tenant scoping |
+>
+> The refusals are correct: forcing them would corrupt the restored data.
+> Taken together they mean this path is unusable or lossy for most real
+> multi-tenant databases, and there is currently no supported way to re-run
+> 0019's adoption without it (0019 installs its functions with plain
+> `CREATE FUNCTION`, so `alembic stamp 0018 && alembic upgrade 0019` collides
+> with the functions the restored dump already carries).
+>
+> **So: do not treat this as routine.** Open a support issue (`SUPPORT.md`)
+> before running it on data you care about.
+>
+> Be clear about what the alternatives do and do not buy you. A globals dump
+> and a same-cluster restore both remove the *role* half of the problem —
+> globals replays the role definitions onto a new cluster, and on the same
+> cluster they never left. Neither touches the *ownership* half. The archive
+> carries no owner or ACL metadata, `--clean` drops each schema together with
+> its ACLs and default privileges, and `scripts/restore.sh` restores
+> `--no-owner` and re-grants only the single-tenant `geolens_reader`
+> privileges on schema `data`. Once per-tenant roles are in play, every
+> restore therefore lands tenant relations owned by `$POSTGRES_USER` with no
+> per-tenant grants, and step 2 is the only shipped way to fix that. Removing
+> that dependency is
+> the product gap this section is really describing — keep a globals dump
+> regardless, because it is the half you *can* solve today.
+
+If you have read the above and are proceeding anyway, work through 2a to 2d
+**in that order**. The snapshot in 2b and the restore in 2d bracket the
+downgrade because of 0022, and cover only that one row of the table — the
+other losses above have no equivalent remediation here.
+
+Everything below runs through the Compose containers, because the bundled
+database listens on `127.0.0.1:${DB_PORT}` rather than a host socket and the
+Alembic config lives in `backend/`, not the repo root. Do **not** use
+`scripts/restore.sh` here — it restarts `api` and `worker` on exit, and the
+whole point of this section is that nothing may serve traffic until step 2d.
+Managed/external Postgres: drop the `docker compose exec -T db` prefix and
+pass the provider's `-h`, `-p`, and `-U` instead.
+
+Keep `.env` loaded in this shell (`set -a; . ./.env; set +a`, as in step 1) —
+`$POSTGRES_USER` and `$POSTGRES_DB` expand on the host, not in the container.
+The dump path is a host path; copy the dump out of the `backup_data` volume
+first, exactly as in "Step-by-step: full restore" below.
+
+**2a. Restore the dump.**
+
+```bash
+docker compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  --clean --if-exists --no-owner --no-acl < ./restore/geolens_<timestamp>.dump
+```
+
+**2b. Snapshot tenant attribution, BEFORE the downgrade.** Skipping this is
+the one irreversible mistake in the recipe: once 2c has run, the rows you
+would have saved no longer carry a `tenant_id` to save.
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+CREATE TABLE public.recover_audit_tenant AS
+  SELECT id, tenant_id FROM catalog.audit_logs WHERE tenant_id IS NOT NULL;
+CREATE TABLE public.recover_job_tenant AS
+  SELECT id, tenant_id FROM catalog.ingest_jobs WHERE tenant_id IS NOT NULL;
+SQL
+```
+
+**2c. Rebuild the topology.** Run these against the **`migrate`** service with
+`--no-deps`, not against `api`. Both parts matter: `api`'s entrypoint runs
+`alembic upgrade heads` of its own accord before it would execute your command
+(`backend/scripts/api-entrypoint.sh`), and `api` declares
+`depends_on: migrate`, so without `--no-deps` Compose starts the `migrate`
+one-shot — with `.env`'s runtime credential rather than your override — and
+upgrades the schema before the downgrade ever runs. The `migrate` service has
+`entrypoint: []` and depends only on a healthy `db`, so it does exactly what
+you ask and nothing else.
+
+```bash
+docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  migrate sh -c "uv run --no-dev alembic downgrade 0016"
+docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
+  migrate sh -c "uv run --no-dev alembic upgrade heads"
+```
+
+The migrator credential is required: the least-privilege runtime login in
+`.env` is deliberately not allowed to do any of this.
+
+**2d. Put the attribution back.** Scoped to the rows the re-upgrade could not
+derive, which is also what keeps the parent-consistency triggers satisfied.
+
+```bash
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+UPDATE catalog.audit_logs AS a SET tenant_id = r.tenant_id
+  FROM public.recover_audit_tenant AS r
+ WHERE r.id = a.id AND a.tenant_id IS NULL;
+UPDATE catalog.ingest_jobs AS j SET tenant_id = r.tenant_id
+  FROM public.recover_job_tenant AS r
+ WHERE r.id = j.id AND j.tenant_id IS NULL;
+DROP TABLE public.recover_audit_tenant, public.recover_job_tenant;
+SQL
+```
+
+**If 2c refuses, the database it refused in is not salvageable — start over
+from the dump.** A failed downgrade does not roll back the ones that already
+succeeded. Several of these migrations do index work inside Alembic's
+`autocommit_block()` (0020, 0021, 0022 among them), which commits the DDL
+preceding it, so a refusal at 0021 leaves you past 0029's and 0022's discards
+with no transaction to undo them. Drop and recreate the target database, then
+re-run 2a and 2b against the untouched dump before attempting anything else.
+The dump file itself is never modified, so nothing is lost by restarting — but
+continuing in a half-downgraded database is how a recovery turns into a second
+incident.
+
+Do not force a refusal past its guard. Those migrations are protecting data
+the current schema legitimately holds, and the remediations their error
+messages offer — widening seam extents to `-180..180`, remapping source
+formats — are themselves lossy. The reconstruction logic 2c is trying to reach
+is `_adopt_and_backfill_existing_tenants` in
+`backend/alembic/versions/0019_tenant_provisioning_boundary.py`; making it
+runnable without the downgrade is a product gap, not something to work around
+by hand here.
+
+When 2c does complete, its 0019 re-upgrade is the whole per-tenant
+role-reconstruction step: it recreates the fixed
+provisioner/control/writer/sandbox/tile roles, walks
+`catalog.tenants` to recreate each tenant reader/writer role via
+`provision_tenant_data_schema`, and transfers restored tenant tables and
+sequences to the matching writer. No separate script exists or is needed
+(fix(#950): an earlier revision of this recipe referenced a
+`prepare-tenant-rls.py` script that was never shipped). Reapply the runtime
+login grants from `.env.example` afterward; those login credentials are
+deliberately not stored in the database dump. Verify that the API login can
+`SET ROLE` to one tenant writer/reader, the tile login can set only that tenant
+reader, and neither login owns catalog RLS tables or a `data_t_*` schema — the
+backend re-checks the runtime login at boot
+(`assert_multi_tenant_runtime_role`) and refuses to start on an unsafe role, so
+a misconfigured restore fails loudly rather than serving cross-tenant data.
 
 ### Step-by-step: full restore (DB + object storage)
 
