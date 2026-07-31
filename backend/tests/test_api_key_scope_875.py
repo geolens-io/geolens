@@ -263,7 +263,7 @@ async def test_key_predating_the_migration_resolves_as_full(
     client: AsyncClient, test_db_session
 ):
     """The server_default is what makes this backward compatible. Simulate a
-    pre-0031 row by clearing the column to its default."""
+    pre-0032 row by clearing the column to its default."""
     from sqlalchemy import text, update
 
     from app.modules.auth.models import ApiKey

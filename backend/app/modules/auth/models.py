@@ -222,7 +222,7 @@ class ApiKey(Base):
     # fix(#875): least-privilege machine credentials. "read_only" authenticates
     # GET/HEAD/OPTIONS only; anything else is refused at the resolution
     # chokepoint (see _resolve_api_key). The server_default backfills every
-    # pre-0030 key as "full", so existing keys behave exactly as before.
+    # pre-0032 key as "full", so existing keys behave exactly as before.
     scope: Mapped[str] = mapped_column(
         String(20), server_default="full", nullable=False
     )

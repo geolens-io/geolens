@@ -11,8 +11,8 @@ did. The column is NOT NULL because a NULL scope has no safe interpretation:
 treating it as ``full`` at the call site would make an accidental NULL a silent
 privilege grant, and the default means no writer ever has to supply one.
 
-Revision ID: 0031_api_key_scope
-Revises: 0030_records_spatial_extent_type
+Revision ID: 0032_api_key_scope
+Revises: 0031_maps_thumbnail_updated_at
 Create Date: 2026-07-31
 """
 
@@ -21,8 +21,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0031_api_key_scope"
-down_revision: Union[str, None] = "0030_records_spatial_extent_type"
+revision: str = "0032_api_key_scope"
+down_revision: Union[str, None] = "0031_maps_thumbnail_updated_at"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
