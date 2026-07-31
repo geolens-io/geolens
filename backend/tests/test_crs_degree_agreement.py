@@ -29,6 +29,7 @@ from app.core.geo import crs_has_degree_unit, wkt_has_degree_unit, wkt_is_geogra
 from app.processing.ingest.metadata import (
     _DEGREE_UNIT_SRTEXT_RE,
     _GEOGRAPHIC_SRTEXT_RE,
+    _PROJECTED_SRTEXT_RE,
 )
 from app.processing.raster.vrt import _is_degree_based
 
@@ -41,6 +42,15 @@ CASES = [
     (4901, True, False),  # ATF (Paris) — the same family
     (3857, False, False),  # Web Mercator — projected, X in metres
     (2263, False, False),  # NY Long Island ftUS — projected, X in feet
+    # fix(#961 review): a top-level-keyword matrix is not enough. A stock
+    # spatial_ref_sys carries 277 COMPD_CS rows and a family of BOUNDCRS-wrapped
+    # geographic CRSs, whose srtext starts with the WRAPPER. The 0..360 gate's
+    # anchored `^GEOG(CS|CRS)` read those as not-lon/lat while every other site
+    # said geographic — a live disagreement this file claimed to enforce against
+    # and could not see. These two rows are what made it visible.
+    (3823, True, True),  # TWD97 — BOUNDCRS wrapping a degree GEOGCRS
+    (4339, True, True),  # Australian Antarctic — same wrapper shape
+    (5698, False, False),  # RGF93 / Lambert-93 + height — COMPD_CS over PROJCS
 ]
 
 
@@ -81,10 +91,12 @@ async def test_every_site_agrees_on_the_same_crs(
     # whole point is what the database decides.
     sql_is_degree_lonlat = await test_db_session.scalar(
         text(
-            "SELECT srtext ~* :geographic AND srtext ~* :degree_unit "
+            "SELECT srtext ~* :geographic AND srtext !~* :projected "
+            "AND srtext ~* :degree_unit "
             "FROM spatial_ref_sys WHERE srid = :srid"
         ).bindparams(
             geographic=_GEOGRAPHIC_SRTEXT_RE,
+            projected=_PROJECTED_SRTEXT_RE,
             degree_unit=_DEGREE_UNIT_SRTEXT_RE,
             srid=srid,
         )
@@ -96,10 +108,13 @@ async def test_every_site_agrees_on_the_same_crs(
     # srtext form". Held to that claim here.
     sql_is_geographic = await test_db_session.scalar(
         text(
-            "SELECT srtext ~* 'GEOG(CS|CRS)' AND srtext !~* 'PROJ(CS|CRS)' "
+            "SELECT srtext ~* :geographic AND srtext !~* :projected "
             "FROM spatial_ref_sys WHERE srid = :srid"
-        ),
-        {"srid": srid},
+        ).bindparams(
+            geographic=_GEOGRAPHIC_SRTEXT_RE,
+            projected=_PROJECTED_SRTEXT_RE,
+            srid=srid,
+        )
     )
     assert sql_is_geographic is is_geographic, srtext
 
@@ -116,9 +131,11 @@ async def test_grads_srids_are_not_a_theoretical_class(test_db_session):
     grads_count = await test_db_session.scalar(
         text(
             "SELECT count(*) FROM spatial_ref_sys "
-            "WHERE srtext ~* :geographic AND srtext !~* :degree_unit"
+            "WHERE srtext ~* :geographic AND srtext !~* :projected "
+            "AND srtext !~* :degree_unit"
         ).bindparams(
             geographic=_GEOGRAPHIC_SRTEXT_RE,
+            projected=_PROJECTED_SRTEXT_RE,
             degree_unit=_DEGREE_UNIT_SRTEXT_RE,
         )
     )
