@@ -278,9 +278,16 @@ class Settings(BaseSettings):
     #
     # RAISE IT only with headroom you have checked: a larger DB_MEM_LIMIT, or a
     # single worker service. LOWER IT for a smaller database container or more
-    # worker replicas. Setting it at or below the cluster default (8MB) leaves
-    # analysis on the cluster-wide value, which is the pre-#1012 behaviour.
-    analysis_materialize_work_mem_mb: int = Field(default=64, gt=0)
+    # worker replicas.
+    #
+    # 0 disables the override: no SET LOCAL is issued and the CTAS runs on
+    # whatever work_mem the cluster is configured with, which is the pre-#1012
+    # behaviour. That sentinel exists because this process cannot read the
+    # connected cluster's work_mem, so it cannot know whether any particular
+    # floor would preserve that value or quietly raise it — an external cluster
+    # tuned below the bundled 8MB would have been raised by a clamp that
+    # claimed to leave it alone. Positive values are applied as given.
+    analysis_materialize_work_mem_mb: int = Field(default=64, ge=0)
 
     # fix(#434): finished ingest_jobs rows previously lived forever, so the
     # admin Jobs page accumulated stale test junk with no cleanup affordance.

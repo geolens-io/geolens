@@ -420,10 +420,8 @@ class TestSettingsConstraints:
             ("analysis_registration_timeout_seconds", 0),
             ("analysis_registration_timeout_seconds", -1),
             ("analysis_registration_timeout_seconds", "not-a-number"),
-
-            # fix(#1012): a zero or negative work_mem budget would render an
-            # invalid SET LOCAL and fail every materialize at run time.
-            ("analysis_materialize_work_mem_mb", 0),
+            # fix(#1012): 0 is a documented sentinel (leave work_mem alone),
+            # so only negatives are rejected.
             ("analysis_materialize_work_mem_mb", -1),
             ("ingest_jobs_retention_days", -1),
             ("smtp_port", 0),
@@ -440,11 +438,13 @@ class TestSettingsConstraints:
             ingest_jobs_retention_days=0,
             db_max_overflow=-1,
             db_pool_recycle=-1,
+            analysis_materialize_work_mem_mb=0,
         )
         assert s.tile_cache_ttl == 0
         assert s.ingest_jobs_retention_days == 0
         assert s.db_max_overflow == -1
         assert s.db_pool_recycle == -1
+        assert s.analysis_materialize_work_mem_mb == 0
 
     def test_worker_queues_are_trimmed_and_normalized(self):
         s = _make_settings(worker_queues=" priority, ingest ,raster ")

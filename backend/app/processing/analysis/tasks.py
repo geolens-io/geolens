@@ -132,20 +132,40 @@ def registration_timeout() -> str:
 # the conservative default trades some of the win for a ceiling that cannot OOM
 # the database on a deployment this process cannot measure.
 #
-# The floor is the cluster default: at a high WORKER_CONCURRENCY the division
-# must never land BELOW 8MB, which would make analysis slower than leaving it
-# alone.
-_CLUSTER_DEFAULT_WORK_MEM_MB = 8
+# There is deliberately NO floor. A floor at the bundled 8MB default would be
+# an assumption about the connected cluster that this process cannot check: an
+# external PostgreSQL tuned below 8MB would be RAISED by a clamp advertised as
+# leaving it alone, and an operator who wants less than 8MB per materialize
+# could not have it. ANALYSIS_MATERIALIZE_WORK_MEM_MB=0 is the honest way to
+# say "do not touch work_mem" — it skips the SET LOCAL entirely.
 
 
-def _materialize_work_mem() -> str:
-    """Per-slot work_mem for the CTAS, as a PostgreSQL size literal."""
+async def _apply_materialize_work_mem(session: AsyncSession) -> None:
+    """Raise work_mem for the CTAS transaction, unless the operator opted out.
+
+    SET LOCAL, so it applies to this statement and reverts with the
+    transaction — the other seventy-nine connections keep the cluster default.
+    A global bump would not be safe in the same way. Lives here rather than
+    inline in _materialize so the opt-out branch does not push that function
+    past its complexity cap.
+    """
+    work_mem = _materialize_work_mem()
+    if work_mem is None:
+        return
+    await session.execute(text(f"SET LOCAL work_mem = '{work_mem}'"))
+
+
+def _materialize_work_mem() -> str | None:
+    """Per-slot work_mem for the CTAS, or None to leave the cluster's alone."""
     from app.core.config import settings
 
-    per_slot = settings.analysis_materialize_work_mem_mb // max(
-        1, settings.worker_concurrency
-    )
-    return f"{max(_CLUSTER_DEFAULT_WORK_MEM_MB, per_slot)}MB"
+    budget = settings.analysis_materialize_work_mem_mb
+    if budget <= 0:
+        return None
+    # At least 1MB: the division must not round a configured budget down to a
+    # zero-size literal, which PostgreSQL would reject.
+    per_slot = max(1, budget // max(1, settings.worker_concurrency))
+    return f"{per_slot}MB"
 
 
 # fix(#694): post-CTAS backstop on the built output's on-disk size. The
@@ -792,12 +812,7 @@ async def _materialize(
             await session.execute(
                 text(f"SET LOCAL statement_timeout = '{materialize_timeout()}'")
             )
-            # fix(#1012): SET LOCAL, so it applies to this statement and reverts
-            # with the transaction — the other seventy-nine connections keep the
-            # 8MB default. A global bump would not be safe in the same way.
-            await session.execute(
-                text(f"SET LOCAL work_mem = '{_materialize_work_mem()}'")
-            )
+            await _apply_materialize_work_mem(session)
             if operation == "dissolve":
                 # fix(#694): hash aggregation holds every group's union state
                 # in memory at once, so a grouped dissolve over enough

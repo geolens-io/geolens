@@ -2651,6 +2651,8 @@ class TestMaterializeWorker:
 
         work_mems = [s for s in executed if "work_mem" in s]
         assert len(work_mems) == 1, f"expected one work_mem statement, got {work_mems}"
+        # Nothing is issued when the operator opts out — asserted separately in
+        # test_work_mem_override_can_be_disabled below.
         # SET LOCAL, never a plain SET: a session-level bump would outlive the
         # transaction and follow the pooled connection to unrelated queries.
         assert work_mems[0].startswith("SET LOCAL work_mem"), work_mems[0]
@@ -2662,6 +2664,49 @@ class TestMaterializeWorker:
         # the hashagg flip whose sort it pays for.
         assert executed.index(work_mems[0]) < executed.index(ctas[0])
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
+
+    async def test_work_mem_override_can_be_disabled(
+        self,
+        test_db_session: AsyncSession,
+        monkeypatch,
+    ):
+        """fix(#1012 review): 0 must issue NO statement, not a small one.
+
+        An operator who has tuned their own cluster needs a way to say "leave
+        work_mem alone"; a clamped small value would still raise the session
+        above a cluster configured below the bundled default.
+        """
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 0)
+
+        executed: list[str] = []
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS
+
+        real_execute = _AS.execute
+
+        async def spying_execute(self, statement, *args, **kwargs):
+            executed.append(str(statement))
+            return await real_execute(self, statement, *args, **kwargs)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        with patch.object(_AS, "execute", spying_execute):
+            await _materialize(
+                job_id=str(job.id),
+                dataset_id=str(ds.id),
+                user_id=str(admin_id),
+                operation="dissolve",
+                title=f"NoWorkMem {uuid.uuid4().hex[:6]}",
+            )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        assert not [s for s in executed if "work_mem" in s], (
+            "work_mem was set despite the override being disabled"
+        )
 
     def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
         """fix(#1012): the budget is per worker PROCESS, so parallel job slots
@@ -2677,10 +2722,12 @@ class TestMaterializeWorker:
         assert _materialize_work_mem() == "64MB"
         monkeypatch.setattr(settings, "worker_concurrency", 4)
         assert _materialize_work_mem() == "16MB"
-        # Never below the cluster default — a division that landed under 8MB
-        # would make analysis slower than leaving work_mem alone.
-        monkeypatch.setattr(settings, "worker_concurrency", 64)
-        assert _materialize_work_mem() == "8MB"
+        # A large divisor floors at 1MB rather than rounding to a zero-size
+        # literal PostgreSQL would reject. No clamp to the bundled 8MB default:
+        # this process cannot read the connected cluster's work_mem, so it
+        # cannot know whether such a floor preserves that value or raises it.
+        monkeypatch.setattr(settings, "worker_concurrency", 128)
+        assert _materialize_work_mem() == "1MB"
 
     def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
         """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
@@ -2696,10 +2743,14 @@ class TestMaterializeWorker:
         assert _materialize_work_mem() == "16MB"
         monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 256)
         assert _materialize_work_mem() == "256MB"
-        # Below the cluster default it stays on the cluster-wide value, which
-        # is the pre-#1012 behaviour rather than a slower one.
-        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 2)
-        assert _materialize_work_mem() == "8MB"
+        # A deliberately small value is honoured, not clamped up: an external
+        # cluster may be tuned below the bundled 8MB, and a floor advertised as
+        # "leaves the cluster value alone" would silently raise it.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 4)
+        assert _materialize_work_mem() == "4MB"
+        # 0 is the opt-out: no override at all.
+        monkeypatch.setattr(settings, "analysis_materialize_work_mem_mb", 0)
+        assert _materialize_work_mem() is None
 
     async def test_worker_rechecks_size_caps_before_ctas(
         self,
