@@ -127,6 +127,79 @@ describe('ViewerChatPanel', () => {
     expect(screen.getByText('1 row')).toBeInTheDocument();
   });
 
+  // fix(#1076): the viewer is the surface an embed or a shared link lands on,
+  // so a silent truncation here reaches the widest audience. A clip reports no
+  // source total, and requiring one dropped the flag before the badge saw it.
+  it('forwards a cap that arrives without a total', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              geojson: { type: 'FeatureCollection', features: [] },
+              bbox: [-1, -1, 1, 1],
+              truncated: true,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Clipped.' } };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(
+      screen.getByPlaceholderText('Ask about this map...'),
+      'clip the buildings',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Clipped.');
+    expect(handleQueryResult).toHaveBeenCalledWith(
+      { type: 'FeatureCollection', features: [] },
+      [-1, -1, 1, 1],
+      { truncated: true },
+    );
+  });
+
+  it('forwards no truncation for an uncapped result', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              geojson: { type: 'FeatureCollection', features: [] },
+              bbox: [-1, -1, 1, 1],
+              row_count: 12,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Clipped.' } };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(
+      screen.getByPlaceholderText('Ask about this map...'),
+      'clip the buildings',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText('Clipped.');
+    expect(handleQueryResult).toHaveBeenCalledWith(
+      { type: 'FeatureCollection', features: [] },
+      [-1, -1, 1, 1],
+      undefined,
+    );
+  });
+
   it('applies only the winning (last) query result — no stale flyover (#534)', async () => {
     setAvailable(true);
     mockStream.mockImplementation(async function* () {

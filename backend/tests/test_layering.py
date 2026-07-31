@@ -1001,6 +1001,42 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         )
 
 
+# fix(#958): lifted to module scope from
+# test_open_core_decomposition_boundaries_stay_clean so the inclusion rule below
+# can ask whether a ceiling gate already watches a module. Plain ceilings, not
+# exact ratchets: these files may shrink freely. Where an entry below says its
+# ratchet "stays exact", that is the author setting the cap flush with the
+# file's current LOC as a convention — no test here enforces the equality.
+_OPEN_CORE_SIZE_CAPS: dict[str, int] = {
+    # fix(#526 B-044): per-layer minzoom/maxzoom in style.json export,
+    # propagated to companion layers.
+    # fix(#527 B-054/S-05+LB-04): symbol icon-opacity + allow-overlap parity.
+    # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
+    # companion so exported ramps match the builder's Reverse toggle.
+    # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import.
+    # fix(#917): +85 — builtin fill patterns are stripped at export and fall back
+    # to a solid colour. Plain strings only: composites are left as authored,
+    # because MapLibre skips a missing pattern and exposes styleimagemissing to
+    # repair it, while stripping a working expression is unrecoverable (#1069).
+    # Ratchet stays exact.
+    "backend/app/modules/catalog/maps/style_json.py": 1517,
+    "backend/app/modules/catalog/maps/style_import.py": 450,
+    "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
+    "backend/app/modules/catalog/maps/router_assets.py": 126,
+    # fix(#526 B-048): the card-route SPA-redirect fallback shell.
+    # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
+    "backend/app/modules/catalog/maps/router_sharing.py": 387,
+    "backend/app/modules/catalog/search/query_params.py": 225,
+    "backend/app/modules/catalog/search/router_saved.py": 100,
+    # fix(#821): +14 lines — admin key mint accepts expires_at (audit
+    # detail + response) and maps the inactive-owner mint refusal to 409.
+    # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
+    # in the audit detail, the create response, and the list item.
+    "backend/app/modules/admin/router_operations.py": 296,
+    "backend/app/modules/settings/router_public.py": 150,
+}
+
+
 # fix(#435): each cap equals the file's current LOC, so these files can only shrink.
 # Every cap here used to carry 3-7% headroom, and each time a file grew into its cap
 # the cap was raised (five documented raises for tiles/router.py alone). That is how
@@ -1074,6 +1110,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `degree` on its target and been translated by 360 with a 400-unit turn.
     # This is the shift that moves geometry, so the reasoning lives at the code
     # rather than only in the issue. Ratchet stays exact.
+    # fix(#958): now five carve-outs deep, which is the ratchet taxing
+    # correctness work on a module nobody has had time to split.
+    # Decomposition tracked in #1042; the cap stays exact until then.
     "backend/app/processing/ingest/metadata.py": 2031,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
@@ -1095,6 +1134,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_ingest_vector_into_staging` was the "new ingests" caller.
     # Ratchet stays exact.
     "backend/app/processing/ingest/tasks_common.py": 1671,
+    # --- entered by the inclusion rule, fix(#958) -------------------------
+    # These five were the ungated modules at or above _RATCHET_INCLUSION_LOC
+    # when the rule was written. They arrive at their measured size with no
+    # carve-out history, because none of them has ever had to argue for a
+    # line: that is the gap #958 was filed about. The next change to any of
+    # them writes the first entry.
+    "backend/app/platform/config_ops/service.py": 1201,
+    "backend/app/processing/ingest/tasks_vrt.py": 1071,
+    "backend/app/processing/ingest/tasks_vector.py": 1058,
+    "backend/app/modules/auth/oauth/service.py": 1031,
+    "backend/app/processing/ingest/service.py": 1017,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
@@ -1186,6 +1236,119 @@ def test_module_loc_caps_have_no_headroom() -> None:
         )
 
 
+# fix(#958): the inclusion rule, so a module's ABSENCE from _MODULE_LOC_CAPS is
+# a decision rather than an oversight.
+#
+#   Every module under backend/app/ at or above _RATCHET_INCLUSION_LOC lines
+#   that no OTHER size gate watches belongs in _MODULE_LOC_CAPS, ratcheted at
+#   its exact LOC.
+#
+# Why a rule and not another hand-picked entry. #836 added the four largest
+# non-routers by hand, which left the dict's membership a judgement nobody
+# wrote down: analysis_sql.py then grew 504 -> 651 through no gate at all, and
+# adding just that one would have ratcheted the 24th-largest ungated module
+# while five modules above 1000 lines stayed free to grow. A threshold is
+# arguable; an unwritten rule is not enforceable.
+#
+# Why 1000. It is where the modules this project has actually had to decompose
+# live (the Phase 226 / 238 / 252 splits all started past it), and the measured
+# distribution has a natural break there: a cluster at 1017-1201, then a gap
+# down to 990. A file below the line is not safe, just cheaper to fix later.
+#
+# Why "no OTHER gate" rather than unconditionally. A module a ceiling gate
+# already watches is not silent — it hits a wall, and whoever hits it ratchets
+# the file in, which is exactly how ingest/router.py got here. Ratcheting them
+# anyway would put exact caps on four routers sitting under the 1500 glob
+# ceiling and on maps/style_json.py, doubling the bookkeeping for files that
+# already fail loudly. This rule is about the modules NOTHING watches.
+#
+# The residue, recorded rather than papered over: a router.py at 1400 still has
+# 100 lines of silent runway under the glob default, and the two routers-by-role
+# the glob's filename match cannot see (datasets/api/router_export.py at 928 and
+# router_reupload.py at 922) are watched by nothing until they cross 1000. The
+# threshold catches them then. #958 also notes that any inclusion rule phrased
+# as "routers are covered by the glob" is inaccurate for exactly that reason,
+# which is why this one is phrased by size.
+_RATCHET_INCLUSION_LOC = 1000
+
+# The globs of test_decomposed_service_modules_stay_within_size_budgets, as
+# (directory, filename prefix) pairs. fix(#958 review): the prefix alone is not
+# the gate. That test globs specific directories, so a `service_*.py` anywhere
+# else is watched by nothing — and a filename-only exemption here would have let
+# such a module past 1000 lines through both gates, defeating the rule this
+# file exists to state. Mirror the directories, not just the names.
+_DECOMPOSED_MODULE_SCOPES: tuple[tuple[str, str], ...] = (
+    ("backend/app/modules/catalog/maps/", "service_"),
+    ("backend/app/modules/catalog/search/", "service_"),
+    ("backend/app/modules/catalog/datasets/domain/", "service_"),
+    ("backend/app/processing/ai/", "chat_"),
+    ("backend/app/platform/extensions/", "defaults_"),
+)
+
+
+def _is_watched_by_another_size_gate(rel: str, name: str) -> bool:
+    """True when some gate other than _MODULE_LOC_CAPS already caps this file."""
+    if name == "router.py":
+        return True  # test_router_orchestrator_modules_stay_within_loc_cap
+    for directory, prefix in _DECOMPOSED_MODULE_SCOPES:
+        # Directory, not prefix path: those globs are non-recursive.
+        if rel == f"{directory}{name}" and name.startswith(prefix):
+            return True  # test_decomposed_service_modules_stay_within_size_budgets
+    return rel in _OPEN_CORE_SIZE_CAPS
+
+
+@pytest.mark.architecture
+def test_module_loc_cap_inclusion_rule_is_complete() -> None:
+    """Nothing large is ungated by accident.
+
+    The counterpart to test_module_loc_caps_have_no_headroom: that one keeps
+    the listed files honest, this one decides which files get listed.
+    """
+    missing: list[str] = []
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        rel = _repo_style_rel(path)
+        if rel in _MODULE_LOC_CAPS or _is_watched_by_another_size_gate(rel, path.name):
+            continue
+        actual = len(path.read_text(encoding="utf-8").splitlines())
+        if actual >= _RATCHET_INCLUSION_LOC:
+            missing.append(f"{rel}: {actual} lines")
+
+    if missing:
+        pytest.fail(
+            f"These modules crossed {_RATCHET_INCLUSION_LOC} lines with no size gate "
+            "watching them. Add each to _MODULE_LOC_CAPS at its exact current line "
+            "count, with a comment saying what the growth bought — or decompose it "
+            "and stay under the threshold:\n" + "\n".join(missing)
+        )
+
+
+@pytest.mark.architecture
+def test_decomposition_prefix_exemption_matches_the_gate_that_backs_it() -> None:
+    """The exemption is a directory scope, not a filename prefix.
+
+    fix(#958 review): ``test_decomposed_service_modules_stay_within_size_budgets``
+    globs specific directories, so a ``service_*.py`` outside them is watched by
+    nothing. A filename-only exemption would have let such a module grow past
+    the inclusion threshold through both gates — the exact hole this rule was
+    written to close, wearing a different name.
+    """
+    for directory, prefix in _DECOMPOSED_MODULE_SCOPES:
+        inside = f"{directory}{prefix}example.py"
+        assert _is_watched_by_another_size_gate(inside, f"{prefix}example.py"), (
+            f"{inside} is inside a globbed directory and should read as watched"
+        )
+
+    # Same filename, a directory the gate does not glob: NOT watched, so the
+    # inclusion rule keeps it once it crosses the threshold.
+    stray = "backend/app/platform/service_orphan.py"
+    assert not _is_watched_by_another_size_gate(stray, "service_orphan.py")
+
+    # The globs are non-recursive; a subdirectory of a globbed one is not in
+    # scope either.
+    nested = "backend/app/modules/catalog/maps/nested/service_deep.py"
+    assert not _is_watched_by_another_size_gate(nested, "service_deep.py")
+
+
 @pytest.mark.architecture
 def test_open_core_decomposition_boundaries_stay_clean() -> None:
     """Lock the shared-query, sharing, and style decompositions in place."""
@@ -1215,36 +1378,8 @@ def test_open_core_decomposition_boundaries_stay_clean() -> None:
             + "\n".join(private_import_offenders)
         )
 
-    size_caps = {
-        # fix(#526 B-044): per-layer minzoom/maxzoom in style.json export,
-        # propagated to companion layers.
-        # fix(#527 B-054/S-05+LB-04): symbol icon-opacity + allow-overlap parity.
-        # fix(v1.6.0 audit): hypso_reversed flows into the color-relief
-        # companion so exported ramps match the builder's Reverse toggle.
-        # fix(#836): +1 for the RASTER_FAMILY_RECORD_TYPES import.
-        # fix(#917): +85 — builtin fill patterns are stripped at export and fall back
-        # to a solid colour. Plain strings only: composites are left as authored,
-        # because MapLibre skips a missing pattern and exposes styleimagemissing to
-        # repair it, while stripping a working expression is unrecoverable (#1069).
-        # Ratchet stays exact.
-        "backend/app/modules/catalog/maps/style_json.py": 1517,
-        "backend/app/modules/catalog/maps/style_import.py": 450,
-        "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
-        "backend/app/modules/catalog/maps/router_assets.py": 126,
-        # fix(#526 B-048): the card-route SPA-redirect fallback shell.
-        # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
-        "backend/app/modules/catalog/maps/router_sharing.py": 387,
-        "backend/app/modules/catalog/search/query_params.py": 225,
-        "backend/app/modules/catalog/search/router_saved.py": 100,
-        # fix(#821): +14 lines — admin key mint accepts expires_at (audit
-        # detail + response) and maps the inactive-owner mint refusal to 409.
-        # fix(#875): +7 lines — admin key mint accepts scope, and surfaces it
-        # in the audit detail, the create response, and the list item.
-        "backend/app/modules/admin/router_operations.py": 296,
-        "backend/app/modules/settings/router_public.py": 150,
-    }
     oversized = []
-    for rel, cap in size_caps.items():
+    for rel, cap in _OPEN_CORE_SIZE_CAPS.items():
         actual = len(_repo_style_path(rel).read_text(encoding="utf-8").splitlines())
         if actual > cap:
             oversized.append(f"{rel}: {actual} lines > cap {cap}")

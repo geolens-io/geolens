@@ -8,15 +8,18 @@ Requirements:
 
 import math
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.catalog.datasets.api import router_analysis
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
 from app.modules.catalog.datasets.domain.service import build_preview_sql
+from app.platform.sandbox.schemas import SandboxError
 
 from tests.factories import create_dataset, get_user_id
 
@@ -703,6 +706,55 @@ class TestAnalysisPreviewEndpoint:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
+
+    @pytest.mark.parametrize(
+        ("category", "expected_status"),
+        [
+            # The routine one: the sandbox advisory lock is shared with AI chat,
+            # so a preview fired while a chat query holds it must read as
+            # "try again", not as a server fault.
+            ("query_busy", 429),
+            ("query_timeout", 422),
+            ("query_data_error", 422),
+            # Anything unmapped falls through the .get default. query_failed
+            # also covers connection loss and role-binding failures, which are
+            # server faults rather than bad requests.
+            ("query_failed", 500),
+        ],
+    )
+    async def test_sandbox_error_category_maps_to_status(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        category: str,
+        expected_status: int,
+    ):
+        """fix(#789): _SANDBOX_STATUS is the only thing standing between a
+        sandbox failure category and the status the caller sees, and it was
+        untested — tests/test_sandbox.py asserts the category the sandbox
+        raises, not what the route does with it.
+
+        Patches the name `router_analysis` imported, not the definition in
+        service_analysis, the way the suite already patches the queue hop.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        message = f"sandbox says: {category}"
+        with patch.object(
+            router_analysis,
+            "run_analysis_preview",
+            AsyncMock(side_effect=SandboxError(category, message)),
+        ):
+            resp = await client.post(
+                _preview_url(ds.id),
+                json={"operation": "centroid"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == expected_status, resp.text
+        # user_message is the sandbox's already-sanitized text, so it is what
+        # the caller reads on every branch including the 500 fallback.
+        assert resp.json()["detail"] == message
 
     async def test_truncation_at_feature_cap(
         self,
