@@ -71,6 +71,11 @@ def test_error_message_mapping():
     expected_categories = {
         "query_timeout",
         "query_busy",
+        # fix(#1014): distinct from query_busy — "the server is at capacity" is
+        # a different condition from "your own query is already running", and
+        # the chat surface maps categories to its own wording, so folding them
+        # together would tell a user their first request was a duplicate.
+        "query_at_capacity",
         "table_not_accessible",
         "invalid_query",
         "query_failed",
