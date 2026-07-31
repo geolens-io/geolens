@@ -173,6 +173,9 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         // so the server reports none for it — requiring one dropped the
         // disclosure and a capped clip read as complete. This surface matters
         // most of the two: an embed or a shared link lands here.
+        //
+        // The producer half is #1071; until it lands this branch is correct and
+        // simply not yet reachable for a clip.
         const total = typeof action.row_count === 'number' ? action.row_count : undefined;
         handleQueryResult(
           geojson as GeoJSON.FeatureCollection,

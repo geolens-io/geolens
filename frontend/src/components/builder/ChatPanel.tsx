@@ -522,6 +522,10 @@ export function ChatPanel({
       // dropped the disclosure entirely — a capped clip preview then read as
       // complete. The total rides along when there is one; the badge picks its
       // wording from whether it arrived.
+      //
+      // The producer half is #1071: until that lands, collect_run_analysis_action
+      // still omits `truncated` whenever the total is absent, so this branch is
+      // correct and simply not yet reachable for a clip.
       const total = typeof action.row_count === 'number' ? action.row_count : undefined;
       const truncation = action.truncated === true
         ? { truncated: true, ...(total != null ? { totalCount: total } : {}) }
