@@ -212,19 +212,24 @@ export function resolveFillExclusions(
     effectivePaint = rest;
   }
   // fix(#910/#918, codex P2): which key wins is decided by PROVENANCE, read off the
-  // diff against the layer's previous paint — the key the write just INTRODUCED is the
-  // one the user asked for, so the other goes. Deriving it here rather than having each
+  // diff against the layer's previous paint — the key the write just TOUCHED is the one
+  // the user asked for, so the other goes. Deriving it here rather than having each
   // caller declare its intent is what makes the rule hold on paths nobody enumerated:
   // the style-config funnel, a paint-only write from Advanced JSON or the AI
   // `set_style` action, a paste, and a bulk apply all diff the same way.
   //
-  // With no previous paint to compare (or both keys already present, so nothing was
-  // introduced) it falls back to pattern-wins, which is right for the one case that
-  // reaches it: an Advanced-JSON layer that already carried the forbidden pair.
+  // With no previous paint to compare — or when the write touched both keys, or neither
+  // — it falls back to pattern-wins, which is what MapLibre draws regardless.
   const collides = 'fill-color' in effectivePaint && 'fill-pattern' in effectivePaint;
-  const addedFillColor = collides && !!previousPaint && !('fill-color' in previousPaint);
-  const addedFillPattern = collides && !!previousPaint && !('fill-pattern' in previousPaint);
-  const colorWins = collides && (isDataDrivenColor || (addedFillColor && !addedFillPattern));
+  // Compares VALUES, not just presence: on a layer that already carried both keys,
+  // changing the colour is as much a request as adding one, and a presence-only check
+  // read it as "nothing introduced" and deleted the new colour. An absent key compares
+  // unequal to any value, so this subsumes the added case rather than sitting beside it.
+  const touched = (key: string) =>
+    collides && !!previousPaint && previousPaint[key] !== effectivePaint[key];
+  const changedFillColor = touched('fill-color');
+  const changedFillPattern = touched('fill-pattern');
+  const colorWins = collides && (isDataDrivenColor || (changedFillColor && !changedFillPattern));
   const dropsFillPattern = colorWins;
   if (dropsFillPattern) {
     const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;

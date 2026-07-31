@@ -1308,3 +1308,85 @@ describe('useLayerMapSync — the fill-colour stash across successive writes', (
     expect(builderOf(layers().find((l) => l.id === LID)!)?.fillColorSaved).toBe('#111111');
   });
 });
+
+// fix(#910, codex P2): presence is not intent. On a layer that already carried BOTH fill
+// keys, editing the colour left both "added" checks false, so pattern-wins fired and the
+// edit the user just made was deleted. The diff compares values now.
+describe('useLayerMapSync — a CHANGED fill key counts as intent, not just a new one', () => {
+  const LID = 'layer-uuid-123';
+
+  function renderPrev(paint: Record<string, unknown>) {
+    const initialLayer = makeLayer({ dataset_geometry_type: 'Polygon', paint });
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub([`layer-${LID}`]) } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+    return { result, layers: () => finalLayers };
+  }
+
+  it('editing the colour on a both-keys layer keeps the edit and drops the pattern', () => {
+    const { result, layers } = renderPrev({
+      'fill-color': '#111111',
+      'fill-pattern': 'geolens-fill-hatch',
+    });
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-color': '#222222',
+        'fill-pattern': 'geolens-fill-hatch',
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-color']).toBe('#222222');
+    expect('fill-pattern' in (updated.paint ?? {})).toBe(false);
+  });
+
+  it('editing the pattern on a both-keys layer keeps the pattern and stashes the colour', () => {
+    const { result, layers } = renderPrev({
+      'fill-color': '#111111',
+      'fill-pattern': 'geolens-fill-hatch',
+    });
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-color': '#111111',
+        'fill-pattern': 'geolens-fill-dots',
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-dots');
+    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+    const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.fillColorSaved).toBe('#111111');
+  });
+
+  // Both touched at once is genuinely ambiguous — no rule can read intent out of it — so
+  // it takes the documented fallback rather than guessing. Pinned so the fallback is a
+  // decision and not an accident.
+  it('falls back to pattern-wins when the write touched both keys', () => {
+    const { result, layers } = renderPrev({
+      'fill-color': '#111111',
+      'fill-pattern': 'geolens-fill-hatch',
+    });
+
+    act(() => {
+      result.current.handlePaintChange(LID, {
+        'fill-color': '#222222',
+        'fill-pattern': 'geolens-fill-dots',
+      });
+    });
+
+    const updated = layers().find((l) => l.id === LID)!;
+    expect(updated.paint?.['fill-pattern']).toBe('geolens-fill-dots');
+    expect('fill-color' in (updated.paint ?? {})).toBe(false);
+  });
+});
