@@ -457,6 +457,41 @@ env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
 [ ! -f "${SORT_BACKUPS}/daily/zzz_20260101_000000.dump" ] \
     || fail "retention kept the older dump — pruning is not ordered by the embedded timestamp"
 echo "      ordering OK — retention follows the embedded timestamp, not the database-name prefix."
+
+# fix(#995) review: the Sunday branch is unreachable six days a week, so the
+# weekly globals copy would otherwise ship untested. Shadow `date` so only
+# `+%u` answers 7 and every other format delegates, which keeps the artifact
+# timestamps real.
+DATE_STUB_BIN="${WORKDIR}/stub-date"
+mkdir -p "$DATE_STUB_BIN"
+cat > "${DATE_STUB_BIN}/date" <<'DATESTUB'
+#!/bin/sh
+case "$*" in "+%u") echo 7; exit 0;; esac
+for real in /bin/date /usr/bin/date; do [ -x "$real" ] && exec "$real" "$@"; done
+exit 127
+DATESTUB
+chmod +x "${DATE_STUB_BIN}/date"
+
+SUNDAY_BACKUPS="${WORKDIR}/sunday-backups"
+mkdir -p "$SUNDAY_BACKUPS"
+env BACKUP_DIR="$SUNDAY_BACKUPS" STAGING_DIR="$CYCLE_STAGING" \
+    POSTGRES_HOST="$PGHOST" PGPORT="$PGPORT" \
+    POSTGRES_USER="$PGUSER" POSTGRES_PASSWORD="$PGPASSWORD" \
+    POSTGRES_DB="$SRC_DB" BACKUP_S3_ENABLED=false PATH="${DATE_STUB_BIN}:${PATH}" \
+    bash "${REPO_ROOT}/scripts/backup-entrypoint.sh" --run-backup > /dev/null 2>&1 \
+    || fail "Sunday cycle exited non-zero"
+
+WEEKLY_GLOBALS="$(find "${SUNDAY_BACKUPS}/weekly" -name 'globals-*.sql' -type f | head -1)"
+[ -n "$WEEKLY_GLOBALS" ] || fail "the Sunday cycle wrote no weekly globals copy"
+WEEKLY_MODE="$(ls -l "$WEEKLY_GLOBALS" | cut -c1-10)"
+[ "$WEEKLY_MODE" = "-rw-------" ] \
+    || fail "the weekly globals copy is ${WEEKLY_MODE}, expected -rw------- (role password verifiers)"
+[ -z "$(find "${SUNDAY_BACKUPS}/weekly" -name 'globals-*.sql.tmp' 2>/dev/null)" ] \
+    || fail "the weekly globals copy left its .tmp behind"
+WEEKLY_TS="$(basename "$WEEKLY_GLOBALS" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
+find "${SUNDAY_BACKUPS}/weekly" -maxdepth 1 -name "*_${WEEKLY_TS}.dump" -type f | grep -q . \
+    || fail "the weekly globals copy does not pair with a weekly dump"
+echo "      weekly copy OK — paired, mode ${WEEKLY_MODE}, no leftover .tmp."
 echo ""
 
 echo "=== PASS: backup+restore round-trip verified (bundled + managed modes) ==="

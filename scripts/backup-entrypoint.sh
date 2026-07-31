@@ -88,8 +88,10 @@ run_backup() {
     # fix(#819): orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
     # flight, so any leftover .tmp is garbage. fix(#995): the globals dump
-    # writes through the same .tmp-then-rename path and needs the same sweep.
-    rm -f "${DAILY_DIR}"/*.dump.tmp "${DAILY_DIR}"/globals-*.sql.tmp
+    # writes through the same .tmp-then-rename path, in both directories, and
+    # needs the same sweep.
+    rm -f "${DAILY_DIR}"/*.dump.tmp "${DAILY_DIR}"/globals-*.sql.tmp \
+        "${WEEKLY_DIR}"/globals-*.sql.tmp
 
     log "Starting backup: ${filename}"
 
@@ -312,15 +314,23 @@ backup_globals() {
     size="$(du -h "$globals_file" | cut -f1)"
     log "Cluster globals complete: $(basename "$globals_file") (${size})" >&2
     if [ "$(date '+%u')" = "7" ]; then
-        # cp carries the source's 0600 across (measured on both busybox and
-        # GNU cp), but the weekly copy is the one an operator reaches for
-        # months later, so pin the mode instead of inheriting it. Checked for
-        # the same reason as the mv above: a half-written weekly copy beside a
-        # good weekly dump is worse than none, so discard it and fail.
+        # Same .tmp-then-rename as the daily artifact, and for the same reason:
+        # a container killed mid-`cp` never reaches the failure branch, so
+        # copying straight to the final name would leave a truncated file under
+        # the weekly globals filename beside an already-published weekly dump,
+        # where a recovery would take it for the valid paired artifact.
+        #
+        # cp carries the source's 0600 across (measured on both busybox and GNU
+        # cp), but the weekly copy is the one an operator reaches for months
+        # later, so pin the mode rather than inheriting it, and do it before the
+        # rename so the file is never visible under its final name at a wider
+        # mode.
         local weekly_copy="${WEEKLY_DIR}/$(basename "$globals_file")"
-        if ! cp "$globals_file" "$weekly_copy" || ! chmod 600 "$weekly_copy"; then
+        if ! cp "$globals_file" "${weekly_copy}.tmp" \
+            || ! chmod 600 "${weekly_copy}.tmp" \
+            || ! mv "${weekly_copy}.tmp" "$weekly_copy"; then
             log "ERROR: could not write the weekly globals copy to ${WEEKLY_DIR}" >&2
-            rm -f "$weekly_copy"
+            rm -f "${weekly_copy}.tmp"
             return 1
         fi
         log "Weekly globals copy saved: $(basename "$globals_file")" >&2
