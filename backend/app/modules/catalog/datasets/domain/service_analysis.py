@@ -31,9 +31,11 @@ from app.modules.catalog.datasets.domain.schemas import (
     AnalysisPreviewResponse,
 )
 from app.platform.analysis_sql import (
+    MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
+    render_measure_columns,
     render_spatial_join,
     render_spatial_join_match_count,
     spatial_join_output_columns,
@@ -165,6 +167,12 @@ def build_preview_sql(
             join_table_ref, src="_src", join_fields=request.join_fields
         )
         extra_cols = f", {cols}"
+    elif request.operation == "measure":
+        # fix(#954): same reason — the measured value IS the result, and the
+        # geometry comes back unchanged, so the preview has to carry it as a
+        # property or show the user their own layer back.
+        cols, extra_joins = render_measure_columns(src="_src")
+        extra_cols = f", {cols}"
     if mask_table_ref is not None:
         # fix(#693): layer-sourced clip previews subdivide the mask once and
         # join it per row instead of unioning the whole layer per request;
@@ -207,6 +215,23 @@ def build_preview_sql(
         f"{filters}"
         f" ORDER BY gid"
     )
+
+
+def _preview_extra_columns(
+    request: AnalysisPreviewRequest, join_table_ref: str | None
+) -> list[str]:
+    """Property names the preview carries beyond ``gid``, in SELECT order.
+
+    Mirrors the ``extra_cols`` branches in ``build_preview_sql``: the rows come
+    back positional, so the two must agree or properties land under the wrong
+    names. One function per side rather than one shared renderer because the
+    SQL side needs table aliases the caller owns.
+    """
+    if join_table_ref is not None:
+        return spatial_join_output_columns(request.join_fields)
+    if request.operation == "measure":
+        return list(MEASURE_OUTPUT_COLUMNS)
+    return []
 
 
 def _extend_bbox(bbox: list[float] | None, coords: Any) -> list[float] | None:
@@ -268,13 +293,10 @@ async def run_analysis_preview(
         _safe_table_ref(join_dataset.table_name) if join_dataset is not None else None
     )
     sql = build_preview_sql(table_ref, request, mask_table_ref, join_table_ref)
-    # Column names for the properties the join adds, in the order the SELECT
-    # emits them (immediately after gid and the geometry).
-    join_columns = (
-        spatial_join_output_columns(request.join_fields)
-        if join_table_ref is not None
-        else []
-    )
+    # Names of the properties this operation adds, in the order the SELECT
+    # emits them (immediately after gid and the geometry). Must stay in step
+    # with build_preview_sql's extra_cols above — the rows come back positional.
+    extra_columns = _preview_extra_columns(request, join_table_ref)
     # fix(#716): read everything off the ORM objects BEFORE releasing the
     # session, then release it. `execute_safe` opens its own connection from the
     # same engine (it needs READ ONLY + SET LOCAL ROLE, which it cannot get on
@@ -328,7 +350,7 @@ async def run_analysis_preview(
             continue
         bbox = _extend_bbox(bbox, geometry.get("coordinates"))
         properties: dict[str, Any] = {"gid": gid}
-        properties.update(zip(join_columns, row[2:]))
+        properties.update(zip(extra_columns, row[2:]))
         features.append(
             {"type": "Feature", "geometry": geometry, "properties": properties}
         )

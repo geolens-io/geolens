@@ -975,6 +975,7 @@
     "opCentroid": "Centroids",
     "opClip": "Clip",
     "opSpatialJoin": "Spatial join",
+    "opMeasure": "Measure",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Enter a distance greater than 0 and no more than {{max}} {{unit}}.",
     "drawMask": "Draw clip area",
@@ -1030,7 +1031,8 @@
     "joinLayerPlaceholder": "Choose a layer",
     "spatialJoinHint": "Each feature gains a join_count of the features it intersects. Overlaps count every match but still produce one row.",
     "joinFieldLabel": "Copy a field across (optional)",
-    "joinFieldNone": "Count only"
+    "joinFieldNone": "Count only",
+    "measureHint": "Adds area_sqm and length_m to every feature, measured on the globe. Polygons get an area and lines a length; the other reads 0."
   },
   "attributeForm": {
     "titleEdit": "Edit Feature Attributes",

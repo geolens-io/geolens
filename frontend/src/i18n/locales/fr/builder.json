@@ -975,6 +975,7 @@
     "opCentroid": "Centroïdes",
     "opClip": "Découper",
     "opSpatialJoin": "Jointure spatiale",
+    "opMeasure": "Mesurer",
     "distanceLabel": "Distance",
     "distanceOutOfRange": "Saisissez une distance supérieure à 0 et d’au plus {{max}} {{unit}}.",
     "drawMask": "Dessiner la zone de découpe",
@@ -1030,7 +1031,8 @@
     "joinLayerPlaceholder": "Choisissez une couche",
     "spatialJoinHint": "Chaque entité reçoit un join_count des entités qu'elle intersecte. Les chevauchements comptent toutes les correspondances mais ne produisent qu'une seule ligne.",
     "joinFieldLabel": "Copier un champ (facultatif)",
-    "joinFieldNone": "Compter uniquement"
+    "joinFieldNone": "Compter uniquement",
+    "measureHint": "Ajoute area_sqm et length_m à chaque entité, mesurées sur le globe. Les polygones reçoivent une aire et les lignes une longueur ; l'autre vaut 0."
   },
   "attributeForm": {
     "titleEdit": "Modifier les attributs de l'entité",

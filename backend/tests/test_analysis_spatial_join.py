@@ -61,7 +61,11 @@ async def _create_layer(
             f")"
         )
     )
-    cols = "name, " + extra_columns.replace(" TEXT,", ",").replace(" INTEGER,", ",")
+    # Column NAMES from the declarations: the first token of each
+    # comma-separated entry. Stripping known type keywords instead broke the
+    # moment a two-word type appeared (DOUBLE PRECISION).
+    extra_names = [d.strip().split()[0] for d in extra_columns.split(",") if d.strip()]
+    cols = "".join(f"{n}, " for n in ["name", *extra_names])
     await session.execute(
         text(
             f"INSERT INTO data.{table_name} ({cols} geom, geom_4326) "  # noqa: S608

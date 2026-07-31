@@ -268,6 +268,7 @@ export function AnalysisPanel({
       clip: t('analysisTools.opClip', { defaultValue: 'Clip' }),
       dissolve: t('analysisTools.opDissolve', { defaultValue: 'Dissolve' }),
       spatial_join: t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' }),
+      measure: t('analysisTools.opMeasure', { defaultValue: 'Measure' }),
     };
     return [base, opLabel[prefill.operation]].filter(Boolean).join(' — ');
   });
@@ -1074,6 +1075,9 @@ export function AnalysisPanel({
             <SelectItem value="spatial_join">
               {t('analysisTools.opSpatialJoin', { defaultValue: 'Spatial join' })}
             </SelectItem>
+            <SelectItem value="measure">
+              {t('analysisTools.opMeasure', { defaultValue: 'Measure' })}
+            </SelectItem>
             {/* fix(#779): dissolve has no preview by design, and the whole
                 materialize block is hidden without the upload permission — a
                 viewer picking it got a form with no actions and a hint
@@ -1094,6 +1098,15 @@ export function AnalysisPanel({
           </p>
         )}
       </div>
+
+      {operation === 'measure' && (
+        <p className="text-xs text-muted-foreground">
+          {t('analysisTools.measureHint', {
+            defaultValue:
+              'Adds area_sqm and length_m to every feature, measured on the globe. Polygons get an area and lines a length; the other reads 0.',
+          })}
+        </p>
+      )}
 
       {operation === 'spatial_join' && (
         <>

@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -29,6 +30,7 @@ from app.modules.quota.service import check_upload_quota
 from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    MEASURE_OUTPUT_COLUMNS,
     render_mask_expr,
     spatial_join_output_columns,
 )
@@ -178,6 +180,30 @@ async def _load_join_dataset(
     return await _load_vector_dataset(db, join_dataset_id, user)
 
 
+def _reject_generated_column_collision(source, generated: Iterable[str]) -> None:
+    """422 when the source already has a column an operation would generate.
+
+    Every 1:1 operation's output is the source's own columns verbatim plus its
+    generated ones, so a source column of the same name reaches the CTAS twice
+    and fails it with an opaque "column specified more than once" — after the
+    whole queue wait. Named at enqueue instead. This is the shared form of the
+    guard dissolve applies to ``source_count`` in ``_validate_dissolve_by_field``
+    (fix(#954): measure and spatial_join both need it, so it lives in one place
+    rather than being re-derived per operation).
+    """
+    source_columns = {col.get("name") for col in (source.column_info or []) if col}
+    clashes = sorted(source_columns & set(generated))
+    if clashes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"The source dataset already has a column named {clashes[0]!r}, "
+                "which this operation would overwrite. Rename it, or choose a "
+                "different operation."
+            ),
+        )
+
+
 def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
     """422 on unknown join columns, or ones that would collide on output."""
     known = {col.get("name") for col in (join_dataset.column_info or []) if col}
@@ -187,21 +213,7 @@ def _validate_join_fields(source, join_dataset, join_fields: list[str]) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown join column: {name!r}",
             )
-    # The output carries the source's own columns verbatim beside the generated
-    # ones, so a source column named join_count (or join_<field>) would reach
-    # the CTAS twice and fail it with "column specified more than once" after
-    # the queue wait. Same trap dissolve's by_field hits on source_count.
-    source_columns = {col.get("name") for col in (source.column_info or []) if col}
-    clashes = sorted(source_columns & set(spatial_join_output_columns(join_fields)))
-    if clashes:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"The source dataset already has a column named {clashes[0]!r}, "
-                "which this join would overwrite. Rename it, or drop that "
-                "field from the join."
-            ),
-        )
+    _reject_generated_column_collision(source, spatial_join_output_columns(join_fields))
 
 
 @router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
@@ -308,6 +320,8 @@ async def _validate_materialize_params(
         # the table name and re-checks the collision against the live columns.
         join_dataset = await _load_join_dataset(db, body.join_dataset_id, user)
         _validate_join_fields(dataset, join_dataset, body.join_fields or [])
+    if body.operation == "measure":
+        _reject_generated_column_collision(dataset, MEASURE_OUTPUT_COLUMNS)
 
 
 @router.post(

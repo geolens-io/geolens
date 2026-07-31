@@ -951,7 +951,7 @@ class AnalysisPreviewRequest(BaseModel):
     endpoint; per-operation requiredness is enforced by the validator.
     """
 
-    operation: Literal["buffer", "centroid", "clip", "spatial_join"]
+    operation: Literal["buffer", "centroid", "clip", "spatial_join", "measure"]
     distance_meters: float | None = Field(
         default=None,
         gt=0,
@@ -1027,7 +1027,9 @@ class AnalysisPreviewResponse(BaseModel):
 class AnalysisMaterializeRequest(BaseModel):
     """Parameters for materializing an analysis result as a new dataset."""
 
-    operation: Literal["buffer", "centroid", "clip", "dissolve", "spatial_join"]
+    operation: Literal[
+        "buffer", "centroid", "clip", "dissolve", "spatial_join", "measure"
+    ]
     title: str = Field(min_length=1, max_length=500)
     distance_meters: float | None = Field(
         default=None,

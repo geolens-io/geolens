@@ -33,9 +33,11 @@ from app.core.tenancy import is_multi_tenant
 from app.platform.analysis_sql import (
     MAX_MASK_LAYER_FEATURES,
     MAX_SOURCE_FEATURES,
+    MEASURE_OUTPUT_COLUMNS,
     NOT_EMPTY_PREDICATE,
     render_clip_layer_join,
     render_geometry_expr,
+    render_measure_columns,
     render_spatial_join,
     spatial_join_output_columns,
 )
@@ -358,6 +360,37 @@ async def _count_features_bounded(
     return int(result.scalar_one())
 
 
+def _generated_columns(
+    operation: str, join_fields: list[str] | None
+) -> tuple[str, ...]:
+    """Columns an operation adds to the output beside the carried source ones."""
+    if operation == "measure":
+        return MEASURE_OUTPUT_COLUMNS
+    if operation == "spatial_join":
+        return tuple(spatial_join_output_columns(join_fields))
+    return ()
+
+
+def _reject_output_column_collision(
+    carry_cols: list[str], generated: tuple[str, ...]
+) -> None:
+    """Worker-side half of the router's enqueue guard.
+
+    The router validates against ``column_info``, a catalog snapshot, and the
+    queue wait sits between that and the live column list held here — so the
+    check runs again against the real columns. Without it the CTAS fails on an
+    opaque "column specified more than once" after the whole wait
+    (fix(#953), extended to measure by fix(#954)).
+    """
+    clashes = sorted(set(carry_cols) & set(generated))
+    if clashes:
+        raise ValueError(
+            "The source dataset already has a column named "
+            f"{clashes[0]!r}, which this operation would overwrite. "
+            "Rename it, or choose a different operation."
+        )
+
+
 async def _resolve_layer_table_ref(
     session: AsyncSession,
     dataset_cls: Any,
@@ -670,6 +703,16 @@ def _build_materialize_select(
     join_fields: list[str] | None = None,
 ) -> str:
     """Render the SELECT that produces the output table's rows."""
+    if operation == "measure":
+        # fix(#954): the same renderer the preview uses, so a saved measurement
+        # equals the one the user approved rather than being recomputed by a
+        # second expression that could drift.
+        measure_cols, measure_join = render_measure_columns(src="_src")
+        cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
+        return _wrap_not_empty(
+            f"SELECT _src.gid, {cols}_src.geom_4326 AS geom, {measure_cols}"
+            f" FROM {src_ref} AS _src{measure_join}"
+        )
     if operation == "spatial_join" and join_table_ref is not None:
         # fix(#953): the same two laterals the preview uses, so the saved
         # dataset and the approved preview agree row for row — including the
@@ -884,21 +927,9 @@ async def _materialize(
                 if operation != "dissolve"
                 else []
             )
-            if operation == "spatial_join":
-                # The router 422s this at enqueue; repeating it here is the
-                # same defense-in-depth as re-matching _SAFE_IDENT above, and
-                # this is the one place holding the live column list. Without
-                # it the CTAS fails on "column specified more than once" after
-                # the whole queue wait (fix(#953)).
-                clashes = sorted(
-                    set(carry_cols) & set(spatial_join_output_columns(join_fields))
-                )
-                if clashes:
-                    raise ValueError(
-                        "The source dataset already has a column named "
-                        f"{clashes[0]!r}, which this join would overwrite. "
-                        "Rename it, or drop that field from the join."
-                    )
+            _reject_output_column_collision(
+                carry_cols, _generated_columns(operation, join_fields)
+            )
             select_sql = _build_materialize_select(
                 src_ref,
                 operation,

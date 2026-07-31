@@ -975,6 +975,7 @@
     "opCentroid": "Centroides",
     "opClip": "Recortar",
     "opSpatialJoin": "Unión espacial",
+    "opMeasure": "Medir",
     "distanceLabel": "Distancia",
     "distanceOutOfRange": "Introduce una distancia mayor que 0 y no superior a {{max}} {{unit}}.",
     "drawMask": "Dibujar área de recorte",
@@ -1030,7 +1031,8 @@
     "joinLayerPlaceholder": "Elige una capa",
     "spatialJoinHint": "Cada entidad recibe un join_count de las entidades que interseca. Los solapamientos cuentan todas las coincidencias, pero aun así producen una sola fila.",
     "joinFieldLabel": "Copiar un campo (opcional)",
-    "joinFieldNone": "Solo contar"
+    "joinFieldNone": "Solo contar",
+    "measureHint": "Añade area_sqm y length_m a cada entidad, medidas sobre el globo. Los polígonos obtienen un área y las líneas una longitud; la otra queda en 0."
   },
   "attributeForm": {
     "titleEdit": "Editar atributos de la entidad",

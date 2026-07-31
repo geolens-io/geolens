@@ -1914,7 +1914,13 @@ export interface MapLayerBulkDeleteResponse {
 }
 
 /** M4 analysis tools: parameterized PostGIS operations. */
-export type AnalysisOperation = 'buffer' | 'centroid' | 'clip' | 'dissolve' | 'spatial_join';
+export type AnalysisOperation =
+  | 'buffer'
+  | 'centroid'
+  | 'clip'
+  | 'dissolve'
+  | 'spatial_join'
+  | 'measure';
 
 export interface AnalysisPreviewRequest {
   operation: Exclude<AnalysisOperation, 'dissolve'>;
