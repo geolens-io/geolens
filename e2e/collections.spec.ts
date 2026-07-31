@@ -108,16 +108,28 @@ test.describe.serial('Collections', () => {
     // second before the ingest lands — or anything after it throws — the
     // dataset exists and nothing here knows its id, and each failed retry
     // leaks a row (analysis.spec.ts had the same shape in #895; its catalog
-    // count climbed 3 → 4 → 5 across three retries). One last lookup closes
-    // that window.
-    if (!createdDatasetId && createdJobId) {
+    // count climbed 3 → 4 → 5 across three retries).
+    //
+    // A single lookup here would usually still see 'running', since the reason
+    // we are in this branch is that the job outlived its polling window. Wait
+    // for the id, bounded: 30 more attempts at 2s is a full minute past the
+    // 45-second budget the test itself allows, which is generous for a
+    // one-point GeoJSON. If it has not landed by then the worker is wedged and
+    // the leak is the smaller of the problems — teardown must not hang.
+    for (let attempt = 0; !createdDatasetId && createdJobId && attempt < 30; attempt++) {
       const res = await fetch(`${BASE_URL}/api/jobs/${createdJobId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const status = await res.json() as JobStatusPayload;
-        if (status.dataset_id) createdDatasetId = status.dataset_id;
+        if (status.dataset_id) {
+          createdDatasetId = status.dataset_id;
+          break;
+        }
+        // A failed ingest produces no dataset, so there is nothing to clean up.
+        if (status.status === 'failed') break;
       }
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
 
     if (!createdDatasetId || !createdDatasetTitle) return;
