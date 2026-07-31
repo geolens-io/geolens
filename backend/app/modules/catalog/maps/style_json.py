@@ -1288,162 +1288,33 @@ _BUILTIN_FILL_PATTERN_IDS = frozenset(
 )
 
 
-# fix(#917 codex r2/r3): where each branching expression puts its OUTPUTS, as
-# (start, step) over the operand list after the operator. Everything else in an
-# expression — property names, comparison operands, `match` labels — is data,
-# and a builtin id appearing there says nothing about what the expression
-# returns. Scanning every nested string flattened working layers to a solid
-# fill; ignoring lists entirely missed a builtin in a real output branch. Only
-# these four forms can yield an image id in MapLibre, and each has a documented
-# operand layout, so the positions are read rather than guessed.
-_EXPRESSION_OUTPUT_POSITIONS: dict[str, tuple[int, int]] = {
-    # ["case", cond, out, cond, out, ..., fallback]
-    "case": (2, 2),
-    # ["match", input, label, out, ..., fallback]
-    "match": (3, 2),
-    # ["step", input, out, stop, out, ...]
-    "step": (2, 2),
-    # ["coalesce", out, out, ...]
-    "coalesce": (1, 1),
-    # fix(#917 codex r3): the two forms that name an image DIRECTLY rather than
-    # branching to one. `["image", id]` is MapLibre's explicit image expression
-    # and `["literal", id]` is the constant form; both evaluate to their single
-    # operand, so a builtin wrapped in either reached the sprite unchanged and
-    # produced the same disappearing polygon as a bare string.
-    "image": (1, 1),
-    "literal": (1, 1),
-    # fix(#917 codex r5): ["let", name, value, ..., result]. The binding VALUES
-    # sit at the same 2-step offset the branching forms use and the result is
-    # last, so `let` needs no special handling beyond the table — a `["var", n]`
-    # in the result reaches its binding, and reading the binding directly
-    # answers the question without resolving the reference. Binding NAMES land
-    # on the odd indices the stride skips, exactly like `match` labels.
-    "let": (2, 2),
-}
+def _references_builtin_fill_pattern(value: Any) -> bool:
+    """Whether a fill-pattern value is a builtin id.
 
-# The forms whose LAST operand is also an output: a `case`/`match` fallback, and
-# a `let` result. `step` and `coalesce` are fully covered by their stride.
-_EXPRESSION_TRAILING_OUTPUT = frozenset({"case", "match", "let"})
+    A plain string only. A composite value — a data-driven expression or a
+    legacy function object — is left alone deliberately, and that is a design
+    decision rather than a coverage gap.
 
-# fix(#917 codex r5): a bound on how deep an authored expression is followed.
-# `_validate_style_dict` caps a paint dict at 64KB serialized, which still
-# allows nesting far past Python's recursion limit, and a RecursionError here
-# would be a 500 from the shared style endpoint. Anything this deep is not a
-# real pattern; stop descending and leave the value alone.
-_MAX_EXPRESSION_DEPTH = 32
+    fix(#917 codex r1-r6): eight review rounds built an expression reader here
+    and then established that it could not be made safe. MapLibre resolves a
+    missing pattern by SKIPPING it and firing `styleimagemissing`, which the
+    docs describe as the hook for supplying the image at runtime — so an export
+    that still names a builtin degrades and stays repairable by the consumer.
+    Stripping a working expression removes authored content that no downstream
+    hook can bring back. One failure is recoverable by design, the other is
+    permanent, and reading composites correctly was trading the permanent one
+    for the recoverable one: `["coalesce", ["image", builtin], ["image", other]]`
+    is MapLibre's own documented way to author a fallback, and the detector was
+    deleting it.
 
-
-def _references_builtin_fill_pattern(value: Any, depth: int = 0) -> bool:
-    """Whether a fill-pattern value can resolve to a builtin id.
-
-    A plain string is checked directly. A branching expression is checked at its
-    output positions only, recursively, so a nested expression in a branch is
-    followed and an id used as an operand or a `match` label is not. The two
-    direct forms — `image` and `literal` — name their image in the single
-    operand. Any other expression shape is treated as not referencing a builtin:
-    the builder's pattern control writes a single value, so anything else is
-    hand-authored, and guessing wrong here silently flattens a working layer.
+    Coverage is unaffected for the bug #917 reports. The BUILDER writes a plain
+    string (`fill-pattern-images.ts`), which is all GeoLens itself produces;
+    every composite reaches the column through style import or the open-dict
+    `paint` API, which makes it authored and the author's to own. A correct
+    composite reader is a MapLibre expression evaluator — a real feature with a
+    real spec, tracked separately, not a stopgap in a serializer.
     """
-    if depth > _MAX_EXPRESSION_DEPTH:
-        return False
-    if isinstance(value, str):
-        return value in _BUILTIN_FILL_PATTERN_IDS
-    if isinstance(value, dict):
-        # fix(#917 codex r4): MapLibre's LEGACY function object, still accepted
-        # for data-driven properties and preserved by both the style import and
-        # the open-dict `paint` API:
-        #   {"type": "categorical", "property": "kind",
-        #    "stops": [["x", "geolens-fill-grid"]], "default": "uploaded-a"}
-        # Its outputs are the second element of each stop, plus `default`. The
-        # first element is the input value being matched — data, like a `match`
-        # label — so it is read at the same positions the array forms are.
-        # fix(#917 codex r5): `stops` is whatever the open-dict `paint` API was
-        # handed — `_validate_style_dict` only bounds its serialized size, so
-        # `{"stops": 1}` is stored today and iterating it would raise. A string
-        # is worse than an int here: it iterates silently, one character at a
-        # time. Anything that is not a list of pairs is not a function object,
-        # so treat it as non-matching and let the existing validator degrade it.
-        stops = value.get("stops")
-        outputs = (
-            [
-                stop[-1]
-                for stop in stops
-                if isinstance(stop, (list, tuple)) and len(stop) >= 2
-            ]
-            if isinstance(stops, (list, tuple))
-            else []
-        )
-        if "default" in value:
-            outputs.append(value["default"])
-        return any(_references_builtin_fill_pattern(out, depth + 1) for out in outputs)
-    if not (isinstance(value, list) and value and isinstance(value[0], str)):
-        return False
-    positions = _EXPRESSION_OUTPUT_POSITIONS.get(value[0])
-    if positions is None:
-        return False
-    if value[0] == "coalesce":
-        # fix(#917 codex r6): `coalesce` is MapLibre's availability-aware
-        # fallback, and `["image", id]` evaluates to null when the sprite lacks
-        # that id — so `["coalesce", ["image", builtin], ["image", uploaded]]`
-        # is the CORRECT way to author a pattern with a fallback, and it already
-        # renders. It fails only when every operand is unavailable, so report a
-        # builtin here only when no operand offers a way out.
-        operands = value[1:]
-        return bool(operands) and all(
-            _references_builtin_fill_pattern(item, depth + 1) for item in operands
-        )
-    if value[0] == "let":
-        return _let_references_builtin(value, depth)
-    start, step = positions
-    outputs = list(value[start::step])
-    if value[0] in _EXPRESSION_TRAILING_OUTPUT and len(value) > start:
-        outputs.append(value[-1])
-    return any(_references_builtin_fill_pattern(item, depth + 1) for item in outputs)
-
-
-def _collect_var_names(value: Any, into: set[str]) -> None:
-    """Gather every ``["var", name]`` reference reachable in ``value``."""
-    if not isinstance(value, list):
-        return
-    if len(value) >= 2 and value[0] == "var" and isinstance(value[1], str):
-        into.add(value[1])
-        return
-    for item in value:
-        _collect_var_names(item, into)
-
-
-def _let_references_builtin(value: list, depth: int) -> bool:
-    """``["let", name, value, ..., result]`` — only the bindings the result USES.
-
-    fix(#917 codex r6): a binding the result never references cannot contribute
-    to what MapLibre renders, so
-    ``["let", "unused", ["image", builtin], ["image", uploaded]]`` resolves to
-    the uploaded image and works. Scanning every binding stripped it. Follow the
-    `var` references out of the result instead, transitively, since one binding
-    may reference another.
-    """
-    bindings = {
-        value[i]: value[i + 1]
-        for i in range(1, len(value) - 1, 2)
-        if isinstance(value[i], str)
-    }
-    result = value[-1] if len(value) > 1 else None
-    if _references_builtin_fill_pattern(result, depth + 1):
-        return True
-
-    seen: set[str] = set()
-    pending: set[str] = set()
-    _collect_var_names(result, pending)
-    while pending:
-        name = pending.pop()
-        if name in seen or name not in bindings:
-            continue
-        seen.add(name)
-        bound = bindings[name]
-        if _references_builtin_fill_pattern(bound, depth + 1):
-            return True
-        _collect_var_names(bound, pending)
-    return False
+    return isinstance(value, str) and value in _BUILTIN_FILL_PATTERN_IDS
 
 
 def _strip_builtin_fill_pattern(layer: dict[str, Any]) -> None:

@@ -1,7 +1,6 @@
 """Tests for saved map MapLibre style JSON import/export helpers."""
 
 import uuid
-from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -2147,135 +2146,6 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
 
 
 @pytest.mark.parametrize(
-    ("pattern", "stripped"),
-    [
-        # fix(#917 codex r2): an id in an OPERAND or a `match` label says
-        # nothing about what the expression returns. Every branch here resolves
-        # to a real uploaded sprite id, so stripping would flatten a working
-        # layer to a solid fill.
-        (
-            ["case", ["==", ["get", "kind"], "geolens-fill-grid"], "up-a", "up-b"],
-            False,
-        ),
-        (["match", ["get", "kind"], "geolens-fill-grid", "up-a", "up-b"], False),
-        # fix(#917 codex r3): ...and an id in an OUTPUT branch really does
-        # resolve to an image the sprite does not contain, so ignoring lists
-        # wholesale left those layers broken for external clients.
-        (["case", ["==", ["get", "kind"], "a"], "geolens-fill-grid", "up-b"], True),
-        (["case", ["==", ["get", "kind"], "a"], "up-a", "geolens-fill-dots"], True),
-        (["match", ["get", "kind"], "x", "geolens-fill-hatch", "up-b"], True),
-        (["match", ["get", "kind"], "x", "up-a", "geolens-fill-dots"], True),
-        (["step", ["zoom"], "geolens-fill-grid", 10, "up-a"], True),
-        # fix(#917 codex r6): corrected from True. `coalesce` returns the first
-        # NON-NULL operand, and a bare string constant is never null, so this
-        # always resolves to "up-a" and the builtin behind it is unreachable.
-        # The earlier expectation treated every operand as a possible output.
-        (["coalesce", "up-a", "geolens-fill-dots"], False),
-        # Nested expressions are followed through the output positions.
-        (
-            [
-                "match",
-                ["get", "k"],
-                "x",
-                ["case", [">", 1, 0], "geolens-fill-grid", "u"],
-                "u2",
-            ],
-            True,
-        ),
-        # fix(#917 codex r3): the two DIRECT forms name their image in the
-        # single operand rather than branching to it, so a builtin wrapped in
-        # either reached the sprite unchanged.
-        (["image", "geolens-fill-grid"], True),
-        (["literal", "geolens-fill-dots"], True),
-        (["image", "uploaded-a"], False),
-        (["case", [">", 1, 0], ["image", "geolens-fill-hatch"], "up-b"], True),
-        # An expression shape that cannot yield an image id is left alone.
-        (["zoom"], False),
-        # fix(#917 codex r4): MapLibre's LEGACY function object, still accepted
-        # for data-driven properties and preserved by style import and the
-        # open-dict paint API. Outputs are each stop's second element plus
-        # `default`; the first element is the matched INPUT, so it is data.
-        (
-            {
-                "type": "categorical",
-                "property": "kind",
-                "stops": [["x", "geolens-fill-grid"]],
-                "default": "up-a",
-            },
-            True,
-        ),
-        (
-            {
-                "type": "categorical",
-                "stops": [["x", "up-a"]],
-                "default": "geolens-fill-dots",
-            },
-            True,
-        ),
-        (
-            {
-                "type": "categorical",
-                "stops": [["geolens-fill-grid", "up-a"]],
-                "default": "up-b",
-            },
-            False,
-        ),
-        ({"stops": [["x", ["image", "geolens-fill-hatch"]]]}, True),
-        ({"type": "exponential", "base": 2}, False),
-        # fix(#917 codex r5): ["let", name, value, ..., result]. Binding values
-        # sit at the same 2-step offset the branching forms use and the result
-        # is last, so reading the binding answers the question without resolving
-        # the `var` reference. Binding NAMES land on the skipped odd indices.
-        (["let", "p", "geolens-fill-grid", ["var", "p"]], True),
-        (["let", "p", "uploaded-a", "geolens-fill-dots"], True),
-        (["let", "p", "uploaded-a", ["var", "p"]], False),
-        (["let", "geolens-fill-grid", "uploaded-a", "uploaded-b"], False),
-        # fix(#917 codex r6): `coalesce` is MapLibre's availability-aware
-        # fallback — `["image", id]` is null when the sprite lacks it — so a
-        # builtin WITH a real fallback already renders and stripping it would
-        # replace a working expression with a solid fill. Only report when no
-        # operand offers a way out.
-        (
-            ["coalesce", ["image", "geolens-fill-grid"], ["image", "up-a"]],
-            False,
-        ),
-        (["coalesce", ["image", "up-a"], ["image", "geolens-fill-grid"]], False),
-        (
-            [
-                "coalesce",
-                ["image", "geolens-fill-grid"],
-                ["image", "geolens-fill-dots"],
-            ],
-            True,
-        ),
-        (["coalesce", "geolens-fill-grid"], True),
-        # ...and a `let` binding the result never references cannot contribute
-        # to what renders, so scanning every binding stripped working styles.
-        (["let", "unused", ["image", "geolens-fill-grid"], ["image", "up-a"]], False),
-        (["let", "a", "geolens-fill-grid", "b", ["var", "a"], ["var", "b"]], True),
-        (["let", "a", "geolens-fill-grid", "b", ["var", "a"], "up-a"], False),
-    ],
-)
-def test_data_driven_fill_pattern_is_read_at_its_output_positions(pattern, stripped):
-    """Only the four branching forms that can return an image id are inspected,
-    and only at their documented output operands.
-
-    The builder's pattern control writes a single value, so any expression here
-    is hand-authored; guessing in either direction has a cost, and both were
-    paid before this shape: scanning every nested string flattened working
-    layers, and ignoring lists left genuinely broken ones broken.
-    """
-    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
-
-    paint = _fill_paint(style)
-    if stripped:
-        assert "fill-pattern" not in paint
-        assert paint["fill-color"] == style_json.DEFAULT_FILL_COLOR
-    else:
-        assert paint["fill-pattern"] == pattern
-
-
-@pytest.mark.parametrize(
     "pattern",
     [
         "some-uploaded-icon",
@@ -2299,56 +2169,37 @@ def test_a_non_builtin_fill_pattern_is_left_alone(pattern):
 @pytest.mark.parametrize(
     "pattern",
     [
-        # fix(#917 codex r5): `_validate_style_dict` bounds only the serialized
-        # SIZE of a paint dict, so the open-dict API stores these today. Before
-        # the type guard, exporting one raised from the shared style endpoint —
-        # turning tolerated-but-malformed stored data into a 500. A string is
-        # the nastiest of them: it iterates silently, one character at a time.
+        ["case", ["==", ["get", "kind"], "a"], "geolens-fill-grid", "up-b"],
+        ["match", ["get", "kind"], "x", "geolens-fill-hatch", "up-b"],
+        ["coalesce", ["image", "geolens-fill-grid"], ["image", "up-a"]],
+        ["let", "p", "geolens-fill-grid", ["var", "p"]],
+        ["image", "geolens-fill-grid"],
+        {"type": "categorical", "stops": [["x", "geolens-fill-grid"]], "default": "up"},
+        # Malformed shapes the open-dict `paint` API accepts today, since
+        # `_validate_style_dict` bounds only serialized size (#1069).
         {"stops": 1},
         {"stops": "geolens-fill-grid"},
-        {"stops": {"a": 1}},
-        {"stops": [1, 2, 3]},
-        {"stops": [["only-one-element"]]},
     ],
 )
-def test_a_malformed_legacy_function_exports_instead_of_raising(pattern):
+def test_a_composite_fill_pattern_is_left_exactly_as_authored(pattern):
+    """fix(#917): composites are deliberately untouched, not an unfinished case.
+
+    MapLibre SKIPS a missing pattern and fires `styleimagemissing`, documented
+    as the hook for supplying the image at runtime, so an export naming a
+    builtin degrades and stays repairable by the consumer. Stripping a working
+    expression removes authored content no downstream hook can recover — and
+    `["coalesce", ["image", builtin], ["image", other]]` is MapLibre's own
+    documented way to author a fallback, so it is working input.
+
+    One failure is recoverable by design and the other is permanent, which is
+    why the narrow rule is the safe one. The builder only ever writes a plain
+    string, so this costs nothing against the bug #917 reports; every value here
+    arrives through style import or the open-dict API. A correct reader is an
+    expression evaluator, tracked separately.
+
+    Iterating a malformed `stops` also cannot raise from the shared style
+    endpoint now that nothing descends into it (#1069).
+    """
     style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(pattern)])
 
-    # Left as authored — not a function object, so not something to strip.
     assert _fill_paint(style)["fill-pattern"] == pattern
-
-
-def test_a_pathologically_nested_expression_does_not_blow_the_stack():
-    """fix(#917 codex r5): the detector stops descending rather than raising.
-
-    `_validate_style_dict` bounds only the serialized size of a paint dict, and
-    64KB of `["coalesce", ...]` nests far past Python's recursion limit, so
-    without a depth bound this function would be the thing that 500s the shared
-    style endpoint.
-
-    Asserted against the detector, not `build_maplibre_style`, because the
-    export pipeline has its own recursion limit further down — a `copy.deepcopy`
-    that raises on the same input with or without this change. That is
-    pre-existing and out of scope here; what this pins is that the fill-pattern
-    guard does not ADD a crash path. The pipeline-level case below uses a depth
-    a real style could plausibly reach.
-    """
-    deep: Any = "geolens-fill-grid"
-    for _ in range(5000):
-        deep = ["coalesce", deep]
-
-    assert style_json._references_builtin_fill_pattern(deep) is False
-
-
-def test_a_deeply_but_plausibly_nested_pattern_still_exports():
-    """Nesting well past anything an author would write, but inside the
-    pipeline's own limits, so this exercises the whole export path."""
-    deep: Any = "geolens-fill-grid"
-    for _ in range(100):
-        deep = ["coalesce", deep]
-
-    style = build_maplibre_style(_map(), [_polygon_layer_with_pattern(deep)])
-
-    # Past the detector's depth bound, so it is left alone rather than stripped
-    # — the safe direction for a value nobody can have authored by hand.
-    assert _fill_paint(style)["fill-pattern"] == deep
