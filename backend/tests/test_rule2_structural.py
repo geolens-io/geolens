@@ -74,10 +74,17 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
-  handed to a call, returned, or yielded — directly, out of a container
-  literal, or through a name (``=``, annotated ``=``, walrus) it is bound to
-  (fix(#996)). Inert data (``SUPPORTED_TOOLS = ["gdalinfo", "ogrinfo"]``, a
-  constant only subscripted or compared) is not a command vector. A literal
+  handed to a call, returned, or yielded (fix(#996)). The escape is followed
+  directly, out of transparent wrappers (container literals, ternary, ``+``,
+  ``or``), and through the PATH it is bound to: a name, an attribute or a
+  constant key (``cmd``, ``box.cmd``, ``registry['cmd']``), bound by ``=``
+  (positionally, when unpacking), annotated ``=``, ``+=``, a walrus, or a loop
+  target over a container of argvs — chased through alias chains and out of
+  containers to a fixed point. Consuming operations stop it: a single-index
+  subscript of the VECTOR yields an element, while the same subscript of a
+  CONTAINER yields the vector. Inert data
+  (``SUPPORTED_TOOLS = ["gdalinfo", "ogrinfo"]``, a constant only subscripted
+  or compared) is not a command vector. A literal
   whose every element names a GDAL utility is a name list rather than a
   command, but only while it stays out of a call: a dataset or output path
   may legitimately be named ``ogrinfo``, so ``subprocess.run(["gdalinfo",
