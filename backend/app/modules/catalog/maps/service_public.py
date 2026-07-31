@@ -132,7 +132,7 @@ async def _has_affected_grant_holders(
     visibilities in play, so the ordinary public/internal/private moves cost
     nothing extra.
     """
-    from app.modules.auth.models import Role, UserRole
+    from app.modules.auth.models import Role, User, UserRole
     from app.modules.catalog.datasets.domain.models import DatasetGrant
 
     admin_user_ids = (
@@ -143,6 +143,20 @@ async def _has_affected_grant_holders(
     stmt = (
         select(UserRole.user_id)
         .join(DatasetGrant, DatasetGrant.role_id == UserRole.role_id)
+        # fix(#931 codex r4): the grant holder must be an account that can
+        # actually authenticate. `get_optional_user` rejects an inactive user
+        # before they can render a layer, so a grant whose only members are
+        # pending, suspended or deactivated reaches nobody — counting them made
+        # the guard block a move that strands no current viewer.
+        #
+        # Both columns, mirroring `auth/dependencies.py`'s
+        # `not user.is_active or user.status != "active"` exactly. The
+        # `chk_users_status_active_consistency` CHECK keeps them equal, so this
+        # is not two tests today — it is one test written the way the gate
+        # writes it, so the two cannot drift apart later.
+        .join(User, User.id == UserRole.user_id)
+        .where(User.is_active.is_(True))
+        .where(User.status == "active")
         .where(DatasetGrant.dataset_id == dataset_id)
         .where(UserRole.user_id.notin_(admin_user_ids))
     )
