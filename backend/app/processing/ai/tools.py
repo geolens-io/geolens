@@ -134,8 +134,13 @@ CHAT_TOOLS_ANTHROPIC = [
             "Set replace_paint=true only when paint contains the complete "
             "desired paint object. Use the correct paint property for the "
             "geometry type: fill-color for polygons, line-color for lines, "
-            "circle-color for points. Do NOT use this for data-driven coloring "
-            "-- use set_data_driven_style instead."
+            "circle-color for points. Data-driven coloring (a colour that "
+            # fix(#549 codex r1): reworded from "Do NOT use this for ... use
+            # set_data_driven_style instead". The pointer is a CAPABILITY
+            # difference and stays, but the old phrasing read as
+            # request-classification prose, which is the shape the routing
+            # guard now rejects.
+            "varies by column value) belongs to set_data_driven_style."
         ),
         "input_schema": {
             "type": "object",
@@ -320,10 +325,15 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "query_data",
         "description": (
-            "Query the user's map data using SQL. Use this when the user asks "
-            "a question about their data (counts, statistics, spatial analysis, "
-            "finding features, distances, areas, etc.). Do NOT use this for map "
-            "styling or layer management -- use the other tools for that."
+            # fix(#549 codex r1): behavioural only. This description used to
+            # classify user phrasing too ("use this when the user asks a
+            # question", "do NOT use this for map styling"), competing with
+            # the system prompt's verb classes from a second site without
+            # naming any sibling tool.
+            "Query the user's map data using SQL. The server generates the "
+            "SQL from a natural language question and executes it safely, so "
+            "the result is a table of values plus an optional highlight "
+            "overlay -- never a persistent map change."
         ),
         "input_schema": {
             "type": "object",

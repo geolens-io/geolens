@@ -70,7 +70,7 @@ def test_prompt_classifies_the_question_verbs(verb):
     "verb", ["filter", "style", "color", "label", "hide", "show only", "change"]
 )
 def test_prompt_classifies_the_change_verbs(verb):
-    change_block = _prompt().split("CHANGE verbs")[1].split('"show" on its own')[0]
+    change_block = _prompt().split("CHANGE verbs")[1].split('"show" is a QUESTION')[0]
     assert verb in change_block
 
 
@@ -86,8 +86,33 @@ def test_prompt_settles_bare_show():
     """Bare "show" is the whole defect: it read as plausible under both
     buckets and was listed in neither."""
     prompt = _prompt()
-    assert '"show" on its own is a QUESTION verb' in prompt
-    assert "show only" in prompt
+    assert '"show" is a QUESTION verb by default' in prompt
+
+
+@pytest.mark.parametrize(
+    ("shape", "phrase"),
+    [
+        # fix(#549 codex r1): "show the layer" is the phrase the builder
+        # contract already uses for toggle_visibility
+        # (frontend ChatPanel.test.tsx). Routing it to query_data would query a
+        # hidden layer instead of making it visible.
+        ("visibility", '"show the layer"'),
+        ("narrowing", '"show only"'),
+        # fix(#549 codex r1): with a filter already applied, "show all features
+        # again" asks to CLEAR it. Answering it as a question returns a
+        # temporary result and leaves the persistent filter in place.
+        ("broadening", '"show all"'),
+    ],
+)
+def test_prompt_carves_the_map_shaped_uses_of_show_back_out(shape, phrase):
+    prompt = _prompt()
+    assert phrase in prompt, shape
+
+
+def test_prompt_names_the_tool_for_each_show_exception():
+    prompt = _prompt()
+    assert "toggle_visibility" in prompt
+    assert "null expression to" in prompt
 
 
 def test_prompt_keeps_transform_outranking_the_verb_lists():
@@ -113,6 +138,24 @@ def test_prompt_keeps_transform_outranking_the_verb_lists():
 # wins, which is the thing that was being decided in two places.
 _ROUTING_SIDE_TOOLS = ("query_data", "run_analysis")
 
+# fix(#549 codex r1): naming a sibling is not the only way to classify
+# phrasing. query_data's own description said "use this when the user asks a
+# question about their data ... do NOT use this for map styling", which
+# competes with the prompt's verb classes from a second site while naming no
+# tool at all. These are the prose shapes that do it.
+#
+# Heuristics, and they are worth being honest about: no assertion over free
+# text can prove a description says nothing about routing. What they cover is
+# the shape the incident actually took — a description telling the model which
+# KIND OF REQUEST belongs to it. A reviewer is still the backstop.
+_ROUTING_PROSE_MARKERS = (
+    "when the user asks",
+    "use the other tools",
+    "for requests that",
+    "instead for",
+    "do not use this for",
+)
+
 
 def test_no_tool_description_routes_across_the_split():
     """The single-owner rule, enforced structurally."""
@@ -128,6 +171,28 @@ def test_no_tool_description_routes_across_the_split():
     assert not offenders, (
         "tool descriptions must not decide which phrasing reaches the question "
         f"path; move it to the system prompt's verb classes: {offenders}"
+    )
+
+
+def test_no_tool_description_classifies_requests_for_itself():
+    """A description does not have to name a sibling to compete with the rule.
+
+    Catches the self-classification form: telling the model which kind of
+    request belongs to this tool is the same claim, made from the same second
+    site.
+    """
+    offenders = {
+        tool["name"]: sorted(
+            marker
+            for marker in _ROUTING_PROSE_MARKERS
+            if marker in tool["description"].lower()
+        )
+        for tool in CHAT_TOOLS_ANTHROPIC
+    }
+    offenders = {name: hits for name, hits in offenders.items() if hits}
+    assert not offenders, (
+        "tool descriptions must describe behaviour, not classify user "
+        f"phrasing; move it to the system prompt's verb classes: {offenders}"
     )
 
 
