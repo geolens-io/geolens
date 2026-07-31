@@ -222,19 +222,21 @@ class TestPreviewGlobalBound:
         from app.core.config import settings
         from app.modules.catalog.datasets.domain import service_analysis
 
-        # Default pool: 10 + 3 = 13 slots, a third of which is 4.
+        # Default pool: 10 + 3 = 13 slots, a quarter of which is 3. A quarter
+        # rather than a third because the AI chat path cannot release its
+        # request session, so those previews cost two slots each.
         monkeypatch.setattr(settings, "db_pool_size", 10)
         monkeypatch.setattr(settings, "db_max_overflow", 3)
-        assert service_analysis._preview_bound() == 4
+        assert service_analysis._preview_bound() == 3
 
         monkeypatch.setattr(settings, "db_pool_size", 2)
         monkeypatch.setattr(settings, "db_max_overflow", 0)
         assert service_analysis._preview_bound() == 1
 
         # -1 means "unlimited overflow"; it must not shrink the budget.
-        monkeypatch.setattr(settings, "db_pool_size", 9)
+        monkeypatch.setattr(settings, "db_pool_size", 8)
         monkeypatch.setattr(settings, "db_max_overflow", -1)
-        assert service_analysis._preview_bound() == 3
+        assert service_analysis._preview_bound() == 2
 
         # Never zero — a semaphore of zero would refuse every preview.
         monkeypatch.setattr(settings, "db_pool_size", 1)

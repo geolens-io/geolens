@@ -54,15 +54,22 @@ PREVIEW_FEATURE_CAP = 500
 # #716 halved the cost to one slot, which doubles the headroom without changing
 # the shape of the failure.
 #
-# Derived from the configured pool, not hardcoded at four. The default pool is
-# 13 slots and a third of that is 4, which is the number the paragraph above is
-# reasoning about — but DB_POOL_SIZE and DB_MAX_OVERFLOW are operator knobs, and
-# a small local pool (DB_POOL_SIZE=2, DB_MAX_OVERFLOW=0) would have let a
-# hardcoded 4 admit twice as many previews as there are connections, which is
-# the exact failure this bound exists to prevent, just at a different scale.
+# Derived from the configured pool, not hardcoded: DB_POOL_SIZE and
+# DB_MAX_OVERFLOW are operator knobs, and against the supported small-pool
+# configuration (DB_POOL_SIZE=2, DB_MAX_OVERFLOW=0) a hardcoded ceiling would
+# admit more previews than there are connections — the exact failure this bound
+# exists to prevent, at a different scale.
 #
-# A third leaves two thirds for everything else, and the floor of 1 keeps a
-# one-slot pool working rather than deadlocking on a semaphore of zero.
+# A QUARTER, not a third, because not every preview costs one slot. The REST
+# endpoint passes release_session=True and costs one, but the AI chat path
+# reaches this through defaults_processing_port.run_analysis_preview, which
+# cannot release the session (both chat paths read user.id again after the tool
+# returns) and therefore holds the request connection alongside the sandbox
+# one. Sizing against the worst case of two slots each keeps previews under
+# half the pool either way. On the default 13-slot pool that is 3.
+#
+# The floor of 1 keeps a one-slot pool working rather than deadlocking on a
+# semaphore of zero.
 #
 # A GLOBAL bound, not a tenant-scoped one. Re-keying the per-user lock to the
 # tenant is the smaller diff and the wrong behaviour: in the single-tenant
@@ -82,7 +89,7 @@ def _preview_bound() -> int:
     # db_max_overflow uses -1 for "unlimited"; treat that as no extra headroom
     # rather than letting a negative shrink the budget.
     overflow = max(0, settings.db_max_overflow)
-    return max(1, (settings.db_pool_size + overflow) // 3)
+    return max(1, (settings.db_pool_size + overflow) // 4)
 
 
 _MAX_CONCURRENT_PREVIEWS = _preview_bound()
