@@ -254,6 +254,31 @@ class TestBboxToExtentWkt:
         """
         assert extent_to_bbox(_extent(bbox_to_extent_wkt(*bbox))) == list(bbox)
 
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            # NaN latitude: falls past the span test into the clamp, where
+            # max/min substitute -90/+90.
+            (1.0, float("nan"), 3.0, float("nan")),
+            # NaN longitude: fails `west <= east`, then loses both crossing
+            # halves to the `x0 < x1` filter and lands on the full-band
+            # fallback. Pre-dates the padding; same silent globalisation.
+            (float("nan"), 1.0, float("nan"), 4.0),
+            (1.0, float("-inf"), 3.0, float("inf")),
+        ],
+    )
+    def test_a_non_finite_bbox_is_refused_not_widened_to_the_globe(self, bbox):
+        """fix(#944 codex r1): NaN compares False against everything.
+
+        Every guard in this helper is an ordered comparison, so a NaN slips
+        through all of them and comes out the far side as an almost-global
+        extent — from a malformed STAC bbox, since ``StacImportItem.bbox`` is
+        an unconstrained float list. "An extent must never silently narrow to
+        nothing" has a mirror, and this is it.
+        """
+        with pytest.raises(ValueError, match="finite"):
+            bbox_to_extent_wkt(*bbox)
+
 
 # ---------------------------------------------------------------------------
 # chk_records_spatial_extent_type (migration 0030)

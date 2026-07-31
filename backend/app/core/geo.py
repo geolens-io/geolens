@@ -169,6 +169,10 @@ def _pad_degenerate(low: float, high: float, limit: float) -> tuple[float, float
     no room on one side, so the pad is clamped and the sliver grows inward
     instead. Non-degenerate spans are returned untouched, so a genuine bbox
     never moves by an epsilon.
+
+    Callers must reject a non-finite bbox first: NaN compares False against
+    everything, so it would fall past the span test into the clamp and
+    ``max``/``min`` would quietly substitute the domain edge.
     """
     if high - low >= _DEGENERATE_SPAN:
         return low, high
@@ -197,7 +201,20 @@ def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> 
     rather than rejecting follows the producers, which already ``ST_Expand``
     degenerate POINT/LINESTRING extents by the same 1e-9; rejecting would turn
     a working ingest into a failed one for data the schema stores happily.
+
+    fix(#944 codex r1): a non-finite coordinate is refused outright. NaN
+    compares False against every test below, so it reaches the clamp and
+    ``max``/``min`` substitute the domain edge; a NaN longitude also fails
+    ``west <= east``, then loses both crossing halves to the ``x0 < x1``
+    filter and lands on the full -180..180 fallback. Either way a malformed
+    bbox (``StacImportItem.bbox`` is an unconstrained float list) would be
+    silently recorded as an almost-global extent. "An extent must never
+    silently narrow to nothing" has a mirror, and this is it. STAC import
+    isolates each item in a savepoint and records the failure per item, so
+    raising costs the batch nothing.
     """
+    if not all(math.isfinite(v) for v in (west, south, east, north)):
+        raise ValueError(f"bbox must be finite, got ({west}, {south}, {east}, {north})")
     south, north = _pad_degenerate(south, north, 90.0)
     if west <= east:
         west, east = _pad_degenerate(west, east, 180.0)
