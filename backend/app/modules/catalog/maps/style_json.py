@@ -977,6 +977,24 @@ def _style_layer_for_map_layer(
         builder = _builder_style_config(style_config)
         if builder.get("strokeDisabled") or (layer.paint or {}).get("_stroke-disabled"):
             base["paint"] = {**base["paint"], "fill-outline-color": "rgba(0,0,0,0)"}
+        # fix(#910): seed the export colour from the stash BEFORE
+        # `_strip_builtin_fill_pattern` (#917) runs at validate time. EDIT-05 makes
+        # `fill-color` and `fill-pattern` mutually exclusive, so a patterned layer keeps
+        # no colour in paint at all — the user's choice lives in `builder.fillColorSaved`.
+        # The stripper falls back to DEFAULT_FILL_COLOR when paint has no colour, which
+        # for every builder-patterned polygon is always, so the export repainted them
+        # brand blue and discarded the chosen colour. It cannot read the stash itself:
+        # it runs from `_validate_emitted_style`, which walks emitted layers with no
+        # access to the source layer. Seeding here — where the builder is already in
+        # scope — keeps that function untouched. A string only, matching every other
+        # reader of this stash; an expression in paint already wins on its own.
+        stashed_fill = builder.get("fillColorSaved")
+        if (
+            isinstance(stashed_fill, str)
+            and "fill-color" not in base["paint"]
+            and _references_builtin_fill_pattern(base["paint"].get("fill-pattern"))
+        ):
+            base["paint"] = {**base["paint"], "fill-color": stashed_fill}
         above_companions.extend(
             _fill_companion_layers(layer, source_id, layer_id, mvt_source_layer_prefix)
         )

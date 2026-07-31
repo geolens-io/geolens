@@ -327,6 +327,63 @@ def test_extrusion_companion_ignores_a_non_string_fill_color_stash():
         )
 
 
+def test_builtin_pattern_export_keeps_the_stashed_fill_color():
+    """A builder-patterned polygon exports in the colour the user chose.
+
+    #917 strips a builtin `fill-pattern` at export and falls back to a solid
+    colour, but EDIT-05 means a patterned layer keeps NO `fill-color` in paint —
+    the choice lives in `builder.fillColorSaved`. Without seeding it, every
+    builder-patterned polygon exported as DEFAULT_FILL_COLOR.
+    """
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-pattern": "geolens-fill-hatch", "fill-opacity": 0.5},
+        label_config=None,
+        style_config={"builder": {"fillColorSaved": "#ff0000"}},
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    fill = next(lyr for lyr in style["layers"] if lyr.get("type") == "fill")
+    assert fill["paint"]["fill-color"] == "#ff0000"
+    assert "fill-pattern" not in fill["paint"]
+
+
+def test_builtin_pattern_export_falls_back_to_default_without_a_stash():
+    """No stash to honour, so #917's own DEFAULT_FILL_COLOR fallback still applies."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-pattern": "geolens-fill-hatch"},
+        label_config=None,
+        style_config=None,
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    fill = next(lyr for lyr in style["layers"] if lyr.get("type") == "fill")
+    assert fill["paint"]["fill-color"] == style_json.DEFAULT_FILL_COLOR
+
+
+def test_non_builtin_pattern_export_is_left_alone_by_the_stash_seed():
+    """A real sprite entry is NOT stripped, so the seed must not add a colour to it.
+
+    #917 deliberately leaves non-builtin ids alone; seeding a `fill-color` beside a
+    surviving pattern would change a working exported style.
+    """
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-pattern": "customer-logo"},
+        label_config=None,
+        style_config={"builder": {"fillColorSaved": "#ff0000"}},
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    fill = next(lyr for lyr in style["layers"] if lyr.get("type") == "fill")
+    assert fill["paint"]["fill-pattern"] == "customer-logo"
+    assert "fill-color" not in fill["paint"]
+
+
 def test_build_maplibre_style_emits_raster_dem_source_for_hillshade():
     dem_id = uuid.uuid4()
     layer = _dem_layer(dem_id=dem_id)
