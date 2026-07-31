@@ -1715,6 +1715,44 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(config?.categories).toBeUndefined();
   });
 
+  // fix(#910, codex P2): the mirror hazard of the orphan clear. A layer can legitimately
+  // hold an expression `fill-color` AND a `fill-pattern` — the picker itself produces
+  // that state deliberately, since deleting an expression is unrecoverable. None removes
+  // only the pattern there, the expression keeps drawing, and clearing the classification
+  // anyway strips the metadata the editor and legend read while the map renders on.
+  it('keeps the classification when an expression survives the pattern removal', () => {
+    const ramp = ['match', ['get', 'zone'], 'a', '#e41a1c', '#377eb8'];
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': ramp, 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: {
+            mode: 'categorical',
+            column: 'zone',
+            ramp: 'Set2',
+            categories: [{ value: 'a', color: '#e41a1c' }],
+          } as StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'None' })[0]);
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    // The expression was never displaced, so no solid fill was installed...
+    expect(paint['fill-color']).toEqual(ramp);
+    expect('fill-pattern' in paint).toBe(false);
+    // ...and the classification still describes exactly what the map draws.
+    expect(config?.mode).toBe('categorical');
+    expect(config?.column).toBe('zone');
+  });
+
   // The mirror: a classification the fill picker has no business touching survives.
   it('leaves a non-colour classification alone when None restores a solid fill', () => {
     const onStyleConfigChange = vi.fn();

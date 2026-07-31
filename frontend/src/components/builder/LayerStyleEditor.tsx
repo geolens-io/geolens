@@ -360,6 +360,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // fill-color to stash, and an undefined here would drop the stash from the
     // builder config and lose the original color on the eventual None.
     let fillColorSaved = builderConfig.fillColorSaved;
+    // Whether None had to INSTALL a solid colour, which is what makes a colour
+    // classification orphaned. If paint already carried a colour — an expression that
+    // survived the pattern removal — the classification still describes what the map
+    // draws and must be kept.
+    let installedSolidFill = false;
     if (id) {
       // switching to pattern: stash and remove a SOLID fill-color, set fill-pattern.
       // An expression is left alone — deleting it is the #910 defect itself, and the
@@ -382,6 +387,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       if (!next['fill-color']) {
         next['fill-color'] =
           typeof fillColorSaved === 'string' ? fillColorSaved : FILL_DEFAULTS['fill-color'];
+        installedSolidFill = true;
       }
       fillColorSaved = undefined;
     }
@@ -402,7 +408,13 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       !!layer.style_config &&
       (layer.style_config.mode === 'categorical' || layer.style_config.mode === 'graduated') &&
       (layer.style_config.target === undefined || layer.style_config.target === 'color');
-    const baseConfig = !id && configOwnsFillColor
+    // fix(#910, codex P2): gated on installedSolidFill, not merely on None. An
+    // imported, API-authored or reverted layer can legitimately hold BOTH an expression
+    // `fill-color` and a `fill-pattern`; None removes only the pattern there, the
+    // expression keeps drawing, and clearing the classification anyway stripped the
+    // metadata the editor and legend read while the map carried on rendering it — the
+    // same lie as the orphan case, pointing the other way.
+    const baseConfig = installedSolidFill && configOwnsFillColor
       ? ({ builder: layer.style_config?.builder } as StyleConfig)
       : layer.style_config;
     // Not updateBuilderConfig: this one needs `replace`. withBuilderConfig collapses
