@@ -256,8 +256,14 @@ class TestRunAnalysisActionCollection:
         assert "truncated" not in action
         assert "row_count" not in action
 
-    def test_truncated_with_unknown_total_omits_the_pair(self) -> None:
-        """A dataset with no feature_count must not yield "500 of None"."""
+    def test_truncated_with_unknown_total_omits_the_count_not_the_flag(self) -> None:
+        """A result with no known total must not yield "500 of None".
+
+        fix(#683 codex P2): it must still say it was capped, though. This used
+        to drop the flag along with the count, which reads as a complete result
+        — fine while every chat operation reported a total, wrong the moment
+        clip (which filters rows, so it reports none) joined them.
+        """
         action = _collect_chat_action(
             "run_analysis",
             {"layer_id": "l1"},
@@ -270,8 +276,31 @@ class TestRunAnalysisActionCollection:
             },
         )
         assert action is not None
-        assert "truncated" not in action
+        assert action["truncated"] is True
         assert "row_count" not in action
+
+    def test_truncated_clip_discloses_the_cap_without_a_total(self) -> None:
+        """fix(#683 codex P2): clip filters rows, so the preview returns no
+        source_feature_count — the clipped total is genuinely unknown. Requiring
+        one dropped the disclosure entirely, presenting a capped clip preview as
+        the whole result. The flag rides alone; row_count stays absent."""
+        action = _collect_chat_action(
+            "run_analysis",
+            {"layer_id": "l1"},
+            {
+                "operation": "clip",
+                "layer_id": "l1",
+                "feature_count": 500,
+                "truncated": True,
+                "source_feature_count": None,
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "bbox": [0, 0, 1, 1],
+            },
+        )
+        assert action is not None
+        assert action["truncated"] is True
+        assert "row_count" not in action
+        ChatAction(**action)
 
     def test_error_result_emits_no_action(self) -> None:
         action = _collect_chat_action(
@@ -574,6 +603,31 @@ class TestRunAnalysisClipByLayer:
         )
         assert "error" in result, result
         assert "different layer" in result["error"]
+
+    async def test_two_layers_over_one_dataset_are_refused(
+        self, test_db_session: AsyncSession
+    ):
+        """fix(#683 codex P2): a duplicated rendering is two layer ids over one
+        dataset, so comparing layer ids alone lets that pair through — and
+        clipping a table by itself is an expensive way to return the input."""
+        admin = await _get_admin(test_db_session)
+        source = await _create_polygon_dataset(test_db_session, created_by=admin.id)
+        result = await _handle_run_analysis(
+            {
+                "layer_id": "layer-1",
+                "operation": "clip",
+                "mask_layer_id": "layer-2",
+            },
+            test_db_session,
+            admin,
+            await _default_port.get_user_roles(test_db_session, admin),
+            # Same dataset, two renderings — distinct ids, identical data.
+            [_layer_for(source), _layer_for(source, "layer-2")],
+            port=_default_port,
+        )
+        assert "error" in result, result
+        assert "same dataset" in result["error"]
+        assert "geojson" not in result
 
     async def test_mask_layer_is_access_checked_independently(
         self, test_db_session: AsyncSession

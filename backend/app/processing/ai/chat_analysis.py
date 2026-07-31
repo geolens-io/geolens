@@ -155,6 +155,17 @@ async def _run_analysis(
         )
         if isinstance(mask_dataset, dict):
             return mask_dataset
+        # fix(#683 codex P2): distinct layer ids are NOT distinct data. A
+        # duplicated rendering is two layers over one dataset, so the id check
+        # above lets that pair through — and clipping a table by itself is an
+        # expensive way to return the input. Identity is the DATASET.
+        if mask_dataset.id == dataset.id:
+            return {
+                "error": (
+                    "That mask layer shows the same dataset as the layer being "
+                    "clipped. Pick a layer with different data."
+                )
+            }
 
     # fix(#683 codex P1): mask_dataset rides along only when set. A separately
     # distributed overlay that implements the pre-clip ProcessingPort rejects
@@ -255,8 +266,15 @@ def collect_run_analysis_action(result: dict) -> dict | None:
         action["layer_id"] = result["layer_id"]
         if result.get("distance_meters") is not None:
             action["distance_meters"] = result["distance_meters"]
+    # fix(#683 codex P2): the truncation flag no longer depends on knowing the
+    # total. clip filters rows, so run_analysis_preview returns no
+    # source_feature_count for it — the clipped total is genuinely unknown —
+    # and requiring one dropped the disclosure entirely, presenting a capped
+    # clip preview as the whole result. Report the cap; name the total only
+    # when there is one.
     total = result.get("source_feature_count")
-    if result.get("truncated") and total:
+    if result.get("truncated"):
         action["truncated"] = True
-        action["row_count"] = total
+        if total:
+            action["row_count"] = total
     return action
