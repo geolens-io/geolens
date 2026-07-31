@@ -75,16 +75,167 @@ async def validate_public_visibility(
     return [row[0] for row in result.all()]
 
 
-async def find_public_maps_using_dataset(
-    session: AsyncSession, dataset_id: uuid.UUID
+# fix(#931): the two shared map audiences and what a dataset must be to reach
+# each. A private map has no audience beyond its owner and grantees, so a
+# dataset visibility change can never strand it.
+_SHARED_MAP_AUDIENCES = ("public", "internal")
+
+
+# How much of a shared map's audience a dataset at each visibility reaches. The
+# four rungs nest — the owner is a grantee is a signed-in user is everyone — so
+# this is a total order, and "does this change strand someone" is a comparison
+# rather than a table of allowed moves.
+#
+# fix(#1068): this encodes the COMMUNITY ladder, matching
+# `DefaultPermissionExtension`. An overlay that narrows a rung — ABAC excluding
+# some active non-owner users from `internal`, say — makes the real audience
+# smaller than the rank assumes, and this guard cannot see that: the seam's
+# `filter_visible`/`can_access_dataset` both take a CONCRETE user, and a map's
+# audience is a set with no representative member to pass them. Answering it
+# properly needs a new protocol method and an EXTENSION_API_VERSION bump, so it
+# is tracked separately rather than folded into a visibility fix.
+#
+# The failure direction is why deferring it is safe. Narrowing the real audience
+# only ever makes this guard MORE conservative: it can refuse a move that
+# strands nobody, never permit one that strands someone. So an overlay inherits
+# a refusal that lies, not a silent break — the same class as the grant and
+# publication-status cases above, and the reason those were worth fixing rather
+# than urgent. See #1068 for the shape of the seam change.
+#
+# fix(#931 codex r1): `restricted` is a PARTIAL audience, not an absent one.
+# Treating it as unreachable made `restricted -> private` look like it stranded
+# nobody, when it drops the grant holders who could render the layer.
+_DATASET_AUDIENCE_RANK = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
+
+
+def _reach_rank(
+    map_visibility: str, dataset_visibility: str, *, restricted_has_grants: bool
+) -> int:
+    """How much of ``map_visibility``'s audience the dataset reaches.
+
+    An internal map's audience is every signed-in user, and both ``internal``
+    and ``public`` reach all of them — so the two tie there, which is what makes
+    the public-to-internal move safe on an internal map and not on a public one.
+
+    fix(#931 codex r2): ``restricted`` only outranks ``private`` when grants
+    actually exist. A restricted dataset with no ``DatasetGrant`` rows — the
+    state you land in by flipping an ungranted dataset to restricted — reaches
+    nobody beyond its owner and admins, who keep access afterwards either way.
+    Ranking it 1 unconditionally blocked ``restricted -> private`` on a map
+    nothing was stranded on, which is a refusal that lies to the user.
+    """
+    rank = _DATASET_AUDIENCE_RANK.get(dataset_visibility, 0)
+    if dataset_visibility == "restricted" and not restricted_has_grants:
+        rank = _DATASET_AUDIENCE_RANK["private"]
+    if map_visibility == "internal":
+        return min(rank, _DATASET_AUDIENCE_RANK["internal"])
+    return rank
+
+
+async def _has_affected_grant_holders(
+    session: AsyncSession, dataset_id: uuid.UUID, owner_id: uuid.UUID | None
+) -> bool:
+    """Whether a grant on this dataset reaches anyone who would LOSE access.
+
+    fix(#931 codex r3): a grant row is not an audience. A grant to an empty
+    role reaches nobody, and a grant whose only members are the dataset's owner
+    or an admin reaches nobody who loses anything — the owner keeps access
+    through the creator exemption and an admin bypasses the filter entirely. So
+    the question is not "does a grant exist" but "does a grant reach a user who
+    is neither", and only that user can be stranded by a move to private.
+
+    fix(#931 codex r2): queried only when ``restricted`` is one of the two
+    visibilities in play, so the ordinary public/internal/private moves cost
+    nothing extra.
+    """
+    from app.modules.auth.models import Role, User, UserRole
+    from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+    admin_user_ids = (
+        select(UserRole.user_id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(Role.name == "admin")
+    )
+    stmt = (
+        select(UserRole.user_id)
+        .join(DatasetGrant, DatasetGrant.role_id == UserRole.role_id)
+        # fix(#931 codex r4): the grant holder must be an account that can
+        # actually authenticate. `get_optional_user` rejects an inactive user
+        # before they can render a layer, so a grant whose only members are
+        # pending, suspended or deactivated reaches nobody — counting them made
+        # the guard block a move that strands no current viewer.
+        #
+        # Both columns, mirroring `auth/dependencies.py`'s
+        # `not user.is_active or user.status != "active"` exactly. The
+        # `chk_users_status_active_consistency` CHECK keeps them equal, so this
+        # is not two tests today — it is one test written the way the gate
+        # writes it, so the two cannot drift apart later.
+        .join(User, User.id == UserRole.user_id)
+        .where(User.is_active.is_(True))
+        .where(User.status == "active")
+        .where(DatasetGrant.dataset_id == dataset_id)
+        .where(UserRole.user_id.notin_(admin_user_ids))
+    )
+    if owner_id is not None:
+        stmt = stmt.where(UserRole.user_id != owner_id)
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+
+
+async def find_maps_broken_by_dataset_visibility(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    old_visibility: str,
+    new_visibility: str,
+    record_status: str,
+    owner_id: uuid.UUID | None,
 ) -> list[str]:
-    """Return names of public maps that contain the given dataset. Empty = safe to restrict."""
+    """Names of shared maps that work at ``old_visibility`` and would not at ``new``.
+
+    fix(#931): this was ``find_public_maps_using_dataset``, which matched
+    ``Map.visibility == "public"`` only. An **internal** map using the dataset
+    was not matched, so the flip succeeded and every signed-in viewer of that
+    map silently lost the layer's tiles and features, with no signal to anyone.
+
+    Framed as a before/after comparison rather than a list of forbidden target
+    values, because #930 turned the rule into a matrix. An internal map keeps
+    working when its dataset moves from public to internal, and breaks only on
+    the move to private — a rule expressed against today's target value alone
+    would fire on a move that is in fact safe.
+
+    Empty = safe to apply.
+    """
+    # fix(#931 codex r3): an unpublished record is already invisible to every
+    # shared-map audience. `filter_visible`'s status gate is
+    # `published OR created_by == <caller>`, so a draft/ready/internal-status
+    # record reaches only its creator, and admins bypass the filter entirely —
+    # both keep access after any visibility change. Nobody is stranded, so a
+    # rank comparison here would invent a 422 for a move that costs nothing.
+    if record_status != "published":
+        return []
+    restricted_has_grants = False
+    if "restricted" in (old_visibility, new_visibility):
+        restricted_has_grants = await _has_affected_grant_holders(
+            session, dataset_id, owner_id
+        )
+    audiences = [
+        visibility
+        for visibility in _SHARED_MAP_AUDIENCES
+        if _reach_rank(
+            visibility, new_visibility, restricted_has_grants=restricted_has_grants
+        )
+        < _reach_rank(
+            visibility, old_visibility, restricted_has_grants=restricted_has_grants
+        )
+    ]
+    if not audiences:
+        return []
     stmt = (
         select(Map.name)
         .select_from(MapLayer)
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
-        .where(Map.visibility == "public")
+        .where(Map.visibility.in_(audiences))
     )
     result = await session.execute(stmt)
     return [row[0] for row in result.all()]

@@ -11,7 +11,9 @@ Requirements:
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.modules.catalog.maps.models import Map, MapLayer
 from tests.factories import (
@@ -481,6 +483,301 @@ class TestUpdateMetadata:
         )
         assert resp.status_code == 200
         assert resp.json()["visibility"] == "restricted"
+
+    async def _dataset_on_map(
+        self,
+        test_db_session,
+        admin_id,
+        *,
+        dataset_visibility: str,
+        map_visibility: str,
+        map_name: str,
+    ):
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility=dataset_visibility,
+            name=f"{map_name} DS",
+        )
+        map_obj = Map(name=map_name, visibility=map_visibility, created_by=admin_id)
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+        test_db_session.add(MapLayer(map_id=map_obj.id, dataset_id=ds.id, sort_order=0))
+        await test_db_session.commit()
+        return ds
+
+    async def _grant_role(self, test_db_session, dataset_id, role_name: str):
+        from app.modules.auth.models import Role
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        role = (
+            await test_db_session.execute(select(Role).where(Role.name == role_name))
+        ).scalar_one()
+        test_db_session.add(DatasetGrant(dataset_id=dataset_id, role_id=role.id))
+        await test_db_session.commit()
+
+    async def _grant_empty_role(self, test_db_session, dataset_id):
+        """Grant a role created here, so "it has no members" is a fact.
+
+        The seeded roles are shared: 22 test files mint `editor_<hex>` accounts
+        and 37 mint `viewer_<hex>`, all on the same per-worker database. A test
+        asserting a grant reaches NOBODY cannot borrow one of those — its
+        emptiness would depend on which files happened to run first, which is
+        true in file order and false under `-n 4`.
+        """
+        from app.modules.auth.models import Role
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        role = Role(name=f"empty-grant-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(DatasetGrant(dataset_id=dataset_id, role_id=role.id))
+        await test_db_session.commit()
+
+    async def test_a_grant_reaching_a_real_viewer_blocks_the_drop_to_private(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r1/r3): `restricted` is a partial audience when, and
+        only when, a grant reaches someone who would LOSE access.
+
+        The `viewer_auth_header` fixture mints a real viewer and assigns the
+        role, so the grant below reaches a user who is neither the owner nor an
+        admin. That user renders the layer today and stops after the move, which
+        is the stranding this guard exists for.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = "Granted Restricted Map"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+        # fix(#931): borrows the seeded `viewer` role deliberately. This asserts
+        # BLOCKED, so it needs the role to have a member — `viewer_auth_header`
+        # guarantees one, and the accounts other files leave on the shared
+        # worker DB only reinforce it. The direction is what makes the ambient
+        # dependency safe here; the empty-role case below cannot borrow and
+        # builds its own.
+        await self._grant_role(test_db_session, ds.id, "viewer")
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert map_name in resp.json()["detail"]
+
+    async def test_a_grant_to_an_empty_role_does_not_block(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r3): a grant row is not an audience.
+
+        The granted role is created here and never populated, so the grant
+        reaches nobody. Blocking would be a refusal that lies — the same defect
+        as the ungranted case, one level further in.
+
+        It must NOT borrow a seeded role. The first version granted `editor`
+        and reasoned "no `editor_auth_header` in this test, so it is empty",
+        which is a claim about the whole worker rather than about this test:
+        22 files mint editor accounts on the same database. It passed in file
+        order, where `test_datasets.py` runs first, and failed under `-n 4`.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name="Empty Grant Map",
+        )
+        await self._grant_empty_role(test_db_session, ds.id)
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_a_grant_reaching_only_an_inactive_user_does_not_block(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r4): a grant holder who cannot authenticate is not an
+        audience.
+
+        `get_optional_user` rejects a non-active account before it can render a
+        layer, so deactivating the only grant holder leaves nobody to strand —
+        and the same move that must block while they are active must stop
+        blocking once they are not. Both directions are asserted, because the
+        failure this guards against is a refusal that lies.
+
+        The grant goes to a role created for this test rather than to `viewer`:
+        the per-worker database is shared across tests, and earlier ones leave
+        active `viewer_<hex>` accounts behind, so granting `viewer` would reach
+        members this test cannot deactivate.
+        """
+        from app.modules.auth.models import Role, User, UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="restricted",
+            map_visibility="internal",
+            map_name="Inactive Grant Map",
+        )
+
+        viewer_id = uuid.UUID(
+            (await client.get("/auth/me/", headers=viewer_auth_header)).json()["id"]
+        )
+        role = Role(name=f"grant-only-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(role)
+        await test_db_session.flush()
+        test_db_session.add(UserRole(user_id=viewer_id, role_id=role.id))
+        test_db_session.add(DatasetGrant(dataset_id=ds.id, role_id=role.id))
+        await test_db_session.commit()
+
+        # Sole grant holder is active: the move strands them, so it is refused.
+        blocked = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert blocked.status_code == 422
+        assert "Inactive Grant Map" in blocked.json()["detail"]
+
+        viewer = await test_db_session.get(User, viewer_id)
+        viewer.is_active = False
+        viewer.status = "suspended"
+        await test_db_session.commit()
+
+        # Same move, same grant row — nobody left who could have rendered it.
+        allowed = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert allowed.status_code == 200, allowed.text
+
+    async def test_an_unpublished_dataset_never_blocks(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r3): an unpublished record is already invisible to
+        every shared-map audience.
+
+        `filter_visible`'s status gate is `published OR created_by == <caller>`,
+        so a draft reaches only its creator, and admins bypass the filter — both
+        keep access after any visibility change. A rank comparison alone would
+        invent a 422 for a move that costs nothing.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="public",
+            map_visibility="public",
+            map_name="Draft On Public Map",
+        )
+        ds.record.record_status = "draft"
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.parametrize(
+        ("dataset_visibility", "map_visibility", "new_visibility", "blocked"),
+        [
+            # fix(#931): the case the old query missed entirely. An internal map
+            # reaches every signed-in user, so a dataset dropping to private
+            # strands it — silently, before this.
+            ("public", "internal", "private", True),
+            ("internal", "internal", "private", True),
+            ("internal", "internal", "restricted", True),
+            # ...and the move that only looks like it strands one. #930 made
+            # internal a real dataset rung, so an internal map keeps working.
+            # A rule written against the target value alone would block this.
+            ("public", "internal", "internal", False),
+            # A private map has no audience beyond its owner and grantees.
+            ("public", "private", "private", False),
+            # fix(#931 codex r2): a restricted dataset with NO grants reaches
+            # nobody beyond its owner and admins, who keep access either way —
+            # blocking that move would be a refusal that lies. The granted case
+            # is covered separately below, since it needs a grant row.
+            ("restricted", "internal", "private", False),
+            ("restricted", "public", "private", False),
+            # Widening never strands anyone.
+            ("restricted", "internal", "public", False),
+            ("private", "internal", "internal", False),
+            # The public-map rule is unchanged — any move off public strands it.
+            ("public", "public", "internal", True),
+            ("public", "public", "private", True),
+        ],
+    )
+    async def test_visibility_change_blocks_exactly_the_maps_it_strands(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        dataset_visibility: str,
+        map_visibility: str,
+        new_visibility: str,
+        blocked: bool,
+    ):
+        """fix(#931): the block is a before/after comparison, not a list of
+        forbidden target values.
+
+        ``find_public_maps_using_dataset`` matched ``Map.visibility == "public"``
+        only, and its caller gated on ``old == public``, so an internal map was
+        invisible to both halves. Once #930 made ``internal`` a real dataset
+        rung the rule became a matrix, and each row here is one cell of it.
+        """
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = f"Strand {map_visibility} {dataset_visibility} {new_visibility}"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility=dataset_visibility,
+            map_visibility=map_visibility,
+            map_name=map_name,
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": new_visibility},
+            headers=admin_auth_header,
+        )
+
+        if blocked:
+            assert resp.status_code == 422
+            assert map_name in resp.json()["detail"]
+        else:
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["visibility"] == new_visibility
 
 
 # ---------------------------------------------------------------------------
