@@ -29,7 +29,7 @@ from app.modules.catalog.maps.service_layers import (
 from app.modules.catalog.maps.service_public import (
     _validate_share_token,
     create_share_token,
-    find_public_maps_using_dataset,
+    find_maps_broken_by_dataset_visibility,
     get_active_share_token,
     get_maps_for_dataset,
     get_shared_map,
@@ -72,7 +72,7 @@ __all__ = [
     "remove_layer",
     "remove_layers_bulk",
     "validate_public_visibility",
-    "find_public_maps_using_dataset",
+    "find_maps_broken_by_dataset_visibility",
     "create_share_token",
     "update_share_token",
     "get_active_share_token",
