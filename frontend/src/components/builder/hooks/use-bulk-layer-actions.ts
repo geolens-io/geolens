@@ -8,6 +8,7 @@ import { normalizeTerrainExaggeration } from '@/components/builder/map-sync';
 import {
   applyLayerVisibilityToMap,
   applyLayerOpacityToMap,
+  applySourceFillPrecedence,
   resolveFillExclusions,
   stashExcludedFillColor,
   clearExcludedPaintOnMap,
@@ -52,7 +53,10 @@ function applyStyleExcludingFillCollisions(
   source: CopiedStyle,
 ): { layer: MapLayerResponse; exclusions: ReturnType<typeof resolveFillExclusions> } {
   const merged = applyCopiedStyleToLayer(layer, source);
-  const exclusions = resolveFillExclusions(merged.style_config ?? null, merged.paint ?? {});
+  // Source precedence first: the merge kept the target's half of the pair, and only the
+  // copied paint says which key the user actually asked for.
+  const paint = applySourceFillPrecedence(merged.paint ?? {}, source.paint);
+  const exclusions = resolveFillExclusions(merged.style_config ?? null, paint);
   return {
     layer: {
       ...merged,

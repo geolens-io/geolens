@@ -237,6 +237,40 @@ export function resolveFillExclusions(
 }
 
 /**
+ * fix(#910, codex P2): which fill key wins is a question of PROVENANCE, and only the
+ * clipboard paths can answer it.
+ *
+ * `applyCopiedStyleToLayer` spreads the copied paint over the target's, so the target's
+ * key for the OTHER half of the pair survives the merge. `resolveFillExclusions` then
+ * sees both keys with no way to tell which came from where, and its tie-break — the
+ * pattern wins — is right for a copied pattern and wrong for a copied colour: pasting
+ * a solid style onto a patterned layer deleted the colour the user had just copied and
+ * left the old pattern drawing, so the paste appeared to do nothing at all.
+ *
+ * Resolved here, where the source paint is in hand: whichever key the SOURCE brought is
+ * the one the user asked for, so the target's leftover goes first and the resolver then
+ * sees an unambiguous paint.
+ *
+ * fix(#910): the target's `fillColorSaved` is deliberately left alone. It is read only
+ * while a pattern is active, and picking a pattern overwrites it with the current
+ * colour first, so a stale value here can never resurface.
+ */
+export function applySourceFillPrecedence(
+  mergedPaint: Record<string, unknown>,
+  sourcePaint: Record<string, unknown>,
+): Record<string, unknown> {
+  // Only the colour-over-pattern direction needs handling. A copied PATTERN leaves the
+  // target's colour behind for the resolver to drop and stash, which is what we want.
+  const displacesPattern =
+    'fill-color' in sourcePaint
+    && !('fill-pattern' in sourcePaint)
+    && 'fill-pattern' in mergedPaint;
+  if (!displacesPattern) return mergedPaint;
+  const { 'fill-pattern': _droppedPattern, ...rest } = mergedPaint;
+  return rest;
+}
+
+/**
  * fix(#910/#918, codex P2): the builder-stash half of the exclusions above.
  *
  * `fillColorSaved` is what a later None click restores, so it has to track which

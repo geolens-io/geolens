@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
+import { applySourceFillPrecedence } from '@/components/builder/hooks/use-layer-map-sync';
 import {
   extractCopyableStyle,
   isStyleCompatible,
@@ -62,7 +63,11 @@ export function useLayerStyleClipboard({
     const target = layersRef.current.find((l) => l.id === layerId);
     if (!target || !isStyleCompatible(copied, target)) return;
     const merged = applyCopiedStyleToLayer(target, copied);
-    handleStyleConfigChange(layerId, merged.style_config ?? null, merged.paint);
+    // fix(#910, codex P2): the merge keeps the target's half of the
+    // fill-color/fill-pattern pair, and the funnel cannot tell which key came from the
+    // copied style. Settle that here, where the source paint is still in hand.
+    const paint = applySourceFillPrecedence(merged.paint, copied.paint);
+    handleStyleConfigChange(layerId, merged.style_config ?? null, paint);
     toast.success(t('toasts.stylePasted'));
   }, [layersRef, handleStyleConfigChange, t]);
 

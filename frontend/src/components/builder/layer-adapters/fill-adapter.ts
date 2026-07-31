@@ -39,6 +39,7 @@ const EXTRUSION_OWNED_PAINT_PROPERTIES = [
   'fill-extrusion-vertical-gradient',
 ] as const;
 type FillExtrusionHeight = NonNullable<FillExtrusionLayerSpecification['paint']>['fill-extrusion-height'];
+type FillExtrusionColor = NonNullable<FillExtrusionLayerSpecification['paint']>['fill-extrusion-color'];
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -51,6 +52,34 @@ function clamp(value: number, min: number, max: number): number {
 function buildHeightExpression(heightColumn: string, heightScale: number): FillExtrusionHeight {
   const baseExpression = ['coalesce', ['to-number', ['get', heightColumn], 0], 0];
   return (heightScale === 1 ? baseExpression : ['*', baseExpression, heightScale]) as FillExtrusionHeight;
+}
+
+/**
+ * fix(#910, codex P2): the colour the extrusion companion draws in.
+ *
+ * The companion has no pattern of its own (SPEC-11) and colours from `fill-color`,
+ * which is absent while a pattern owns the fill — so it falls back to the stash, or
+ * it silently reverts to default blue.
+ *
+ * Both inputs are untrusted. `style_config` is an open dict that gets serialized-size
+ * validation only and `getBuilderStyleConfig` merely casts, so an API-authored or
+ * imported layer can hold a number or object in `fillColorSaved`. MapLibre rejects a
+ * non-string colour outright and `addLayers`'s catch then swallows it, leaving no 3D
+ * companion at all — worse than the wrong colour. An EXPRESSION is valid here and has
+ * to pass through, which is why paint takes string-or-array while the stash takes a
+ * string: only a solid colour is ever stashable.
+ */
+function resolveExtrusionFillColor(
+  rawPaint: Record<string, unknown>,
+  builder: { fillColorSaved?: string },
+): FillExtrusionColor {
+  const painted = rawPaint['fill-color'];
+  // The single cast lives here, after the check, replacing the two `as string`
+  // assertions the call sites used to make on values that were never checked at all.
+  if (typeof painted === 'string' || Array.isArray(painted)) return painted as FillExtrusionColor;
+  return typeof builder.fillColorSaved === 'string'
+    ? builder.fillColorSaved
+    : MAP_COLORS.default.fill;
 }
 
 function getExtrusionOptions(input: AdapterLayerInput) {
@@ -145,11 +174,7 @@ export const fillAdapter: LayerAdapter = {
       if (heightColumn) {
         const extrusionId = `${layerId}-extrusion`;
         const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-        // fix(#910): the extrusion has no pattern of its own (SPEC-11) and colors
-        // from fill-color, which is absent while a pattern owns the fill — fall
-        // back to the stash or the extrusion silently reverts to default blue.
-        const fillColor = (rawPaint['fill-color'] as string | undefined)
-          ?? builder.fillColorSaved ?? MAP_COLORS.default.fill;
+        const fillColor = resolveExtrusionFillColor(rawPaint, builder);
         map.addLayer({
           id: extrusionId,
           type: 'fill-extrusion',
@@ -212,9 +237,7 @@ export const fillAdapter: LayerAdapter = {
         return;
       }
       const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-      // fix(#910): see addLayers — fall back to the pattern's color stash.
-      const fillColor = (rawPaint['fill-color'] as string | undefined)
-        ?? builder.fillColorSaved ?? MAP_COLORS.default.fill;
+      const fillColor = resolveExtrusionFillColor(rawPaint, builder);
       syncOwnedPaintProperties(map, extrusionId, {
         'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
         'fill-extrusion-base': 0,

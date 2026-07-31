@@ -207,6 +207,56 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
   // applyCopiedStyleToLayer merges the copied paint OVER the target's, which is what
   // strands the loser of each incompatible pair on the layer.
   describe('EDIT-05 fill exclusions', () => {
+    // fix(#910, codex P2): the pattern-wins tie-break is only correct when the pattern
+    // is what was copied. Applying a SOLID style must displace the target's pattern, or
+    // the operation silently keeps the old look and appears to do nothing.
+    it('lets a copied solid colour displace the target pattern', async () => {
+      const src = makeMockLayer({
+        id: 'src', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#abc' }, style_config: null, sort_order: 0,
+      });
+      const patterned = makeMockLayer({
+        id: 'patterned', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder: { fillColorSaved: '#0f0' } } as StyleConfig, sort_order: 1,
+      });
+      const { result } = renderBuilderLayers(makeMapData([src, patterned]));
+      await waitForInit();
+
+      act(() => {
+        result.current.handleBulkApplyStyle(new Set(['src', 'patterned']));
+      });
+
+      const updated = result.current.localLayers.find((l) => l.id === 'patterned')!;
+      expect('fill-pattern' in updated.paint).toBe(false);
+      expect(updated.paint['fill-color']).toBe('#abc');
+    });
+
+    it('lets a pasted solid colour displace the target pattern', async () => {
+      const src = makeMockLayer({
+        id: 'src', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-color': '#abc' }, style_config: null, sort_order: 0,
+      });
+      const patterned = makeMockLayer({
+        id: 'patterned', dataset_geometry_type: 'Polygon',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder: { fillColorSaved: '#0f0' } } as StyleConfig, sort_order: 1,
+      });
+      const { result } = renderBuilderLayers(makeMapData([src, patterned]));
+      await waitForInit();
+
+      act(() => {
+        result.current.handleCopyStyle('src');
+      });
+      act(() => {
+        result.current.handlePasteStyle('patterned');
+      });
+
+      const updated = result.current.localLayers.find((l) => l.id === 'patterned')!;
+      expect('fill-pattern' in updated.paint).toBe(false);
+      expect(updated.paint['fill-color']).toBe('#abc');
+    });
+
     it('drops the target pattern when a data-driven colour style is applied over it', async () => {
       const src = makeMockLayer({
         id: 'src', dataset_geometry_type: 'Polygon',
