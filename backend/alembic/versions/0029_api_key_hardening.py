@@ -95,6 +95,14 @@ def downgrade() -> None:
     # inside `autocommit_block()`, which commits the DDL preceding it, so a
     # refusal at 0021 does not roll back what 0029 already dropped.
     bind = op.get_bind()
+    # Lock before counting, or the count is only a snapshot: the ACCESS SHARE
+    # a SELECT takes does not block an API-key insert or a key_epoch update, so
+    # a writer could commit between the count and the DROP COLUMNs and have its
+    # state discarded by a guard that never saw it. ACCESS EXCLUSIVE rather
+    # than SHARE because the drops below need it anyway — taking it up front
+    # avoids a lock upgrade, and env.py wraps the whole run in one transaction,
+    # so it is held until the downgrade ends.
+    op.execute("LOCK TABLE catalog.api_keys, catalog.users IN ACCESS EXCLUSIVE MODE")
     expiring, bumped, affected = bind.execute(text(_COUNT_KEY_STATE)).one()
     if expiring or bumped:
         raise RuntimeError(
