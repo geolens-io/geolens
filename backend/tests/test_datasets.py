@@ -676,6 +676,93 @@ class TestUpdateMetadata:
         )
         assert allowed.status_code == 200, allowed.text
 
+    async def test_internal_to_private_does_not_block_when_no_one_else_is_active(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#931 codex r5): a rank drop is not the same as someone losing access.
+
+        No `viewer_auth_header` here, so the only accounts are the admin owner
+        and other admins — all of whom keep access either way. The internal
+        audience the move removes is empty, so refusing would be a refusal that
+        lies. Deactivate any stray non-admin left by an earlier test in this
+        worker, since the per-worker DB persists.
+        """
+        from app.modules.auth.models import Role, User, UserRole
+
+        admin_ids = (
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name == "admin")
+        )
+        strays = (
+            (
+                await test_db_session.execute(
+                    select(User).where(
+                        User.is_active.is_(True), User.id.notin_(admin_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for stray in strays:
+            stray.is_active = False
+            stray.status = "suspended"
+        await test_db_session.commit()
+
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name="No Other Viewers Map",
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "private"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_internal_to_restricted_blocks_when_someone_is_ungranted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """The mirror: an active user no grant reaches DOES lose the layer.
+
+        `viewer_auth_header` mints an active non-admin with no grant on this
+        dataset, so narrowing `internal -> restricted` strands them and the
+        refusal is honest.
+        """
+        assert viewer_auth_header  # the fixture's account is the stranded viewer
+        admin_id = await _get_user_id(test_db_session, "admin")
+        map_name = "Ungranted Viewer Map"
+        ds = await self._dataset_on_map(
+            test_db_session,
+            admin_id,
+            dataset_visibility="internal",
+            map_visibility="internal",
+            map_name=map_name,
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "restricted"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert map_name in resp.json()["detail"]
+
     async def test_an_unpublished_dataset_never_blocks(
         self,
         client: AsyncClient,
