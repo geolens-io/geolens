@@ -412,6 +412,24 @@ log "Schedule: ${CRON_EXPR}"
 log "Retention: ${BACKUP_RETENTION_DAILY} daily, ${BACKUP_RETENTION_WEEKLY} weekly"
 log "S3 upload: ${BACKUP_S3_ENABLED}"
 
+# fix(#798): BACKUP_S3_ENABLED defaults to false, and "S3 upload: false" reads
+# as configuration output rather than as the exposure it describes. The
+# deployment that most needs the warning is exactly the one that never
+# configured anything, so say plainly what the default means.
+#
+# Startup only, not per cycle: a nightly warning in the logs of a deliberately
+# local-only install is noise that trains operators to ignore the log. It costs
+# nothing when offsite upload is on, because it does not print then.
+if [ "$BACKUP_S3_ENABLED" != "true" ]; then
+    log "WARNING: offsite backup upload is DISABLED (BACKUP_S3_ENABLED is not 'true')."
+    log "WARNING:   Backups are written to the same host, and usually the same physical"
+    log "WARNING:   disk, as the database. Losing that disk loses the data AND every"
+    log "WARNING:   backup of it in one event."
+    log "WARNING:   Enable the offsite copy (RUNBOOK.md, section 1, \"Offsite (S3) upload\")"
+    log "WARNING:   or point the backup volume at different storage before relying on"
+    log "WARNING:   this for disaster recovery."
+fi
+
 # Run an initial backup on startup
 run_backup || log "ERROR: Initial backup failed"
 
