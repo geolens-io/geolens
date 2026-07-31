@@ -727,6 +727,14 @@ class TestCanonicalGeodesicBufferAdmitted:
             "FROM data.stations s"
         )
 
+    def test_admits_a_subquery_input_whose_column_is_aliased(self):
+        """The bounded-source rule looks through the projection alias."""
+        _assert_allows(
+            "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("(SELECT geom_4326 AS g FROM data.cities LIMIT 1)")
+            + ") FROM data.stations s"
+        )
+
     def test_the_gap_is_real(self):
         """Guards the guard: if this set ever empties, the tests below stop
         proving anything and the exemption has quietly become unnecessary."""
@@ -828,6 +836,45 @@ class TestCanonicalBufferExemptionIsScoped:
             "SELECT (SELECT CASE WHEN ST_XMax(_pb.g) - ST_XMin(_pb.g) >= 6 "
             "THEN ST_UnaryUnion(_pb.g) ELSE _pb.g END "
             "FROM (SELECT s.geom_4326 AS g OFFSET 0) AS _pb) FROM data.stations s"
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "geom"),
+        [
+            # The reported payload. A PLANAR buffer, so 1000000000 is DEGREES:
+            # a two-billion-degree span, hundreds of millions of bands from the
+            # scaffold's generate_series, billions of vertices from its
+            # ST_Segmentize.
+            (
+                "planar buffer with a degrees radius",
+                "ST_Buffer(ST_SetSRID(ST_MakePoint(0,0),4326), 1000000000)",
+            ),
+            # The same explosion with no large literal anywhere: a projected
+            # geometry hands the scaffold metres.
+            ("reprojected input", "ST_Transform(s.geom_4326, 3857)"),
+            # A buffer of a buffer. Bounded in fact, since a geography buffer
+            # returns 4326, but proving that needs recursion, so it fails
+            # closed like anything else that is not a stored geometry.
+            ("nested canonical buffer", None),
+        ],
+    )
+    def test_rejects_an_unbounded_buffer_input(self, label, geom):
+        """fix(#1001 codex r1): matching the template is not sufficient. The
+        scaffold's cost is a function of its INPUT's planar span, so the input
+        has to be a stored geometry rather than one the caller manufactured."""
+        rendered = (
+            _canonical_buffer(_canonical_buffer("s.geom_4326", 1000), 2000)
+            if geom is None
+            else _canonical_buffer(geom, 1000)
+        )
+        _assert_rejects(f"SELECT ST_AsGeoJSON({rendered}) FROM data.stations s")
+
+    def test_rejects_a_wrapped_column_input(self):
+        """Even a harmless-looking wrapper is refused: deciding which wrappers
+        preserve a bounded span is the units problem #1002 died on."""
+        _assert_rejects(
+            f"SELECT ST_AsGeoJSON({_canonical_buffer('ST_MakeValid(s.geom_4326)')}) "
+            "FROM data.stations s"
         )
 
     def test_rejects_a_buffer_rendered_under_a_different_alias(self):

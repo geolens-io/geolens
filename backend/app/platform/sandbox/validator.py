@@ -443,6 +443,47 @@ def _extract_buffer_input(node: exp.Expression) -> tuple[exp.Expression, float] 
     return None
 
 
+def _is_bounded_geometry_source(node: exp.Expression) -> bool:
+    """Whether `node` can only be a stored geometry, never a manufactured one.
+
+    fix(#1001 codex r1): the rendered scaffold assumes its input is a 4326
+    geometry, so its planar span is at most 360 degrees. It slices that span
+    into ~6-degree bands with `generate_series` and densifies it with
+    `ST_Segmentize`, both of which scale with the span. A stored `geom_4326`
+    column satisfies the assumption by construction. An arbitrary expression
+    does not, and two shapes reach past it without tripping any existing
+    guard:
+
+      ST_Buffer(ST_SetSRID(ST_MakePoint(0,0),4326), 1000000000)
+          a PLANAR buffer, so the radius is DEGREES — a two-billion-degree
+          span, hundreds of millions of bands, billions of vertices;
+      ST_Transform(geom_4326, 3857)
+          hands the scaffold metres with no large literal at all, so a
+          40-million-unit span segmentized at 0.1 is the same explosion.
+
+    Deciding this by inspecting the expression's functions is the units
+    problem #1002 died on, so the rule is structural instead: a bare column
+    reference, or a scalar subquery projecting one. Both shapes the prompt
+    teaches qualify — the `<GEOM>` template is substituted with a column, and
+    the worked example is `(SELECT geom_4326 FROM data.us_state_capitals
+    WHERE name = 'Denver')`. Everything else is refused, which is the right
+    failure direction: a refused buffer question beats an unbounded one.
+
+    The subquery's other clauses are not exempted by this; they stay under the
+    ordinary function allowlist and table checks like any other subquery.
+    """
+    if isinstance(node, exp.Column):
+        return True
+    if isinstance(node, exp.Subquery):
+        inner = node.this
+        if isinstance(inner, exp.Select) and len(inner.expressions) == 1:
+            projection = inner.expressions[0]
+            if isinstance(projection, exp.Alias):
+                projection = projection.this
+            return isinstance(projection, exp.Column)
+    return False
+
+
 def _matches_canonical_buffer(node: exp.Expression) -> exp.Expression | None:
     """Return the buffer's input expression when `node` is the canonical buffer.
 
@@ -489,6 +530,11 @@ def _canonical_buffer_exempt_ids(stmt: exp.Expression) -> set[int]:
         attempts += 1
         geom = _matches_canonical_buffer(node)
         if geom is None:
+            continue
+        # Matching the template is not sufficient on its own: the scaffold's
+        # cost is a function of its INPUT's planar span, so the input has to
+        # be a stored geometry rather than one the caller manufactured.
+        if not _is_bounded_geometry_source(geom):
             continue
         # The input expression is the model's, so it keeps every check. Only
         # the scaffold the renderer produced around it is exempt.
