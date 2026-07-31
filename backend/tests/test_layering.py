@@ -997,7 +997,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 # fix(#958): lifted to module scope from
 # test_open_core_decomposition_boundaries_stay_clean so the inclusion rule below
 # can ask whether a ceiling gate already watches a module. Plain ceilings, not
-# exact ratchets: these files may shrink freely.
+# exact ratchets: these files may shrink freely. Where an entry below says its
+# ratchet "stays exact", that is the author setting the cap flush with the
+# file's current LOC as a convention — no test here enforces the equality.
 _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#526 B-044): per-layer minzoom/maxzoom in style.json export,
     # propagated to companion layers.
