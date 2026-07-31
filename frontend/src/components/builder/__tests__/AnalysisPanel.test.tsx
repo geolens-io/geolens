@@ -496,13 +496,20 @@ describe('AnalysisPanel', () => {
   });
 
   it('raises no truncation notice for a complete preview', async () => {
-    renderPanel([datasetLayer]);
+    // fix(#699 codex P2): wait on a signal belonging to THIS request. The
+    // `previewAnalysis` mock is shared and never cleared between tests, so
+    // waiting for it to have been called at all resolves instantly on an
+    // earlier test's call — and the negative assertion below would then run
+    // before this preview's onSuccess, passing even if that branch regressed.
+    // `onPreviewResult` is a fresh spy per test and fires in the same
+    // synchronous success handler that raises the notice, so once it has been
+    // called, a toast would already have been raised.
+    const onPreviewResult = vi.fn();
+    renderPanel([datasetLayer], { onPreviewResult });
     mockToast.info.mockClear();
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    await waitFor(() =>
-      expect(vi.mocked(previewAnalysis)).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(onPreviewResult).toHaveBeenCalled());
     expect(mockToast.info).not.toHaveBeenCalled();
   });
 
