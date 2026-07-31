@@ -5,7 +5,9 @@ set -euo pipefail
 # GeoLens Automated Backup Entrypoint
 # ==============================================================================
 # Runs pg_dump on a cron schedule with daily/weekly retention and optional
-# S3 upload. Designed for the default-on Docker Compose backup service.
+# S3 upload. Each cycle also captures the cluster globals (roles + cluster-wide
+# grants), which a database-only pg_dump cannot carry. Designed for the
+# default-on Docker Compose backup service.
 #
 # Environment variables (set in docker-compose.yml):
 #   POSTGRES_USER          Database username
@@ -28,7 +30,11 @@ set -euo pipefail
 # here; S3_ALLOW_HTTP only affects the app's own object-storage client.
 # ==============================================================================
 
-BACKUP_DIR="/backups"
+# Overridable only so scripts/tests/test-backup-restore-roundtrip.sh can drive a
+# real cycle into a temp directory instead of re-implementing one. Nothing in
+# either compose file sets it, so every deployment gets /backups. Same shape as
+# STAGING_DIR below.
+BACKUP_DIR="${BACKUP_DIR:-/backups}"
 DAILY_DIR="${BACKUP_DIR}/daily"
 WEEKLY_DIR="${BACKUP_DIR}/weekly"
 
@@ -76,13 +82,24 @@ unset _ret_var _ret_val
 run_backup() {
     local timestamp
     timestamp="$(date '+%Y%m%d_%H%M%S')"
+    # fix(#995 review): decide "is this a weekly cycle?" ONCE, with the
+    # timestamp that names the cycle, and reuse it for every artifact. Each one
+    # used to re-ask the weekday at the moment it was written, so a Sunday
+    # cycle that crossed midnight — a 23:59 schedule, or a large staging
+    # archive — could copy the dump into weekly/ and then answer Monday for its
+    # companions, leaving a weekly dump with no paired globals.
+    CYCLE_IS_WEEKLY=0
+    [ "$(date '+%u')" = "7" ] && CYCLE_IS_WEEKLY=1
     local filename="${POSTGRES_DB}_${timestamp}.dump"
     local filepath="${DAILY_DIR}/${filename}"
 
     # fix(#819): orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
-    # flight, so any leftover .tmp is garbage.
-    rm -f "${DAILY_DIR}"/*.dump.tmp
+    # flight, so any leftover .tmp is garbage. fix(#995): the globals dump
+    # writes through the same .tmp-then-rename path, in both directories, and
+    # needs the same sweep.
+    rm -f "${DAILY_DIR}"/*.dump.tmp "${DAILY_DIR}"/globals-*.sql.tmp \
+        "${WEEKLY_DIR}"/globals-*.sql.tmp
 
     log "Starting backup: ${filename}"
 
@@ -123,7 +140,7 @@ run_backup() {
     log "Backup verified: ${filename} fully readable"
 
     # Weekly copy on Sundays
-    if [ "$(date '+%u')" = "7" ]; then
+    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
         cp "$filepath" "${WEEKLY_DIR}/${filename}"
         log "Weekly copy saved: ${filename}"
     fi
@@ -139,6 +156,14 @@ run_backup() {
     local staging_archive=""
     staging_archive="$(backup_staging "$timestamp")" || cycle_failed=1
 
+    # fix(#995): cluster globals (roles, their passwords, and cluster-wide
+    # grants) alongside the dump. A database-only pg_dump can never restore
+    # them, so without this artifact the fresh-cluster path in RUNBOOK § 2 has
+    # no input. Unlike the staging archive there is no partial-success case, so
+    # any failure marks the cycle failed the way the S3 path does.
+    local globals_dump=""
+    globals_dump="$(backup_globals "$timestamp")" || cycle_failed=1
+
     # S3 upload — record any failure but DON'T return yet. The local dump (and
     # the staging archive, if any) already landed on disk; retention pruning
     # below must still run so a transient S3 outage can't let them accumulate.
@@ -148,10 +173,19 @@ run_backup() {
         if [ -n "$staging_archive" ]; then
             upload_to_s3 "$staging_archive" "daily/$(basename "$staging_archive")" || upload_failed=1
         fi
-        if [ "$(date '+%u')" = "7" ]; then
+        # The globals dump goes offsite with the dump it pairs with: an operator
+        # rebuilding on a fresh cluster is doing so precisely because the local
+        # disk is gone, so a globals artifact that only exists there is no use.
+        if [ -n "$globals_dump" ]; then
+            upload_to_s3 "$globals_dump" "daily/$(basename "$globals_dump")" || upload_failed=1
+        fi
+        if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
             upload_to_s3 "$filepath" "weekly/${filename}" || upload_failed=1
             if [ -n "$staging_archive" ]; then
                 upload_to_s3 "$staging_archive" "weekly/$(basename "$staging_archive")" || upload_failed=1
+            fi
+            if [ -n "$globals_dump" ]; then
+                upload_to_s3 "$globals_dump" "weekly/$(basename "$globals_dump")" || upload_failed=1
             fi
         fi
         if [ "$upload_failed" -eq 1 ]; then
@@ -160,13 +194,14 @@ run_backup() {
         fi
     fi
 
-    # Retention runs regardless of S3 outcome (dumps and their paired staging
-    # archives share retention counts) — local backups must be pruned even when
-    # the offsite upload failed, or backup_data fills up during an S3 outage.
+    # Retention runs regardless of S3 outcome (dumps set the window; their
+    # companions follow) — local backups must be pruned even when the offsite
+    # upload failed, or backup_data fills up during an S3 outage.
     prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
     prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
-    prune_old_staging "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
-    prune_old_staging "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
+    # Must run after prune_old_backups — it prunes by what that just left.
+    prune_orphaned_companions "$DAILY_DIR"
+    prune_orphaned_companions "$WEEKLY_DIR"
 
     # Surface the S3 failure now that retention has run, so the cycle is still
     # reported as failed (non-zero) to the cron / sleep-loop caller.
@@ -229,11 +264,86 @@ backup_staging() {
     local size
     size="$(du -h "$archive" | cut -f1)"
     log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
-    if [ "$(date '+%u')" = "7" ]; then
+    if [ "${CYCLE_IS_WEEKLY:-0}" -eq 1 ]; then
         cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
         log "Weekly object-storage copy saved: $(basename "$archive")" >&2
     fi
     printf '%s\n' "$archive"
+}
+
+# ---------------------------------------------------------------------------
+# fix(#995): cluster globals (roles + cluster-wide grants)
+# ---------------------------------------------------------------------------
+# Writes globals-<timestamp>.sql next to the dump, same timestamp so a restore
+# can pair them. Prints the path on stdout (consumed by run_backup); all human
+# logging goes to stderr so it never contaminates that path.
+#
+# umask 077 is not optional. `pg_dumpall --globals-only` emits role password
+# verifiers; under the default 022 umask the file lands world-readable in the
+# backup volume and, with BACKUP_S3_ENABLED=true, in the bucket. The subshell
+# scopes the umask to the redirect that creates the file and nothing else —
+# this is the form RUNBOOK § "Multi-tenant role reconstruction" documents.
+#
+# Unlike backup_staging there is no salvageable partial: a truncated globals
+# file replays as a partial set of roles, which is worse than none, so any
+# non-zero exit discards it and fails the cycle.
+backup_globals() {
+    local timestamp="$1"
+    local globals_file="${DAILY_DIR}/globals-${timestamp}.sql"
+
+    log "Dumping cluster globals: $(basename "$globals_file")" >&2
+    # fix(#995): write to .tmp and rename on success, for the same reason the
+    # dump does. A container killed mid-write (OOM, `compose stop`) never
+    # reaches the cleanup below, so writing straight to the final name would
+    # leave a truncated globals file sitting next to a complete dump, looking
+    # like the valid paired artifact. The rename makes globals-*.sql appear
+    # only atomically; the .tmp is swept at the top of the next cycle.
+    local rc=0
+    (umask 077; pg_dumpall -h "$POSTGRES_HOST" -U "$POSTGRES_USER" \
+        --globals-only > "${globals_file}.tmp") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        log "ERROR: pg_dumpall --globals-only failed (exit ${rc}) — roles could not be captured, so this cycle will be reported as failed" >&2
+        rm -f "${globals_file}.tmp"
+        return 1
+    fi
+    # Every publish step is checked explicitly. This function always runs inside
+    # a `$(...) || cycle_failed=1` command substitution, which suspends `set -e`
+    # for its whole body — so an unchecked `mv` or `cp` failing (read-only
+    # volume, ENOSPC) would fall through to the final printf, return success,
+    # and let the cycle touch .last-success with no globals artifact beside a
+    # valid dump.
+    if ! mv "${globals_file}.tmp" "$globals_file"; then
+        log "ERROR: could not publish $(basename "$globals_file") — is the backup volume writable and not full?" >&2
+        rm -f "${globals_file}.tmp"
+        return 1
+    fi
+
+    local size
+    size="$(du -h "$globals_file" | cut -f1)"
+    log "Cluster globals complete: $(basename "$globals_file") (${size})" >&2
+    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
+        # Same .tmp-then-rename as the daily artifact, and for the same reason:
+        # a container killed mid-`cp` never reaches the failure branch, so
+        # copying straight to the final name would leave a truncated file under
+        # the weekly globals filename beside an already-published weekly dump,
+        # where a recovery would take it for the valid paired artifact.
+        #
+        # cp carries the source's 0600 across (measured on both busybox and GNU
+        # cp), but the weekly copy is the one an operator reaches for months
+        # later, so pin the mode rather than inheriting it, and do it before the
+        # rename so the file is never visible under its final name at a wider
+        # mode.
+        local weekly_copy="${WEEKLY_DIR}/$(basename "$globals_file")"
+        if ! cp "$globals_file" "${weekly_copy}.tmp" \
+            || ! chmod 600 "${weekly_copy}.tmp" \
+            || ! mv "${weekly_copy}.tmp" "$weekly_copy"; then
+            log "ERROR: could not write the weekly globals copy to ${WEEKLY_DIR}" >&2
+            rm -f "${weekly_copy}.tmp"
+            return 1
+        fi
+        log "Weekly globals copy saved: $(basename "$globals_file")" >&2
+    fi
+    printf '%s\n' "$globals_file"
 }
 
 # ---------------------------------------------------------------------------
@@ -289,35 +399,125 @@ upload_to_s3() {
 # ---------------------------------------------------------------------------
 # Retention pruning
 # ---------------------------------------------------------------------------
+# Ordered by the timestamp in the filename, not by mtime. Two reasons: the
+# embedded timestamp is the cycle's identity, while mtime is whenever the file
+# was last written (the weekly copies all carry their `cp` time, so mtime order
+# there is the copy order, not the backup order); and `find -printf` is a GNU
+# extension, so mtime ordering made this function silently unrunnable outside
+# the container — including in scripts/tests/test-backup-restore-roundtrip.sh,
+# which is documented as a standalone local tool.
+#
+# Sorted on the EXTRACTED timestamp, not the whole path: the database name is
+# the prefix, so sorting the path puts it ahead of the timestamp, and after a
+# POSTGRES_DB rename to a lexically earlier name every fresh dump would sort as
+# the oldest and be pruned first. Files whose name carries no timestamp are not
+# ours; they are neither counted nor deleted.
+#
+# Emits "<timestamp>\t<path>" lines, oldest first.
+dump_listing() {
+    local dir="$1"
+    local dump ts
+    find "$dir" -maxdepth 1 -name "*.dump" -type f | while IFS= read -r dump; do
+        ts="$(printf '%s' "${dump##*/}" | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
+        [ -n "$ts" ] || continue
+        printf '%s\t%s\n' "$ts" "$dump"
+    done | sort
+}
+
+# fix(#995): the timestamp of the newest set that is COMPLETE — a dump with the
+# globals dump that pairs with it. prune_old_backups keeps that one out of the
+# retention window.
+#
+# Without the exemption a run of pg_dumpall failures walks every complete set
+# out of retention: each failed cycle still produces a valid dump (discarding it
+# would make the failure strictly worse — data without roles beats nothing), so
+# it counts toward the window and evicts an older complete set, whose globals
+# then goes with it as an orphan. After a full window of failures the operator
+# has been told loudly every cycle (`.last-success` stale, healthcheck
+# unhealthy) and still has dumps, but nothing that restores onto a fresh
+# cluster. Holding one complete set back costs at most one extra dump plus a
+# few KB of SQL and is the difference between a degraded DR path and none.
+newest_complete_ts() {
+    local dir="$1"
+    local globals ts best=""
+    for globals in "$dir"/globals-*.sql; do
+        [ -f "$globals" ] || continue
+        ts="$(printf '%s' "${globals##*/}" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
+        [ -n "$ts" ] || continue
+        find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q . || continue
+        if [ -z "$best" ] || [ "$ts" \> "$best" ]; then
+            best="$ts"
+        fi
+    done
+    printf '%s' "$best"
+}
+
 prune_old_backups() {
     local dir="$1"
     local keep="$2"
 
-    local count
-    count="$(find "$dir" -name "*.dump" -type f | wc -l)"
-    if [ "$count" -gt "$keep" ]; then
-        local to_remove=$((count - keep))
-        log "Pruning ${to_remove} old backup(s) from ${dir}"
-        find "$dir" -name "*.dump" -type f -printf '%T+ %p\n' | \
-            sort | head -n "$to_remove" | awk '{print $2}' | \
-            xargs rm -f
+    local listing
+    listing="$(dump_listing "$dir")"
+    [ -n "$listing" ] || return 0
+
+    # The protected set is held back IN ADDITION to the retention window, not
+    # inside it: letting it occupy a slot would mean a retention of 1 keeps the
+    # complete set and throws away the newest dump, which is the wrong trade.
+    # So a directory holds at most `keep` + 1 dumps.
+    local protect
+    protect="$(newest_complete_ts "$dir")"
+
+    local candidates
+    if [ -n "$protect" ]; then
+        candidates="$(printf '%s\n' "$listing" | grep -v "^${protect}	" || true)"
+    else
+        candidates="$listing"
     fi
+    [ -n "$candidates" ] || return 0
+
+    local count
+    count="$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')"
+    [ "$count" -gt "$keep" ] || return 0
+
+    local to_remove=$((count - keep))
+    log "Pruning ${to_remove} old backup(s) from ${dir}"
+    printf '%s\n' "$candidates" | head -n "$to_remove" | cut -f2- | \
+        while IFS= read -r stale; do
+            rm -f "$stale"
+        done
 }
 
-# BKP-01: prune object-storage archives with the same retention policy as dumps.
-prune_old_staging() {
+# BKP-01 / fix(#995): companion artifacts (the object-storage archive and the
+# globals dump) are pruned by PAIRING, not by their own count.
+#
+# Counting them independently looked equivalent and is not, because a companion
+# can be absent for a cycle that still produces a dump: backup_staging skips a
+# missing or empty staging mount, and a failed pg_dumpall leaves a good dump
+# with no globals. Once the counts diverge, `keep the newest N of each` prunes
+# a dump whose companion is younger than N and therefore survives — so after
+# enough such cycles every complete set is gone while the orphans remain.
+#
+# The dumps are the primary artifact and prune_old_backups is the authority on
+# retention. This runs AFTER it and drops any companion whose dump is no longer
+# there, which keeps the invariant that matters for a restore: every companion
+# present has the dump it pairs with.
+prune_orphaned_companions() {
     local dir="$1"
-    local keep="$2"
 
-    local count
-    count="$(find "$dir" -name "staging-*.tar.gz" -type f | wc -l)"
-    if [ "$count" -gt "$keep" ]; then
-        local to_remove=$((count - keep))
-        log "Pruning ${to_remove} old object-storage archive(s) from ${dir}"
-        find "$dir" -name "staging-*.tar.gz" -type f -printf '%T+ %p\n' | \
-            sort | head -n "$to_remove" | awk '{print $2}' | \
-            xargs rm -f
-    fi
+    local companion base ts
+    for companion in "$dir"/staging-*.tar.gz "$dir"/globals-*.sql; do
+        # Unmatched globs expand to themselves; -f skips those.
+        [ -f "$companion" ] || continue
+        base="$(basename "$companion")"
+        # Anchored at the end, like restore.sh's parse.
+        ts="$(printf '%s' "$base" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
+        # A name we cannot pair is left alone rather than guessed at.
+        [ -n "$ts" ] || continue
+        if ! find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q .; then
+            log "Pruning orphaned ${base} from ${dir} (its dump has aged out)"
+            rm -f "$companion"
+        fi
+    done
 }
 
 # ---------------------------------------------------------------------------

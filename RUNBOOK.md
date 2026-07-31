@@ -52,15 +52,23 @@ BACKUP_SCHEDULE=0 3 * * *    # 03:00 daily — must be in "M H * * *" form
 
 ### What each backup cycle captures
 
-Each cycle produces two paired artifacts with matching timestamps:
+Each cycle produces three paired artifacts with matching timestamps:
 
 | Artifact | Format | What it contains |
 |---|---|---|
 | `<db>_<YYYYmmdd_HHMMSS>.dump` | `pg_dump -Fc` custom-format | Full database (schema + data), restorable via `pg_restore` |
 | `staging-<YYYYmmdd_HHMMSS>.tar.gz` | tar.gz | Contents of the `upload_staging` volume (source files, rasters, COGs) |
+| `globals-<YYYYmmdd_HHMMSS>.sql` | `pg_dumpall --globals-only` plain SQL | Cluster roles, their passwords, and cluster-wide grants |
 
 The staging archive is omitted silently when the `upload_staging` volume is absent
 or empty (fresh install with no uploaded datasets).
+
+The globals dump is the piece a database-only `pg_dump` can never give back, and
+it is what makes the fresh-cluster role reconstruction in [§ 2](#2-restore--bundled-postgres-mode)
+work. It contains **role password verifiers**, so it is written mode `0600` and
+must keep the same protection as the dump itself wherever it is copied. A
+`pg_dumpall` failure fails the whole cycle: a backup set that cannot restore its
+roles should not be reported as a good one.
 
 ### Retention
 
@@ -69,8 +77,21 @@ Artifacts land at:
 - Weekly (every Sunday): `backup_data` volume → `/backups/weekly/`
 
 Default retention: 7 daily, 4 weekly (set `BACKUP_RETENTION_DAILY` /
-`BACKUP_RETENTION_WEEKLY` in `.env` to override). Retention prunes both
-`.dump` files and their paired `staging-*.tar.gz` archives.
+`BACKUP_RETENTION_WEEKLY` in `.env` to override). The count applies to the
+`.dump` files, ordered by the timestamp in the filename; the paired
+`staging-*.tar.gz` and `globals-*.sql` artifacts are pruned when the dump they
+belong with ages out. Retention therefore evicts whole backup sets, and a
+companion artifact never outlives its dump — which matters because a cycle can
+produce a dump without a companion (an empty staging volume, or a failed
+`pg_dumpall`), and counting each kind separately would prune complete sets while
+leaving orphans behind.
+
+One exception: the **newest complete set** — a dump that still has its globals
+dump — is held back on top of the window, so a directory can hold `keep` + 1
+dumps. A run of `pg_dumpall` failures still produces valid database dumps each
+cycle, and without the exemption those would walk the last restorable-onto-a-
+fresh-cluster set out of retention while the healthcheck was already reporting
+the problem. The cost is one extra dump plus a few KB of SQL.
 
 ### Offsite (S3) upload
 
@@ -129,16 +150,20 @@ self-hosted Docker Compose deployment).
 1. Validates the dump with `pg_restore -f /dev/null` — reads every data block
    and aborts if the file is corrupt or truncated. (`--list` would only read the
    table of contents, which a truncated archive still passes.)
-2. Creates required extensions and schemas in the database.
-3. Stops `api` and `worker` to prevent write conflicts.
-4. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
-5. Re-applies the `geolens_reader` grants on schema `data` and asserts they took
+2. Reports any sibling `globals-<timestamp>.sql`, naming the roles it defines
+   that the target cluster is missing. This happens **before** anything
+   destructive, because replaying globals is a pre-restore step. It is a
+   warning, not a gate: a same-cluster restore already has its roles.
+3. Creates required extensions and schemas in the database.
+4. Stops `api` and `worker` to prevent write conflicts.
+5. Runs `pg_restore --clean --if-exists --no-owner` against the bundled `db` container.
+6. Re-applies the `geolens_reader` grants on schema `data` and asserts they took
    (`has_schema_privilege`). `--clean` drops the schema together with its ACLs
    and default privileges, and the dump carries no ACLs (`--no-acl`), so the
    grants must be rebuilt after every restore.
-6. Restarts `api` and `worker` on exit (including on failure — via a trap).
-7. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
-8. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and
+7. Restarts `api` and `worker` on exit (including on failure — via a trap).
+8. Runs a post-restore row-count check (`catalog.records`, `catalog.datasets`).
+9. Auto-detects any sibling `staging-<timestamp>.tar.gz` next to the dump and
    prints the exact manual object-storage extract command.
 
 **Never** use `psql < <dump>` on a custom-format (`-Fc`) dump file — it is binary,
@@ -161,24 +186,35 @@ Run both before starting API, worker, or tile traffic.
 
 **Step 1 — put the roles on the new cluster.**
 
-The clean way is a globals dump captured from the source cluster while it is
-still reachable, or from a replica. Take one now if your backup cycle has no
-`pg_dumpall --globals-only` artifact — it is the piece a database-only
-`pg_dump` can never give back.
+Use the `globals-<timestamp>.sql` artifact that the backup cycle wrote next to
+the dump you are restoring. It is captured automatically, from the source
+cluster, at the moment of the dump — matching timestamps mean the roles and the
+data belong to the same point in time.
+
+Like the dump, it lives inside the `backup_data` volume, so copy it to the host
+first (step 0 of [full restore](#step-by-step-full-restore-db--object-storage)
+extracts all three artifacts together), then replay it **before** `pg_restore`:
 
 ```bash
 # Load .env so $POSTGRES_USER / $POSTGRES_DB are set in this shell.
 set -a; . ./.env; set +a
 
-# On the source cluster. umask 077 because --globals-only emits role password
-# verifiers: under a default 022 umask this file lands world-readable. Store it
-# with the same protection as the dump itself, or add --no-role-passwords and
-# reset the login passwords during recovery instead.
+# On the new cluster, BEFORE pg_restore. Substitute the timestamp of the dump
+# you are restoring; ./restore is where step 0 put the extracted artifacts.
+docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres \
+  < ./restore/globals-<YYYYmmdd_HHMMSS>.sql
+```
+
+If the source cluster is still reachable and you would rather capture roles as
+of now than as of the dump, take a fresh globals dump instead:
+
+```bash
+# umask 077 because --globals-only emits role password verifiers: under a
+# default 022 umask this file lands world-readable. Store it with the same
+# protection as the dump itself, or add --no-role-passwords and reset the login
+# passwords during recovery instead.
 (umask 077; docker compose exec -T db \
   pg_dumpall --globals-only -U "$POSTGRES_USER" > globals.sql)
-
-# On the new cluster, BEFORE pg_restore.
-docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres < globals.sql
 ```
 
 For managed/external Postgres there is no `db` container to exec into: drop the
@@ -381,20 +417,26 @@ a misconfigured restore fails loudly rather than serving cross-tenant data.
 
 With the default backup service, dumps are written to the **`backup_data` named
 volume** at `/backups/daily`, **not** to a host directory. `restore.sh` takes a
-**host file path**, so first copy the chosen dump (and its paired
-`staging-<timestamp>.tar.gz`) out of the volume, then restore from that copy.
+**host file path**, so first copy the chosen dump and its two paired artifacts
+(`staging-<timestamp>.tar.gz`, `globals-<timestamp>.sql`) out of the volume,
+then restore from that copy. Copying all three keeps them siblings on the host,
+which is how `restore.sh` finds them.
 
 ```bash
 # 0. Copy the chosen backup out of the backup_data volume to the host.
 #    Replace <project> with your Compose project name (see `docker volume ls`;
 #    the volume is <project>_backup_data) and the timestamp with the one you
 #    picked from "Finding the dump to restore" below.
-mkdir -p ./restore
+#    umask 077: the globals file holds role password verifiers, so the copy
+#    must not be readable by other users on the host either.
+mkdir -p ./restore && chmod 700 ./restore
 docker run --rm \
   -v <project>_backup_data:/backups:ro \
   -v "$(pwd)/restore":/out \
-  alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
+  alpine sh -c 'umask 077; \
+                cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
                 cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; \
+                cp /backups/daily/globals-<YYYYmmdd_HHMMSS>.sql /out/ 2>/dev/null; \
                 ls -lh /out'
 
 # 1. Restore the database from the extracted dump.
@@ -409,10 +451,13 @@ docker run --rm \
   alpine sh -c 'cd /staging && tar xzf /restore/staging-<YYYYmmdd_HHMMSS>.tar.gz'
 ```
 
-`restore.sh` auto-detects the sibling staging archive (matched by timestamp, in the
-same directory as the dump — here `./restore`) and prints the `docker run` line
-above with the real paths filled in. Copy the printed command from the restore
-output rather than hand-editing it.
+`restore.sh` auto-detects both siblings (matched by timestamp, in the same
+directory as the dump — here `./restore`). For the staging archive it prints the
+`docker run` line above with the real paths filled in; copy the printed command
+from the restore output rather than hand-editing it. For the globals dump it
+reports, **before** anything destructive runs, which roles the target cluster is
+missing — replay it first if that list is non-empty, following the role
+reconstruction procedure earlier in this section.
 
 ### Finding the dump to restore
 
@@ -797,14 +842,20 @@ Determine what was lost:
 # List all daily dumps in the backup_data volume, newest first
 docker compose exec backup sh -c 'ls -lt /backups/daily/*.dump'
 
-# Copy the chosen dump (and its paired staging archive) out of the volume.
+# Copy the chosen dump and BOTH its paired artifacts out of the volume — the
+# globals dump included, or a fresh-cluster restore has no roles to replay and
+# restore.sh cannot report which ones are missing.
 # Replace <project> with your Compose project name (see `docker volume ls`).
-mkdir -p ./restore
+# umask 077: globals-*.sql holds role password verifiers.
+mkdir -p ./restore && chmod 700 ./restore
 docker run --rm \
   -v <project>_backup_data:/backups:ro \
   -v "$(pwd)/restore":/out \
-  alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
-                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; ls -lh /out'
+  alpine sh -c 'umask 077; \
+                cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
+                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; \
+                cp /backups/daily/globals-<YYYYmmdd_HHMMSS>.sql /out/ 2>/dev/null; \
+                ls -lh /out'
 
 # Validate the candidate dump before restoring. Omit the filename to read
 # stdin: PG 18 rejects the literal `-` with `could not open input file "-"`,
