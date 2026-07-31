@@ -61,12 +61,14 @@ function RootLayout() {
           still reports when it lands. Needs router context for its
           "View dataset" action, so it lives here rather than main.tsx.
           fix(#1018): the reload case covers a job still RUNNING at reload
-          time, which is what the persisted store carries. One that reached a
-          terminal status first has already had setJob(null) persisted by the
-          watcher, so a reload in the gap between that write and the toast
-          being read loses the notification. Not worth guarding — it needs a
-          hard reload inside a few hundred ms — but the guarantee is narrower
-          than "survives a reload" full stop. */}
+          time, which is what the persisted store carries. Once the job reaches
+          a terminal status the watcher persists setJob(null) and reports
+          through a toast — and the toast is `duration: Infinity` and NOT
+          persisted, so a reload at ANY later point while it sits
+          unacknowledged drops the notification with nothing left to rebuild
+          it from. Not worth guarding, since the job itself completed
+          server-side and the dataset is in the catalog, but the guarantee is
+          "a running job survives a reload", not "a notification does". */}
       <AnalysisJobWatcher />
       <Suspense fallback={<LoadingState />}>
         <Outlet />
