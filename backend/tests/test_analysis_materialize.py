@@ -2240,6 +2240,26 @@ class TestMaterializeWorker:
         # Same transaction, ahead of the CTAS it protects.
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
 
+    def test_timeout_message_names_the_budget_that_fired(self, monkeypatch):
+        """fix(#1013 review): the two budgets are independently configurable
+        now, so a registration timeout quoting the materialize budget would
+        send an operator to tune the setting that did not fire."""
+        from sqlalchemy.exc import OperationalError
+
+        from app.core.config import settings
+        from app.processing.analysis.tasks import _user_error_message
+
+        monkeypatch.setattr(settings, "analysis_materialize_timeout_seconds", 300)
+        monkeypatch.setattr(settings, "analysis_registration_timeout_seconds", 900)
+        exc = OperationalError(
+            "SELECT 1", {}, Exception("canceling statement due to statement timeout")
+        )
+
+        assert "300s" in _user_error_message(exc)
+        assert "900s" not in _user_error_message(exc)
+        assert "900s" in _user_error_message(exc, registered=True)
+        assert "300s" not in _user_error_message(exc, registered=True)
+
     def test_analysis_timeouts_track_their_settings(self, monkeypatch):
         """fix(#1013): the budgets are operator settings now, and they are read
         at call time — a module-level snapshot would freeze whatever the

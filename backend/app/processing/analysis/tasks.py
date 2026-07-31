@@ -96,7 +96,7 @@ ANALYSIS_JOBS = Counter(
 )
 
 
-def _user_error_message(exc: Exception) -> str:
+def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
     """Map a failure onto text safe to return from ``GET /jobs/{job_id}``.
 
     SQLAlchemy stringifies DB errors with the full statement appended
@@ -108,9 +108,17 @@ def _user_error_message(exc: Exception) -> str:
         exc_text = str(exc).lower()
         if "querycancelederror" in exc_text or "statement timeout" in exc_text:
             # fix(v1.6.0 audit D11): name the configured limit so the user
-            # knows what budget was exceeded.
+            # knows what budget was exceeded. fix(#1013 review): WHICH limit
+            # depends on the phase — the CTAS transaction carries the
+            # materialize budget, and the commit that ends it re-arms
+            # registration with its own (#692). Naming the wrong one was
+            # harmless while both were hardcoded at 300s/600s and only the
+            # first was ever quoted; now that an operator can set them
+            # independently, a registration timeout quoting the materialize
+            # budget sends them to tune the setting that did not fire.
+            budget = registration_timeout() if registered else materialize_timeout()
             return (
-                f"The analysis exceeded its {materialize_timeout()} processing "
+                f"The analysis exceeded its {budget} processing "
                 "time limit. Try a smaller dataset or area."
             )
         if isinstance(exc, (DataError, InternalError)):
@@ -389,6 +397,7 @@ async def _mark_job_failed(
     schema: str,
     out_table: str | None,
     operation: str,
+    registered: bool = False,
 ) -> None:
     """Roll back, record the failure, and drop this job's own partial table.
 
@@ -411,7 +420,7 @@ async def _mark_job_failed(
         values={
             "status": "failed",
             # Sanitized (fix(#692)): raw DB errors embed the generated SQL.
-            "error_message": _user_error_message(exc),
+            "error_message": _user_error_message(exc, registered=registered),
             # fix(v1.6.0 audit B12): stamp completion time like ingest does.
             "completed_at": datetime.now(timezone.utc),
         },
@@ -626,6 +635,10 @@ async def _materialize(
         # generated name, an unconditional cleanup would destroy the winner's
         # table while its dataset registration stays live.
         out_table_created = False
+        # fix(#1013 review): flipped when the CTAS transaction commits and
+        # registration re-arms its own statement_timeout, so a failure after
+        # that point quotes the budget that actually fired.
+        registration_started = False
         # Created inside the try so the finally below always reaps it: a
         # heartbeat left running after an exception here would renew a lease
         # for a job nobody is executing, and the sweep can never fail a row
@@ -769,6 +782,7 @@ async def _materialize(
             await session.execute(text(f"ANALYZE {out_ref}"))
             job.current_step = "registering"
             await session.commit()
+            registration_started = True
 
             # The commit above ended the transaction and the SET LOCAL with
             # it — give registration its own budget (fix(#692)). Set here
@@ -836,6 +850,9 @@ async def _materialize(
                 schema=_schema,
                 out_table=out_table if out_table_created else None,
                 operation=operation,
+                # True only once the CTAS transaction has committed, which is
+                # exactly when the registration budget is the one in force.
+                registered=registration_started,
             )
         finally:
             # The row has left 'running' by now, so the loop would exit on its
