@@ -113,37 +113,30 @@ describe('useBuilderLayers — clean-state recheck', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
-  it('keeps the flag for a whitespace-only description edit that saves as null', () => {
-    const layer = makeBuilderLayer();
-    const { result } = render(makeBuilderMap([layer]));
+  // Text fields hydrate RAW but save as `value.trim() || null`, so "dirty" means
+  // "saving would change the stored value" — not raw inequality, and not trimmed
+  // equality either.
+  describe.each([
+    ['untouched whitespace in the saved value', '  notes  ', (d: string) => d, false],
+    ['the user trimming that whitespace', '  notes  ', () => 'notes', true],
+    ['a whitespace-only local value over an empty server one', null, () => '   ', false],
+    ['a whitespace-only local value over a real server one', '  x  ', () => '   ', true],
+  ])('description: %s', (_name, saved, edit, expectDirty) => {
+    it(`reports ${expectDirty ? 'dirty' : 'clean'}`, () => {
+      const layer = makeBuilderLayer();
+      const { result } = render({ ...makeBuilderMap([layer]), description: saved } as MapResponse);
 
-    // handleSave persists localDescription.trim() || null, so '   ' against a
-    // null server description is NOT a pending change.
-    act(() => {
-      result.current.setLocalDescription('   ');
-      result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' });
+      act(() => {
+        result.current.setLocalDescription(edit(saved ?? ''));
+        result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' });
+      });
+      act(() => {
+        result.current.handlePaintChange(layer.id, layer.paint as Record<string, unknown>);
+        result.current.requestCleanRecheck();
+      });
+
+      expect(result.current.hasUnsavedChanges).toBe(expectDirty);
     });
-    act(() => {
-      result.current.handlePaintChange(layer.id, layer.paint as Record<string, unknown>);
-      result.current.requestCleanRecheck();
-    });
-
-    expect(result.current.hasUnsavedChanges).toBe(false);
-  });
-
-  it('ignores untouched surrounding whitespace in a saved description', () => {
-    // The hook hydrates localDescription from the RAW server value, so trimming
-    // only the local side left such maps permanently dirty.
-    const layer = makeBuilderLayer();
-    const { result } = render({ ...makeBuilderMap([layer]), description: '  notes  ' } as MapResponse);
-
-    act(() => result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' }));
-    act(() => {
-      result.current.handlePaintChange(layer.id, layer.paint as Record<string, unknown>);
-      result.current.requestCleanRecheck();
-    });
-
-    expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
   it('keeps the flag when a folder expansion is still pending', () => {

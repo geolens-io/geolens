@@ -40,6 +40,15 @@ import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-sty
 import { useTileConfig } from '@/hooks/use-settings';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
+// True when a local text field and its saved value would persist identically.
+// The save payload is `value.trim() || null`, and the field hydrates raw.
+function sameSavedText(local: string | null | undefined, saved: string | null | undefined): boolean {
+  const l = local ?? '';
+  const r = saved ?? '';
+  if (l === r) return true;
+  return l.trim() === '' && r.trim() === '';
+}
+
 // fix(#913 review): the hydrated shape of mapData's folder-expansion state,
 // mirroring the load path below (hydrated markers overlaid with group_meta).
 function savedGroupMeta(mapData: MapResponse): Record<string, { expanded: boolean }> {
@@ -890,10 +899,14 @@ export function useBuilderLayers(
     // `localDescription.trim() || null`, and a trimmed-or-null legend title, so
     // an untrimmed local value would otherwise read as permanently dirty.
     if (localName && localName !== mapData.name) return false;
-    const savedDescription = mapData.description ?? null;
-    if ((localDescription.trim() || null) !== (savedDescription?.trim() || null)) return false;
-    const savedLegend = mapData.legend_title ?? null;
-    if ((localLegendTitle?.trim() || null) !== (savedLegend?.trim() || null)) return false;
+    // Text fields hydrate RAW but save trimmed-or-null, so neither a raw compare
+    // nor a trimmed one is right on its own: a raw compare calls an untouched
+    // server value with surrounding whitespace dirty forever, while a trimmed
+    // compare calls a real user edit (removing that whitespace) clean. Dirty
+    // means "saving would change the stored value": identical text is clean, and
+    // so is any pair that both persist as null.
+    if (!sameSavedText(localDescription, mapData.description)) return false;
+    if (!sameSavedText(localLegendTitle, mapData.legend_title)) return false;
     if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
