@@ -50,7 +50,11 @@ export function FillEditor({
   // It stays visible while a pattern IS set, because it is the only way to clear
   // one — selecting a height column with a pattern already applied would
   // otherwise strand the layer with a pattern and no control to remove it.
-  const hasFillPattern = typeof paint['fill-pattern'] === 'string';
+  // Any present value counts, not just a string: fill-pattern accepts MapLibre
+  // expressions, and AdvancedJsonEditor lets one through. A gate that only saw
+  // strings would leave the colour picker live on an expression-patterned layer,
+  // where editing it writes both keys back — the EDIT-05 breakage this closes.
+  const hasFillPattern = paint['fill-pattern'] != null;
   const showPatternPicker = isPolygon && !isDataDriven && (!currentHeightCol || hasFillPattern);
   return (
     <>
@@ -88,7 +92,9 @@ export function FillEditor({
           />
           {showPatternPicker ? (
             <FillPatternPicker
-              value={hasFillPattern ? (paint['fill-pattern'] as string) : undefined}
+              // Only a string can select a swatch; an expression shows none active
+              // while still being clearable through None.
+              value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
               onChange={onFillPatternChange}
               t={t}
             />

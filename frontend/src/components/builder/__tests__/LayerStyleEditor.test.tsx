@@ -167,10 +167,13 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     expect(onStyleConfigChange).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Reset style' }));
+    // fix(#910, codex P2): `replace` so Reset cannot leave the pattern colour stash
+    // behind — the funnel's null-config branch would otherwise preserve the builder
+    // block wholesale. With no other builder fields the config is still null.
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),
-    }));
+    }), { replace: true });
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
 
@@ -1429,10 +1432,13 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
     // Reset now confirms first — apply via the inline confirm's "Reset style".
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     await user.click(screen.getByRole('button', { name: 'Reset style' }));
+    // fix(#910, codex P2): `replace` so Reset cannot leave the pattern colour stash
+    // behind — the funnel's null-config branch would otherwise preserve the builder
+    // block wholesale. With no other builder fields the config is still null.
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),
-    }));
+    }), { replace: true });
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
 });
@@ -1542,6 +1548,35 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
 
   // fix(#910, codex P2): pattern-to-pattern finds no fill-color to stash, so the
   // handler must carry the existing stash forward instead of dropping it.
+  // fix(#910, codex P2): Reset must drop the stash. A layer with other builder
+  // fields keeps them, so the config is not null and `replace` is what makes the
+  // removal stick through the funnel.
+  it('drops the stash on Reset while keeping the rest of the builder', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch' },
+          style_config: { builder: { fillColorSaved: '#ff0000', outlineWidth: 3 } },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Reset style' }));
+
+    const { config, opts } = lastStyleConfigCall(onStyleConfigChange);
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+    expect(config?.builder?.outlineWidth).toBe(3);
+    expect(opts?.replace).toBe(true);
+  });
+
   it('keeps the stash when switching from one pattern straight to another', () => {
     const onStyleConfigChange = vi.fn();
     render(

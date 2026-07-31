@@ -396,17 +396,23 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     const nextLayout = { ...layoutObj };
     delete nextLayout['_minzoom'];
     delete nextLayout['_maxzoom'];
+    // fix(#910, codex P2): a plain null config makes the funnel preserve the builder
+    // block wholesale, stash included, so Reset used to leave a fillColorSaved from
+    // before it — and a pattern applied later (Advanced JSON) then cleared with None
+    // restored that pre-reset colour. Drop the stash explicitly and replace, which
+    // otherwise keeps exactly what the null branch preserved.
+    const resetConfig = withBuilderConfig(layer.style_config, { fillColorSaved: undefined });
     if (geomType === 'fill') {
-      onStyleConfigChange(layer.id, null, FILL_DEFAULTS);
+      onStyleConfigChange(layer.id, resetConfig, FILL_DEFAULTS, { replace: true });
     } else if (geomType === 'line') {
       delete nextLayout['line-dasharray'];
-      onStyleConfigChange(layer.id, null, LINE_DEFAULTS);
+      onStyleConfigChange(layer.id, resetConfig, LINE_DEFAULTS, { replace: true });
     } else {
-      onStyleConfigChange(layer.id, null, CIRCLE_DEFAULTS);
+      onStyleConfigChange(layer.id, resetConfig, CIRCLE_DEFAULTS, { replace: true });
     }
     onLayoutChange(layer.id, nextLayout);
     onOpacityChange?.(layer.id, 1);
-  }, [geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
+  }, [geomType, layer.id, layer.style_config, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
 
   // Reset destroys render mode + classification — gate it behind the builder's
   // shared inline confirm (same pattern as the DEM editor's delete footer).

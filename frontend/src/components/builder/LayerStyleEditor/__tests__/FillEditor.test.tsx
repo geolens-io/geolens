@@ -513,6 +513,27 @@ describe('FillEditor', () => {
     expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
   });
 
+  // fix(#910, codex P2): fill-pattern accepts MapLibre expressions and
+  // AdvancedJsonEditor lets one through; a string-only gate left the colour picker
+  // live, where editing it writes both keys back.
+  it('treats an expression-valued fill-pattern as an active pattern', () => {
+    const expression = ['match', ['get', 'kind'], 'a', 'geolens-fill-hatch', 'geolens-fill-dots'];
+    const layer = makeFillLayer({ paint: { 'fill-pattern': expression, 'fill-opacity': 0.8 } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Color unavailable')).toBeInTheDocument();
+    // Still clearable: the picker renders with no swatch selected.
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'None' })[0]).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('hides the fill color picker while a pattern is active, and explains why', () => {
     const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
     render(
