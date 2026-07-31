@@ -331,6 +331,13 @@ def _check_function_allowlist(stmt: exp.Expression, sql: str) -> None:
         # side of an AND/OR is still caught below.
         if isinstance(func, exp.Connector):
             continue
+        # fix(#1017): sqlglot reaches EXISTS through the same Func path (#538),
+        # so every EXISTS subquery was rejected as an unlisted "function".
+        # EXISTS is a subquery predicate, not a callable — and find_all walks
+        # its operand regardless, so a disallowed function inside the subquery
+        # is still caught below.
+        if isinstance(func, exp.Exists):
+            continue
         if isinstance(func, exp.Anonymous):
             fn_name = func.name.lower() if hasattr(func, "name") else ""
         else:
