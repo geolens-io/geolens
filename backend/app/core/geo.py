@@ -4,10 +4,15 @@ import math
 import re
 from collections.abc import Iterable, Sequence
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, column, func, or_, select
+from sqlalchemy import table as sql_table
 from sqlalchemy.sql.elements import ColumnElement
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 # fix(#892): tolerance for recognizing the two-ring seam form. Both rings are
@@ -168,6 +173,17 @@ def bbox_to_extent_wkt(west: float, south: float, east: float, north: float) -> 
     # defect this helper exists to prevent. Keep only the halves with real width,
     # and fall back to the full -180..180 band when neither has any -- an extent
     # must never silently narrow to nothing.
+    #
+    # fix(#934 codex r2): dropping the zero-width half is right for every caller
+    # that passes a CONTINUOUS rectangle -- a raster footprint
+    # (``processing/raster/cog.py``) or a STAC item bbox
+    # (``catalog/sources/stac_router.py``). A 180..190 raster folds to the single
+    # -180..-170 ring and covers every pixel it has; there is nothing at the
+    # zero-width half to lose. It is NOT right for a fold over DISCRETE stored
+    # features, where a row can sit at the literal planar +180 that the -180 ring
+    # does not cover. That case is handled where it belongs, in
+    # :func:`seam_extent_wkt_for_table`, which pads the seam edge to a sliver
+    # before calling here -- so a degenerate half never reaches this drop.
     halves = [
         _ring(x0, south, x1, north)
         for x0, x1 in ((west, 180.0), (-180.0, east))
@@ -348,6 +364,77 @@ def rollup_span_bbox(values: Sequence[object]) -> list[float] | None:
     if west > east:
         return [-180.0, south, 180.0, north]
     return [west, south, east, north]
+
+
+async def seam_extent_wkt_for_table(
+    session: AsyncSession,
+    table_name: str,
+    *,
+    schema: str | None = None,
+    geom_column: str = "geom_4326",
+) -> str | None:
+    """Two-ring extent WKT for a data table that honestly crosses ±180, else None.
+
+    fix(#934): the producer-side twin of :func:`rollup_bbox` for the per-dataset
+    extent writers (``ingest/metadata.py``, ``catalog/features/service.py``). A
+    naive ``ST_Extent`` over a Pacific-crossing table reads near-global
+    (150..250 shifted to both sides folds to -170..170, a 340-degree bbox for a
+    100-degree footprint); this aggregates the same rows in both longitude
+    domains via :func:`rollup_bbox_columns` and, when the shifted domain wins,
+    returns the honest two-ring MULTIPOLYGON from :func:`bbox_to_extent_wkt`.
+
+    Returns None for a non-crossing (or empty) table so callers keep their
+    existing single-polygon path byte-identical — including the degenerate
+    POINT/LINESTRING padding, which can never apply to a crossing extent.
+
+    ``table_name`` / ``schema`` are rendered through SQLAlchemy's identifier
+    quoting (``sqlalchemy.table``), never string-interpolated into SQL
+    (fix(#934 codeql)); callers still pass names they have validated
+    (``_validate_table_name`` / catalog-owned ``Dataset.table_name``).
+    """
+    tbl = sql_table(table_name, column(geom_column), schema=schema)
+    stmt = select(*rollup_bbox_columns(tbl.columns[geom_column])).select_from(tbl)
+    row = (await session.execute(stmt)).first()
+    values = _rollup_floats(row) if row is not None else None
+    if values is None:
+        return None
+    bbox = _narrower_domain(*values)
+    west, south, east, north = bbox
+    crossing = west > east
+    # fix(#934 codex r3): the mirror of the +180 seam edge. For features at
+    # -180 and 170, ST_ShiftLongitude maps the negative seam point to +180,
+    # so the winning shifted fold reads as the apparently non-crossing
+    # [170..180] — but the feature is STORED at planar -180, which that
+    # polygon does not cover. When the shifted domain won (the fold differs
+    # from the naive planar bounds) and its east lands on +180, re-express
+    # it as the crossing form with east at -180; bbox_to_extent_wkt then
+    # pads the -180 lobe to a sliver covering the stored representation.
+    if not crossing and east >= 180.0 and (west != values[0] or east != values[2]):
+        east = -180.0
+        crossing = True
+    if not crossing:
+        return None
+    # Mirror the callers' degenerate padding (their non-crossing path runs
+    # ST_Expand 1e-9 on POINT/LINESTRING extents): a crossing extent can
+    # never be zero-width, but a single-parallel source is zero-height and
+    # would produce invalid zero-height rings. Related: #944.
+    if north - south < 1e-12:
+        south -= 1e-9
+        north += 1e-9
+    # fix(#934 codex r2): a fold whose west lands exactly on +180 (rows at
+    # planar 180 and -170), or whose east lands on -180, has a zero-width
+    # half. bbox_to_extent_wkt drops such halves, which is correct for its
+    # continuous-rectangle callers but wrong here: the dropped half is
+    # precisely where a discrete row is stored, so the -180..-170 lobe alone
+    # stopped covering the row at planar +180 and the read-back stopped
+    # reporting a crossing at all. Widen that seam edge to a sub-mm sliver
+    # (the same 1e-9 the ST_Expand degenerate paths use) so both planar
+    # representations of the seam meridian stay covered.
+    if west >= 180.0:
+        west = 180.0 - 1e-9
+    if east <= -180.0:
+        east = -180.0 + 1e-9
+    return bbox_to_extent_wkt(west, south, east, north)
 
 
 def merge_bboxes(bboxes: Iterable[Sequence[float] | None]) -> list[float] | None:

@@ -13,6 +13,7 @@ from shapely.validation import explain_validity
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.geo import seam_extent_wkt_for_table
 from app.platform.extensions import get_catalog_port
 
 if TYPE_CHECKING:
@@ -625,6 +626,7 @@ async def _refresh_count_and_extent(
     # extent). ST_Expand always returns the bounding-box POLYGON, so we pad ONLY the
     # degenerate (non-polygon) cases into a valid sub-mm-padded polygon; genuine
     # polygon extents are returned byte-identical (no epsilon).
+    quoted = get_catalog_port().quote_table(table_name)
     result = await session.execute(
         text(
             f"SELECT COUNT(*), "
@@ -634,12 +636,31 @@ async def _refresh_count_and_extent(
             f"    THEN ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)) "
             f"  ELSE ST_AsText("
             f"    ST_Expand(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326), 1e-9)) "
-            f"END "
-            f"FROM {get_catalog_port().quote_table(table_name)}"
+            f"END, "
+            f"ST_XMin(ST_Extent(geom_4326)), ST_XMax(ST_Extent(geom_4326)) "
+            f"FROM {quoted}"
         )
     )
     row = result.one()
-    return int(row[0]), row[1]
+    count, extent_wkt, xmin, xmax = int(row[0]), row[1], row[2], row[3]
+    # fix(#934): a table honestly crossing ±180 must not store the naive
+    # near-global fold on refresh; emit the two-ring MULTIPOLYGON instead.
+    # A crossing dataset's naive width always exceeds 180 degrees (the shifted
+    # domain spans 360 - width, so it can only win past 180), which lets the
+    # ordinary case skip the second aggregate and stay byte-identical —
+    # including the degenerate POINT/LINESTRING padding above.
+    if xmin is not None and xmax is not None and float(xmax) - float(xmin) > 180.0:
+        # Same tenant data schema the quoted reference above resolves to; the
+        # helper quotes identifiers itself (fix(#934 codeql)).
+        from app.core.db.tenant_schema import tenant_data_schema
+        from app.core.db.tenant_session import current_tenant_var
+
+        crossing = await seam_extent_wkt_for_table(
+            session, table_name, schema=tenant_data_schema(current_tenant_var.get())
+        )
+        if crossing is not None:
+            extent_wkt = crossing
+    return count, extent_wkt
 
 
 _CONCRETE_GEOMETRY_TYPES = {

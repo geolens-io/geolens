@@ -174,7 +174,16 @@ class TestBboxToExtentWkt:
     ):
         """A remote bbox with west == 180 (or east == -180) would otherwise emit a
         zero-width ring — an invalid geometry, the exact defect class this helper
-        exists to prevent."""
+        exists to prevent.
+
+        fix(#934 codex r2): the zero-width half is dropped here, and that stays
+        right for this helper's callers, which all pass a continuous rectangle
+        (a raster footprint, a STAC item bbox) with nothing in the dropped half
+        to lose. The discrete-row case, where a feature really does sit at the
+        planar +180 the surviving ring misses, is padded upstream by
+        ``seam_extent_wkt_for_table`` — see
+        ``test_extent_producers_934.TestGetExtent``.
+        """
         shape = shapely_wkt.loads(bbox_to_extent_wkt(*bbox))
         assert shape.is_valid
         assert shape.geom_type == expected_type

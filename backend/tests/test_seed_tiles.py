@@ -3,7 +3,12 @@
 import math
 
 
-from scripts.seed_tiles import bbox_to_tiles, lat_to_tile_y, lng_to_tile_x
+from scripts.seed_tiles import (
+    bbox_to_tiles,
+    lat_to_tile_y,
+    lng_to_tile_x,
+    spec_bbox_to_tiles,
+)
 
 
 class TestLngToTileX:
@@ -118,3 +123,41 @@ class TestBboxToTiles:
         # Our implementation: x_min > x_max → empty range
         tiles = list(bbox_to_tiles(10, 40, 5, 50, z=10))
         assert len(tiles) == 0
+
+
+class TestSpecBboxToTiles:
+    """fix(#934): the spec-form reader seeds a crossing extent per lobe."""
+
+    def test_non_crossing_matches_bbox_to_tiles(self):
+        spec = list(spec_bbox_to_tiles(-75, 40, -73, 41.5, z=10))
+        naive = list(bbox_to_tiles(-75, 40, -73, 41.5, z=10))
+        assert spec == naive
+
+    def test_crossing_bbox_seeds_two_lobes_not_the_world(self):
+        # Fiji-style strip: lon 170..-170 at z3 is exactly the two edge
+        # columns (x=7 and x=0), not the 0..7 world sweep the old
+        # ST_XMin/ST_XMax read produced.
+        tiles = list(spec_bbox_to_tiles(170, -10, -170, 10, z=3))
+        assert tiles
+        xs = {x for _, x, _ in tiles}
+        assert xs == {0, 7}
+
+    def test_crossing_lobes_do_not_duplicate_tiles(self):
+        tiles = list(spec_bbox_to_tiles(170, -10, -170, 10, z=3))
+        assert len(tiles) == len(set(tiles))
+
+    def test_crossing_bbox_at_z0_yields_the_single_world_tile_once(self):
+        # fix(#934 codex r1): both lobes resolve to (0, 0, 0) at z0; the
+        # shared tile must be seeded (and counted) exactly once.
+        assert list(spec_bbox_to_tiles(170, -10, -170, 10, z=0)) == [(0, 0, 0)]
+
+    def test_crossing_bbox_low_zoom_shared_column_not_duplicated(self):
+        # At z1 both lobes land in adjacent columns 0 and 1 with overlap risk;
+        # every tile must still appear exactly once.
+        tiles = list(spec_bbox_to_tiles(170, -10, -170, 10, z=1))
+        assert len(tiles) == len(set(tiles))
+
+    def test_crossing_bbox_is_much_smaller_than_the_world(self):
+        crossing = list(spec_bbox_to_tiles(170, -10, -170, 10, z=6))
+        world = list(bbox_to_tiles(-180, -10, 180, 10, z=6))
+        assert 0 < len(crossing) < len(world) / 4

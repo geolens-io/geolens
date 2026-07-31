@@ -201,7 +201,11 @@ async def create_dataset(
         ing = ingestion
 
     spatial_extent_value = None
-    if ing.extent_wkt and ing.extent_wkt.startswith("POLYGON"):
+    # fix(#934 codex r1): an antimeridian-crossing source produces a two-ring
+    # MULTIPOLYGON extent; accepting only POLYGON here silently nulled
+    # Record.spatial_extent on first ingest. Both types satisfy
+    # chk_records_spatial_extent_type.
+    if ing.extent_wkt and ing.extent_wkt.startswith(("POLYGON", "MULTIPOLYGON")):
         spatial_extent_value = func.ST_GeomFromText(ing.extent_wkt, 4326)
 
     # Determine record_type: non-spatial datasets are 'table'

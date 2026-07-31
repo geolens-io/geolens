@@ -103,6 +103,36 @@ def bbox_to_tiles(
             yield (z, x, y)
 
 
+def spec_bbox_to_tiles(
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    z: int,
+):
+    """Yield (z, x, y) tuples for an RFC 7946 §5.2 bbox, which may cross ±180.
+
+    fix(#934): a two-ring antimeridian extent read naively via ST_XMin/ST_XMax
+    is -180..180, so a narrow Pacific dataset seeded the whole world at every
+    zoom. Read the extent through ``extent_to_bbox`` (west > east for a
+    crossing extent) and seed each lobe as its own longitude range.
+    """
+    if west > east:
+        # fix(#934 codex r1): at low zooms both lobes can resolve to the same
+        # tile column (z0 is a single tile for either lobe), so deduplicate —
+        # otherwise the same cache key is seeded twice concurrently and the
+        # dry-run/summary counts over-report.
+        seen: set[tuple[int, int, int]] = set()
+        for tile in bbox_to_tiles(west, south, 180.0, north, z=z):
+            seen.add(tile)
+            yield tile
+        for tile in bbox_to_tiles(-180.0, south, east, north, z=z):
+            if tile not in seen:
+                yield tile
+    else:
+        yield from bbox_to_tiles(west, south, east, north, z=z)
+
+
 # ---------------------------------------------------------------------------
 # Dataset query
 # ---------------------------------------------------------------------------
@@ -112,10 +142,7 @@ _DATASET_QUERY = """
         d.table_name,
         d.column_info,
         d.tile_cache_ttl,
-        ST_XMin(r.spatial_extent) AS west,
-        ST_YMin(r.spatial_extent) AS south,
-        ST_XMax(r.spatial_extent) AS east,
-        ST_YMax(r.spatial_extent) AS north
+        ST_AsBinary(r.spatial_extent) AS extent_wkb
     FROM catalog.datasets d
     JOIN catalog.records r ON d.record_id = r.id
     WHERE r.record_type = 'vector_dataset'
@@ -304,15 +331,23 @@ async def main() -> None:
 
         cache_ttl = row["tile_cache_ttl"] or settings.tile_cache_ttl
 
-        west = row["west"]
-        south = row["south"]
-        east = row["east"]
-        north = row["north"]
+        # fix(#934): read the extent in spec form (west > east when it crosses
+        # the antimeridian) so a Pacific dataset seeds its two lobes instead
+        # of the whole world.
+        from geoalchemy2.elements import WKBElement
+
+        from app.core.geo import extent_to_bbox
+
+        bbox = extent_to_bbox(WKBElement(row["extent_wkb"]))
+        if bbox is None:
+            print(f"  Skipping {table_name}: unreadable spatial_extent")
+            continue
+        west, south, east, north = bbox
 
         # Compute all tiles across all zoom levels
         all_tiles = []
         for z in range(args.min_zoom, args.max_zoom + 1):
-            all_tiles.extend(bbox_to_tiles(west, south, east, north, z=z))
+            all_tiles.extend(spec_bbox_to_tiles(west, south, east, north, z=z))
 
         grand_total_tiles += len(all_tiles)
 
