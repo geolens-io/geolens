@@ -21,6 +21,10 @@ export interface AnalysisCompletionClaim {
   /** Whichever tab wrote it. Two tabs can observe the same terminal poll in
    *  the same millisecond, so the timestamp alone cannot identify a claimant. */
   tabId: string;
+  /** fix(#1008 codex P2): how the run ended. A tab that never observed the
+   *  terminal poll itself still has document-local cleanup to do once the
+   *  claim reaches it, and complete and failed call for different cleanup. */
+  status: 'complete' | 'failed';
   at: number;
 }
 
@@ -40,7 +44,10 @@ interface AnalysisJobState extends PersistedAnalysisJobState {
    * claim). See the storage listener below for why a mirror alone is not
    * enough.
    */
-  claimCompletion: (jobId: string) => Promise<boolean>;
+  claimCompletion: (
+    jobId: string,
+    status: 'complete' | 'failed',
+  ) => Promise<boolean>;
   /**
    * Stop tracking ``jobId``, unless a newer run already owns the slot.
    *
@@ -187,7 +194,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
           withLock(() => {
             set(mergeWith(readPersisted(), { job }));
           }, undefined),
-        claimCompletion: (jobId) =>
+        claimCompletion: (jobId, status) =>
           // fix(#1008 codex P2): the read/write/read below is NOT atomic on its
           // own, and the tempting argument that it is does not survive contact
           // with an interleaving. localStorage serializes individual
@@ -210,7 +217,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
             if (existing && persisted.job?.jobId !== jobId) return false;
             set(
               mergeWith(persisted, {
-                completedAt: { jobId, tabId: TAB_ID, at: Date.now() },
+                completedAt: { jobId, tabId: TAB_ID, status, at: Date.now() },
               }),
             );
             const settled = readPersisted().completedAt;

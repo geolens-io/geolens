@@ -107,18 +107,18 @@ describe('analysis-job-store completion claim', () => {
 
   it('is granted to the first caller and recorded in storage', async () => {
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(true);
     expect(storedState().completedAt).toMatchObject({ jobId: 'job-1' });
   });
 
   it('stays granted to the tab that won it', async () => {
-    await useAnalysisJobStore.getState().claimCompletion('job-1');
+    await useAnalysisJobStore.getState().claimCompletion('job-1', 'complete');
 
     // StrictMode invokes the watcher effect twice; the tab that already
     // reported must not silence itself on the second pass.
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(true);
   });
 
@@ -127,7 +127,7 @@ describe('analysis-job-store completion claim', () => {
     // clear, run again. A tab that has never tracked job-2 has no business
     // reporting it, which the stale-claim rule below depends on.
     await useAnalysisJobStore.getState().setJob(job);
-    await useAnalysisJobStore.getState().claimCompletion('job-1');
+    await useAnalysisJobStore.getState().claimCompletion('job-1', 'complete');
     await useAnalysisJobStore.getState().clearJobIfCurrent('job-1');
 
     await useAnalysisJobStore
@@ -135,7 +135,7 @@ describe('analysis-job-store completion claim', () => {
       .setJob({ jobId: 'job-2', title: 'Next run', mapId: 'map-1' });
 
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-2'),
+      useAnalysisJobStore.getState().claimCompletion('job-2', 'complete'),
     ).resolves.toBe(true);
   });
 
@@ -146,11 +146,16 @@ describe('analysis-job-store completion claim', () => {
   it('refuses a stale run whose claim slot a newer one already owns', async () => {
     seedStorage({
       job: null,
-      completedAt: { jobId: 'job-2', tabId: 'some-other-tab', at: Date.now() },
+      completedAt: {
+        jobId: 'job-2',
+        tabId: 'some-other-tab',
+        status: 'complete' as const,
+        at: Date.now(),
+      },
     });
 
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(false);
     expect(storedState().completedAt).toMatchObject({ jobId: 'job-2' });
   });
@@ -158,10 +163,10 @@ describe('analysis-job-store completion claim', () => {
   it('grants exactly one of two tabs the same completion', async () => {
     const tabB = await openSecondTab();
 
-    const wonInA = await useAnalysisJobStore.getState().claimCompletion('job-1');
+    const wonInA = await useAnalysisJobStore.getState().claimCompletion('job-1', 'complete');
     const wonInB = await tabB.useAnalysisJobStore
       .getState()
-      .claimCompletion('job-1');
+      .claimCompletion('job-1', 'complete');
 
     expect(wonInA).toBe(true);
     expect(wonInB).toBe(false);
@@ -170,7 +175,7 @@ describe('analysis-job-store completion claim', () => {
   });
 
   it('holds across a reload, so a returning tab does not report again', async () => {
-    await useAnalysisJobStore.getState().claimCompletion('job-1');
+    await useAnalysisJobStore.getState().claimCompletion('job-1', 'complete');
 
     // A reload is a new module instance reading the same storage — which is
     // exactly what the second tab above is, so it doubles as the durability
@@ -178,7 +183,7 @@ describe('analysis-job-store completion claim', () => {
     const reloaded = await openSecondTab();
 
     await expect(
-      reloaded.useAnalysisJobStore.getState().claimCompletion('job-1'),
+      reloaded.useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(false);
   });
 
@@ -187,7 +192,7 @@ describe('analysis-job-store completion claim', () => {
 
     // A duplicate toast is a far better failure than a broken watcher effect.
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(true);
   });
 });
@@ -222,7 +227,7 @@ describe('analysis-job-store claim atomicity', () => {
     });
 
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(true);
 
     expect(request).toHaveBeenCalledWith(
@@ -238,7 +243,7 @@ describe('analysis-job-store claim atomicity', () => {
     // not the feature — a duplicate toast on a genuine tie is the behaviour
     // that shipped before any of this.
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(true);
   });
 });
@@ -302,7 +307,7 @@ describe('analysis-job-store write merging', () => {
     // ...while another tab finished it, started job-2, and persisted that.
     seedStorage({ job: newer, completedAt: null });
 
-    await useAnalysisJobStore.getState().claimCompletion(job.jobId);
+    await useAnalysisJobStore.getState().claimCompletion(job.jobId, 'complete');
 
     // Claiming must carry storage's job through rather than republish job-1.
     expect(storedState().job).toEqual(newer);
@@ -316,7 +321,12 @@ describe('analysis-job-store write merging', () => {
   it('starting a run keeps a claim another tab wrote', async () => {
     seedStorage({
       job: null,
-      completedAt: { jobId: 'job-0', tabId: 'some-other-tab', at: 1 },
+      completedAt: {
+        jobId: 'job-0',
+        tabId: 'some-other-tab',
+        status: 'complete' as const,
+        at: 1,
+      },
     });
 
     await useAnalysisJobStore.getState().setJob(job);
@@ -347,7 +357,7 @@ describe('analysis-job-store storage failure', () => {
     // A duplicate notification beats never telling the user their dataset is
     // ready, so the degraded answer is "report it".
     await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
+      useAnalysisJobStore.getState().claimCompletion('job-1', 'complete'),
     ).resolves.toBe(true);
   });
 

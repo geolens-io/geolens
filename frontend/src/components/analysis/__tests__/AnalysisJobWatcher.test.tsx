@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
@@ -225,6 +225,61 @@ describe('AnalysisJobWatcher', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
     // Datasets and search, one apiece.
     expect(invalidate).toHaveBeenCalledTimes(2);
+    invalidate.mockRestore();
+  });
+
+  // fix(#1008 codex P2): a tab throttled through the terminal poll never sees
+  // it — the job simply vanishes when the reporting tab's clear propagates.
+  // Its QueryClient and its remembered form title are document-local, so
+  // without this it keeps a catalog that omits the new dataset and reopens the
+  // form with the finished run's name.
+  it('runs its local cleanup when another tab clears a completed job', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    // Still running as far as this tab knows.
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+    expect(invalidate).not.toHaveBeenCalled();
+
+    // The reporting tab's claim and clear arrive together through the mirror.
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: {
+          jobId: 'j1',
+          tabId: 'some-other-tab',
+          status: 'complete',
+          at: Date.now(),
+        },
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    // Reporting still belongs to the tab that claimed it.
+    expect(toast.success).not.toHaveBeenCalled();
+    invalidate.mockRestore();
+  });
+
+  it('does not refresh when the job is cleared without a completion claim', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    renderWatcher();
+
+    // A logout or an identity change clears the job with no claim behind it —
+    // nothing was created, so there is nothing to refresh.
+    act(() => {
+      useAnalysisJobStore.setState({ job: null, completedAt: null });
+    });
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(invalidate).not.toHaveBeenCalled();
     invalidate.mockRestore();
   });
 

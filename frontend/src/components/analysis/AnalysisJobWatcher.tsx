@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,7 +7,12 @@ import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
-import { analysisAddToMap, useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
+import {
+  analysisAddToMap,
+  useAnalysisAddedStore,
+  useAnalysisJobStore,
+  type TrackedAnalysisJob,
+} from '@/stores/analysis-job-store';
 
 /**
  * Global notifier for a materialize-analysis job (renders nothing).
@@ -20,8 +25,14 @@ import { analysisAddToMap, useAnalysisAddedStore, useAnalysisJobStore } from '@/
 export function AnalysisJobWatcher() {
   const { t } = useTranslation('builder');
   const job = useAnalysisJobStore((s) => s.job);
+  const completedAt = useAnalysisJobStore((s) => s.completedAt);
   const claimCompletion = useAnalysisJobStore((s) => s.claimCompletion);
   const clearJobIfCurrent = useAnalysisJobStore((s) => s.clearJobIfCurrent);
+  // Runs whose terminal status this tab has already acted on, so neither the
+  // effect below nor the propagated-clear cleanup repeats itself.
+  const handledRef = useRef<Set<string>>(new Set());
+  // The job as of the previous render, so a disappearance is detectable.
+  const lastSeenRef = useRef<TrackedAnalysisJob | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   // Shares its query key with the Analysis panel, so both watching costs one poll.
@@ -60,6 +71,15 @@ export function AnalysisJobWatcher() {
     // staleness rule of its own; it mirrors the server's verdict.
     if (status !== 'complete' && status !== 'failed') return;
 
+    // Once per job per tab. The clear used to be synchronous, so a re-run
+    // simply fell out at `if (!job)`; now the claim is awaited, and any render
+    // in between re-enters — including the one the claim's own store write
+    // causes, and the one a fresh `t` identity causes on every render. This
+    // also subsumes StrictMode's double invoke, which is why the effect needs
+    // no cleanup-based guard.
+    if (handledRef.current.has(job.jobId)) return;
+    handledRef.current.add(job.jobId);
+
     // fix(#1008 codex P2): the cache invalidation is deliberately NOT behind
     // the claim below. Every document owns its own QueryClient and the app
     // disables refetch-on-window-focus, so gating this would leave every tab
@@ -75,12 +95,7 @@ export function AnalysisJobWatcher() {
     // arbiter rather than a timing accident, so it also holds for a tab that
     // reloads after another already reported.
     const tracked = job;
-    let superseded = false;
-    void claimCompletion(tracked.jobId).then((claimed) => {
-      // The effect re-ran while the claim was in flight (StrictMode, or a new
-      // poll response). That run owns the outcome; acting here would double
-      // whatever it already did.
-      if (superseded) return;
+    void claimCompletion(tracked.jobId, status).then((claimed) => {
       if (claimed) {
         // Stable id so a re-run (StrictMode's double invoke) replaces the toast
         // instead of stacking a second one. That collapses duplicates WITHIN a
@@ -202,9 +217,6 @@ export function AnalysisJobWatcher() {
       }
       void clearJobIfCurrent(tracked.jobId);
     });
-    return () => {
-      superseded = true;
-    };
   }, [
     job,
     status,
@@ -216,6 +228,28 @@ export function AnalysisJobWatcher() {
     clearJobIfCurrent,
     t,
   ]);
+
+  // fix(#1008 codex P2): the clear propagates, so a tab that was throttled
+  // through the terminal poll simply watches its tracked job vanish. Its
+  // effect above then returns at `if (!job)` and it never runs the cleanup
+  // that is document-local: its own QueryClient (focus refetching is off, so
+  // nothing else refreshes it) and its own remembered form title. The claim
+  // carries the status precisely so a tab that did not observe the run's end
+  // still knows what kind of end it was.
+  useEffect(() => {
+    const previous = lastSeenRef.current;
+    lastSeenRef.current = job;
+    if (job || !previous) return;
+    // This tab reported the run itself, so it already did all of this.
+    if (handledRef.current.has(previous.jobId)) return;
+    // A clear with no claim behind it is a logout or an identity change, not
+    // a completion — nothing was created and nothing needs refreshing.
+    if (completedAt?.jobId !== previous.jobId) return;
+    if (completedAt.status !== 'complete') return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+    useAnalysisFormStore.getState().clearTitleForMap(previous.mapId);
+  }, [job, completedAt, queryClient]);
 
   return null;
 }
