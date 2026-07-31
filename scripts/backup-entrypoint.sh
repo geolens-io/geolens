@@ -264,7 +264,7 @@ backup_staging() {
     local size
     size="$(du -h "$archive" | cut -f1)"
     log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
-    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
+    if [ "${CYCLE_IS_WEEKLY:-0}" -eq 1 ]; then
         cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
         log "Weekly object-storage copy saved: $(basename "$archive")" >&2
     fi
