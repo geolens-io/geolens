@@ -103,7 +103,9 @@ jobs:
               # nginx/CSP/Dockerfile regressions). Specific files only — NOT
               # frontend/src/** — so ordinary frontend PRs stay backend-skipped.
               - 'frontend/nginx.conf'
-              - 'frontend/Dockerfile'
+              # fix(#1088): 'frontend/Dockerfile' was here and matched nothing —
+              # INF-10 deleted that file and test_phase_272_dockerfile.py keeps
+              # it deleted. A dead glob is silent in both directions.
               - 'frontend/Dockerfile.dev'
               - 'frontend/docker-entrypoint.sh'
               - 'frontend/index.html'
@@ -112,6 +114,16 @@ jobs:
               - 'frontend/src/lib/basemap-utils.ts'
               - 'frontend/src/lib/capabilities.ts'
               - 'frontend/src/components/builder/layer-adapters/shared.ts'
+              # fix(#1088): repo-root scripts that backend tests read by literal
+              # path. #1027 changed backup-entrypoint.sh and its own regression
+              # test (test_backup_staging_tar_skew.py) never ran — the backup
+              # filter covered the script, but nothing pulled in the backend
+              # suite that asserts against it. Backup Restore Round-trip went
+              # green while the test written to catch that break sat skipped.
+              # backend/scripts/* needs no entry here; backend/** covers it.
+              # test_ci_alembic_filter_paths.py now enforces both directions.
+              - 'scripts/backup-entrypoint.sh'
+              - 'scripts/init-db.sh'
               # fix(#561): a change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship

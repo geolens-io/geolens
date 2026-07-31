@@ -1,4 +1,4 @@
-"""OCG-02: Alembic paths-filter guard test.
+"""OCG-02: ci.yml paths-filter guard tests.
 
 Parses the alembic filter list from .github/workflows/ci.yml and asserts:
 1. Every glob in the alembic filter matches at least one real file on disk
@@ -7,16 +7,21 @@ Parses the alembic filter list from .github/workflows/ci.yml and asserts:
 3. At least one glob covers real model modules (e.g. backend/app/core/db/models.py
    or the backend/app/**/models.py family) so a model-only PR triggers alembic check.
 
+It also guards the ``backend`` filter (fix(#1088)): every ``scripts/`` file a
+backend test reads by literal path must be in that filter, or the suite that
+asserts against the file skips on the very PR that changes it.
+
 These tests run locally (filesystem + YAML parse only; no Docker, no DB).
 They are the locally-verifiable proof of the CI fix (OCG-02).
 
-References: OCG-02
+References: OCG-02, #1088
 """
 
 from __future__ import annotations
 
 import glob
 import pathlib
+import re
 from typing import Any
 
 import yaml
@@ -30,8 +35,8 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 CI_YML_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
-def _parse_alembic_filter_globs() -> list[str]:
-    """Return the list of path globs from the 'alembic' filter in ci.yml."""
+def _parse_filter_globs(filter_name: str) -> list[str]:
+    """Return the list of path globs from a named paths-filter in ci.yml."""
     with CI_YML_PATH.open() as fh:
         ci: dict[str, Any] = yaml.safe_load(fh)
 
@@ -53,9 +58,36 @@ def _parse_alembic_filter_globs() -> list[str]:
     filters_raw = filter_step.get("with", {}).get("filters", "")
     filters: dict[str, list[str]] = yaml.safe_load(filters_raw)
 
-    alembic_globs: list[str] = filters.get("alembic", [])
-    assert alembic_globs, "alembic filter is empty — expected at least one glob"
-    return alembic_globs
+    globs: list[str] = filters.get(filter_name, [])
+    assert globs, f"{filter_name} filter is empty — expected at least one glob"
+    return globs
+
+
+def _parse_alembic_filter_globs() -> list[str]:
+    """Return the list of path globs from the 'alembic' filter in ci.yml."""
+    return _parse_filter_globs("alembic")
+
+
+def _scripts_referenced_by_backend_tests() -> dict[str, list[str]]:
+    """Map each ``scripts/`` path a backend test names to the tests naming it.
+
+    Literal-path reads only. A test that shells out to a script it never names
+    is invisible here, which is the limit of this guard, not a reason to skip it.
+    """
+    pattern = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py|yml|yaml)")
+    found: dict[str, list[str]] = {}
+    tests_dir = REPO_ROOT / "backend" / "tests"
+    for path in sorted(tests_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in {".py", ".sh"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:  # pragma: no cover - unreadable file
+            continue
+        for ref in set(pattern.findall(text)):
+            if (REPO_ROOT / ref).is_file():
+                found.setdefault(ref, []).append(path.name)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -139,4 +171,62 @@ class TestAlembicFilterGlobs:
         assert any("backend/alembic/**" in g for g in globs), (
             f"backend/alembic/** is missing from the alembic filter. "
             f"Current globs: {globs}"
+        )
+
+
+class TestBackendFilterCoversReferencedScripts:
+    """fix(#1088): guard the backend filter against the skipped-suite trap."""
+
+    def test_every_backend_glob_matches_at_least_one_real_file(self):
+        """No dead globs in the backend filter.
+
+        Caught a real one while #1088 was being written: two backend/scripts/
+        entrypoints were added here as 'scripts/...' paths, which match nothing
+        (backend/** already covers them). A dead glob is silent — it neither
+        triggers the job nor reports an error.
+        """
+        globs = _parse_filter_globs("backend")
+        missing = [
+            g for g in globs if not glob.glob(str(REPO_ROOT / g), recursive=True)
+        ]
+        assert not missing, (
+            "These globs in the 'backend' paths-filter match NO real files:\n"
+            + "\n".join(f"  - {g}" for g in missing)
+        )
+
+    def test_scripts_read_by_backend_tests_are_in_the_backend_filter(self):
+        """Every scripts/ file a backend test reads must trigger Backend Tests.
+
+        #1027 changed scripts/backup-entrypoint.sh. The backup filter covered
+        the script, so Backup Restore Round-trip ran and passed; the backend
+        filter did not, so test_backup_staging_tar_skew.py — the test written
+        to catch exactly that breakage — was skipped on the PR that broke it.
+        A skipped required job reads as green, which is how the PR looked
+        ready to merge.
+        """
+        referenced = _scripts_referenced_by_backend_tests()
+        assert referenced, (
+            "Found no scripts/ references in backend/tests — the scan is "
+            "probably broken, since several tests read them by literal path."
+        )
+
+        globs = _parse_filter_globs("backend")
+        covered: set[str] = set()
+        for pattern in globs:
+            for match in glob.glob(str(REPO_ROOT / pattern), recursive=True):
+                covered.add(str(pathlib.Path(match).relative_to(REPO_ROOT)))
+
+        uncovered = {
+            ref: tests for ref, tests in referenced.items() if ref not in covered
+        }
+        assert not uncovered, (
+            "These scripts/ files are read by backend tests but are NOT in the "
+            "'backend' paths-filter in .github/workflows/ci.yml. A PR changing "
+            "only one of them skips Backend Tests, so the test that asserts "
+            "against it never runs:\n"
+            + "\n".join(
+                f"  - {ref}  (read by {', '.join(sorted(tests))})"
+                for ref, tests in sorted(uncovered.items())
+            )
+            + "\n\nAdd each path to the 'backend' filter."
         )
