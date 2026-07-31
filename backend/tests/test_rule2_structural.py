@@ -102,8 +102,11 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   dead literal; a vector passed INTO a helper and spawned there is credited to
   the helper's own scope, not the caller's. In the silent direction: a vector
   reached through a computed key (`registry[name]`) has no path and is not
-  tracked, and neither is one that leaves via a mutation this analysis cannot
-  name (`box.append(cmd)` on an object whose other references are elsewhere).
+  tracked; neither is one that leaves via a mutation this analysis cannot name
+  (`box.append(cmd)` on an object whose other references are elsewhere); and
+  neither is one extracted from an ANONYMOUS container that never gets a name
+  (`cmd = ({"k": ["gdalinfo", path]})["k"]`), because the path machinery keys
+  on a binding and there is none to key on.
   Extending further means writing a static analyser, and this is a CI gate —
   the escape hatch for anything it misclassifies is an allowlist entry with a
   written justification, which is the same answer #974 reached for the wrapper
@@ -1352,20 +1355,32 @@ def _positional_targets(targets: list[ast.expr], index: int) -> list[ast.expr] |
 
 # Expression wrappers a value passes through without being consumed. A literal
 # inside one is still the value the surrounding statement binds or hands on.
-_TRANSPARENT_WRAPPERS = (
+# Two kinds, and the difference is load-bearing. fix(#996 review): they shared
+# one tuple and one `climbed` flag, which conflated "the value here CONTAINS
+# the vector" with "the value here IS the vector". `cmd = ["gdalinfo", "-json"]
+# + []` then `consume(cmd[0])` was then read as a container access yielding the
+# argv — but a BinOp yields the vector itself, so `cmd[0]` is only a string.
+# A false positive on inert data, from an inconsistency in the flag rather than
+# from a missing rule.
+#
+# A CONTAINER wrapper holds the vector as an element, so climbing out of one
+# means the name above binds a container.
+_CONTAINER_WRAPPERS = (
     ast.List,
     ast.Tuple,
     ast.Set,
     ast.Dict,
     ast.Starred,
-    # fix(#996 review): `cmd = [...] if flag else [...]` and `[...] + extra`
-    # both stopped the climb short of the assignment, so a real invocation read
-    # as inert.
+)
+# A VALUE wrapper evaluates to the vector: `[...] if flag else [...]`,
+# `[...] + extra`, `fallback or [...]`. Climbing out still leaves you holding
+# the vector, so it must not set the container flag.
+_VALUE_WRAPPERS = (
     ast.IfExp,
     ast.BinOp,
-    # ...and `fallback or [...]`, which is the same shape (fix(#996 review)).
     ast.BoolOp,
 )
+_TRANSPARENT_WRAPPERS = (*_CONTAINER_WRAPPERS, *_VALUE_WRAPPERS)
 
 
 def _default_parameter_name(args: ast.arguments, value: ast.AST) -> str | None:
@@ -1418,7 +1433,10 @@ def _binding_targets(node: ast.AST) -> tuple[set[str], bool]:
     index_in_parent: int | None = None
     climbed = False
     while isinstance(parent, _TRANSPARENT_WRAPPERS):
-        climbed = True
+        # Only a CONTAINER wrapper means the level above holds the vector
+        # rather than being it (fix(#996 review)).
+        if isinstance(parent, _CONTAINER_WRAPPERS):
+            climbed = True
         if isinstance(parent, (ast.Tuple, ast.List)) and current in parent.elts:
             index_in_parent = parent.elts.index(current)
         else:
@@ -3068,6 +3086,51 @@ def test_guard_comparison_does_not_hide_a_later_real_escape():
             "    if cmd == expected:\n"
             "        pass\n"
             "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_value_wrapper_does_not_make_the_name_a_container():
+    """fix(#996 review): a BinOp/IfExp/BoolOp evaluates TO the vector, so the
+    name it is assigned to holds the vector, not a container of it. Sharing one
+    `climbed` flag with the container wrappers made `cmd[0]` read as a
+    container access yielding the argv, when only a string escapes."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod("def fn():\n    cmd = ['gdalinfo', '-json'] + []\n    consume(cmd[0])\n"),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_value_wrapper_still_escapes_when_the_vector_itself_is_passed():
+    """The control: the distinction must not exempt the vector from a real
+    spawn — only from an element access."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path, extra):\n"
+            "    cmd = ['gdalinfo', path] + extra\n"
+            "    subprocess.run(cmd)\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_container_wrapper_still_marks_the_name_a_container():
+    """The other control: a real container wrapper must keep setting the flag,
+    so `commands['inspect']` still yields the argv rather than an element."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    commands = {'inspect': ['gdalinfo', path]}\n"
+            "    subprocess.run(commands['inspect'])\n"
         ),
         {},
     )
