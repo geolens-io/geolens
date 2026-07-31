@@ -516,9 +516,19 @@ export function ChatPanel({
       // fix(#674 audit): forward the truncation pair so EphemeralBadge can say
       // "500 of 10,651 features". Both query_data and run_analysis emit them
       // only when the server-side cap actually bit.
+      //
+      // fix(#1076): the flag no longer waits for the total. A clip filters
+      // rows, so the server reports no source total for it, and requiring one
+      // dropped the disclosure entirely — a capped clip preview then read as
+      // complete. The total rides along when there is one; the badge picks its
+      // wording from whether it arrived.
+      //
+      // The producer half is #1071: until that lands, collect_run_analysis_action
+      // still omits `truncated` whenever the total is absent, so this branch is
+      // correct and simply not yet reachable for a clip.
       const total = typeof action.row_count === 'number' ? action.row_count : undefined;
-      const truncation = action.truncated === true && total != null
-        ? { truncated: true, totalCount: total }
+      const truncation = action.truncated === true
+        ? { truncated: true, ...(total != null ? { totalCount: total } : {}) }
         : undefined;
       // feat(#675): a run_analysis action carries its reconstruction params so
       // the badge can offer "Save as dataset" (prefilled Analysis panel).
