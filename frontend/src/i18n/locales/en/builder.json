@@ -249,7 +249,10 @@
     "toggleFill": "Toggle fill visibility",
     "toggleStroke": "Toggle stroke visibility",
     "fillPattern": "Fill Pattern",
+    "fillPatternClearOnly": "Fill Pattern (clear only)",
     "fillPatternNone": "None",
+    "fillPatternUnavailableDataDriven": "Patterns are unavailable while styling by an attribute",
+    "fillColorUnavailablePattern": "Color is unavailable while a pattern is applied",
     "fillPatternName": {
       "hatch": "Hatch",
       "crosshatch": "Cross-hatch",

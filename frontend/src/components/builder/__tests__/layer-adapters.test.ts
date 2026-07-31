@@ -1241,6 +1241,71 @@ describe('fillAdapter', () => {
     expect(calls.every((c: unknown[]) => (c[0] as { type: string }).type !== 'fill-extrusion')).toBe(true);
   });
 
+  // fix(#910, codex P2): the extrusion authors no pattern of its own (SPEC-11) and
+  // colors from fill-color, which a pattern deletes — without the stash fallback a
+  // patterned extrusion silently reverts to the default blue.
+  it('fill-extrusion colors from builder.fillColorSaved when a pattern owns the fill', () => {
+    const input = makeInput({
+      id: 'fe4',
+      layerId: 'layer-fe4',
+      sourceId: 'source-fe4',
+      sourceLayer: 'data.test_table',
+      paint: { 'fill-pattern': 'geolens-fill-hatch' },
+      style_config: { builder: { heightColumn: 'bldg_ht', fillColorSaved: '#ff0000' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: Record<string, unknown> } });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+    const extrusionPaint = (extrusionCall![0] as { paint: Record<string, unknown> }).paint;
+    expect(extrusionPaint['fill-extrusion-color']).toBe('#ff0000');
+  });
+
+  it('fill-extrusion keeps a data-driven fill-color expression over the stash', () => {
+    const ramp = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+    const input = makeInput({
+      id: 'fe5',
+      layerId: 'layer-fe5',
+      sourceId: 'source-fe5',
+      sourceLayer: 'data.test_table',
+      paint: { 'fill-color': ramp },
+      style_config: { builder: { heightColumn: 'bldg_ht', fillColorSaved: '#0000ff' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: Record<string, unknown> } });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+    const extrusionPaint = (extrusionCall![0] as { paint: Record<string, unknown> }).paint;
+    expect(extrusionPaint['fill-extrusion-color']).toEqual(ramp);
+  });
+
+  // fix(#910, codex P2): `style_config` is size-validated only and
+  // getBuilderStyleConfig just casts, so an API-authored or imported layer can hold a
+  // number or object in the stash. MapLibre rejects a non-string colour and addLayers'
+  // catch swallows it, so the 3D companion vanishes entirely — worse than a wrong colour.
+  it.each<unknown[]>([[42], [{ r: 1 }], [['#fff']], [true]])(
+    'fill-extrusion falls back to the default colour for a non-string stash (%o)',
+    (junk) => {
+      // Widened before the cast: an inline literal makes the junk union
+      // non-comparable to the stash's declared `string | undefined` and fails tsc,
+      // which vitest alone would not have caught.
+      const builder: Record<string, unknown> = { heightColumn: 'bldg_ht', fillColorSaved: junk };
+      const input = makeInput({
+        id: 'fe6',
+        layerId: 'layer-fe6',
+        sourceId: 'source-fe6',
+        sourceLayer: 'data.test_table',
+        paint: { 'fill-pattern': 'geolens-fill-hatch' },
+        style_config: { builder },
+      } as Partial<AdapterLayerInput> & { style_config: { builder: Record<string, unknown> } });
+      fillAdapter.addLayers(map, input);
+      const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+      const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+      // The companion still exists, which is the point — and it is a real colour.
+      expect(extrusionCall).toBeDefined();
+      const extrusionPaint = (extrusionCall![0] as { paint: Record<string, unknown> }).paint;
+      expect(typeof extrusionPaint['fill-extrusion-color']).toBe('string');
+    },
+  );
+
   it('fill-extrusion paint uses coalesce+to-number expression for fill-extrusion-height', () => {
     const input = makeInput({
       id: 'fe3',

@@ -249,7 +249,10 @@
     "toggleFill": "Füllung umschalten",
     "toggleStroke": "Kontur umschalten",
     "fillPattern": "Füllmuster",
+    "fillPatternClearOnly": "Füllmuster (nur entfernen)",
     "fillPatternNone": "Kein Muster",
+    "fillPatternUnavailableDataDriven": "Muster sind beim Stilisieren nach einem Attribut nicht verfügbar",
+    "fillColorUnavailablePattern": "Farbe ist nicht verfügbar, solange ein Muster angewendet wird",
     "fillPatternName": {
       "hatch": "Schraffur",
       "crosshatch": "Kreuzschraffur",

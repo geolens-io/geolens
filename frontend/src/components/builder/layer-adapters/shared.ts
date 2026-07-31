@@ -534,6 +534,7 @@ export const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   fill_disabled: 'fillDisabled',
   stroke_disabled: 'strokeDisabled',
   fill_opacity_saved: 'fillOpacitySaved',
+  fill_color_saved: 'fillColorSaved',
   outline_width_saved: 'outlineWidthSaved',
   outline_color: 'outlineColor',
   outline_width: 'outlineWidth',

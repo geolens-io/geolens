@@ -10,7 +10,7 @@ import type { EditorDispatchKey } from './LayerStyleEditor/RenderModeSwitch';
 import { buildBuilderControlPaint, routeBuilderPaintProp } from './LayerStyleEditor/builder-paint-map';
 import {
   FILL_DEFAULTS, LINE_DEFAULTS, CIRCLE_DEFAULTS, getPaintValue,
-  withBuilderConfig, stylePreviewStyle, hasUnsupportedBuilderState,
+  withBuilderConfig, compactBuilder, stylePreviewStyle, hasUnsupportedBuilderState,
   hasUnsavedStyleChanges as hasUnsavedStyleChangesImpl,
 } from './LayerStyleEditor/utils';
 import { LazyLoadErrorBoundary } from '@/components/error';
@@ -38,7 +38,7 @@ interface LayerStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
   onOpacityChange?: (layerId: string, opacity: number) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
+  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean; restore?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   /**
    * fix(#913): banner Revert restores the baseline through the ordinary mutation
@@ -348,22 +348,64 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // fill-color and fill-pattern. Setting a pattern deletes fill-color; clearing the
   // pattern (solid / None) deletes fill-pattern. The KEY is removed — never set to
   // undefined — so saved paint never carries both keys or an undefined value.
+  // fix(#910): the delete above discarded the color outright, so a pattern
+  // round-trip always came back as the default blue. Stash the solid color in
+  // the builder config first — same convention as fillOpacitySaved above — and
+  // restore it on None. Only a string is stashable; an expression means the
+  // layer is data-driven, and the truth table in FillEditor keeps the picker
+  // out of reach in that state (#918 owns dropping the pattern there instead).
   const handleFillPatternChange = useCallback((id: string | undefined) => {
     const next = { ...paint };
+    // Seed from the existing stash: pattern-to-pattern (Hatch then Dots) finds no
+    // fill-color to stash, and an undefined here would drop the stash from the
+    // builder config and lose the original color on the eventual None.
+    let fillColorSaved = builderConfig.fillColorSaved;
     if (id) {
-      // switching to pattern: remove fill-color, set fill-pattern
-      delete next['fill-color'];
+      // switching to pattern: stash and remove a SOLID fill-color, set fill-pattern.
+      // An expression is left alone — deleting it is the #910 defect itself, and the
+      // picker is now reachable on a data-driven layer that already has a pattern
+      // (from Advanced JSON or the AI action), where the only useful action is None.
+      if (typeof next['fill-color'] === 'string') {
+        fillColorSaved = next['fill-color'];
+        delete next['fill-color'];
+      }
       next['fill-pattern'] = id;
     } else {
       // switching to solid / None: remove fill-pattern
       delete next['fill-pattern'];
-      // Restore default fill-color if absent
+      // Restore the stashed color, or the default when there was none to stash.
+      // fix(#910, codex P2): the stash is typed `string` but comes from an open
+      // `style_config` that gets size validation only, so an API-authored layer can
+      // hold a number or object there. Painting that would hand MapLibre a colour it
+      // rejects, so an unusable stash falls through to the default — the same rule
+      // `fill-adapter.ts` and the backend export apply to the same value.
       if (!next['fill-color']) {
-        next['fill-color'] = FILL_DEFAULTS['fill-color'];
+        next['fill-color'] =
+          typeof fillColorSaved === 'string' ? fillColorSaved : FILL_DEFAULTS['fill-color'];
       }
+      fillColorSaved = undefined;
     }
-    onPaintChange(layer.id, next);
-  }, [layer.id, paint, onPaintChange]);
+    // fix(#910, codex P2): a colour classification orphaned by this change (None
+    // installed a solid fill where an expression used to be) is NOT reconciled here.
+    // The picker is one of several writers that can strand a classification and the
+    // first that happened to trip over it; the rule lives at the commit boundary in
+    // use-layer-map-sync.ts, keyed off the resolved paint. Two attempts at gating it
+    // here were both wrong in one direction or the other.
+    //
+    // Not updateBuilderConfig: this one needs `replace`. withBuilderConfig collapses
+    // to null once fillColorSaved was the only builder field, and
+    // handleStyleConfigChange reads a null config as "keep the existing builder",
+    // which resurrects the very stash this clears. The config built here is already
+    // complete, so replacing it verbatim is also the honest signal. (The same
+    // collapse-to-null hazard exists on the fill/stroke toggles; they predate this
+    // and are left alone.)
+    onStyleConfigChange(
+      layer.id,
+      withBuilderConfig(layer.style_config, { fillColorSaved }),
+      stripLegacyBuilderPaint(next),
+      { replace: true },
+    );
+  }, [layer.id, layer.style_config, paint, builderConfig.fillColorSaved, onStyleConfigChange]);
 
   const handleResetStyle = useCallback(() => {
     // Every branch clears the zoom clamp — previously only the line branch
@@ -372,17 +414,29 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     const nextLayout = { ...layoutObj };
     delete nextLayout['_minzoom'];
     delete nextLayout['_maxzoom'];
+    // fix(#910, codex P2): a plain null config makes the funnel preserve the builder
+    // block wholesale, stash included, so Reset used to leave a fillColorSaved from
+    // before it — and a pattern applied later (Advanced JSON) then cleared with None
+    // restored that pre-reset colour.
+    //
+    // Builder-only, deliberately NOT withBuilderConfig(layer.style_config, …): that
+    // copies the whole config, and `replace` would then persist mode / column /
+    // render_mode verbatim — Reset has to destroy the classification and the render
+    // mode. This reproduces exactly what the funnel's null branch preserved (the
+    // builder block, nothing else), minus the stash.
+    const resetBuilder = compactBuilder({ ...builderConfig, fillColorSaved: undefined });
+    const resetConfig = resetBuilder ? ({ builder: resetBuilder } as StyleConfig) : null;
     if (geomType === 'fill') {
-      onStyleConfigChange(layer.id, null, FILL_DEFAULTS);
+      onStyleConfigChange(layer.id, resetConfig, FILL_DEFAULTS, { replace: true });
     } else if (geomType === 'line') {
       delete nextLayout['line-dasharray'];
-      onStyleConfigChange(layer.id, null, LINE_DEFAULTS);
+      onStyleConfigChange(layer.id, resetConfig, LINE_DEFAULTS, { replace: true });
     } else {
-      onStyleConfigChange(layer.id, null, CIRCLE_DEFAULTS);
+      onStyleConfigChange(layer.id, resetConfig, CIRCLE_DEFAULTS, { replace: true });
     }
     onLayoutChange(layer.id, nextLayout);
     onOpacityChange?.(layer.id, 1);
-  }, [geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
+  }, [builderConfig, geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
 
   // Reset destroys render mode + classification — gate it behind the builder's
   // shared inline confirm (same pattern as the DEM editor's delete footer).
@@ -417,7 +471,12 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       handleResetStyle();
       return;
     }
-    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true });
+    // fix(#910, codex P2): `restore` as well as `replace`. This is the one caller that
+    // reproduces a saved baseline verbatim, so the EDIT-05 normalization at the commit
+    // boundary must not touch it — the dirty check compares against that same baseline,
+    // so a normalized restore would leave the layer permanently dirty. The other seven
+    // `replace` callers are forward edits and DO need normalizing.
+    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true, restore: true });
     onLayoutChange(layer.id, savedLayer.layout ?? {});
     onOpacityChange?.(layer.id, savedLayer.opacity ?? 1);
     // Remount DataDrivenStyleEditor so its local ramp/mode/column re-seed from the

@@ -1,4 +1,6 @@
 import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
+import type { StyleConfig } from '@/types/api';
+import { expressionReadsColumn } from '@/lib/maplibre-expressions';
 
 // --- Curated palette definitions ---
 //
@@ -359,4 +361,95 @@ export function getSizeProperty(
   if (target === 'radius' && gt.includes('point')) return 'circle-radius';
   if (target === 'width' && (gt.includes('line') || gt.includes('linestring'))) return 'line-width';
   return null;
+}
+
+/** The fields that constitute a colour classification — see `colorClassificationIsOrphaned`. */
+const COLOR_CLASSIFICATION_KEYS = ['mode', 'column', 'ramp', 'categories', 'colors', 'breaks'] as const;
+
+/**
+ * fix(#910/#918, codex P2): does `config` claim an attribute-driven colour that
+ * `paint` does not actually carry?
+ *
+ * `style_config` and `paint` are two records of one fact, and every surface reads
+ * a different one: the map draws the paint expression, while the legend, the layer
+ * swatch and DataDrivenStyleEditor all read the config. Once they disagree the
+ * product lies about the user's styling in whichever direction they happen to look.
+ * They can only diverge one way — paint replaced wholesale while the config stays,
+ * from Advanced JSON, an AI `replace_paint`, or a map saved before this rule existed.
+ *
+ * Deliberately keyed off the RESOLVED paint rather than which caller wrote it or
+ * why. A rule keyed on the reason needs a new branch per writer, and the writers
+ * are an open set.
+ *
+ * Two states that look orphaned and are not:
+ *  - a config with no classes (`categories: []` from an all-null column) claims
+ *    nothing, and `buildCategoricalExpression` correctly emits a bare colour for
+ *    it — treating that as orphaned makes the editor regenerate forever (#461);
+ *  - `render_mode` heatmap/symbol park a classification while the renderer paints
+ *    something else entirely, the same exemption `hasUnsupportedBuilderState` makes.
+ *    That exemption is also what leaves `use-render-mode-layers.ts` — the third writer
+ *    of layer paint — with nothing to reconcile: it produces exactly those two states,
+ *    and a cluster switch keeps the colour paint it was already drawing.
+ */
+export function colorClassificationIsOrphaned(
+  config: StyleConfig | null | undefined,
+  paint: Record<string, unknown>,
+  geometryType: string | null,
+): boolean {
+  if (!config) return false;
+  if (config.render_mode === 'heatmap' || config.render_mode === 'symbol') return false;
+  // A size target describes `circle-radius`/`line-width`; the colour keys are not its business.
+  const targetsColor =
+    (config.mode === 'categorical' || config.mode === 'graduated') &&
+    (config.target === undefined || config.target === 'color');
+  if (!targetsColor) return false;
+  const claimsClasses =
+    config.mode === 'categorical'
+      ? (config.categories?.length ?? 0) > 0
+      : (config.colors?.length ?? 0) > 0;
+  if (!claimsClasses) return false;
+  // Same key the editor writes, from the same function, so the check cannot disagree
+  // with the writer about which colour property this geometry uses.
+  const painted = paint[getColorProperty(geometryType)];
+  if (!Array.isArray(painted)) return true;
+  // fix(#910, codex P2): an array alone is not proof the classification still holds.
+  // Advanced JSON or the AI can swap a categorical `era` expression for one reading
+  // `status`; the legend and editor then report `era` over a map drawn by `status`.
+  //
+  // The test is deliberately one-directional: a classification NAMES a column, so an
+  // expression that never reads it cannot be the one this config describes. It does not
+  // try to work out WHICH `get` in a hand-authored expression is the classification —
+  // guessing wrong there would delete hand-authored category colours (#461), and every
+  // builder-generated expression reads the config's column by construction, so the
+  // conservative direction has no false positives to trade away.
+  return typeof config.column === 'string' && config.column !== ''
+    && !expressionReadsColumn(painted, config.column);
+}
+
+/**
+ * fix(#910/#918, codex P2): strip a classification claim that `paint` no longer backs.
+ *
+ * Drops the fields `colorClassificationIsOrphaned` reads to detect the claim, so
+ * detection and removal stay in lockstep, PLUS `column`/`ramp`. Everything else survives
+ * — `StyleConfig` is an open bag, and `render_mode`, `symbol` and the builder block
+ * describe things a colour classification has no say over.
+ *
+ * fix(#910, codex P2): `column` and `ramp` looked like the user's selections worth
+ * keeping, and keeping them re-applied the classification on the next open. A fresh
+ * `DataDrivenStyleEditor` seeds local `column` from the config and defaults local `mode`
+ * to 'categorical', so a config carrying a column and no mode reads to it as a live
+ * categorical classification: its effect regenerated the expression and overwrote the
+ * paint the replacement had just written. The transition guard in that component covers
+ * the editor being ALREADY OPEN and cannot cover this — on a fresh mount there is no
+ * transition to observe, because the claim was already gone before it rendered.
+ */
+export function reconcileColorClassification(
+  config: StyleConfig | null,
+  paint: Record<string, unknown>,
+  geometryType: string | null,
+): StyleConfig | null {
+  if (!colorClassificationIsOrphaned(config, paint, geometryType)) return config;
+  const next = { ...config } as StyleConfig;
+  for (const key of COLOR_CLASSIFICATION_KEYS) delete next[key];
+  return Object.keys(next).length > 0 ? next : null;
 }

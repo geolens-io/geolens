@@ -22,6 +22,7 @@ import {
   buildGraduatedSizeExpression,
   getColorProperty,
   getSizeProperty,
+  colorClassificationIsOrphaned,
   nextRotatingRamp,
   suggestRampForMode,
 } from '@/lib/color-ramps';
@@ -44,6 +45,7 @@ interface DataDrivenStyleEditorProps {
     layerId: string,
     config: StyleConfig | null,
     paint: Record<string, unknown>,
+    opts?: { replace?: boolean },
   ) => void;
   /**
    * ENH-08: Zero-based ordinal of this layer within the map's data-driven
@@ -435,6 +437,28 @@ export function DataDrivenStyleEditor({
     return () => clearTimeout(colorDebounceRef.current);
   }, []);
 
+  // fix(#910, codex P2): the classification lives in THREE places — the paint
+  // expression, `style_config`, and this component's local `column`/`mode` state — and
+  // the third one is the copy nobody reconciled. A classification can now be retired
+  // from outside this editor (the commit boundary retires one whose expression a paint
+  // replacement removed; Reset destroys one outright), and the effects below regenerate
+  // from local state alone, so they immediately re-asserted the classification the layer
+  // had just lost and overwrote the paint the user explicitly replaced.
+  //
+  // Follow the layer instead. Clearing `column` is enough: all three effects bail on it,
+  // and it is what this editor's own clear paths already do. This is React's
+  // adjust-state-during-render pattern rather than an effect ON PURPOSE — React re-runs
+  // the component before running any effect, so effect 1 never gets one pass with a
+  // stale column. An effect here would fire after it and lose the race.
+  const configClaimsClassification = !!styleConfig?.mode;
+  const [claimedLastRender, setClaimedLastRender] = useState(configClaimsClassification);
+  if (configClaimsClassification !== claimedLastRender) {
+    setClaimedLastRender(configClaimsClassification);
+    // Retired, not established: a first-time column choice moves the other way, with
+    // local state legitimately ahead of a config the effects are about to write.
+    if (!configClaimsClassification && column) setColumn('');
+  }
+
   // Effect 1: Categorical styling with value-fetching
   useEffect(() => {
     if (!column || mode !== 'categorical' || !valuesData) return;
@@ -444,7 +468,18 @@ export function DataDrivenStyleEditor({
 
     // Preserve existing per-category colors when column and ramp haven't changed.
     // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
-    if (styleConfigAlreadyMatches({
+    //
+    // fix(#910, codex P2): that guard compares the saved config against this effect's
+    // own state, which assumes paint agrees with config — and an orphaned classification
+    // is precisely that assumption failing, so the guard cannot be trusted to detect one.
+    // It matters here rather than only at the write boundary because a layer arrives
+    // orphaned from STORAGE (saved before the boundary rule existed, or written straight
+    // through the API/SDK/AI), where no in-session write ever happened: the editor then
+    // skipped regenerating the expression and reported attribute styling on a layer
+    // drawing a flat colour. Regenerating is also the repair — it re-asserts the
+    // expression the config describes.
+    if (!colorClassificationIsOrphaned(styleConfig, layer.paint ?? {}, geomType) &&
+      styleConfigAlreadyMatches({
       existing: styleConfig,
       mode: 'categorical',
       target: 'color',
@@ -456,7 +491,8 @@ export function DataDrivenStyleEditor({
       breaks: [],
       sizeRange,
       categoryValues: values,
-    })) {
+      })
+    ) {
       return;
     }
 
@@ -500,18 +536,21 @@ export function DataDrivenStyleEditor({
 
     // Preserve existing graduated colors when config hasn't changed.
     // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
-    if (styleConfigAlreadyMatches({
-      existing: styleConfig,
-      mode: 'graduated',
-      target: 'color',
-      column,
-      ramp,
-      reversed,
-      method,
-      classCount,
-      breaks,
-      sizeRange,
-    })) {
+    // fix(#910, codex P2): and never skip on an orphaned config — see effect 1.
+    if (!colorClassificationIsOrphaned(styleConfig, layer.paint ?? {}, geomType) &&
+      styleConfigAlreadyMatches({
+        existing: styleConfig,
+        mode: 'graduated',
+        target: 'color',
+        column,
+        ramp,
+        reversed,
+        method,
+        classCount,
+        breaks,
+        sizeRange,
+      })
+    ) {
       return;
     }
 
@@ -602,14 +641,44 @@ export function DataDrivenStyleEditor({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed sizePaintProp covers the relevant slice
   }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
+  /**
+   * fix(#918, codex P2): what the clear paths owe a patterned layer.
+   *
+   * Dropping the pattern alone made an exploratory Mode switch destructive: the
+   * layer went from red hatching to default blue, with the red surviving only in
+   * the stash. So restore the stashed colour as the solid fill and clear the stash
+   * — "return this layer to the plain solid colour it had". The pattern still has
+   * to go, because a defaulted fill-color loses to a surviving fill-pattern and the
+   * layer would read as cleared while still rendering the pattern.
+   *
+   * Clearing the stash needs `replace`: these paths write a null config, and
+   * handleStyleConfigChange reads that as "keep the existing builder".
+   */
+  function clearedFillPaint(paint: Record<string, unknown>, colorProp: string) {
+    const next = { ...paint };
+    const stashed = layer.style_config?.builder?.fillColorSaved;
+    const hadPattern = next['fill-pattern'] != null;
+    delete next['fill-pattern'];
+    next[colorProp] = (hadPattern && typeof stashed === 'string' ? stashed : null)
+      ?? MAP_COLORS.default.fill;
+    return next;
+  }
+
+  /** The builder block minus the pattern colour stash, or null when nothing is left. */
+  function clearedConfig(): StyleConfig | null {
+    const builder = layer.style_config?.builder;
+    if (!builder) return null;
+    const rest = Object.fromEntries(
+      Object.entries(builder).filter(([k, v]) => k !== 'fillColorSaved' && v !== undefined),
+    );
+    return Object.keys(rest).length > 0 ? ({ builder: rest } as StyleConfig) : null;
+  }
+
   function handleClear() {
     setColumn('');
     setTarget('color');
     const colorProp = getColorProperty(layer.dataset_geometry_type);
-    const resetPaint: Record<string, unknown> = {
-      ...layer.paint,
-      [colorProp]: MAP_COLORS.default.fill,
-    };
+    const resetPaint = clearedFillPaint(layer.paint, colorProp);
     // Delete custom boolean props that shouldn't persist after clearing
     delete resetPaint['_fill-disabled'];
     delete resetPaint['_stroke-disabled'];
@@ -620,18 +689,15 @@ export function DataDrivenStyleEditor({
     if (radiusProp) resetPaint[radiusProp] = 5;
     const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
     if (widthProp) resetPaint[widthProp] = 2;
-    onStyleConfigChange(layer.id, null, resetPaint);
+    onStyleConfigChange(layer.id, clearedConfig(), resetPaint, { replace: true });
   }
 
   function handleColumnChange(newColumn: string) {
     if (!newColumn) {
       setColumn('');
       const colorProp = getColorProperty(layer.dataset_geometry_type);
-      const basePaint: Record<string, unknown> = {
-        ...layer.paint,
-        [colorProp]: MAP_COLORS.default.fill,
-      };
-      onStyleConfigChange(layer.id, null, basePaint);
+      const basePaint = clearedFillPaint(layer.paint, colorProp);
+      onStyleConfigChange(layer.id, clearedConfig(), basePaint, { replace: true });
     } else {
       setColumn(newColumn);
     }
@@ -646,7 +712,7 @@ export function DataDrivenStyleEditor({
     setRamp(suggestRampForMode(newMode));
     // Reset color property to flat default to clear stale expressions from previous mode
     const colorProp = getColorProperty(layer.dataset_geometry_type);
-    const nextPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
+    const nextPaint = clearedFillPaint(layer.paint, colorProp);
     if (newMode === 'categorical') {
       // Categorical does not support size targets — force back to color
       setTarget('color');
@@ -663,7 +729,7 @@ export function DataDrivenStyleEditor({
       setClassCount(5);
       setSizeRange(defaultSizeRange('color'));
     }
-    onStyleConfigChange(layer.id, null, nextPaint);
+    onStyleConfigChange(layer.id, clearedConfig(), nextPaint, { replace: true });
   }
 
   function handleTargetChange(newTarget: 'color' | 'radius' | 'width') {
