@@ -43,7 +43,14 @@ logger = logging.getLogger(__name__)
 
 #: v2 adds required ConnectorExtension discovery/dispatch methods and makes the
 #: existing ``connectors`` registry key conflict-guarded as a single slot.
-EXTENSION_API_VERSION: int = 2
+# 2 -> 3 (feat(#683)): ProcessingPort.run_analysis_preview gained a
+# ``mask_dataset`` keyword so chat can clip a layer by another layer. It is
+# optional with a default, so an overlay that never implements the method is
+# unaffected — but one that DOES implement it must accept the keyword, which
+# is a signature change to a Protocol method and therefore a bump. The caller
+# also omits the keyword entirely when it is None, so a legacy overlay that
+# declares no version keeps working for buffer and centroid.
+EXTENSION_API_VERSION: int = 3
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

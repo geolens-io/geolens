@@ -101,22 +101,80 @@ class DefaultProcessingPort:
         return await get_user_roles(session, user)
 
     async def run_analysis_preview(  # type: ignore[no-untyped-def]
-        self, session, dataset, operation, *, user_id, distance_meters=None, mask=None
+        self,
+        session,
+        dataset,
+        operation,
+        *,
+        user_id,
+        distance_meters=None,
+        mask=None,
+        mask_dataset=None,
     ):
         """Run a parameterized analysis preview (M4) for the AI chat surface.
 
         Params are re-validated by ``AnalysisPreviewRequest`` here, so the
         LLM-supplied values pass through exactly the same bounds/requiredness
         checks as the HTTP endpoint (a ValueError surfaces as a tool error the
-        model can retry from). Callers own the dataset visibility check.
+        model can retry from). Callers own the dataset VISIBILITY check, for
+        the mask dataset as much as the source — this port never checks it.
+
+        feat(#683): the mask's SHAPE and SIZE are checked here, so every port
+        caller gets the rails the REST route applies in ``_load_mask_dataset``.
+        Unioning points or lines masks nothing meaningful, and without the
+        shape check the failure is an empty result the model reports as a real
+        answer. The size ceiling is a resource rail, not a correctness one:
+        ``_mask_pieces`` materializes and subdivides every mask row before the
+        preview's own row cap can bite, so the work scales with the whole mask
+        however small the source is.
+
+        ``release_session`` is deliberately never passed: see the reasoning at
+        the chat call site in ``chat_analysis._run_analysis``.
         """
         from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
-        from app.modules.catalog.datasets.domain.service import run_analysis_preview
+        from app.modules.catalog.datasets.domain.service import (
+            resolve_source_feature_count,
+            run_analysis_preview,
+        )
+        from app.platform.analysis_sql import MAX_MASK_LAYER_FEATURES
+
+        # Ignored unless the operation owns it, mirroring what
+        # _drop_params_for_other_operations does to mask_dataset_id (#682).
+        mask_for_op = mask_dataset if operation == "clip" else None
+        if mask_for_op is not None:
+            shape = (getattr(mask_for_op, "geometry_type", None) or "").upper()
+            if not shape or not getattr(mask_for_op, "table_name", None):
+                raise ValueError("The mask layer has no geometry to clip with.")
+            if shape not in {"POLYGON", "MULTIPOLYGON"}:
+                raise ValueError(
+                    f"Clipping needs a polygon layer as the mask; that one is "
+                    f"{shape}. Pick a polygon layer instead."
+                )
+            # Counted the same way the REST route counts it: the cached
+            # snapshot when present, a LIMIT-bounded live count when it is
+            # NULL, because NULL-as-zero would admit exactly the unknown-size
+            # layers the gate exists for (fix(#701 review)).
+            mask_count = await resolve_source_feature_count(
+                session, mask_for_op, cap=MAX_MASK_LAYER_FEATURES
+            )
+            if mask_count > MAX_MASK_LAYER_FEATURES:
+                raise ValueError(
+                    f"That mask layer has too many features to clip with "
+                    f"(limit {MAX_MASK_LAYER_FEATURES:,}). Pick a smaller "
+                    "mask layer."
+                )
 
         request = AnalysisPreviewRequest(
-            operation=operation, distance_meters=distance_meters, mask=mask
+            operation=operation,
+            distance_meters=distance_meters,
+            mask=mask,
+            # The validator requires exactly one mask source for clip and never
+            # sees the object, so stand the id in for it.
+            mask_dataset_id=getattr(mask_for_op, "id", None),
         )
-        return await run_analysis_preview(session, dataset, request, user_id)
+        return await run_analysis_preview(
+            session, dataset, request, user_id, mask_dataset=mask_for_op
+        )
 
     async def get_column_stats(
         self, session, table_name, column_name, *, class_count=5, allowed_tables=None
