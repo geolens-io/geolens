@@ -843,11 +843,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # app.platform.analysis_sql as it landed, so what remains here is the
         # preview ORCHESTRATION — which branch feeds which renderer, and how the
         # positional rows become properties — not SQL. Two folds during the
-        # wave (#955's count builder, #956's preview projection) kept it under
-        # this cap once each before it stopped fitting. 375 leaves ~10 lines;
-        # an eighth operation should split the per-operation dispatch out
-        # rather than raise this again.
-        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 375,
+        # wave (#955's count builder, #956's preview projection) each bought
+        # one more operation's worth of room before it stopped fitting.
+        # 310 on main + 145 for the four operations = 455. The per-operation
+        # dispatch is now the majority of the file, so an eighth operation
+        # should split that out rather than raise this again.
+        "backend/app/modules/catalog/datasets/domain/service_analysis.py": 455,
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
@@ -1188,19 +1189,39 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # keeping: `params` stays untyped deliberately, because it is the
     # operation's parameter dict AND it is redacted per requester, so a union
     # of per-operation models would describe a shape visible_derived_from is
-    # free to punch holes in. Ratchet exact at 1032.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1032,
-    # fix(#1012): crossed on the rebase, not in either branch. main grew this
-    # module past 900 while the work_mem branch was open, and the branch's +120
-    # (the SET LOCAL, its budget arithmetic and the boot-time validator) landed
-    # on top of that — so the gate fired for the first time on a merge result
-    # neither side had ever built. What the lines bought: work_mem is allocated
-    # per operation AND per backend, so the ceiling this file computes is the
-    # difference between one materialize using its stated budget and one using
-    # several multiples of it. The reasoning has to live next to the SET LOCAL,
-    # because a future reader tuning the number is exactly who needs it.
-    # Ratchet exact at 1031.
-    "backend/app/processing/analysis/tasks.py": 1031,
+    # free to punch holes in.
+    # +95 — the four analysis operations. Each one adds a value to both
+    # AnalysisOperation Literals, a params field with its bounds, and its row
+    # in _ANALYSIS_PARAM_OWNERS, which is what makes a param submitted to the
+    # wrong operation a 422 instead of a silently ignored key. 1032 -> 1127.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1127,
+    # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
+    # Both cross 1000 for the first time here, and both cross it for the same
+    # reason: the four operations are deliberately concentrated rather than
+    # spread. Every rendered statement lives in analysis_sql (662 -> 1173) so
+    # the preview path and the materialize worker cannot drift apart on what
+    # SQL they run, which is the whole reason the module exists in platform/
+    # instead of in either caller. tasks.py grows by one branch per operation
+    # for the same reason: the CTAS shape is decided in one place. Splitting
+    # either one per-operation would trade this module's size for the drift it
+    # was built to prevent, so the growth is the design working.
+    #
+    # What that costs, stated plainly rather than left for the next reader:
+    # analysis_sql is now the largest module under platform/ and roughly 40%
+    # of it is the four operations added here. The split is filed as #1089 —
+    # by OPERATION FAMILY (overlay, measure, transform), with the shared
+    # fences, ceilings and antimeridian helpers staying central. Never by
+    # CALLER: giving the preview path and the worker their own rendering
+    # modules recreates exactly the drift this module exists to prevent, so
+    # #1089 says to reject that proposal on sight.
+    "backend/app/platform/analysis_sql.py": 1173,
+    # tasks.py carries growth from BOTH sides of this rebase, so the number is
+    # re-measured rather than taken from either. #1012 added the scoped
+    # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
+    # validator); this branch added one CTAS branch per operation. Each cap was
+    # correct for the tree that produced it and neither is correct for the
+    # merge, which is the conflict doing its job.
+    "backend/app/processing/analysis/tasks.py": 1191,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
