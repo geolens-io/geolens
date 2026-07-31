@@ -31,7 +31,7 @@ interface PersistedAnalysisJobState {
 }
 
 interface AnalysisJobState extends PersistedAnalysisJobState {
-  setJob: (job: TrackedAnalysisJob | null) => void;
+  setJob: (job: TrackedAnalysisJob | null) => Promise<void>;
   /**
    * Try to become the one tab that reports this job's completion.
    *
@@ -50,7 +50,7 @@ interface AnalysisJobState extends PersistedAnalysisJobState {
    * the NEXT analysis; clearing then erases the newer job everywhere and
    * re-enables Create while the server job is still running.
    */
-  clearJobIfCurrent: (jobId: string) => void;
+  clearJobIfCurrent: (jobId: string) => Promise<void>;
 }
 
 export const ANALYSIS_JOB_STORAGE_KEY = 'geolens-analysis-job';
@@ -59,8 +59,8 @@ export const ANALYSIS_JOB_STORAGE_KEY = 'geolens-analysis-job';
 const TAB_ID =
   globalThis.crypto?.randomUUID?.() ?? `tab-${Math.random().toString(36).slice(2)}`;
 
-/** Web Locks name guarding the claim's read/write/read sequence. */
-const COMPLETION_LOCK = 'geolens-analysis-completion';
+/** Web Locks name serializing every read-modify-write on this record. */
+const ANALYSIS_JOB_LOCK = 'geolens-analysis-job-write';
 
 /**
  * Read persisted state straight out of storage rather than off in-memory state.
@@ -108,6 +108,33 @@ function pick<T extends object>(
 }
 
 /**
+ * Run a read-modify-write on the shared record under mutual exclusion.
+ *
+ * Web Locks is the only primitive that serializes a SEQUENCE of storage
+ * operations across same-origin documents; localStorage serializes each
+ * operation on its own and nothing more.
+ *
+ * fix(#1008 codex P2): never rejects. The watcher awaits these, and a
+ * rejection there would leave a finished job neither reported nor cleared,
+ * with Create disabled until a reload. `fallback` is what a broken storage
+ * layer should degrade to — for a claim that is `true`, because a duplicate
+ * notification beats never telling the user their dataset is ready.
+ */
+async function withLock<T>(run: () => T, fallback: T): Promise<T> {
+  try {
+    const locks = globalThis.navigator?.locks;
+    // No Web Locks (older browser, or a non-DOM environment). The sequence is
+    // still right in every staggered case, which is the common one; the
+    // residual loss is a duplicate toast on a genuine tie, i.e. the behaviour
+    // that shipped before any of this.
+    if (!locks) return run();
+    return await locks.request(ANALYSIS_JOB_LOCK, run);
+  } catch {
+    return fallback;
+  }
+}
+
+/**
  * The one in-flight materialize job being tracked for notification.
  *
  * Persisted because the whole point is surviving what a long job outlives:
@@ -122,19 +149,23 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
   persist(
     (set, get) => {
       /**
-       * fix(#1008 codex P1): every `set` here persists the WHOLE snapshot,
-       * so a write that means to change one field silently republishes this
-       * tab's copy of the other. That is harmless in one tab and corrupting
-       * across several: a throttled tab still holding `job1` would restore it
-       * over another tab's newer `job2` just by claiming a completion. So
-       * refresh whatever a write is not changing from storage first.
+       * fix(#1008 codex P1): every `set` here persists the WHOLE snapshot, so
+       * a write that means to change one field silently republishes this tab's
+       * copy of the other. Harmless in one tab, corrupting across several: a
+       * throttled tab still holding `job1` would restore it over another tab's
+       * newer `job2` just by claiming a completion.
        *
-       * Falls back to in-memory when storage has no entry to offer (first
-       * write of the session, or storage unreadable) — the alternative is
-       * nulling a field on the strength of a failed read.
+       * Takes the snapshot the caller already read, so a decision and the
+       * write it justifies can never straddle two different reads.
+       *
+       * Falls back to in-memory when storage has nothing to offer (first write
+       * of the session, or an unreadable read) — the alternative is nulling a
+       * field on the strength of a failed read.
        */
-      const merged = (patch: Partial<PersistedAnalysisJobState>) => {
-        const persisted = readPersisted();
+      const mergeWith = (
+        persisted: ReturnType<typeof readPersisted>,
+        patch: Partial<PersistedAnalysisJobState>,
+      ) => {
         const current = get();
         return {
           job: pick(persisted.job, current.job, (a, b) => a.jobId === b.jobId),
@@ -149,44 +180,50 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
       return {
         job: null,
         completedAt: null,
-        setJob: (job) => set(merged({ job })),
-        claimCompletion: async (jobId) => {
-          const attempt = () => {
-            const existing = readPersisted().completedAt;
+        setJob: (job) =>
+          // fix(#1008 codex P1): a job START has to serialize against a clear
+          // too, or a clear that read "no newer job" moments earlier overwrites
+          // this one with null.
+          withLock(() => {
+            set(mergeWith(readPersisted(), { job }));
+          }, undefined),
+        claimCompletion: (jobId) =>
+          // fix(#1008 codex P2): the read/write/read below is NOT atomic on its
+          // own, and the tempting argument that it is does not survive contact
+          // with an interleaving. localStorage serializes individual
+          // operations, not a sequence of them, so `A reads empty, B reads
+          // empty, A writes, A reads back A, B writes, B reads back B` leaves
+          // both tabs holding what looks like a winning claim — exactly the
+          // simultaneous completion this exists to dedup.
+          withLock(() => {
+            const persisted = readPersisted();
+            const existing = persisted.completedAt;
             if (existing?.jobId === jobId) {
               // Already reported. Ours only if we were the one who did it.
               return existing.tabId === TAB_ID;
             }
-            set(merged({ completedAt: { jobId, tabId: TAB_ID, at: Date.now() } }));
+            // fix(#1008 codex P2): a claim naming a DIFFERENT run, while the
+            // tracked run is not ours either, means this tab is late — a
+            // throttled tab resuming after the run it is holding was cleared
+            // and a later one already completed. Overwriting would re-report a
+            // finished run and re-arm the newer one for a second claim.
+            if (existing && persisted.job?.jobId !== jobId) return false;
+            set(
+              mergeWith(persisted, {
+                completedAt: { jobId, tabId: TAB_ID, at: Date.now() },
+              }),
+            );
             const settled = readPersisted().completedAt;
             return settled?.jobId === jobId && settled.tabId === TAB_ID;
-          };
-          // fix(#1008 codex P2): the read/write/read above is NOT atomic on its
-          // own, and the tempting argument that it is does not survive contact
-          // with an interleaving. localStorage serializes individual operations,
-          // not a sequence of them, so `A reads empty, B reads empty, A writes,
-          // A reads back A, B writes, B reads back B` leaves both tabs holding
-          // what looks like a winning claim — which is exactly the simultaneous
-          // completion this exists to dedup. Web Locks is the primitive that
-          // actually makes the sequence mutually exclusive across same-origin
-          // documents, so run it under one.
-          const locks = globalThis.navigator?.locks;
-          if (!locks) {
-            // No Web Locks (older browser, or a non-DOM environment). The
-            // sequence is still right in every staggered case, which is the
-            // common one; the residual loss is a duplicate toast on a genuine
-            // tie, i.e. the behaviour before any of this existed.
-            return attempt();
-          }
-          return await locks.request(COMPLETION_LOCK, attempt);
-        },
-        clearJobIfCurrent: (jobId) => {
-          const persistedJob = readPersisted().job;
-          // Only bail when storage names a DIFFERENT run: a null there means
-          // nothing is tracked, and this tab's in-memory copy still has to go.
-          if (persistedJob && persistedJob.jobId !== jobId) return;
-          set(merged({ job: null }));
-        },
+          }, true),
+        clearJobIfCurrent: (jobId) =>
+          withLock(() => {
+            const persisted = readPersisted();
+            // Only stand down when storage names a DIFFERENT run: a null there
+            // means nothing is tracked and this tab's copy still has to go.
+            if (persisted.job && persisted.job.jobId !== jobId) return;
+            set(mergeWith(persisted, { job: null }));
+          }, undefined),
       };
     },
     {
@@ -236,7 +273,7 @@ if (typeof window !== 'undefined') {
 // a job mid-run.
 useAuthStore.subscribe((s, prev) => {
   if (s.user?.id !== prev.user?.id) {
-    useAnalysisJobStore.getState().setJob(null);
+    void useAnalysisJobStore.getState().setJob(null);
   }
 });
 

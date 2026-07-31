@@ -122,13 +122,37 @@ describe('analysis-job-store completion claim', () => {
     ).resolves.toBe(true);
   });
 
-  it('grants each job its own claim', async () => {
-    await expect(
-      useAnalysisJobStore.getState().claimCompletion('job-1'),
-    ).resolves.toBe(true);
+  it('grants the next run its own claim once it is the tracked one', async () => {
+    // The real sequence, because the claim slot holds one entry: run, report,
+    // clear, run again. A tab that has never tracked job-2 has no business
+    // reporting it, which the stale-claim rule below depends on.
+    await useAnalysisJobStore.getState().setJob(job);
+    await useAnalysisJobStore.getState().claimCompletion('job-1');
+    await useAnalysisJobStore.getState().clearJobIfCurrent('job-1');
+
+    await useAnalysisJobStore
+      .getState()
+      .setJob({ jobId: 'job-2', title: 'Next run', mapId: 'map-1' });
+
     await expect(
       useAnalysisJobStore.getState().claimCompletion('job-2'),
     ).resolves.toBe(true);
+  });
+
+  // fix(#1008 codex P2): a throttled tab resuming after the run it holds was
+  // cleared, and a later one already reported. Overwriting the newer claim
+  // would re-report a finished run AND re-arm the newer one for a second
+  // claim by whichever tab is still observing it.
+  it('refuses a stale run whose claim slot a newer one already owns', async () => {
+    seedStorage({
+      job: null,
+      completedAt: { jobId: 'job-2', tabId: 'some-other-tab', at: Date.now() },
+    });
+
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(false);
+    expect(storedState().completedAt).toMatchObject({ jobId: 'job-2' });
   });
 
   it('grants exactly one of two tabs the same completion', async () => {
@@ -202,7 +226,7 @@ describe('analysis-job-store claim atomicity', () => {
     ).resolves.toBe(true);
 
     expect(request).toHaveBeenCalledWith(
-      'geolens-analysis-completion',
+      'geolens-analysis-job-write',
       expect.any(Function),
     );
   });
@@ -225,10 +249,10 @@ describe('analysis-job-store guarded clear', () => {
     localStorage.clear();
   });
 
-  it('clears the job it was asked about', () => {
+  it('clears the job it was asked about', async () => {
     useAnalysisJobStore.setState({ job });
 
-    useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
+    await useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
 
     expect(useAnalysisJobStore.getState().job).toBeNull();
   });
@@ -237,17 +261,17 @@ describe('analysis-job-store guarded clear', () => {
   // no longer this tab's own business. A backgrounded tab whose timers were
   // throttled can process a terminal response long after another tab started
   // the NEXT run.
-  it('leaves a newer run alone', () => {
+  it('leaves a newer run alone', async () => {
     const newer = { jobId: 'job-2', title: 'Next run', mapId: 'map-1' };
     useAnalysisJobStore.setState({ job: newer });
 
-    useAnalysisJobStore.getState().clearJobIfCurrent('job-1');
+    await useAnalysisJobStore.getState().clearJobIfCurrent('job-1');
 
     expect(useAnalysisJobStore.getState().job).toEqual(newer);
     expect(storedState().job).toEqual(newer);
   });
 
-  it('clears this tab even when storage tracks nothing', () => {
+  it('clears this tab even when storage tracks nothing', async () => {
     // The mirror already carried another tab's clear through storage; this
     // tab's in-memory copy still has to go.
     useAnalysisJobStore.setState({ job });
@@ -256,7 +280,7 @@ describe('analysis-job-store guarded clear', () => {
       JSON.stringify({ state: { job: null, completedAt: null }, version: 1 }),
     );
 
-    useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
+    await useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
 
     expect(useAnalysisJobStore.getState().job).toBeNull();
   });
@@ -285,21 +309,56 @@ describe('analysis-job-store write merging', () => {
 
     // Which is what leaves the guarded clear able to see job-2 and stand down;
     // before the merge it read back its own job-1 and cleared it.
-    useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
+    await useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId);
     expect(storedState().job).toEqual(newer);
   });
 
-  it('starting a run keeps a claim another tab wrote', () => {
+  it('starting a run keeps a claim another tab wrote', async () => {
     seedStorage({
       job: null,
       completedAt: { jobId: 'job-0', tabId: 'some-other-tab', at: 1 },
     });
 
-    useAnalysisJobStore.getState().setJob(job);
+    await useAnalysisJobStore.getState().setJob(job);
 
     expect(storedState().job).toEqual(job);
     // Dropping the claim would re-arm a completion another tab already
     // reported, so the next tab to look would toast it a second time.
     expect(storedState().completedAt).toMatchObject({ jobId: 'job-0' });
+  });
+});
+
+// fix(#1008 codex P2): the watcher awaits these, so a rejection would leave a
+// finished job neither reported nor cleared, with Create disabled until a
+// reload. Storage that throws on write is the realistic trigger — a disabled
+// storage partition, or an exhausted quota.
+describe('analysis-job-store storage failure', () => {
+  beforeEach(() => {
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    localStorage.clear();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('reports rather than going silent when the claim cannot be persisted', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+
+    // A duplicate notification beats never telling the user their dataset is
+    // ready, so the degraded answer is "report it".
+    await expect(
+      useAnalysisJobStore.getState().claimCompletion('job-1'),
+    ).resolves.toBe(true);
+  });
+
+  it('settles the clear rather than rejecting it', async () => {
+    useAnalysisJobStore.setState({ job });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+
+    await expect(
+      useAnalysisJobStore.getState().clearJobIfCurrent(job.jobId),
+    ).resolves.toBeUndefined();
   });
 });

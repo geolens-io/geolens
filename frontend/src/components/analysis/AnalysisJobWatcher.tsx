@@ -44,7 +44,7 @@ export function AnalysisJobWatcher() {
       // (#793 review): restoring it would re-enable Create with the finished
       // run's name.
       useAnalysisFormStore.getState().clearTitleForMap(job.mapId);
-      clearJobIfCurrent(job.jobId);
+      void clearJobIfCurrent(job.jobId);
       return;
     }
     // Only a terminal status stops tracking — deliberately no client-side
@@ -200,7 +200,7 @@ export function AnalysisJobWatcher() {
       if (status === 'complete') {
         useAnalysisFormStore.getState().clearTitleForMap(tracked.mapId);
       }
-      clearJobIfCurrent(tracked.jobId);
+      void clearJobIfCurrent(tracked.jobId);
     });
     return () => {
       superseded = true;
