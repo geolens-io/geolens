@@ -350,14 +350,18 @@ CHAT_TOOLS_ANTHROPIC = [
                 },
                 "operation": {
                     "type": "string",
-                    # Deliberately narrower than the preview endpoint's enum:
-                    # `clip` needs a drawn mask polygon that only the Analysis
-                    # rail panel can supply, and `dissolve` is materialize-only
-                    # (an aggregate with no preview shape).
-                    "enum": ["buffer", "centroid"],
+                    # feat(#683): `clip` joined the enum once #682 shipped the
+                    # layer-sourced mask. The old narrowing said clip needed a
+                    # drawn polygon only the Analysis rail could supply, which
+                    # stopped being true then. `dissolve` stays out on its own
+                    # merits: it is materialize-only, an aggregate with no
+                    # preview shape.
+                    "enum": ["buffer", "centroid", "clip"],
                     "description": (
                         "buffer = grow each feature by a distance; "
-                        "centroid = replace each feature with its centre point"
+                        "centroid = replace each feature with its centre "
+                        "point; clip = keep only the parts of each feature "
+                        "that fall inside another layer"
                     ),
                 },
                 "distance_meters": {
@@ -365,6 +369,14 @@ CHAT_TOOLS_ANTHROPIC = [
                     "description": (
                         "Buffer distance in metres, 0 < d <= 100000 "
                         "(required for buffer, ignored otherwise)"
+                    ),
+                },
+                "mask_layer_id": {
+                    "type": "string",
+                    "description": (
+                        "Layer ID (UUID) of the POLYGON layer to clip against "
+                        "(required for clip, ignored otherwise). Must be a "
+                        "different layer from layer_id."
                     ),
                 },
             },

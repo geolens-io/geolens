@@ -101,22 +101,59 @@ class DefaultProcessingPort:
         return await get_user_roles(session, user)
 
     async def run_analysis_preview(  # type: ignore[no-untyped-def]
-        self, session, dataset, operation, *, user_id, distance_meters=None, mask=None
+        self,
+        session,
+        dataset,
+        operation,
+        *,
+        user_id,
+        distance_meters=None,
+        mask=None,
+        mask_dataset=None,
     ):
         """Run a parameterized analysis preview (M4) for the AI chat surface.
 
         Params are re-validated by ``AnalysisPreviewRequest`` here, so the
         LLM-supplied values pass through exactly the same bounds/requiredness
         checks as the HTTP endpoint (a ValueError surfaces as a tool error the
-        model can retry from). Callers own the dataset visibility check.
+        model can retry from). Callers own the dataset VISIBILITY check, for
+        the mask dataset as much as the source — this port never checks it.
+
+        feat(#683): the mask's SHAPE is checked here, so every port caller gets
+        the rail the REST route applies in ``_load_mask_dataset``. Unioning
+        points or lines masks nothing meaningful, and without the check the
+        failure is an empty result the model reports as a real answer.
+
+        ``release_session`` is deliberately never passed: see the reasoning at
+        the chat call site in ``chat_analysis._run_analysis``.
         """
         from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
         from app.modules.catalog.datasets.domain.service import run_analysis_preview
 
+        # Ignored unless the operation owns it, mirroring what
+        # _drop_params_for_other_operations does to mask_dataset_id (#682).
+        mask_for_op = mask_dataset if operation == "clip" else None
+        if mask_for_op is not None:
+            shape = (getattr(mask_for_op, "geometry_type", None) or "").upper()
+            if not shape or not getattr(mask_for_op, "table_name", None):
+                raise ValueError("The mask layer has no geometry to clip with.")
+            if shape not in {"POLYGON", "MULTIPOLYGON"}:
+                raise ValueError(
+                    f"Clipping needs a polygon layer as the mask; that one is "
+                    f"{shape}. Pick a polygon layer instead."
+                )
+
         request = AnalysisPreviewRequest(
-            operation=operation, distance_meters=distance_meters, mask=mask
+            operation=operation,
+            distance_meters=distance_meters,
+            mask=mask,
+            # The validator requires exactly one mask source for clip and never
+            # sees the object, so stand the id in for it.
+            mask_dataset_id=getattr(mask_for_op, "id", None),
         )
-        return await run_analysis_preview(session, dataset, request, user_id)
+        return await run_analysis_preview(
+            session, dataset, request, user_id, mask_dataset=mask_for_op
+        )
 
     async def get_column_stats(
         self, session, table_name, column_name, *, class_count=5, allowed_tables=None

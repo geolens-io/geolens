@@ -52,6 +52,47 @@ async def handle_run_analysis(
         return {"error": "Could not run that analysis."}
 
 
+async def _resolve_layer_dataset(
+    session: AsyncSession,
+    layer: ChatMapLayer,
+    user: Identity,
+    user_roles: set[str],
+    *,
+    port: "ProcessingPort",
+    what: str = "layer",
+):
+    """Resolve one layer's dataset and authorize it, or return a tool error.
+
+    Returns the dataset on success and an ``{"error": ...}`` dict otherwise,
+    so callers stay linear. Shared by the source layer and (feat(#683)) the
+    clip mask layer, because BOTH need the Rule-1 check: the layer list is
+    client-supplied, so neither its dataset_id nor its table name is evidence
+    of access.
+    """
+    try:
+        dataset_id = UUID(str(layer.dataset_id))
+    except ValueError:
+        # Malformed client-supplied id — same user-facing outcome as a miss.
+        return {"error": f"That {what}'s dataset is no longer available."}
+    dataset = await port.get_dataset(session, dataset_id)
+    if dataset is None:
+        return {"error": f"That {what}'s dataset is no longer available."}
+
+    try:
+        await port.check_dataset_access(
+            session, dataset, dataset.id, user, user_roles=user_roles
+        )
+    except HTTPException:
+        # check_dataset_access signals denial with a 404 — anything else is a
+        # real failure and belongs in the generic handler, not reported to the
+        # user as an access problem.
+        logger.info(
+            "run_analysis.access_denied", dataset_id=str(dataset.id), which=what
+        )
+        return {"error": f"You don't have access to that {what}'s dataset."}
+    return dataset
+
+
 async def _run_analysis(
     tool_input: dict,
     session: AsyncSession,
@@ -74,25 +115,9 @@ async def _run_analysis(
             "error": "That layer is not on this map — pick one of the listed layers."
         }
 
-    try:
-        dataset_id = UUID(str(layer.dataset_id))
-    except ValueError:
-        # Malformed client-supplied id — same user-facing outcome as a miss.
-        return {"error": "That layer's dataset is no longer available."}
-    dataset = await port.get_dataset(session, dataset_id)
-    if dataset is None:
-        return {"error": "That layer's dataset is no longer available."}
-
-    try:
-        await port.check_dataset_access(
-            session, dataset, dataset.id, user, user_roles=user_roles
-        )
-    except HTTPException:
-        # check_dataset_access signals denial with a 404 — anything else is a
-        # real failure and belongs in the generic handler, not reported to the
-        # user as an access problem.
-        logger.info("run_analysis.access_denied", dataset_id=str(dataset.id))
-        return {"error": "You don't have access to that layer's dataset."}
+    dataset = await _resolve_layer_dataset(session, layer, user, user_roles, port=port)
+    if isinstance(dataset, dict):
+        return dataset
 
     if not dataset.geometry_type or not dataset.table_name:
         return {"error": "That layer has no geometry to analyze."}
@@ -106,6 +131,31 @@ async def _run_analysis(
         tool_input.get("distance_meters") if operation == "buffer" else None
     )
 
+    # feat(#683): the mask layer is resolved and authorized SEPARATELY. Rule 1
+    # applies to both datasets of a two-layer operation, and the layer list is
+    # client-supplied either way, so seeing the source buys no claim on the
+    # mask. The port checks the mask's shape but never its visibility.
+    mask_dataset = None
+    if operation == "clip":
+        mask_layer = next(
+            (lyr for lyr in layers if lyr.id == tool_input.get("mask_layer_id")), None
+        )
+        if mask_layer is None:
+            return {
+                "error": (
+                    "Clipping needs a mask layer from this map — name one of "
+                    "the listed layers as mask_layer_id."
+                )
+            }
+        if mask_layer.id == layer.id:
+            # Clipping a layer by itself is a no-op that costs a real query.
+            return {"error": "The mask layer has to be a different layer."}
+        mask_dataset = await _resolve_layer_dataset(
+            session, mask_layer, user, user_roles, port=port, what="mask layer"
+        )
+        if isinstance(mask_dataset, dict):
+            return mask_dataset
+
     try:
         result = await port.run_analysis_preview(
             session,
@@ -113,6 +163,14 @@ async def _run_analysis(
             operation,
             user_id=user.id,
             distance_meters=distance_meters,
+            mask_dataset=mask_dataset,
+            # fix(#716): release_session is deliberately NOT passed. The
+            # rollback that returns the pooled connection expires every ORM
+            # instance on the session, the authenticated User included, and
+            # both chat paths read `user.id` after this returns — a sync
+            # refresh on an expired instance raises MissingGreenlet. The REST
+            # endpoint passes it because it reads nothing afterwards; copying
+            # that call site verbatim is the natural mistake here.
         )
     except ValueError as exc:
         # Pydantic/param validation (bad enum, missing or out-of-range

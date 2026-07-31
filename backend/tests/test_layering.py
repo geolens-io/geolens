@@ -931,7 +931,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # module should get its own review.
         "backend/app/platform/extensions/defaults_ai_openai.py": 444,
         "backend/app/platform/extensions/defaults_catalog_port.py": 398,
-        "backend/app/platform/extensions/defaults_processing_port.py": 406,
+        # feat(#683): +37 — run_analysis_preview carries a clip mask DATASET
+        # now, which costs a widened signature (one param per line once ruff
+        # wraps it) plus the polygon/table shape gate. The gate lives here on
+        # purpose: it is the rail router_analysis._load_mask_dataset applies,
+        # and putting it at the port gives every caller the same refusal
+        # instead of an empty preview. Cap 406 → 450 (~7 headroom).
+        "backend/app/platform/extensions/defaults_processing_port.py": 450,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. Cap exact, zero headroom.
