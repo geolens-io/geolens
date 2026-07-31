@@ -1059,7 +1059,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # where the shifted domain can win, so the common path skips the second
     # aggregate) and the crossing override wiring in `get_extent` and the
     # extract_metadata CTE. Ratchet stays exact.
-    "backend/app/processing/ingest/metadata.py": 2002,
+    # fix(#961 review): +29 — the anchor on `_GEOGRAPHIC_SRTEXT_RE` is now
+    # documented as load-bearing rather than incidental. Un-anchoring it (so it
+    # would agree with `core.geo.wkt_is_geographic` and with the floor below on
+    # wrapped CRSs) was tried and reverted: the companion degree test is a flat
+    # substring scan, so a grads BOUNDCRS would have matched an unrelated
+    # `degree` on its target and been translated by 360 with a 400-unit turn.
+    # This is the shift that moves geometry, so the reasoning lives at the code
+    # rather than only in the issue. Ratchet stays exact.
+    "backend/app/processing/ingest/metadata.py": 2031,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining ~18-line runway to
     # the cliff cannot be spent silently.
