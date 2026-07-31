@@ -8,7 +8,9 @@
     "opacityModified": "Opacidad ajustada"
   },
   "map": {
-    "ariaLabel": "Constructor de mapas"
+    "ariaLabel": "Constructor de mapas",
+    "autoFitMoved": "La vista se ajustó a las capas visibles",
+    "returnToPreviousView": "Volver a la vista anterior"
   },
   "mapNameLabel": "Nombre del mapa",
   "descriptionLabel": "Descripción del mapa",
@@ -1093,12 +1095,13 @@
     "emptyTitle": "Aún no hay historial de edición",
     "emptyDescription": "El historial comienza después de que se registren ediciones guardadas para este mapa.",
     "errorTitle": "No se pudo cargar el historial",
-    "errorDescription": "Intente cerrar y volver a abrir este panel.",
+    "errorDescription": "Comprueba tu conexión y vuelve a intentarlo.",
     "notAvailableTitle": "Guarde este mapa para ver el historial",
     "notAvailableDescription": "El historial de edición está disponible después de que el mapa exista.",
     "unknownTime": "Tiempo desconocido",
     "unknownActor": "Usuario desconocido",
-    "actorTarget": "{{actor}} - {{target}}"
+    "actorTarget": "{{actor}} - {{target}}",
+    "retry": "Intentar de nuevo"
   },
   "dock": {
     "askAi": "Preguntar a IA",
