@@ -656,8 +656,14 @@ async def _run_staging_pipeline(
 ) -> StagingResult:
     """Run the post-ogr2ogr staging pipeline on a table.
 
-    Shared by ``_ingest_vector_into_staging`` (new ingests) and
-    ``reupload_file`` (re-uploads). Performs: ensure_geom_column,
+    fix(#1018 review): the only production caller is ``reupload_file``
+    (``tasks_reupload.py:337``). ``_ingest_vector_into_staging`` also calls it
+    but is test-only, and NEW vector ingest does not: ``_finalize_ingest``
+    (:1069) reruns these same steps inline at :1114-1177. This docstring used
+    to read "shared by _ingest_vector_into_staging (new ingests)", which named
+    the wrong path for the wrong reason.
+
+    Performs: ensure_geom_column,
     clip_to_mercator_bounds, add_4326_column, grant_reader_access,
     extract_metadata, detect_3d_metadata, promote_z_to_elev, and
     get_sample_values. Does not commit.
@@ -827,15 +833,21 @@ async def _ingest_vector_into_staging(
     TEST-ONLY (#1018). Nothing in ``app/`` calls this. Every caller is a test:
     ``tests/test_staging_pipeline.py`` and
     ``tests/test_staging_pipeline_integration.py``. It exists to give those
-    tests a callable seam over the staging half of ingest, which production
-    inlines inside its own job lifecycle rather than factoring out.
+    tests a callable seam over vector ingest's pre-staging half, which
+    production runs inline inside its own job lifecycle.
 
-    So it is a PARALLEL COPY, not the live path, and it can drift. The two
-    production sequences it mirrors are ``tasks_vector.py`` (run_ogr2ogr ->
-    rename_reserved_columns -> DBF-truncation check -> geometry override ->
-    _run_staging_pipeline, :459-560) and ``tasks_reupload.py`` (:261-340).
-    A change to either has to visit here, or these tests start asserting
-    against a shape production no longer has.
+    What it mirrors, and what it shares (fix(#1018 review)):
+
+    - The pre-staging steps here — run_ogr2ogr, rename_reserved_columns, the
+      DBF-truncation check, the ``user_wants_geom`` override — are a PARALLEL
+      COPY of ``tasks_vector.py`` (:459-560) and ``tasks_reupload.py``
+      (:261-340). Those can drift from this, and only the tests would notice.
+    - The staging steps are the real ``_run_staging_pipeline`` (:650), so this
+      helper does not fork them. But production reaches that function only on
+      the re-upload path (``tasks_reupload.py:337``): NEW vector ingest reruns
+      the same eight steps inline in ``_finalize_ingest`` (:1069, the block at
+      :1114-1177). A change to the staging sequence therefore has three sites,
+      not two, and this helper covers the one production does not use.
 
     It intentionally performs no commits.
     """

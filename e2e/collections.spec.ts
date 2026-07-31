@@ -8,6 +8,7 @@ const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 let createdCollectionId: string | null = null;
 let createdDatasetId: string | null = null;
 let createdDatasetTitle: string | null = null;
+let createdJobId: string | null = null;
 
 interface JobStatusPayload {
   status: string;
@@ -29,14 +30,6 @@ async function waitForDatasetJob(jobId: string, authHeaders: Record<string, stri
     const statusRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders });
     expect(statusRes.ok).toBe(true);
     const status = await statusRes.json() as JobStatusPayload;
-    // fix(#1018): claim the cleanup handle the moment the row exists, not once
-    // the job also reports complete. Everything below this line can throw — a
-    // failed import, a 45-attempt timeout, the ok() assertion on the next poll
-    // — and until this assignment lands afterAll sees a null id and deletes
-    // nothing, so each failed retry leaks one dataset. Same fix as #895 in
-    // analysis.spec.ts, where the catalog count climbed 3 → 4 → 5 across three
-    // retries.
-    if (status.dataset_id) createdDatasetId = status.dataset_id;
     if (status.status === 'complete' && status.dataset_id) return status.dataset_id;
     if (status.status === 'failed') {
       throw new Error(`Collection fixture import failed: ${status.error_message ?? 'unknown error'}`);
@@ -50,9 +43,9 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
   const token = getAuthToken();
   const authHeaders = { Authorization: `Bearer ${token}` };
   const title = `E2E Collection Dataset ${Date.now()}`;
-  // The other half of the cleanup handle, registered before the upload can
-  // create anything: afterAll needs BOTH the id and the confirm title, so
-  // claiming the id early only helps if the title is already there.
+  // fix(#1018): register the confirm title before the upload can create
+  // anything. afterAll needs BOTH halves of the handle, so resolving the id
+  // later is no use if the title was never recorded.
   createdDatasetTitle = title;
   const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.geojson`;
   const geojson = JSON.stringify({
@@ -94,17 +87,41 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
       layer_name: preview.layer_name,
     }),
   });
+  // fix(#1018): the job id is the only handle that exists between the commit
+  // and the dataset appearing. Record it so teardown can resolve the dataset
+  // even when the poll below gives up first.
+  createdJobId = upload.job_id;
   expect(commitRes.ok).toBe(true);
 
   const datasetId = await waitForDatasetJob(upload.job_id, authHeaders);
+  createdDatasetId = datasetId;
   return { datasetId, title };
 }
 
 test.describe.serial('Collections', () => {
   test.afterAll(async () => {
+    const token = getAuthToken();
+
+    // fix(#1018 review): the backend sets dataset_id in the same atomic update
+    // that flips the job to 'complete' (_finalize_ingest), so there is no
+    // earlier moment to claim the id. If the 45-second poll gives up one
+    // second before the ingest lands — or anything after it throws — the
+    // dataset exists and nothing here knows its id, and each failed retry
+    // leaks a row (analysis.spec.ts had the same shape in #895; its catalog
+    // count climbed 3 → 4 → 5 across three retries). One last lookup closes
+    // that window.
+    if (!createdDatasetId && createdJobId) {
+      const res = await fetch(`${BASE_URL}/api/jobs/${createdJobId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const status = await res.json() as JobStatusPayload;
+        if (status.dataset_id) createdDatasetId = status.dataset_id;
+      }
+    }
+
     if (!createdDatasetId || !createdDatasetTitle) return;
 
-    const token = getAuthToken();
     await fetch(`${BASE_URL}/api/datasets/bulk-delete/`, {
       method: 'POST',
       headers: {
