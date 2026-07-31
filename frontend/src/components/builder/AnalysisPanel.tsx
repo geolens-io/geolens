@@ -422,6 +422,22 @@ export function AnalysisPanel({
     },
     [],
   );
+  // fix(#787 item 10): the clip Draw button gated on `mapInstanceRef.current`
+  // read during render. Ref assignments don't re-render, so the button could
+  // stay dead until an unrelated state change happened to re-render the panel.
+  // Mirror the instance into state from an effect — the legal place to read a
+  // ref — using the same no-dep-array, retry-every-commit idiom as the mask
+  // effects below, which is what reaches the moment the lazy map exists. The
+  // initializer covers the common case (map already loaded when the panel
+  // opens) so a mount does not spend an extra commit settling this.
+  const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(
+    () => mapInstanceRef?.current ?? null,
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately runs every commit (the ref object never changes identity, only its contents); the prev === map bailout is what stops the update chain
+  useEffect(() => {
+    const map = mapInstanceRef?.current ?? null;
+    setMapInstance((prev) => (prev === map ? prev : map));
+  });
   const restoredMaskDrawnRef = useRef(false);
   useEffect(() => {
     if (restoredMaskDrawnRef.current) return;
@@ -555,6 +571,16 @@ export function AnalysisPanel({
   // change bumps the sequence (so an in-flight response knows it has been
   // superseded) and clears the overlay + badge outright.
   const previewSeqRef = useRef(0);
+  // fix(#787 item 3): closing the panel mid-preview suppressed the result
+  // callbacks but left the request running. The controller for the preview in
+  // flight, aborted on unmount and when a newer preview supersedes it.
+  // Scope: this cancels the CLIENT half. The preview endpoint does not watch
+  // Request.is_disconnected(), so the sandbox statement behind an abandoned
+  // request still runs to its own timeout, holding the per-user advisory lock
+  // until then. Server-side cancellation on disconnect is a backend change,
+  // not this batch's.
+  const previewAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => previewAbortRef.current?.abort(), []);
   const jobIdRef = useRef(jobId);
   jobIdRef.current = jobId;
   // fix(#793 review): an input change while the materialize POST is still on the
@@ -570,6 +596,12 @@ export function AnalysisPanel({
   ownsPreviewRef.current = previewSource === 'analysis-panel' || !!prefill;
   const handleInputsChanged = useCallback(() => {
     previewSeqRef.current += 1;
+    // fix(#787 item 3): the sequence bump only makes the response ineligible
+    // to be drawn; the mutation stays pending until the abandoned request
+    // settles. canRun gates on isPending, so without this abort the user
+    // cannot start the replacement preview they just changed the inputs for,
+    // and the abort at the head of the next mutation therefore never fires.
+    previewAbortRef.current?.abort();
     formEditedRef.current = true;
     if (ownsPreviewRef.current) onClearPreview?.();
     // fix(#764): a finished run's "Dataset created" + name must not survive
@@ -701,20 +733,38 @@ export function AnalysisPanel({
         throw new Error(
           t('analysisTools.noLayerSelected', { defaultValue: 'No layer selected' }),
         );
-      return previewAnalysis(datasetId, {
-        // canRun blocks dissolve from the preview path.
-        operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
-        ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
-        ...(operation === 'clip' && mask ? { mask } : {}),
-        ...(operation === 'clip' && !mask && maskLayer?.dataset_id
-          ? { mask_dataset_id: maskLayer.dataset_id }
-          : {}),
-      });
+      // Belt and braces: handleInputsChanged already aborted whatever this
+      // preview supersedes, but a caller that reaches here without one (a
+      // resubmit on unchanged inputs) must not leave the old fetch pending.
+      previewAbortRef.current?.abort();
+      const controller = new AbortController();
+      previewAbortRef.current = controller;
+      return previewAnalysis(
+        datasetId,
+        {
+          // canRun blocks dissolve from the preview path.
+          operation: operation as Exclude<AnalysisOperation, 'dissolve'>,
+          ...(operation === 'buffer' ? { distance_meters: distanceValue } : {}),
+          ...(operation === 'clip' && mask ? { mask } : {}),
+          ...(operation === 'clip' && !mask && maskLayer?.dataset_id
+            ? { mask_dataset_id: maskLayer.dataset_id }
+            : {}),
+        },
+        controller.signal,
+      );
     },
     // fix(#793 review): the error path checks the sequence too — a
     // rejection from a request whose inputs were already abandoned must not
     // raise "Analysis failed" over a newer, possibly successful preview.
     onError: (error: Error, { seq }) => {
+      // fix(#787 item 3): a preview this panel cancelled is not a failure to
+      // report. The seq guard alone does not cover the unmount abort, which
+      // aborts WITHOUT bumping the sequence, and the callback still fires
+      // (the rejection outlives the commit that unsubscribed the observer) —
+      // so closing the panel mid-preview raised "Analysis failed" over the
+      // builder. A timeout is not caught here: safeFetch turns TimeoutError
+      // into a normalized ApiError, and only a caller abort keeps this name.
+      if (error.name === 'AbortError') return;
       if (seq !== previewSeqRef.current) return;
       toast.error(
         error.message ||
@@ -1155,7 +1205,7 @@ export function AnalysisPanel({
                 variant="outline"
                 size="sm"
                 onClick={startDrawing}
-                disabled={!mapInstanceRef?.current}
+                disabled={!mapInstance}
               >
                 {t('analysisTools.drawMask', { defaultValue: 'Draw clip area' })}
               </Button>
