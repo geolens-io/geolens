@@ -29,7 +29,6 @@ from app.core.geo import crs_has_degree_unit, wkt_has_degree_unit, wkt_is_geogra
 from app.processing.ingest.metadata import (
     _DEGREE_UNIT_SRTEXT_RE,
     _GEOGRAPHIC_SRTEXT_RE,
-    _PROJECTED_SRTEXT_RE,
 )
 from app.processing.raster.vrt import _is_degree_based
 
@@ -44,10 +43,9 @@ CASES = [
     (2263, False, False),  # NY Long Island ftUS — projected, X in feet
     # fix(#961 review): a top-level-keyword matrix is not enough. A stock
     # spatial_ref_sys carries 277 COMPD_CS rows and a family of BOUNDCRS-wrapped
-    # geographic CRSs, whose srtext starts with the WRAPPER. The 0..360 gate's
-    # anchored `^GEOG(CS|CRS)` read those as not-lon/lat while every other site
-    # said geographic — a live disagreement this file claimed to enforce against
-    # and could not see. These two rows are what made it visible.
+    # geographic CRSs whose srtext starts with the WRAPPER, and the sites split
+    # on those — see test_the_shift_gate_is_sound_not_complete below for why
+    # that split is deliberate rather than a bug to unify away.
     (3823, True, True),  # TWD97 — BOUNDCRS wrapping a degree GEOGCRS
     (4339, True, True),  # Australian Antarctic — same wrapper shape
     (5698, False, False),  # RGF93 / Lambert-93 + height — COMPD_CS over PROJCS
@@ -86,37 +84,72 @@ async def test_every_site_agrees_on_the_same_crs(
     # It folds the geographic precondition in, so it answers the conjunction.
     assert _is_degree_based(crs) is (is_geographic and is_degrees), srtext
 
-    # 4. The SQL pair in ingest/metadata.py that gates the 0..360 shift. Run as
-    # SQL, not as a Python regex: `~*` is POSIX and case-insensitive, and the
-    # whole point is what the database decides.
-    sql_is_degree_lonlat = await test_db_session.scalar(
+    # 4. The #906 degenerate-envelope floor's inline predicate, which its own
+    # comment says is "the same keyword logic as core.geo.wkt_is_geographic, in
+    # srtext form". Held to that claim, wrappers included — it sees through
+    # them the way the Python helper does. Run as SQL, not as a Python regex:
+    # `~*` is POSIX and case-insensitive, and the point is what the database
+    # decides.
+    sql_is_geographic = await test_db_session.scalar(
         text(
-            "SELECT srtext ~* :geographic AND srtext !~* :projected "
-            "AND srtext ~* :degree_unit "
+            "SELECT srtext ~* 'GEOG(CS|CRS)' AND srtext !~* 'PROJ(CS|CRS)' "
+            "FROM spatial_ref_sys WHERE srid = :srid"
+        ),
+        {"srid": srid},
+    )
+    assert sql_is_geographic is is_geographic, srtext
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("srid,is_geographic,is_degrees", CASES)
+async def test_the_shift_gate_is_sound_not_complete(
+    test_db_session, srid, is_geographic, is_degrees
+):
+    """The 0..360 gate may decline; it may never fire wrongly.
+
+    `_shift_zero_to_360_longitudes` is the one site here whose answer MOVES
+    geometry, by 360 degrees, so its predicate is held to soundness rather than
+    to agreement: whenever it says "degree lon/lat", PROJ must agree.
+
+    It is deliberately incomplete in the other direction. Its
+    `_GEOGRAPHIC_SRTEXT_RE` is anchored, so a wrapped CRS (BOUNDCRS, COMPD_CS)
+    reads as not-lon/lat and nothing shifts. Un-anchoring it was tried and
+    reverted (#961 review): `_DEGREE_UNIT_SRTEXT_RE` is a flat substring scan,
+    so on `BOUNDCRS[SOURCECRS[GEOGCS[...UNIT["grad"...]]], TARGETCRS[...]]` it
+    finds an unrelated `degree` on the target or a PRIMEM and reports degrees —
+    and the shift then subtracts 360 from coordinates whose full turn is 400.
+    `test_wkt_is_geographic.py::test_boundcrs_reports_the_source_crs_units_not_the_targets`
+    pins the same shape on the Python side. A flat scan cannot decide which
+    subtree a token belongs to; that is `core.geo._parse_crs`'s whole thesis.
+
+    Declining costs a clip that is reported to the user. Firing wrongly
+    corrupts coordinates silently. So: sound, not complete.
+    """
+    srtext = await _srtext(test_db_session, srid)
+    if not srtext:
+        pytest.skip(f"srid {srid} is not in this PostGIS build's spatial_ref_sys")
+
+    fires = await test_db_session.scalar(
+        text(
+            "SELECT srtext ~* :geographic AND srtext ~* :degree_unit "
             "FROM spatial_ref_sys WHERE srid = :srid"
         ).bindparams(
             geographic=_GEOGRAPHIC_SRTEXT_RE,
-            projected=_PROJECTED_SRTEXT_RE,
             degree_unit=_DEGREE_UNIT_SRTEXT_RE,
             srid=srid,
         )
     )
-    assert sql_is_degree_lonlat is (is_geographic and is_degrees), srtext
-
-    # 5. The #906 degenerate-envelope floor's inline predicate, which its own
-    # comment says is "the same keyword logic as core.geo.wkt_is_geographic, in
-    # srtext form". Held to that claim here.
-    sql_is_geographic = await test_db_session.scalar(
-        text(
-            "SELECT srtext ~* :geographic AND srtext !~* :projected "
-            "FROM spatial_ref_sys WHERE srid = :srid"
-        ).bindparams(
-            geographic=_GEOGRAPHIC_SRTEXT_RE,
-            projected=_PROJECTED_SRTEXT_RE,
-            srid=srid,
+    if fires:
+        assert is_geographic and is_degrees, (
+            f"srid {srid} would be shifted by 360 but PROJ reports "
+            f"geographic={is_geographic} degrees={is_degrees}: {srtext}"
         )
-    )
-    assert sql_is_geographic is is_geographic, srtext
+
+    # And the incompleteness is exactly where it is claimed to be: a top-level
+    # GEOGCS in degrees is never declined, so the conservatism costs nothing on
+    # the ordinary case.
+    if is_geographic and is_degrees and srtext.upper().startswith("GEOG"):
+        assert fires, f"srid {srid} is a plain degree GEOGCS and must qualify"
 
 
 @pytest.mark.anyio
@@ -131,11 +164,9 @@ async def test_grads_srids_are_not_a_theoretical_class(test_db_session):
     grads_count = await test_db_session.scalar(
         text(
             "SELECT count(*) FROM spatial_ref_sys "
-            "WHERE srtext ~* :geographic AND srtext !~* :projected "
-            "AND srtext !~* :degree_unit"
+            "WHERE srtext ~* :geographic AND srtext !~* :degree_unit"
         ).bindparams(
             geographic=_GEOGRAPHIC_SRTEXT_RE,
-            projected=_PROJECTED_SRTEXT_RE,
             degree_unit=_DEGREE_UNIT_SRTEXT_RE,
         )
     )
