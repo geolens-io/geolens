@@ -11,7 +11,8 @@ import {
   syncOwnedPaintProperties,
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { ensureFillPatternImages } from './fill-pattern-images';
+import { ensureFillPatternImages, ensureTintedFillPatternImage } from './fill-pattern-images';
+import { fillPatternTint } from '@/lib/fill-pattern-preview';
 // builder-audit #338 DRY-06: extrusion min-zoom (14) and opacity cap (0.85) come from the
 // single builder-defaults source of truth (shared with renderAs + backend mirror).
 import { DEFAULT_EXTRUSION_MIN_ZOOM, DEFAULT_EXTRUSION_OPACITY_CAP } from './builder-defaults';
@@ -82,6 +83,24 @@ function resolveExtrusionFillColor(
     : MAP_COLORS.default.fill;
 }
 
+/**
+ * fix(#914): swap a built-in `fill-pattern` for its tinted variant on the way into
+ * MapLibre, so the pattern draws in the layer's fill colour instead of a fixed grey.
+ * Returns a copy; `rawPaint` (and therefore saved paint, the wire format and
+ * exported style.json) keeps the plain id.
+ */
+export function withTintedFillPattern(
+  map: MaplibreMap,
+  rawPaint: Record<string, unknown>,
+  builder: { fillColorSaved?: string },
+  paint: Record<string, unknown>,
+): Record<string, unknown> {
+  const id = paint['fill-pattern'];
+  if (typeof id !== 'string') return paint;
+  const tinted = ensureTintedFillPatternImage(map, id, fillPatternTint(rawPaint, builder));
+  return tinted === id ? paint : { ...paint, 'fill-pattern': tinted };
+}
+
 function getExtrusionOptions(input: AdapterLayerInput) {
   const builder = getBuilderStyleConfig(input);
   const heightScale = finiteNumber(builder.heightScale) ?? 1;
@@ -120,6 +139,7 @@ export const fillAdapter: LayerAdapter = {
       if (strokeDisabled) {
         effectiveFillPaint['fill-outline-color'] = MAP_COLORS.transparent;
       }
+      const tintedFillPaint = withTintedFillPattern(map, rawPaint, builder, effectiveFillPaint);
       // BUG-01: honor input.visible at initial add so callers that don't
       // immediately follow up with syncVisibility (e.g. swapLayerOnMap for
       // render-mode switches, the raster re-add branch in
@@ -136,7 +156,7 @@ export const fillAdapter: LayerAdapter = {
         type: 'fill',
         source: sourceId,
         ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: effectiveFillPaint,
+        paint: tintedFillPaint,
         layout: initialLayout,
       });
       finalizeLayer(map, layerId, rawPaint, 'fill', opacity ?? 1, filter, hasExpressions);
@@ -202,7 +222,7 @@ export const fillAdapter: LayerAdapter = {
     ensureFillPatternImages(map);
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
-      syncOwnedPaintProperties(map, layerId, rawPaint, {
+      syncOwnedPaintProperties(map, layerId, withTintedFillPattern(map, rawPaint, builder, rawPaint), {
         geomType: 'fill',
         ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
       });

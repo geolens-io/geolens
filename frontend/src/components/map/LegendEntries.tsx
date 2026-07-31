@@ -15,6 +15,13 @@ export interface SwatchStyle {
   strokeWidth?: number;
   /** fix(#951): paint['fill-pattern'] — the polygon chip draws the pattern, not a solid block. */
   fillPattern?: string;
+  /**
+   * fix(#914): the colour the MAP draws that pattern in, from fillPatternTint().
+   * The chip's own `color` cannot be trusted for a patterned layer: a pattern
+   * deletes fill-color from paint, so whatever derived that colour fell back to a
+   * default while the map tints from the stash.
+   */
+  fillPatternColor?: string;
 }
 
 /** Compute compound opacity style from swatch style. */
@@ -69,7 +76,11 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   const borderColor = !s?.strokeDisabled ? (s?.outlineColor ?? MAP_COLORS.legendOutline) : undefined;
   const style: React.CSSProperties = {
     ...(s?.fillPattern
-      ? { color, backgroundColor: 'transparent', ...patternPreviewStyle(s.fillPattern) }
+      ? {
+          color: s.fillPatternColor ?? color,
+          backgroundColor: 'transparent',
+          ...patternPreviewStyle(s.fillPattern),
+        }
       : { backgroundColor: color }),
     ...(borderColor ? { borderColor } : {}),
     ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),

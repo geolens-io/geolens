@@ -184,6 +184,38 @@ describe('patterned polygon swatch (fix #951)', () => {
     expect(chip.style.color).toBe('rgb(255, 90, 95)');
   });
 
+  // fix(#914): same agreement requirement as the legend chip.
+  it('draws the pattern in the map tint when one is resolved', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="x"
+        styleHints={{ fillPattern: 'geolens-fill-dots', fillPatternColor: '#1d4ed8' }}
+      />,
+    );
+    expect((container.firstElementChild as HTMLElement).style.color).toBe('rgb(29, 78, 216)');
+  });
+
+  it('extractStyleHints resolves the tint from the fillColorSaved stash', () => {
+    // A pattern deletes fill-color from paint (EDIT-05), so the stash is the only
+    // place the layer's colour survives.
+    expect(
+      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON', 1, {
+        builder: { fillColorSaved: '#1d4ed8' },
+      }).fillPatternColor,
+    ).toBe('#1d4ed8');
+    // A layer that still carries both keys (older clients) tints from paint.
+    expect(
+      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid', 'fill-color': '#ff0000' }, {}, 'POLYGON')
+        .fillPatternColor,
+    ).toBe('#ff0000');
+    // Nothing to tint with -> undefined, and every consumer falls back to grey.
+    expect(
+      extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON').fillPatternColor,
+    ).toBeUndefined();
+  });
+
   it('extractStyleHints picks fill-pattern up from polygon paint', () => {
     expect(
       extractStyleHints({ 'fill-pattern': 'geolens-fill-grid' }, {}, 'POLYGON').fillPattern,

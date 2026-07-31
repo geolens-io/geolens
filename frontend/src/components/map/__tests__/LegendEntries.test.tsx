@@ -38,6 +38,21 @@ describe('GeometrySwatch — patterned polygons', () => {
     expect(swatch.style.color).toBe('rgb(255, 90, 95)');
   });
 
+  // fix(#914): the map tints the pattern with the layer's fill colour, which for a
+  // patterned layer lives in the fillColorSaved stash rather than in paint — so the
+  // chip has to draw that colour, not whatever its own `color` fell back to.
+  it('draws the pattern in the colour the map tints it with, not the chip colour', () => {
+    const { container } = render(
+      <CategoricalLegend
+        geometryType="Polygon"
+        categories={[{ value: 'a', label: 'A', color: '#ff5a5f' }]}
+        style={{ fillPattern: 'geolens-fill-hatch', fillPatternColor: '#1d4ed8' }}
+      />,
+    );
+    const swatch = container.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(swatch.style.color).toBe('rgb(29, 78, 216)');
+  });
+
   it('leaves unpatterned polygons on the solid chip', () => {
     const { container } = render(
       <CategoricalLegend

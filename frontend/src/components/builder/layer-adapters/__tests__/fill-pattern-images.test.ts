@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { FILL_PATTERN_IDS, makeFillPatternImage, ensureFillPatternImages } from '../fill-pattern-images';
+import {
+  FILL_PATTERN_IDS,
+  makeFillPatternImage,
+  ensureFillPatternImages,
+  ensureTintedFillPatternImage,
+} from '../fill-pattern-images';
 
 // ──────────────────────────────────────────────────────────────────────────────
 describe('FILL_PATTERN_IDS', () => {
@@ -126,5 +131,83 @@ describe('ensureFillPatternImages', () => {
         expect(options.sdf).not.toBe(true);
       }
     }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// fix(#914): tinted variants. The generators used to hardcode rgb(80,80,80), so a
+// pattern never followed the layer's fill colour and read as "my fill disappeared"
+// on a light basemap.
+describe('ensureTintedFillPatternImage', () => {
+  function makeMap(existing: string[] = []) {
+    const have = new Set(existing);
+    return {
+      hasImage: vi.fn((id: string) => have.has(id)),
+      addImage: vi.fn((id: string) => have.add(id)),
+    };
+  }
+
+  it('registers a tinted variant under a colour-namespaced id and returns it', () => {
+    const map = makeMap();
+    const id = ensureTintedFillPatternImage(
+      map as never, 'geolens-fill-hatch', '#1d4ed8',
+    );
+    expect(id).toBe('geolens-fill-hatch#1d4ed8');
+    expect(map.addImage).toHaveBeenCalledWith('geolens-fill-hatch#1d4ed8', expect.anything());
+  });
+
+  it('paints the tint into the tile pixels', () => {
+    const tinted = makeFillPatternImage('geolens-fill-hatch', [255, 0, 0]);
+    const plain = makeFillPatternImage('geolens-fill-hatch');
+    // First opaque pixel of each: red vs the legacy grey.
+    const firstOpaque = (img: { data: Uint8ClampedArray }) => {
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i + 3] === 255) return [img.data[i], img.data[i + 1], img.data[i + 2]];
+      }
+      return null;
+    };
+    expect(firstOpaque(tinted)).toEqual([255, 0, 0]);
+    expect(firstOpaque(plain)).toEqual([80, 80, 80]);
+  });
+
+  it('is idempotent — an already-registered tint is not re-added', () => {
+    const map = makeMap(['geolens-fill-hatch#1d4ed8']);
+    ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', '#1d4ed8');
+    expect(map.addImage).not.toHaveBeenCalled();
+  });
+
+  it('normalises case so one tile serves #1D4ED8 and #1d4ed8', () => {
+    const map = makeMap();
+    const upper = ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', '#1D4ED8');
+    const lower = ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', '#1d4ed8');
+    expect(upper).toBe(lower);
+    expect(map.addImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('expands 3-digit hex', () => {
+    const map = makeMap();
+    expect(ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', '#f00'))
+      .toBe('geolens-fill-hatch#ff0000');
+  });
+
+  it('falls back to the plain id when there is no tint, when the colour is not hex, and for unknown ids', () => {
+    const map = makeMap();
+    expect(ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', undefined))
+      .toBe('geolens-fill-hatch');
+    // A data-driven expression stringifies to something that is not a colour.
+    expect(ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', 'rgb(1,2,3)'))
+      .toBe('geolens-fill-hatch');
+    expect(ensureTintedFillPatternImage(map as never, 'some-sprite-id', '#ff0000'))
+      .toBe('some-sprite-id');
+    expect(map.addImage).not.toHaveBeenCalled();
+  });
+
+  it('returns the plain id when addImage throws', () => {
+    const map = {
+      hasImage: vi.fn(() => false),
+      addImage: vi.fn(() => { throw new Error('style not loaded'); }),
+    };
+    expect(ensureTintedFillPatternImage(map as never, 'geolens-fill-hatch', '#ff0000'))
+      .toBe('geolens-fill-hatch');
   });
 });

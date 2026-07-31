@@ -9,7 +9,7 @@ import {
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { fillPatternFromPaint } from '@/lib/fill-pattern-preview';
+import { fillPatternFromPaint, fillPatternTint } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
@@ -29,6 +29,8 @@ function getSwatchStyleFromPaint(
   paint: Record<string, unknown> | undefined,
   geometryType: string | null | undefined,
   masterOpacity: number,
+  // fix(#914): the builder block carries the fill-pattern tint stash.
+  builder?: { fillColorSaved?: string },
 ): SwatchStyle {
   const gt = (inferGeometryType(paint, geometryType) ?? '').toUpperCase();
   const strokeDisabled = !!paint?.['_stroke-disabled'];
@@ -46,7 +48,15 @@ function getSwatchStyleFromPaint(
       : paint?.['fill-opacity'];
   const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
 
-  return { outlineColor, strokeDisabled, opacity: masterOpacity, fillOpacity, strokeWidth, fillPattern: fillPatternFromPaint(paint) };
+  return {
+    outlineColor,
+    strokeDisabled,
+    opacity: masterOpacity,
+    fillOpacity,
+    strokeWidth,
+    fillPattern: fillPatternFromPaint(paint),
+    fillPatternColor: fillPatternTint(paint, builder),
+  };
 }
 
 /** Extract colors and breaks from a paint color expression for the legend. */
@@ -265,7 +275,9 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
   try {
     const opacity = layer.opacity ?? 1;
     const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
-    const swatchStyle = getSwatchStyleFromPaint(layer.paint, effectiveGeom, opacity);
+    const swatchStyle = getSwatchStyleFromPaint(
+      layer.paint, effectiveGeom, opacity, layer.style_config?.builder,
+    );
     const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
     // ENH-06: per-entry legendLabel override wins over display/dataset name.
     const entryName = legendEntryName(layer);
