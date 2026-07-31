@@ -1257,18 +1257,29 @@ def test_module_loc_caps_have_no_headroom() -> None:
 # which is why this one is phrased by size.
 _RATCHET_INCLUSION_LOC = 1000
 
-# The decomposition globs from
-# test_decomposed_service_modules_stay_within_size_budgets, as filename
-# prefixes — the same way that test discovers its own files.
-_DECOMPOSED_MODULE_PREFIXES = ("service_", "chat_", "defaults_")
+# The globs of test_decomposed_service_modules_stay_within_size_budgets, as
+# (directory, filename prefix) pairs. fix(#958 review): the prefix alone is not
+# the gate. That test globs specific directories, so a `service_*.py` anywhere
+# else is watched by nothing — and a filename-only exemption here would have let
+# such a module past 1000 lines through both gates, defeating the rule this
+# file exists to state. Mirror the directories, not just the names.
+_DECOMPOSED_MODULE_SCOPES: tuple[tuple[str, str], ...] = (
+    ("backend/app/modules/catalog/maps/", "service_"),
+    ("backend/app/modules/catalog/search/", "service_"),
+    ("backend/app/modules/catalog/datasets/domain/", "service_"),
+    ("backend/app/processing/ai/", "chat_"),
+    ("backend/app/platform/extensions/", "defaults_"),
+)
 
 
 def _is_watched_by_another_size_gate(rel: str, name: str) -> bool:
     """True when some gate other than _MODULE_LOC_CAPS already caps this file."""
     if name == "router.py":
         return True  # test_router_orchestrator_modules_stay_within_loc_cap
-    if name.startswith(_DECOMPOSED_MODULE_PREFIXES):
-        return True  # test_decomposed_service_modules_stay_within_size_budgets
+    for directory, prefix in _DECOMPOSED_MODULE_SCOPES:
+        # Directory, not prefix path: those globs are non-recursive.
+        if rel == f"{directory}{name}" and name.startswith(prefix):
+            return True  # test_decomposed_service_modules_stay_within_size_budgets
     return rel in _OPEN_CORE_SIZE_CAPS
 
 
@@ -1295,6 +1306,33 @@ def test_module_loc_cap_inclusion_rule_is_complete() -> None:
             "count, with a comment saying what the growth bought — or decompose it "
             "and stay under the threshold:\n" + "\n".join(missing)
         )
+
+
+@pytest.mark.architecture
+def test_decomposition_prefix_exemption_matches_the_gate_that_backs_it() -> None:
+    """The exemption is a directory scope, not a filename prefix.
+
+    fix(#958 review): ``test_decomposed_service_modules_stay_within_size_budgets``
+    globs specific directories, so a ``service_*.py`` outside them is watched by
+    nothing. A filename-only exemption would have let such a module grow past
+    the inclusion threshold through both gates — the exact hole this rule was
+    written to close, wearing a different name.
+    """
+    for directory, prefix in _DECOMPOSED_MODULE_SCOPES:
+        inside = f"{directory}{prefix}example.py"
+        assert _is_watched_by_another_size_gate(inside, f"{prefix}example.py"), (
+            f"{inside} is inside a globbed directory and should read as watched"
+        )
+
+    # Same filename, a directory the gate does not glob: NOT watched, so the
+    # inclusion rule keeps it once it crosses the threshold.
+    stray = "backend/app/platform/service_orphan.py"
+    assert not _is_watched_by_another_size_gate(stray, "service_orphan.py")
+
+    # The globs are non-recursive; a subdirectory of a globbed one is not in
+    # scope either.
+    nested = "backend/app/modules/catalog/maps/nested/service_deep.py"
+    assert not _is_watched_by_another_size_gate(nested, "service_deep.py")
 
 
 @pytest.mark.architecture
