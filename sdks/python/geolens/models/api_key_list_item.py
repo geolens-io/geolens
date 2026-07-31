@@ -27,6 +27,7 @@ class ApiKeyListItem:
         is_active (bool):
         last_used_at (datetime.datetime | None):
         name (str):
+        scope (str): Privilege scope: 'full' or 'read_only' (#875)
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
     """
 
@@ -36,6 +37,7 @@ class ApiKeyListItem:
     is_active: bool
     last_used_at: datetime.datetime | None
     name: str
+    scope: str
     expires_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -57,6 +59,8 @@ class ApiKeyListItem:
 
         name = self.name
 
+        scope = self.scope
+
         expires_at: None | str | Unset
         if isinstance(self.expires_at, Unset):
             expires_at = UNSET
@@ -75,6 +79,7 @@ class ApiKeyListItem:
                 "is_active": is_active,
                 "last_used_at": last_used_at,
                 "name": name,
+                "scope": scope,
             }
         )
         if expires_at is not UNSET:
@@ -115,6 +120,8 @@ class ApiKeyListItem:
 
         name = d.pop("name")
 
+        scope = d.pop("scope")
+
         def _parse_expires_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
                 return data
@@ -139,6 +146,7 @@ class ApiKeyListItem:
             is_active=is_active,
             last_used_at=last_used_at,
             name=name,
+            scope=scope,
             expires_at=expires_at,
         )
 

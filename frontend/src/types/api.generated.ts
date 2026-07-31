@@ -4854,35 +4854,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tiles/raster-auth-check/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Raster Auth Check
-         * @description Auth-check endpoint called by nginx auth_request for raster tile serving.
-         *
-         *     Validates RBAC access to a raster dataset and returns the COG open-path
-         *     in response headers (which nginx passes to Titiler, never the browser).
-         *
-         *     Returns:
-         *         200 with X-GeoLens-Asset-OpenPath and X-GeoLens-Cache-Status headers
-         *         401 if authentication is required but missing
-         *         403 if embed token is invalid
-         *         404 if dataset not found, not a raster, or has no raster asset
-         */
-        get: operations["raster_auth_check_tiles_raster_auth_check__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}": {
         parameters: {
             query?: never;
@@ -5137,6 +5108,13 @@ export interface components {
              */
             name: string;
             /**
+             * Scope
+             * @description Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'.
+             * @default full
+             * @enum {string}
+             */
+            scope: "full" | "read_only";
+            /**
              * User Id
              * Format: uuid
              * @description ID of the user the new API key will belong to.
@@ -5182,6 +5160,11 @@ export interface components {
              * @description Human-readable label.
              */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875).
+             */
+            scope: string;
             /**
              * User Id
              * Format: uuid
@@ -5520,6 +5503,13 @@ export interface components {
              * @description Human-readable label for the API key
              */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope (#875). 'full' impersonates the owner completely, the pre-existing behavior. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403.
+             * @default full
+             * @enum {string}
+             */
+            scope: "full" | "read_only";
         };
         /** ApiKeyCreateResponse */
         ApiKeyCreateResponse: {
@@ -5550,6 +5540,11 @@ export interface components {
             key: string;
             /** Name */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875)
+             */
+            scope: string;
         };
         /** ApiKeyListItem */
         ApiKeyListItem: {
@@ -5579,6 +5574,11 @@ export interface components {
             last_used_at: string | null;
             /** Name */
             name: string;
+            /**
+             * Scope
+             * @description Privilege scope: 'full' or 'read_only' (#875)
+             */
+            scope: string;
         };
         /** ApiKeyListResponse */
         ApiKeyListResponse: {
@@ -7209,7 +7209,7 @@ export interface components {
             data_vintage_start?: string | null;
             /**
              * Extent Bbox
-             * @description Bounding box [minx, miny, maxx, maxy]
+             * @description Bounding box [west, south, east, north] per RFC 7946 §5.2. west > east on an antimeridian-crossing extent.
              */
             extent_bbox?: number[] | null;
             /** Feature Count */
@@ -9171,6 +9171,8 @@ export interface components {
             layer_count: number;
             /** Name */
             name: string;
+            /** Thumbnail Updated At */
+            thumbnail_updated_at?: string | null;
             /** Thumbnail Url */
             thumbnail_url?: string | null;
             /**
@@ -37769,73 +37771,6 @@ export interface operations {
                 headers: {
                     /** @description Seconds until the request may be retried */
                     "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Service unavailable — the database could not serve the request */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-        };
-    };
-    raster_auth_check_tiles_raster_auth_check__get: {
-        parameters: {
-            query: {
-                dataset_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Bad request — invalid query parameters or payload */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
                     [name: string]: unknown;
                 };
                 content: {

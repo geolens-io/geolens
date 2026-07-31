@@ -876,7 +876,22 @@ describe('row keydown target guard (v1.6.0 audit A7)', () => {
   });
 
   it('a space can be typed into the rename input and Enter commits without re-firing the row action', async () => {
-    const user = userEvent.setup();
+    // fix(#997): delay: null. user-event's default inserts a real-timer
+    // setTimeout(0) between keystrokes, and this is the only test in the file
+    // that types more than one — three keystrokes plus a clear, each yielding
+    // to the macrotask queue. Under the parallel full-suite run the worker
+    // competes for CPU and those yields stretch, which is what made this test
+    // (and only this test) fail roughly 1 run in 6 while passing 3/3 in
+    // isolation. The two siblings above keep the default: they fire a single
+    // key against a focused button, have never been seen to flake, and are
+    // worth keeping as controls.
+    //
+    // Not swapped to fireEvent, which is how the neighbouring rename tests are
+    // written. This block exists to prove real keyboard activation works again
+    // after the A7 fix, and that activation is gated on defaultPrevented —
+    // something only user-event models. Dropping the delay removes the timing
+    // dependence without giving up the dispatch semantics under test.
+    const user = userEvent.setup({ delay: null });
     const onRename = vi.fn();
     const onSelectLayer = vi.fn();
     const layer = makeLayer({ id: 'sp-layer', dataset_name: 'Old' });

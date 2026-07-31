@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Removed
+
+- **`GET /tiles/raster-auth-check/` is gone from the API contract and both
+  SDKs.** It existed to answer an nginx `auth_request` subrequest back when
+  nginx proxied raster tiles straight to Titiler. That topology was replaced by
+  the api-side raster proxy, which enforces the same RBAC in-process, so the
+  endpoint had no HTTP caller left. Anyone calling it directly should use the
+  raster tile URL from `GET /tiles/token/{dataset_id}/` instead. (#957)
+
 ### Corrections
 
 - **The 1.4.3 redirect mitigation for GDAL fetches did not work.** That

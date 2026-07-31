@@ -27,4 +27,11 @@ describe('EphemeralBadge', () => {
     );
     expect(screen.getByText('Result · 5,000 of 250,000 features')).toBeInTheDocument();
   });
+
+  // fix(#787 item 1): the badge sat at z-[8], under every z-10 PluginHost slot, so
+  // an open plugin panel taller than the bottom-left offset covered it.
+  it('stacks above the PluginHost slots', () => {
+    const { container } = render(<EphemeralBadge featureCount={1} onDismiss={vi.fn()} />);
+    expect(container.firstElementChild).toHaveClass('z-20');
+  });
 });

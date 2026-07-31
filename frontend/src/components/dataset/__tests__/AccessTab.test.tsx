@@ -203,6 +203,41 @@ describe('AccessTab', () => {
       expect(screen.queryByRole('option', { name: 'Restricted' })).not.toBeInTheDocument();
     });
 
+    // fix(#930): `internal` joined the ladder once its permission branches
+    // landed. The import pickers deliberately stay at private/public.
+    it('offers internal as a move, between private and public', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+      openVisibilitySelect();
+      expect(screen.getAllByRole('option').map((el) => el.textContent)).toEqual([
+        'Private',
+        'Internal',
+        'Public',
+      ]);
+
+      fireEvent.click(screen.getByRole('option', { name: 'Internal' }));
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0][0]).toEqual({
+        datasetId: 'ds-1',
+        data: { visibility: 'internal' },
+      });
+    });
+
+    // Before #930 an `internal` dataset rendered through the legacy branch, so
+    // it showed up twice and could not be moved back to.
+    it('treats a stored internal value as current, not legacy', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'internal' })} canEdit />);
+
+      openVisibilitySelect();
+
+      expect(screen.getAllByRole('option', { name: 'Internal' })).toHaveLength(1);
+      expect(screen.getByRole('option', { name: 'Internal' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+    });
+
     // A one-way exit: a SQL-managed or pre-existing `restricted` dataset keeps
     // displaying what it is, and is never silently coerced to something else.
     it('shows a stored restricted value as the disabled current option', () => {

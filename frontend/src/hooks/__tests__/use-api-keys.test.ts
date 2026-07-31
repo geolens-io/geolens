@@ -45,9 +45,21 @@ describe('useCreateMyApiKey', () => {
 
     const { result } = renderHook(() => useCreateMyApiKey());
 
-    await result.current.mutateAsync('New Key');
+    await result.current.mutateAsync({ name: 'New Key', scope: 'full' });
 
-    expect(mockCreateMyApiKey).toHaveBeenCalledWith('New Key');
+    expect(mockCreateMyApiKey).toHaveBeenCalledWith('New Key', { scope: 'full' });
+  });
+
+  // fix(#875): the scope the form picked has to reach the request body — the
+  // whole feature is inert if the mutation drops it.
+  it('threads a read_only scope through to the request', async () => {
+    mockCreateMyApiKey.mockResolvedValueOnce({ id: 'k3' } as never);
+
+    const { result } = renderHook(() => useCreateMyApiKey());
+
+    await result.current.mutateAsync({ name: 'Read Key', scope: 'read_only' });
+
+    expect(mockCreateMyApiKey).toHaveBeenCalledWith('Read Key', { scope: 'read_only' });
   });
 });
 

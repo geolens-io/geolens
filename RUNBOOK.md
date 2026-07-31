@@ -233,7 +233,7 @@ upgrade is what fixes that, and the only way to reach it is to downgrade below
 > | Migration | What its `downgrade()` does |
 > |---|---|
 > | 0030 | **Refuses** while any `catalog.records` row holds a MULTIPOLYGON `spatial_extent` — i.e. any antimeridian-crossing footprint, which the current schema exists to store |
-> | 0029 | **Discards** `api_keys.expires_at` and both `key_epoch` columns. The re-upgrade recreates them as NULL and 1, turning time-limited keys into permanent ones and un-revoking keys that a `key_epoch` bump had invalidated |
+> | 0029 | **Refuses** while any API key carries an expiry or any user's `key_epoch` has been bumped. Dropping `api_keys.expires_at` and both `key_epoch` columns would turn time-limited keys into permanent ones and un-revoke keys a `key_epoch` bump had invalidated; the error message lists the affected keys and the SQL that revokes them |
 > | 0027 | **Refuses** while any dataset uses a `parquet`, `json`, `xlsx`, or `xls` source format — all currently supported |
 > | 0022 | **Discards** `tenant_id` on `catalog.audit_logs` and `catalog.ingest_jobs`. The re-upgrade re-derives it from each row's live parent, so rows whose parent is gone lose tenant attribution permanently |
 > | 0021, 0020 | **Refuse** when two tenants share a collection name, OAuth subject, or `datasets.table_name` — all legal under the current per-tenant scoping |
@@ -339,9 +339,15 @@ SQL
 from the dump.** A failed downgrade does not roll back the ones that already
 succeeded. Several of these migrations do index work inside Alembic's
 `autocommit_block()` (0020, 0021, 0022 among them), which commits the DDL
-preceding it, so a refusal at 0021 leaves you past 0029's and 0022's discards
-with no transaction to undo them. Drop and recreate the target database, then
+preceding it, so a refusal at 0021 leaves you past 0022's discards with no
+transaction to undo them. Drop and recreate the target database, then
 re-run 2a and 2b against the untouched dump before attempting anything else.
+
+0029 is the one place where the order works in your favour: walking back from
+head it is reached second, before any of the discarding migrations, so its
+refusal stops the run while the database is still whole. Deal with its
+remediation there rather than discovering the loss after a refusal further
+down (fix(#1016) — it used to drop those columns silently).
 The dump file itself is never modified, so nothing is lost by restarting — but
 continuing in a half-downgraded database is how a recovery turns into a second
 incident.
@@ -1024,8 +1030,9 @@ been accepted.
 
 Rolling the schema back (`alembic downgrade`) is rare — the supported
 recovery paths are restore-from-backup (§2/§3) and the upgrade rollback
-quick-reference in UPGRADING.md. When you do downgrade, one migration can
-refuse by design.
+quick-reference in UPGRADING.md. When you do downgrade, several migrations
+refuse by design rather than discard state the re-upgrade cannot rebuild. The
+two you are most likely to meet are documented in full below.
 
 ### Downgrading past `0030_records_spatial_extent_type` fails when antimeridian-crossing extents exist
 
@@ -1064,7 +1071,43 @@ non-crossing multipart extent loses its part structure and reports the
 bounding box around all parts. Both persist until the schema is upgraded
 again and the extents recomputed.
 
-Two other migrations refuse on downgrade for the same reason (blocking data
+### Downgrading past `0029_api_key_hardening` fails when API keys carry expiry or revocation state
+
+Migration 0029 added `api_keys.expires_at` (optional key expiry) and the
+`key_epoch` pair that makes an epoch bump revoke previously minted keys. Its
+`downgrade()` **refuses** rather than dropping them, because dropping them
+fails in the unsafe direction: with no expiry column an already-expired key
+resolves as a permanent one, and with no `key_epoch` pair a key revoked by an
+epoch bump resolves again. Nothing errors when that happens — the schema is
+valid and the deployment is quietly less secure than it looks.
+
+It refuses when any `catalog.api_keys` row has a non-null `expires_at`, or any
+`catalog.users` row has `key_epoch > 1`. The error message carries the counts
+and the query below. List the keys that would come back live:
+
+```sql
+SELECT ak.id, ak.user_id, ak.expires_at, ak.key_epoch, u.key_epoch AS owner_epoch
+FROM catalog.api_keys ak
+JOIN catalog.users u ON u.id = ak.user_id
+WHERE ak.expires_at IS NOT NULL OR ak.key_epoch <> u.key_epoch;
+```
+
+Revoking them is almost always what you want, rather than accepting their
+resurrection. That, plus clearing the epoch state, lets the downgrade proceed:
+
+```sql
+DELETE FROM catalog.api_keys ak USING catalog.users u
+WHERE ak.user_id = u.id
+  AND (ak.expires_at IS NOT NULL OR ak.key_epoch <> u.key_epoch);
+UPDATE catalog.users SET key_epoch = 1;
+```
+
+**What is actually lost:** the deleted keys, permanently. Their owners must
+mint new ones, which is the correct outcome — an expired or revoked key should
+not survive a schema rollback. What you avoid is the alternative, where those
+same keys keep working and nobody is told.
+
+Two further migrations refuse on downgrade for the same reason (blocking data
 exists that the older schema cannot represent safely): `0010` while GitHub
 OAuth providers exist, and `0005` while tenant-scoped data exists. Both print
 their own remediation in the error message; neither is auto-coerced.

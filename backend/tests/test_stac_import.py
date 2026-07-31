@@ -515,12 +515,14 @@ class TestStacImport:
         assert row.hits_south_atlantic is False
         assert row.hits_france is False
 
-        # fix(#892 codex P2): the dataset payload's own extent_bbox stays
-        # monotonic, because DatasetMap draws an unguarded planar ring from it and
-        # calls fitBounds. The spec form lives on the STAC/OGC surfaces instead.
+        # fix(#1004): the dataset payload's own extent_bbox is the RFC 7946 §5.2
+        # spec form too. It was monotonic under #892, when DatasetMap drew an
+        # unguarded planar ring; #903 added the seam guards, and the span form
+        # then flattened this extent to the globe-spanning pair that made those
+        # guards unreachable.
         detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
         assert detail.status_code == 200
-        assert detail.json()["extent_bbox"] == [-180.0, -20.0, 180.0, -15.0]
+        assert detail.json()["extent_bbox"] == [170.0, -20.0, -170.0, -15.0]
 
     async def test_import_duplicate_skipped(
         self,

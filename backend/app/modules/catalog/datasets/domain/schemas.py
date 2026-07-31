@@ -251,7 +251,11 @@ class DatasetResponse(BaseModel):
     )
     feature_count: int | None
     extent_bbox: list[float] | None = Field(
-        default=None, description="Bounding box [minx, miny, maxx, maxy]"
+        default=None,
+        description=(
+            "Bounding box [west, south, east, north] per RFC 7946 §5.2. "
+            "west > east on an antimeridian-crossing extent."
+        ),
     )
     column_info: list[ColumnInfo] | None = Field(
         default=None, description="Column names, types, and stats"

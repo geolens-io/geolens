@@ -1244,6 +1244,28 @@ _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
 # fix(#888): matches the WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
 # ships in spatial_ref_sys.srtext for lon/lat CRSs. 4326/4979/4269 match;
 # 2263/3857 (projected, X in feet/metres) do not.
+#
+# fix(#961 review): the ANCHOR is load-bearing and must stay, even though it
+# makes this predicate disagree with `core.geo.wkt_is_geographic` and with the
+# degenerate-envelope floor below on wrapped CRSs (BOUNDCRS, COMPD_CS). Those
+# two can afford to see through a wrapper; this one cannot, and the reason is
+# the same one `core.geo._parse_crs` documents at length: a flat scan cannot
+# decide which subtree a token belongs to.
+#
+# Concretely. Un-anchoring lets `BOUNDCRS[SOURCECRS[GEOGCS[... UNIT["grad"...`
+# match as geographic, and `_DEGREE_UNIT_SRTEXT_RE` below is a flat substring
+# scan that would then find an unrelated `degree` on the TARGET CRS or a
+# PRIMEM and report degrees. `_shift_zero_to_360_longitudes` would subtract
+# 360 from coordinates whose full turn is 400 grads — silent corruption, and
+# the shape is real enough that `tests/test_wkt_is_geographic.py::
+# test_boundcrs_reports_the_source_crs_units_not_the_targets` already pins it
+# on the Python side.
+#
+# Declining to shift is safe: the source is then clipped and REPORTED by
+# `clip_to_mercator_bounds`'s accounting, which is a visible outcome. Shifting
+# wrongly is not. So this gate stays deliberately incomplete, and the property
+# tests/test_crs_degree_agreement.py enforces is soundness — it never fires
+# where PROJ says the axes are not degrees — rather than agreement.
 _GEOGRAPHIC_SRTEXT_RE = "^GEOG(CS|CRS)"
 
 # fix(#899 codex r1): geographic is not the same as degree-based. 14 SRIDs in a
@@ -1394,6 +1416,13 @@ async def _mercator_envelope_degenerates(
         # no PROJ keyword anywhere (every projected WKT1 nests a GEOGCS, so
         # the PROJ test must win) — the same keyword logic as
         # core.geo.wkt_is_geographic, in srtext form.
+        # fix(#961 review): this predicate and the 0..360 gate's
+        # `_GEOGRAPHIC_SRTEXT_RE` deliberately DISAGREE on wrapped CRSs, and
+        # unifying them was tried and reverted. Seeing through a wrapper is
+        # right here (the consequence is a size floor) and unsafe there (the
+        # consequence is translating geometry by 360 in a CRS whose turn may
+        # be 400 grads). The asymmetry is the decision, not an oversight; both
+        # halves are pinned by tests/test_crs_degree_agreement.py.
         f"    NOT COALESCE((SELECT srtext ~* 'GEOG(CS|CRS)' "
         f"                     AND srtext !~* 'PROJ(CS|CRS)' "
         f"                  FROM spatial_ref_sys "

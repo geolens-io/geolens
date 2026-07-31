@@ -80,6 +80,17 @@ class DefaultPermissionExtension:
                 record_cls.visibility == "private",
                 record_cls.created_by == user.id,
             ),
+            # fix(#930): internal = any signed-in user, on a published record.
+            # Bare like `public` above, and for the same reason: `status_filter`
+            # below is ANDed over every condition and already carries the
+            # published gate. Adding an inner `record_status == "published"`
+            # here looks stricter and is wrong — `status_filter` is an OR with
+            # `created_by == <caller>`, so it already hides someone else's
+            # unpublished internal record from the team, while the inner check
+            # would additionally hide an owner's own draft from the owner. That
+            # is the list/detail split this issue exists to close, and private
+            # and public drafts stay visible to their owner today.
+            record_cls.visibility == "internal",
         ]
 
         if grant_cls is not None:
@@ -154,6 +165,15 @@ class DefaultPermissionExtension:
                 )
             )
             return grant_result.scalar_one_or_none() is not None
+
+        if record.visibility == "internal":
+            # fix(#930): internal = any signed-in user, matching MapVisibility.
+            # Behaviourally this is what the fall-through below already did, so
+            # it looks deletable; it is not. Before this branch existed the
+            # outcome was an accident of an unhandled value rather than a
+            # policy, and nothing pinned it. The `record_status` gate above
+            # keeps unpublished internal records owner-only.
+            return True
 
         return True
 

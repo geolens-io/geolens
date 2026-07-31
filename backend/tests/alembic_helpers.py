@@ -12,6 +12,10 @@ database, so a single-file run never shows it).
 This module is the one place that knows about refuse-to-coerce downgrades:
 
 - ``0030``: normalized automatically before every downgrade (see below).
+- ``0029_api_key_hardening``: refuses while any API key carries an expiry or
+  any user's ``key_epoch`` has been bumped (fix(#1016)). Also normalized
+  automatically — see ``_API_KEY_STATE_NORMALIZATION`` for why this one is
+  auto-cleaned while the two below are not.
 - ``0010_oauth_github_provider_type``: refuses while GitHub OAuth providers
   exist. Not auto-cleaned — deleting provider rows is semantic test state,
   and the only test that creates them (test_oauth_github_migration) manages
@@ -62,8 +66,59 @@ $$;
 """
 
 
-def normalize_seam_extents() -> None:
-    """Collapse MULTIPOLYGON spatial_extents so downgrades can cross 0030."""
+# fix(#1016): the remediation 0029's own error message prescribes, minus the
+# DELETE — a test database's keys are fixture noise, so clearing the state is
+# enough and there is no need to destroy rows a sibling test may still read.
+#
+# WHY this one is auto-cleaned while 0010 and 0005 are documented-only. Those
+# two are semantic test state, created by the single test that cares about
+# them. Expiring keys and epoch bumps are not: they are created by ordinary
+# auth tests with no relationship to migrations
+# (``test_api_key_with_future_expiry_accepted_and_surfaced`` and
+# ``test_stale_key_epoch_api_key_rejected`` in test_api_key_auth.py, both of
+# which commit and neither of which cleans up), while more than twenty
+# downgrade call sites across six files cross 0029 on their way to 0004/0005/
+# 0009. Leaving it documented would reproduce #933 exactly: whichever
+# migration test happened to share an xdist worker with the auth suite would
+# fail, in a file that has nothing to do with API keys.
+#
+# The same "never lift this into application code" caveat as above applies —
+# in production the refusal is the feature.
+# Each column is guarded independently so this stays a no-op at any schema
+# revision, including a second downgrade step from an already-downgraded state.
+_API_KEY_STATE_NORMALIZATION = """
+DO $$
+BEGIN
+    IF to_regclass('catalog.api_keys') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'catalog' AND table_name = 'api_keys'
+          AND column_name = 'expires_at'
+    ) THEN
+        UPDATE catalog.api_keys SET expires_at = NULL WHERE expires_at IS NOT NULL;
+    END IF;
+    IF to_regclass('catalog.users') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'catalog' AND table_name = 'users'
+          AND column_name = 'key_epoch'
+    ) THEN
+        UPDATE catalog.users SET key_epoch = 1 WHERE key_epoch <> 1;
+    END IF;
+    -- api_keys.key_epoch is a mint-time snapshot of the owner's value; realign
+    -- it so the two stay mutually consistent for any test that reads them
+    -- after a downgrade/re-upgrade roundtrip.
+    IF to_regclass('catalog.api_keys') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'catalog' AND table_name = 'api_keys'
+          AND column_name = 'key_epoch'
+    ) THEN
+        UPDATE catalog.api_keys SET key_epoch = 1 WHERE key_epoch <> 1;
+    END IF;
+END
+$$;
+"""
+
+
+def _execute_normalization(sql: str) -> None:
     from app.core.config import settings
 
     engine = sqlalchemy.create_engine(
@@ -71,13 +126,23 @@ def normalize_seam_extents() -> None:
     )
     try:
         with engine.connect() as conn:
-            conn.execute(sqlalchemy.text(_SEAM_EXTENT_NORMALIZATION))
+            conn.execute(sqlalchemy.text(sql))
     finally:
         engine.dispose()
 
 
+def normalize_seam_extents() -> None:
+    """Collapse MULTIPOLYGON spatial_extents so downgrades can cross 0030."""
+    _execute_normalization(_SEAM_EXTENT_NORMALIZATION)
+
+
+def normalize_api_key_state() -> None:
+    """Clear key expiry and epoch bumps so downgrades can cross 0029."""
+    _execute_normalization(_API_KEY_STATE_NORMALIZATION)
+
+
 def run_alembic(
-    *args: str, extra_env: dict | None = None
+    *args: str, extra_env: dict | None = None, normalize: bool = True
 ) -> subprocess.CompletedProcess:
     """Run an alembic command via subprocess against the per-worker TEST DB.
 
@@ -88,16 +153,21 @@ def run_alembic(
     SHARED main DB (``postgres`` on CI), which would corrupt sibling workers
     and the drift check.
 
-    Every ``downgrade`` is preceded by ``normalize_seam_extents()`` — with the
-    current head at/above 0030, even a plain ``downgrade -1`` crosses the
-    refuse-to-coerce guard on its first step, so the normalization runs
-    unconditionally rather than parsing the revision graph (it is idempotent
-    and free when no seam extents exist).
+    Every ``downgrade`` is preceded by ``normalize_seam_extents()`` and
+    ``normalize_api_key_state()`` — with the current head at/above 0030, even a
+    plain ``downgrade -1`` crosses a refuse-to-coerce guard on its first step,
+    so the normalizations run unconditionally rather than parsing the revision
+    graph (both are idempotent and free when the state they clear is absent).
+
+    ``normalize=False`` skips them. It exists for the tests that assert a guard
+    actually FIRES; nothing else should pass it, because skipping the
+    normalization is how the cross-file failures in #933 happened.
     """
     from app.core.config import settings
 
-    if args and args[0] == "downgrade":
+    if normalize and args and args[0] == "downgrade":
         normalize_seam_extents()
+        normalize_api_key_state()
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_BACKEND_DIR)

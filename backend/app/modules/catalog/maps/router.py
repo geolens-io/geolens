@@ -18,7 +18,7 @@ from fastapi import (
     Response,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -74,7 +74,7 @@ from app.modules.catalog.maps.service import (
     update_map,
     validate_public_visibility,
 )
-from app.modules.catalog.maps.models import MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
 from app.modules.embed_tokens.service import (
     revoke_embed_tokens_by_map,
@@ -871,6 +871,42 @@ async def duplicate_map_endpoint(
     )
 
 
+async def _record_image_capture(
+    db: AsyncSession, map_id: uuid.UUID, **image_columns: str
+) -> None:
+    """Persist a captured map image without marking the map edited.
+
+    fix(#1005): ``updated_at`` was doing double duty as the thumbnail cache
+    version — ``MapCard``/``MapCardGrid`` pass it to ``useMapThumbnail`` as the
+    ``?v=`` version — so the lazy backfill that fires when an owner first opens
+    a thumbnail-less map in the builder, editing nothing, bumped the map's edit
+    timestamp and reordered the "Last updated" gallery. ``thumbnail_updated_at``
+    splits the two meanings.
+
+    Dropping the endpoints' explicit ``map_obj.updated_at = ...`` is NOT enough,
+    and this is the part that is easy to get wrong: ``Map.updated_at`` carries
+    ``onupdate=func.now()``, so *any* update to the row bumps it. Measured — the
+    gallery still reordered with the assignment removed. Setting ``updated_at``
+    to its own column value is the explicit-value form that suppresses the
+    ``onupdate``: it happens in the database, so it neither invents a timestamp
+    nor clobbers a concurrent edit's.
+
+    ``synchronize_session=False`` because both callers return 204 and never read
+    the ORM object back.
+    """
+    await db.execute(
+        update(Map)
+        .where(Map.id == map_id)
+        .values(
+            thumbnail_updated_at=datetime.now(UTC),
+            updated_at=Map.updated_at,
+            **image_columns,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+
+
 @router.put(
     "/{map_id}/thumbnail/",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -964,9 +1000,7 @@ async def upload_thumbnail(
             detail="Thumbnail storage unavailable",
         )
 
-    map_obj.thumbnail_uri = storage_key
-    map_obj.updated_at = datetime.now(UTC)
-    await db.commit()
+    await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1099,9 +1133,7 @@ async def upload_og_image(
             detail="OG image storage unavailable",
         )
 
-    map_obj.og_image_uri = storage_key
-    map_obj.updated_at = datetime.now(UTC)
-    await db.commit()
+    await _record_image_capture(db, map_id, og_image_uri=storage_key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

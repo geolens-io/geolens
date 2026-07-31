@@ -22,6 +22,7 @@ function makeMap(overrides: Partial<MapSummaryResponse> = {}): MapSummaryRespons
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-02T00:00:00Z',
     thumbnail_url: '/api/maps/map-1/thumbnail/',
+    thumbnail_updated_at: null,
     created_by_username: 'testuser',
     ...overrides,
   };
@@ -101,5 +102,40 @@ describe('MapCardGrid', () => {
     const img = screen.getByRole('img');
     fireEvent.error(img);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+});
+
+// fix(#1005): the thumbnail cache version moved off `updated_at`, which was
+// carrying two meanings — a lazy backfill on first builder open reordered the
+// "Last updated" gallery for what was a read.
+describe.each([
+  ['MapCard', MapCard],
+  ['MapCardGrid', MapCardGrid],
+])('%s thumbnail cache version', (_name, Component) => {
+  beforeEach(() => {
+    mockUseMapThumbnail.mockReturnValue('blob:http://localhost/fake-thumb');
+  });
+
+  it("versions on the thumbnail's own timestamp when it has one", () => {
+    render(
+      <Component
+        map={makeMap({ thumbnail_updated_at: '2026-03-04T05:06:07Z' })}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(mockUseMapThumbnail).toHaveBeenCalledWith(
+      '/api/maps/map-1/thumbnail/',
+      '2026-03-04T05:06:07Z',
+    );
+  });
+
+  it('falls back to updated_at for a thumbnail captured before the column existed', () => {
+    render(<Component map={makeMap({ thumbnail_updated_at: null })} onDelete={() => {}} />);
+
+    expect(mockUseMapThumbnail).toHaveBeenCalledWith(
+      '/api/maps/map-1/thumbnail/',
+      '2026-01-02T00:00:00Z',
+    );
   });
 });

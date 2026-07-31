@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { listMyApiKeys, createMyApiKey, revokeMyApiKey } from '@/api/auth';
+import type { ApiKeyScope } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 
@@ -14,7 +15,8 @@ export function useMyApiKeys() {
 export function useCreateMyApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => createMyApiKey(name),
+    mutationFn: ({ name, scope }: { name: string; scope: ApiKeyScope }) =>
+      createMyApiKey(name, { scope }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.mine });
     },

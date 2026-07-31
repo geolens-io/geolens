@@ -39,6 +39,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
         fingerprint=key.fingerprint,
         is_active=key.is_active,
         expires_at=key.expires_at,
+        scope=key.scope,
         created_at=key.created_at,
         last_used_at=key.last_used_at,
     )
@@ -74,7 +75,11 @@ async def create_api_key(
 
     try:
         api_key, raw_key = await create_api_key_for_user(
-            db, body.user_id, body.name, expires_at=body.expires_at
+            db,
+            body.user_id,
+            body.name,
+            expires_at=body.expires_at,
+            scope=body.scope,
         )
     except ApiKeyTargetUserNotFoundError as exc:
         raise HTTPException(
@@ -102,6 +107,7 @@ async def create_api_key(
                 "expires_at": (
                     api_key.expires_at.isoformat() if api_key.expires_at else None
                 ),
+                "scope": api_key.scope,
             },
             ip_address=get_client_ip(request),
         ),
@@ -114,6 +120,7 @@ async def create_api_key(
         fingerprint=api_key.fingerprint,
         name=api_key.name,
         expires_at=api_key.expires_at,
+        scope=api_key.scope,
         created_at=api_key.created_at,
     )
 

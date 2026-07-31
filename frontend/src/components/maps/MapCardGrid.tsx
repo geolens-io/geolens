@@ -19,7 +19,15 @@ import { VisibilityIcon } from './VisibilityIcon';
 export const MapCardGrid = memo(function MapCardGrid({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
-  const thumbnailSrc = useMapThumbnail(map.thumbnail_url, map.updated_at);
+  // fix(#1005): version on the thumbnail's own timestamp. `updated_at` used to
+  // serve both meanings, so the lazy backfill that fires when an owner first
+  // opens a thumbnail-less map bumped the map's edit time and reordered the
+  // "Last updated" gallery. Fall back to `updated_at` for maps captured before
+  // the column existed, so they keep a stable version rather than losing one.
+  const thumbnailSrc = useMapThumbnail(
+    map.thumbnail_url,
+    map.thumbnail_updated_at ?? map.updated_at,
+  );
 
   return (
     <Card className="flex flex-col overflow-hidden hover:shadow-md hover:border-primary/20 hover:bg-accent/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out">

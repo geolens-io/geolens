@@ -10,6 +10,8 @@ Requirements:
 """
 
 import uuid
+
+import pytest
 from datetime import date
 
 from httpx import AsyncClient
@@ -633,6 +635,63 @@ class TestCollectionExtent:
         assert data["temporal_start"] == "2020-01-01"
         assert data["temporal_end"] == "2022-06-30"
         assert data["dataset_count"] == 2
+
+    async def test_seam_crossing_collection_keeps_the_spec_bbox(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#1006): the collections sibling of #1004, same cause and fix.
+
+        ``rollup_span_bbox`` collapses a crossing rollup to
+        ``[-180, s, 180, n]`` -- monotonic, and bit-identical to what a
+        genuinely global collection produces -- so ``BBoxPreview``'s #903
+        crossing guard was unreachable and a Fiji-shaped collection drew a
+        dashed band across the whole world on the card and the detail page.
+
+        The fixture is #1004's: points at lon 179.5, -179.5 and 178.44.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        west = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Fiji West Of Seam",
+            extent_wkt=(
+                "POLYGON((178.44 -18.14,180 -18.14,180 -16.5,178.44 -16.5,178.44 -18.14))"
+            ),
+        )
+        east = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Fiji East Of Seam",
+            extent_wkt=(
+                "POLYGON((-180 -18.14,-179.5 -18.14,-179.5 -16.5,-180 -16.5,-180 -18.14))"
+            ),
+        )
+
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"Seam Collection {uuid.uuid4().hex[:6]}"},
+            headers=admin_auth_header,
+        )
+        coll_id = resp.json()["id"]
+        await client.post(
+            f"/catalog/collections/{coll_id}/datasets/",
+            json={"dataset_ids": [str(west.id), str(east.id)]},
+            headers=admin_auth_header,
+        )
+
+        resp = await client.get(
+            f"/catalog/collections/{coll_id}", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        bbox = resp.json()["extent_bbox"]
+
+        # west > east: the RFC 7946 §5.2 encoding of a crossing, and the only
+        # form that survives the wire well enough for the client guard to fire.
+        assert bbox[0] > bbox[2]
+        assert bbox == pytest.approx([178.44, -18.14, -179.5, -16.5])
 
     async def test_collection_extent_empty_when_no_datasets(
         self, client: AsyncClient, admin_auth_header: dict

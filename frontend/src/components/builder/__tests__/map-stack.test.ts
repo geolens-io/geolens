@@ -505,6 +505,37 @@ describe('isLayerHiddenFromMapAudience', () => {
       isLayerHiddenFromMapAudience({ dataset_visibility: undefined, dataset_status: undefined }, 'public'),
     ).toBe(false);
   });
+
+  // fix(#930): the backend now returns internal+published datasets to any
+  // signed-in caller, so an internal layer on an internal map really does
+  // reach that map's whole audience. Flagging it stranded the badge and the
+  // share dialog on a claim the server no longer makes.
+  it('does not flag an internal+published dataset layer on an internal map', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'internal', dataset_status: 'published' }, 'internal'),
+    ).toBe(false);
+  });
+
+  it('still flags an internal dataset layer on a public map — anonymous never sees it', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'internal', dataset_status: 'published' }, 'public'),
+    ).toBe(true);
+  });
+
+  it('still flags an unpublished internal dataset layer on an internal map', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'internal', dataset_status: 'draft' }, 'internal'),
+    ).toBe(true);
+  });
+
+  it('flags a restricted dataset layer on both shared audiences — a grant is not audience-wide', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'published' }, 'internal'),
+    ).toBe(true);
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'published' }, 'public'),
+    ).toBe(true);
+  });
 });
 
 describe('resolveTerrainSourceLayer', () => {

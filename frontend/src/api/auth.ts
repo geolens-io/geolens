@@ -1,7 +1,7 @@
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
-import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
+import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
 export async function login(
   username: string,
@@ -67,10 +67,21 @@ export async function listMyApiKeys(): Promise<MyApiKeyResponse[]> {
   return data.items;
 }
 
-export async function createMyApiKey(name: string): Promise<ApiKeyCreateResponse> {
+export async function createMyApiKey(
+  name: string,
+  options: { scope?: ApiKeyScope; expiresAt?: string | null } = {},
+): Promise<ApiKeyCreateResponse> {
+  // fix(#875): this mirror sent only { name }. expires_at has been accepted by
+  // ApiKeyCreateRequest since #821 and was never threaded, so the UI could not
+  // mint an expiring key at all; threading scope on top of that omission would
+  // have left the mirror half-wired.
   return apiFetch<ApiKeyCreateResponse>('/auth/api-keys/', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      scope: options.scope ?? 'full',
+      ...(options.expiresAt ? { expires_at: options.expiresAt } : {}),
+    }),
   });
 }
 
