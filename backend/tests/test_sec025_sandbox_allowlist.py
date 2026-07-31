@@ -869,6 +869,100 @@ class TestCanonicalBufferExemptionIsScoped:
         )
         _assert_rejects(f"SELECT ST_AsGeoJSON({rendered}) FROM data.stations s")
 
+    @pytest.mark.parametrize(
+        ("label", "sql_template"),
+        [
+            # fix(#1001 codex r2): a bare column is not enough on its own. An
+            # alias launders the projected geometry back in, and the
+            # ST_Transform sits OUTSIDE the exempt subtree so it clears the
+            # allowlist on its own.
+            (
+                "CTE",
+                "WITH x AS (SELECT ST_Transform(geom_4326, 3857) AS g "
+                "FROM data.cities) SELECT ST_AsGeoJSON({buffer}) FROM x",
+            ),
+            (
+                "derived table",
+                "SELECT ST_AsGeoJSON({buffer}) FROM ("
+                "SELECT ST_Transform(geom_4326, 3857) AS g FROM data.cities) AS x",
+            ),
+            (
+                "two CTE hops",
+                "WITH a AS (SELECT ST_Transform(geom_4326, 3857) AS g "
+                "FROM data.cities), b AS (SELECT a.g AS g FROM a) "
+                "SELECT ST_AsGeoJSON({buffer2}) FROM b",
+            ),
+            (
+                "scalar subquery",
+                "SELECT ST_AsGeoJSON({subquery_buffer}) FROM data.stations s",
+            ),
+        ],
+    )
+    def test_rejects_a_laundered_buffer_input(self, label, sql_template):
+        _assert_rejects(
+            sql_template.format(
+                buffer=_canonical_buffer("x.g", 1000),
+                buffer2=_canonical_buffer("b.g", 1000),
+                subquery_buffer=_canonical_buffer(
+                    "(SELECT ST_Transform(geom_4326, 3857) AS g "
+                    "FROM data.cities LIMIT 1)",
+                    1000,
+                ),
+            )
+        )
+
+    @pytest.mark.parametrize(
+        ("label", "sql"),
+        [
+            (
+                "CTE pass-through",
+                "WITH x AS (SELECT geom_4326 AS g FROM data.cities) "
+                "SELECT ST_AsGeoJSON(" + _canonical_buffer("x.g", 1000) + ") FROM x",
+            ),
+            (
+                "derived-table pass-through",
+                "SELECT ST_AsGeoJSON("
+                + _canonical_buffer("x.g", 1000)
+                + ") FROM (SELECT geom_4326 AS g FROM data.cities) AS x",
+            ),
+            (
+                "unqualified column, one table in scope",
+                "SELECT ST_AsGeoJSON("
+                + _canonical_buffer("geom_4326", 10000)
+                + ") FROM data.stations",
+            ),
+        ],
+    )
+    def test_admits_an_input_whose_lineage_reaches_a_base_table(self, label, sql):
+        """The resolver has to follow a pass-through alias, or a CTE the model
+        wrote for readability would be refused for no reason."""
+        _assert_allows(sql)
+
+    def test_rejects_an_unqualified_column_with_two_tables_in_scope(self):
+        """Which table it came from is undecidable, so it fails closed."""
+        _assert_rejects(
+            "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("geom_4326", 10000)
+            + ") FROM data.stations, data.cities"
+        )
+
+    def test_rejects_an_unresolvable_qualifier(self):
+        _assert_rejects(
+            "SELECT ST_AsGeoJSON("
+            + _canonical_buffer("zz.g", 1000)
+            + ") FROM data.stations s"
+        )
+
+    def test_a_two_hop_pass_through_is_refused(self):
+        """Documented limit rather than a goal. Sibling CTEs are not in each
+        other's scope for this resolver, so lineage stops at one hop and
+        stopping is a refusal. The prompt teaches zero hops or one."""
+        _assert_rejects(
+            "WITH a AS (SELECT geom_4326 AS g FROM data.cities), "
+            "b AS (SELECT a.g AS g FROM a) "
+            "SELECT ST_AsGeoJSON(" + _canonical_buffer("b.g", 1000) + ") FROM b"
+        )
+
     def test_rejects_a_wrapped_column_input(self):
         """Even a harmless-looking wrapper is refused: deciding which wrappers
         preserve a bounded span is the units problem #1002 died on."""

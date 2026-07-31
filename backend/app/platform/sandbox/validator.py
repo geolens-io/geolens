@@ -443,7 +443,91 @@ def _extract_buffer_input(node: exp.Expression) -> tuple[exp.Expression, float] 
     return None
 
 
-def _is_bounded_geometry_source(node: exp.Expression) -> bool:
+# How many alias hops a buffer input's lineage may take before it is refused.
+# The prompt teaches zero or one; anything deeper is not a shape worth
+# resolving, and stopping is a refusal, not an admission.
+_MAX_LINEAGE_HOPS = 4
+
+
+def _named_sources(scope: exp.Expression, name: str) -> list[exp.Expression]:
+    """Sources in `scope` bound to `name` — a base table, CTE, or subquery.
+
+    A schema-less `exp.Table` is a REFERENCE to a CTE, not a base table (the
+    validator rejects every real-table schema but `data` elsewhere), so it is
+    skipped: counting `FROM x` alongside the CTE that defines `x` would make
+    every CTE name look ambiguous.
+    """
+    matches: list[exp.Expression] = []
+    for cte in scope.find_all(exp.CTE):
+        if cte.alias == name:
+            matches.append(cte.this)
+    for table in scope.find_all(exp.Table):
+        if table.db and (table.alias or table.name) == name:
+            matches.append(table)
+    for sub in scope.find_all(exp.Subquery):
+        if sub.alias == name:
+            matches.append(sub.this)
+    return matches
+
+
+def _sole_base_table(scope: exp.Expression) -> exp.Table | None:
+    """The one base table this scope's OWN from/join clause binds.
+
+    Direct sources only. The buffer scaffold is itself a stack of aliased
+    derived tables, so a `find_all` here would never see a single source.
+    """
+    if not isinstance(scope, exp.Select):
+        return None
+    sources: list[exp.Expression] = []
+    for child in scope.iter_expressions():
+        if isinstance(child, (exp.From, exp.Join)):
+            sources.append(child.this)
+    if len(sources) != 1:
+        return None
+    source = sources[0]
+    return source if isinstance(source, exp.Table) and source.db else None
+
+
+def _resolves_to_stored_column(scope: exp.Expression, column: exp.Column) -> bool:
+    """Whether `column` traces back to a column of a base table.
+
+    Fails closed on everything it cannot decide: an unknown qualifier, a name
+    bound in more than one place, a projection that is an expression rather
+    than a column, or a lineage deeper than `_MAX_LINEAGE_HOPS`.
+    """
+    for _ in range(_MAX_LINEAGE_HOPS):
+        qualifier, name = column.table, column.name
+        if not qualifier:
+            # Unqualified: only safe when the scope has exactly one base table
+            # and no alias indirection that could bind the name elsewhere.
+            return _sole_base_table(scope) is not None
+        sources = _named_sources(scope, qualifier)
+        if len(sources) != 1:
+            return False
+        source = sources[0]
+        if isinstance(source, exp.Table):
+            return True
+        if not isinstance(source, exp.Select):
+            return False
+        projection = next(
+            (
+                expr
+                for expr in source.expressions
+                if (expr.alias if isinstance(expr, exp.Alias) else expr.name) == name
+            ),
+            None,
+        )
+        if projection is None:
+            return False
+        if isinstance(projection, exp.Alias):
+            projection = projection.this
+        if not isinstance(projection, exp.Column):
+            return False
+        column, scope = projection, source
+    return False
+
+
+def _is_bounded_geometry_source(stmt: exp.Expression, node: exp.Expression) -> bool:
     """Whether `node` can only be a stored geometry, never a manufactured one.
 
     fix(#1001 codex r1): the rendered scaffold assumes its input is a 4326
@@ -469,18 +553,37 @@ def _is_bounded_geometry_source(node: exp.Expression) -> bool:
     WHERE name = 'Denver')`. Everything else is refused, which is the right
     failure direction: a refused buffer question beats an unbounded one.
 
+    fix(#1001 codex r2): a bare column is not enough on its own, because an
+    alias launders the expression back in —
+
+        WITH x AS (SELECT ST_Transform(geom_4326, 3857) AS g FROM data.cities)
+        SELECT <buffer of x.g> FROM x
+
+    puts a projected geometry behind a name that satisfies the column test,
+    while the `ST_Transform` sits OUTSIDE the exempt subtree and so passes the
+    allowlist on its own. So the column's lineage is resolved through CTE and
+    derived-table projections until it reaches a base table, and anything that
+    cannot be resolved that way is refused.
+
     The subquery's other clauses are not exempted by this; they stay under the
     ordinary function allowlist and table checks like any other subquery.
     """
     if isinstance(node, exp.Column):
-        return True
+        return _resolves_to_stored_column(stmt, node)
     if isinstance(node, exp.Subquery):
         inner = node.this
         if isinstance(inner, exp.Select) and len(inner.expressions) == 1:
             projection = inner.expressions[0]
             if isinstance(projection, exp.Alias):
                 projection = projection.this
-            return isinstance(projection, exp.Column)
+            if not isinstance(projection, exp.Column):
+                return False
+            # Resolve within the subquery: its own FROM is what binds the
+            # projection, and only falls back to the outer statement for a
+            # correlated reference.
+            return _resolves_to_stored_column(
+                inner, projection
+            ) or _resolves_to_stored_column(stmt, projection)
     return False
 
 
@@ -534,7 +637,7 @@ def _canonical_buffer_exempt_ids(stmt: exp.Expression) -> set[int]:
         # Matching the template is not sufficient on its own: the scaffold's
         # cost is a function of its INPUT's planar span, so the input has to
         # be a stored geometry rather than one the caller manufactured.
-        if not _is_bounded_geometry_source(geom):
+        if not _is_bounded_geometry_source(stmt, geom):
             continue
         # The input expression is the model's, so it keeps every check. Only
         # the scaffold the renderer produced around it is exempt.
