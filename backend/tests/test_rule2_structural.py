@@ -476,6 +476,11 @@ def _comprehension_walrus_targets(comp: ast.AST):
         if isinstance(child, (*_SCOPE_NODES, ast.ClassDef)):
             continue
         if isinstance(child, ast.NamedExpr) and isinstance(child.target, ast.Name):
+            # Both: the NamedExpr so _record_assign_targets can propagate its
+            # VALUE (fix(#996 review) — `[(ropen := rasterio.open) for _ in x]`
+            # must make `ropen` a rasterio alias, not merely a bound name), and
+            # the target so _scope_info records the binding itself.
+            yield child
             yield child.target
         yield from _comprehension_walrus_targets(child)
 
@@ -544,6 +549,14 @@ def _record_assign_targets(info: _ScopeInfo, scope: ast.AST) -> set[int]:
             for target in node.targets:
                 assign_target_nodes.add(id(target))
                 info.assign_values.setdefault(target.id, []).append(node.value)
+        # fix(#996 review): a walrus binds a value the same way `=` does, and
+        # `ropen := rasterio.open` was landing in `bound` as an opaque name, so
+        # a later `ropen(path)` resolved to _OTHER and vanished from detection.
+        # Covers walruses anywhere in the scope, not only the comprehension
+        # ones exported by _comprehension_walrus_targets.
+        elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            assign_target_nodes.add(id(node.target))
+            info.assign_values.setdefault(node.target.id, []).append(node.value)
     return assign_target_nodes
 
 
@@ -1225,7 +1238,7 @@ def _binding_targets(node: ast.AST) -> set[str]:
     Climbs out of enclosing container literals first (fix(#996 review)), so
     ``commands = {"inspect": ["gdalinfo", path]}`` binds through ``commands``
     and a later ``subprocess.run(commands["inspect"])`` still counts. Covers
-    ``=``, annotated ``=``, and the walrus.
+    ``=`` including unpacking, annotated ``=``, and the walrus.
     """
     current: ast.AST = node
     parent = getattr(current, "_rule2_parent", None)
@@ -1233,7 +1246,17 @@ def _binding_targets(node: ast.AST) -> set[str]:
         current = parent
         parent = getattr(current, "_rule2_parent", None)
     if isinstance(parent, ast.Assign) and parent.value is current:
-        return {t.id for t in parent.targets if isinstance(t, ast.Name)}
+        # Every Name in the target, including through unpacking (fix(#996
+        # review): `cmd, _ = (["gdalinfo", path], None)` put an ast.Tuple in
+        # `targets` and a Name-only filter returned nothing, so a real
+        # invocation read as inert). Over-approximating here binds a sibling
+        # name too, which can only ever ADD detection.
+        return {
+            n.id
+            for target in parent.targets
+            for n in ast.walk(target)
+            if isinstance(n, ast.Name)
+        }
     if (
         isinstance(parent, (ast.AnnAssign, ast.NamedExpr))
         and parent.value is current
@@ -1243,7 +1266,27 @@ def _binding_targets(node: ast.AST) -> set[str]:
     return set()
 
 
-def _argv_escape_kind(node: ast.List | ast.Tuple) -> int:
+def _use_reaches_the_binding(used: ast.Name, scope: ast.AST, rel: str) -> bool:
+    """True when ``used`` is the scope's binding rather than a nested shadow.
+
+    fix(#996 review): the escape search walks the whole scope, so a nested
+    ``def inner(cmd): consume(cmd)`` counted as a use of an outer ``cmd`` and
+    turned an inert constant into a security failure. Any lexical scope between
+    the use and the binding that binds the same name breaks the link -- the
+    same rule ``_classify_name`` applies to rasterio names.
+    """
+    current: ast.AST | None = getattr(used, "_rule2_parent", None)
+    while current is not None and current is not scope:
+        if (
+            isinstance(current, _LEXICAL_SCOPES)
+            and used.id in _scope_info(current, rel).bound
+        ):
+            return False
+        current = getattr(current, "_rule2_parent", None)
+    return True
+
+
+def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     """The strongest escape a GDAL-headed literal reaches, its bindings included.
 
     fix(#996): the gate used to treat ANY GDAL-headed sequence as a command
@@ -1270,6 +1313,7 @@ def _argv_escape_kind(node: ast.List | ast.Tuple) -> int:
             isinstance(used, ast.Name)
             and used.id in names
             and isinstance(used.ctx, ast.Load)
+            and _use_reaches_the_binding(used, scope, rel)
         ):
             best = max(best, _escape_kind(used))
             if best == _ESCAPE_CALL:
@@ -1314,7 +1358,7 @@ def _collect_gdal_cli_violations(
             # fix(#996): a GDAL-looking sequence is only a command vector if
             # it is one. Flagging plain data was a false positive that blocked
             # correct code and offered only misleading ways out.
-            escape = _argv_escape_kind(node)
+            escape = _argv_escape_kind(node, rel)
             if escape == _ESCAPE_NONE:
                 continue  # inert: the value never leaves, so it cannot execute
             if escape != _ESCAPE_CALL and _tool_name_list(node):
@@ -2256,3 +2300,93 @@ def test_guard_comprehension_walrus_does_not_leak_the_loop_target_too():
     )
     assert total == 1, (total, violations)
     assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_comprehension_walrus_alias_still_resolves_to_rasterio():
+    """fix(#996 review): exporting the binding is not enough, the VALUE must
+    travel too. `[(ropen := rasterio.open) for _ in items]` then `ropen(path)`
+    is a real unwrapped open; recording `ropen` as an opaque name would leave
+    it classified as unrelated and invisible to the gate."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def fn(path, items):\n"
+            "    handles = [(ropen := rasterio.open) for _ in items]\n"
+            "    return ropen(path), handles\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_plain_walrus_alias_resolves_too():
+    """The same propagation outside a comprehension, which was equally blind."""
+    violations, total = _collect_rasterio_violations(
+        _mod(
+            "import rasterio\n"
+            "def fn(path):\n"
+            "    if (ropen := rasterio.open):\n"
+            "        return ropen(path)\n"
+        ),
+        {},
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_argv_bound_by_unpacking_is_still_detected():
+    """fix(#996 review): `cmd, _ = ([...], None)` puts an ast.Tuple in
+    `targets`, so a Name-only filter found no binding and a real invocation
+    read as inert."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def fn(path):\n"
+            "    cmd, ignored = (['gdalinfo', path], None)\n"
+            "    subprocess.run(cmd)\n"
+            "    return ignored\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(fn)" in violations[0]
+
+
+def test_guard_nested_shadow_does_not_make_an_inert_literal_escape():
+    """fix(#996 review): a nested scope that REBINDS the name is not a use of
+    the outer value. Without this the escape search read `def inner(cmd):
+    consume(cmd)` as the outer constant reaching a call, and failed a security
+    gate on code where the literal never moves."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "def outer():\n"
+            "    cmd = ['gdalinfo', '-json']\n"
+            "    def inner(cmd):\n"
+            "        return consume(cmd)\n"
+            "    return inner\n"
+        ),
+        {},
+    )
+    assert total == 0, (total, violations)
+    assert violations == []
+
+
+def test_guard_genuine_closure_use_still_escapes():
+    """The control for the test above: a nested scope that does NOT rebind the
+    name is a real use, and the literal is a command vector again."""
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "import subprocess\n"
+            "def outer(path):\n"
+            "    cmd = ['gdalinfo', path]\n"
+            "    def inner():\n"
+            "        return subprocess.run(cmd)\n"
+            "    return inner\n"
+        ),
+        {},
+    )
+    assert total == 1, (total, violations)
+    assert len(violations) == 1 and "(outer)" in violations[0]
