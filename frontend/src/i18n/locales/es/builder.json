@@ -1138,6 +1138,8 @@
       "reorderMove": "Mover capa arriba / abajo (modo de reordenación)",
       "escape": "Cerrar panel / borrar selección / salir de reordenación",
       "multiSelect": "Alternar capa en la selección",
+      "multiSelectKey": "Alternar la capa en la selección (fila enfocada)",
+      "rename": "Renombrar capa (doble clic en su nombre)",
       "rangeSelect": "Seleccionar un rango de capas",
       "extendSelect": "Ampliar selección (pila enfocada)"
     },

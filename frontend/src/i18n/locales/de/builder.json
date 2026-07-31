@@ -1138,6 +1138,8 @@
       "reorderMove": "Ebene nach oben / unten verschieben (Sortiermodus)",
       "escape": "Panel schließen / Auswahl aufheben / Sortiermodus beenden",
       "multiSelect": "Ebene zur Auswahl hinzufügen/entfernen",
+      "multiSelectKey": "Ebene in der Auswahl umschalten (fokussierte Zeile)",
+      "rename": "Ebene umbenennen (Doppelklick auf den Namen)",
       "rangeSelect": "Einen Bereich von Ebenen auswählen",
       "extendSelect": "Auswahl erweitern (Stapel fokussiert)"
     },
