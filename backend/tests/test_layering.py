@@ -934,8 +934,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_processing_port.py": 406,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
-        # rationale comments. Cap exact, zero headroom.
-        "backend/app/platform/extensions/defaults_extensions.py": 352,
+        # rationale comments. fix(#930): +20 — the internal branch on the same
+        # two functions, whose comments carry why the obvious stricter variant
+        # is wrong (it hides an owner's own draft from the owner). Cap exact,
+        # zero headroom.
+        "backend/app/platform/extensions/defaults_extensions.py": 372,
     }
 
     files_to_check = list(facade_line_budgets)
