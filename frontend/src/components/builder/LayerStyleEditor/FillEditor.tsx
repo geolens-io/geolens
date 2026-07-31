@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from '../StyleColorPicker';
 import { SliderRow } from '../HeatmapStyleControls';
 import { StrokeControls } from './StrokeControls';
-import { FillPatternPicker } from '../FillPatternPicker';
+import { FillPatternPicker, EXPRESSION_PATTERN } from '../FillPatternPicker';
 import { getPaintValue, FILL_DEFAULTS } from './utils';
 import type { BaseStyleEditorProps } from './types';
 import { formatNumber } from '@/lib/format';
@@ -62,6 +62,15 @@ export function FillEditor({
   // hiding the picker then strands it with the pattern winning on the map. Applying
   // a NEW pattern stays gated to plain solid polygons.
   const showPatternPicker = isPolygon && (hasFillPattern || (!isDataDriven && !currentHeightCol));
+  // fix(#910, codex P2): an expression-valued pattern is active but unrepresentable
+  // as a swatch. Coercing it to undefined made None report aria-pressed while
+  // MapLibre drew the expression, so it gets a sentinel: no swatch matches it, and
+  // None correctly reads unpressed. Display-only — onChange never emits it.
+  const patternValue = !hasFillPattern
+    ? undefined
+    : typeof paint['fill-pattern'] === 'string'
+      ? (paint['fill-pattern'] as string)
+      : EXPRESSION_PATTERN;
   return (
     <>
       <div className="flex items-center justify-between">
@@ -98,9 +107,7 @@ export function FillEditor({
           />
           {showPatternPicker ? (
             <FillPatternPicker
-              // Only a string can select a swatch; an expression shows none active
-              // while still being clearable through None.
-              value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
+              value={patternValue}
               onChange={onFillPatternChange}
               t={t}
               clearOnly={isDataDriven || !!currentHeightCol}

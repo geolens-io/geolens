@@ -17,6 +17,13 @@ interface FillPatternPickerProps {
 }
 
 /**
+ * fix(#910, codex P2): display-only stand-in for an expression-valued `fill-pattern`.
+ * A pattern IS active, so None must not read as pressed, but no swatch can represent
+ * an expression. Not a pattern id: never emitted by onChange, never reaches paint.
+ */
+export const EXPRESSION_PATTERN = '__expression__';
+
+/**
  * Short keys for the built-in fill patterns (id minus the 'geolens-fill-' prefix).
  * Used to look up i18n labels via t('style.fillPatternName.<shortKey>').
  */

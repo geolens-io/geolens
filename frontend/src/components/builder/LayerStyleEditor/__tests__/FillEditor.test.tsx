@@ -507,7 +507,7 @@ describe('FillEditor', () => {
     // that silently reverts must not be offered.
     expect(screen.getByText('Fill Pattern (clear only)')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: 'Hatch', exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Hatch' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Dots' })).toBeNull();
   });
 
@@ -561,7 +561,11 @@ describe('FillEditor', () => {
     expect(screen.getByText('Color unavailable')).toBeInTheDocument();
     // Still clearable: the picker renders with no swatch selected.
     expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'None' })[0]).toHaveAttribute('aria-pressed', 'true');
+    // fix(#910, codex P2): None is reachable but NOT the current state — a pattern is
+    // drawing. Reporting aria-pressed here told a screen reader the opposite. No
+    // swatch matches an expression either, so nothing in the grid is pressed.
+    expect(screen.getAllByRole('button', { name: 'None' })[0]).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Dots' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('hides the fill color picker while a pattern is active, and explains why', () => {
