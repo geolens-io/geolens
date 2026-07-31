@@ -50,6 +50,9 @@ const TAB_ID =
  *
  * The mirror below is event-driven and therefore always a beat behind; the
  * stored value is the only view that is current at the instant of the claim.
+ * Reaching for `localStorage` directly matches what the persist middleware
+ * uses by default — if this store ever names a different storage, this has to
+ * follow it.
  */
 function readPersistedClaim(): AnalysisCompletionClaim | null {
   try {
@@ -125,6 +128,12 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
  * still poll it to completion, and each raises its own toast (`toastId` is
  * per-job, and each tab has its own toaster). That is what `claimCompletion`
  * above is for.
+ *
+ * No write-back loop here, which is worth stating because it is the obvious
+ * worry: zustand's `hydrate()` applies the storage payload through the store's
+ * RAW setter and only calls `setItem` when a migration ran. A rehydrate is
+ * therefore silent, so it cannot bounce a storage event back at the tab that
+ * started it.
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
