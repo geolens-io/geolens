@@ -482,6 +482,28 @@ describe('FillEditor', () => {
     expect(screen.getByText('Patterns unavailable')).toBeInTheDocument();
   });
 
+  // fix(#910, codex P2): Advanced JSON and the AI set_style action write paint
+  // through onPaintChange, bypassing the exclusion in handleStyleConfigChange — so a
+  // data-driven layer can arrive already patterned, and hiding the picker strands it.
+  it('DOES render Fill Pattern section on a data-driven layer that already has a pattern', () => {
+    const layer = makeFillLayer({
+      paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': ['match', ['get', 'k'], 'a', '#f00', '#0f0'] },
+      style_config: { column: 'k', mode: 'categorical', ramp: 'Set2' } as MapLayerResponse['style_config'],
+    });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          isDataDriven: true,
+          paint: layer.paint as Record<string, unknown>,
+        })}
+      />,
+    );
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
+  });
+
   it('does NOT render Fill Pattern section in 3D-extrusion mode', () => {
     render(
       <FillEditor

@@ -1618,6 +1618,35 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(config?.builder?.fillColorSaved).toBeUndefined();
   });
 
+  // fix(#910, codex P2): the delete is what destroyed classifications. It must never
+  // touch an expression — only a solid colour is stashable, and only a solid colour
+  // is safe to remove.
+  it('never deletes an expression-valued fill-color when a pattern is applied', () => {
+    const ramp = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
+    const onStyleConfigChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-color': ramp },
+          style_config: { column: 'era', mode: 'categorical', ramp: 'Set2' },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dots' }));
+
+    const { config, paint } = lastStyleConfigCall(onStyleConfigChange);
+    expect(paint['fill-color']).toEqual(ramp);
+    expect(paint['fill-pattern']).toBe('geolens-fill-dots');
+    // Nothing stashable, so nothing stashed.
+    expect(config?.builder?.fillColorSaved).toBeUndefined();
+  });
+
   it('keeps the stash when switching from one pattern straight to another', () => {
     const onStyleConfigChange = vi.fn();
     render(

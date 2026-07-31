@@ -361,9 +361,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     // builder config and lose the original color on the eventual None.
     let fillColorSaved = builderConfig.fillColorSaved;
     if (id) {
-      // switching to pattern: remove fill-color, set fill-pattern
-      if (typeof next['fill-color'] === 'string') fillColorSaved = next['fill-color'];
-      delete next['fill-color'];
+      // switching to pattern: stash and remove a SOLID fill-color, set fill-pattern.
+      // An expression is left alone — deleting it is the #910 defect itself, and the
+      // picker is now reachable on a data-driven layer that already has a pattern
+      // (from Advanced JSON or the AI action), where the only useful action is None.
+      if (typeof next['fill-color'] === 'string') {
+        fillColorSaved = next['fill-color'];
+        delete next['fill-color'];
+      }
       next['fill-pattern'] = id;
     } else {
       // switching to solid / None: remove fill-pattern

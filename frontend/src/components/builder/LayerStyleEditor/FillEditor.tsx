@@ -55,7 +55,13 @@ export function FillEditor({
   // strings would leave the colour picker live on an expression-patterned layer,
   // where editing it writes both keys back — the EDIT-05 breakage this closes.
   const hasFillPattern = paint['fill-pattern'] != null;
-  const showPatternPicker = isPolygon && !isDataDriven && (!currentHeightCol || hasFillPattern);
+  // An ACTIVE pattern always keeps its clearing control, whatever else is true of
+  // the layer. Advanced JSON and the AI set_style action write paint through
+  // onPaintChange, which bypasses the exclusion in handleStyleConfigChange, so a
+  // data-driven or extruded layer can arrive here already carrying a pattern — and
+  // hiding the picker then strands it with the pattern winning on the map. Applying
+  // a NEW pattern stays gated to plain solid polygons.
+  const showPatternPicker = isPolygon && (hasFillPattern || (!isDataDriven && !currentHeightCol));
   return (
     <>
       <div className="flex items-center justify-between">
