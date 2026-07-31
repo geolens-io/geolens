@@ -207,6 +207,16 @@ export interface DatasetResponse {
   last_edited_at: string | null;
   record_status: RecordStatus;
   lineage_summary: string | null;
+  /** fix(#765): provenance for an analysis output — which dataset it came from
+   * and which operation produced it. Null when the dataset was not derived, and
+   * also when the requester cannot see the source (visible_derived_from gates
+   * both this dataset_id and params.mask_dataset_id). */
+  derived_from?: {
+    dataset_id: string;
+    operation: string;
+    params: Record<string, unknown>;
+    created_at: string;
+  } | null;
   update_frequency: string | null;
   usage_constraints: string | null;
   access_constraints: string | null;
