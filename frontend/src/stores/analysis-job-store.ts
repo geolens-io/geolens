@@ -10,9 +10,60 @@ export interface TrackedAnalysisJob {
   mapId: string | null;
 }
 
+/**
+ * feat(#1008): the written claim on a job's completion.
+ *
+ * Only the most recent one is kept — the store tracks a single job at a time,
+ * so an older claim can never be consulted again.
+ */
+export interface AnalysisCompletionClaim {
+  jobId: string;
+  /** Whichever tab wrote it. Two tabs can observe the same terminal poll in
+   *  the same millisecond, so the timestamp alone cannot identify a claimant. */
+  tabId: string;
+  at: number;
+}
+
 interface AnalysisJobState {
   job: TrackedAnalysisJob | null;
+  completedAt: AnalysisCompletionClaim | null;
   setJob: (job: TrackedAnalysisJob | null) => void;
+  /**
+   * Try to become the one tab that reports this job's completion.
+   *
+   * Returns true exactly once across every open tab, and keeps returning true
+   * for the tab that won (so a StrictMode double-invoke does not lose its own
+   * claim). See the storage listener below for why a mirror alone is not
+   * enough.
+   */
+  claimCompletion: (jobId: string) => boolean;
+}
+
+export const ANALYSIS_JOB_STORAGE_KEY = 'geolens-analysis-job';
+
+/** Identifies this tab for the lifetime of the document. */
+const TAB_ID =
+  globalThis.crypto?.randomUUID?.() ?? `tab-${Math.random().toString(36).slice(2)}`;
+
+/**
+ * Read the claim straight out of storage rather than off in-memory state.
+ *
+ * The mirror below is event-driven and therefore always a beat behind; the
+ * stored value is the only view that is current at the instant of the claim.
+ */
+function readPersistedClaim(): AnalysisCompletionClaim | null {
+  try {
+    const raw = localStorage.getItem(ANALYSIS_JOB_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      state?: { completedAt?: AnalysisCompletionClaim | null };
+    };
+    return parsed.state?.completedAt ?? null;
+  } catch {
+    // Storage disabled, quota-exceeded, or a payload from a future version.
+    // Losing the arbiter means duplicate toasts, not a broken app.
+    return null;
+  }
 }
 
 /**
@@ -27,11 +78,60 @@ interface AnalysisJobState {
  * Singular by design: the API allows one active analysis job per user.
  */
 export const useAnalysisJobStore = create<AnalysisJobState>()(
-  persist((set) => ({ job: null, setJob: (job) => set({ job }) }), {
-    name: 'geolens-analysis-job',
-    version: 1,
-  }),
+  persist(
+    (set) => ({
+      job: null,
+      completedAt: null,
+      setJob: (job) => set({ job }),
+      claimCompletion: (jobId) => {
+        const existing = readPersistedClaim();
+        if (existing?.jobId === jobId) {
+          // Someone already reported this one. Ours only if we were the one.
+          return existing.tabId === TAB_ID;
+        }
+        set({ completedAt: { jobId, tabId: TAB_ID, at: Date.now() } });
+        // Last writer wins, and the read-back is the arbiter: if two tabs got
+        // past the check above simultaneously, only one of them reads its own
+        // id back. Checking first AND re-reading is what makes it exactly one
+        // — the check alone loses to a genuine race, and the read-back alone
+        // lets a tab that writes and reads before the other tab writes come
+        // out true as well.
+        const settled = readPersistedClaim();
+        return settled?.jobId === jobId && settled.tabId === TAB_ID;
+      },
+    }),
+    {
+      name: ANALYSIS_JOB_STORAGE_KEY,
+      // Deliberately NOT bumped for `completedAt`: the default shallow merge
+      // leaves the field at its initial null when an older payload omits it,
+      // and a bump would discard a job that was in flight across the deploy.
+      version: 1,
+    },
+  ),
 );
+
+/**
+ * feat(#1008): cross-tab mirror.
+ *
+ * Two builders open on the same map each poll the same materialize job, and
+ * neither knows about the other: the second tab's Create button stays enabled
+ * and earns a 429 rendered as generic rate limiting. The `storage` event fires
+ * only in the tabs that did NOT write, so rehydrating here is what lets tab B
+ * learn that tab A started a run — `analysisJobRunning` in the Analysis panel
+ * is a live subscription, so the button disables without a reload. It also
+ * propagates the identity-change clear.
+ *
+ * The mirror on its own dedups nothing: three tabs mirroring the same job all
+ * still poll it to completion, and each raises its own toast (`toastId` is
+ * per-job, and each tab has its own toaster). That is what `claimCompletion`
+ * above is for.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== ANALYSIS_JOB_STORAGE_KEY) return;
+    void useAnalysisJobStore.persist.rehydrate();
+  });
+}
 
 // The tracked job is persisted browser state — without this it survives a
 // logout and the next account on the same browser inherits the previous

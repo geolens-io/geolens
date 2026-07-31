@@ -3,7 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AnalysisJobWatcher } from '../AnalysisJobWatcher';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
-import { analysisAddToMap, useAnalysisAddedStore, useAnalysisJobStore } from '@/stores/analysis-job-store';
+import {
+  ANALYSIS_JOB_STORAGE_KEY,
+  analysisAddToMap,
+  useAnalysisAddedStore,
+  useAnalysisJobStore,
+} from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { ApiError } from '@/api/client';
@@ -47,7 +52,8 @@ function mockJob(data: unknown, error: unknown = null) {
 describe('AnalysisJobWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAnalysisJobStore.setState({ job: null });
+    useAnalysisJobStore.setState({ job: null, completedAt: null });
+    localStorage.removeItem(ANALYSIS_JOB_STORAGE_KEY);
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
     analysisAddToMap.current = null;
     analysisAddToMap.mapId = null;
@@ -148,6 +154,75 @@ describe('AnalysisJobWatcher', () => {
     // A long job lands after attention has moved on — the notification has to wait.
     expect(options?.duration).toBe(Infinity);
     expect(useAnalysisJobStore.getState().job).toBeNull();
+  });
+
+  // feat(#1008): two builders open means two watchers polling the same job.
+  // Without a claim each raises its own toast and its own invalidation — the
+  // per-job toastId only collapses StrictMode's double invoke within one tab.
+  it('stays silent when another tab already claimed the completion', async () => {
+    useAnalysisFormStore.getState().save('m1', {
+      layerId: 'l1', operation: 'buffer', distance: '500', distanceUnit: 'm',
+      mask: null, maskLayerId: '__none__', byField: '__none__',
+      outputTitle: 'Walkshed',
+    });
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    // Seeded AFTER the setState above, which writes the store through and
+    // would otherwise flatten the foreign claim back to null.
+    localStorage.setItem(
+      ANALYSIS_JOB_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' },
+          completedAt: { jobId: 'j1', tabId: 'some-other-tab', at: Date.now() },
+        },
+        version: 1,
+      }),
+    );
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+
+    renderWatcher();
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+    // The local cleanup still runs: this tab's Create button has to re-enable,
+    // and the finished run's name must not come back with it.
+    expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('');
+    invalidate.mockRestore();
+  });
+
+  it('stays silent on a FAILED job another tab already claimed', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    localStorage.setItem(
+      ANALYSIS_JOB_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' },
+          completedAt: { jobId: 'j1', tabId: 'some-other-tab', at: Date.now() },
+        },
+        version: 1,
+      }),
+    );
+    mockJob({ status: 'failed', dataset_id: null, error_message: 'no features' });
+
+    renderWatcher();
+
+    await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('reports and invalidates exactly once when it wins the claim', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    mockJob({ status: 'complete', dataset_id: 'ds9' });
+
+    renderWatcher();
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    // Datasets and search, one apiece.
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    invalidate.mockRestore();
   });
 
   it('offers Add to map only when a builder for that map is mounted', async () => {

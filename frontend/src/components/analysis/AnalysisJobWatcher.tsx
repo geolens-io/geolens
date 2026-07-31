@@ -59,8 +59,24 @@ export function AnalysisJobWatcher() {
     // staleness rule of its own; it mirrors the server's verdict.
     if (status !== 'complete' && status !== 'failed') return;
 
+    // feat(#1008): with two builders open, both tabs poll this job and both
+    // reach here. Exactly one may report it — the claim is a written, durable
+    // arbiter rather than a timing accident, so it also holds for a tab that
+    // reloads after another already reported.
+    if (!useAnalysisJobStore.getState().claimCompletion(job.jobId)) {
+      // Still clear locally: this tab's Create button has to re-enable, and
+      // its remembered title belongs to a run that is over either way.
+      if (status === 'complete') {
+        useAnalysisFormStore.getState().clearTitleForMap(job.mapId);
+      }
+      setJob(null);
+      return;
+    }
+
     // Stable id so a re-run (StrictMode's double invoke) replaces the toast
-    // instead of stacking a second one.
+    // instead of stacking a second one. That collapses duplicates WITHIN a
+    // tab only — each tab has its own toaster, which is why the claim above
+    // is what makes it one across tabs.
     const toastId = `analysis-job-${job.jobId}`;
     if (status === 'complete') {
       queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
